@@ -18,6 +18,14 @@ def build_engine(url: str) -> Engine:
     * In-memory SQLite (``sqlite:///:memory:``): keeps one shared connection via
       ``StaticPool`` so the schema and data survive across operations.
     """
+    # Managed hosts (Railway/Render/Heroku) hand out "postgres://" or
+    # "postgresql://"; SQLAlchemy would pick the psycopg2 driver, which we don't
+    # ship. Normalize to psycopg3 (the "+psycopg" driver we install).
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://"):]
+
     if url.startswith("sqlite"):
         in_memory = ":memory:" in url or url in ("sqlite://", "sqlite:///")
         connect_args = {"check_same_thread": False}
