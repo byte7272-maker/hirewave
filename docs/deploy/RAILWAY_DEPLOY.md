@@ -45,8 +45,9 @@ honors Railway's port, and the Firebase key is read from an env var).
 Click your **API service → Variables** tab → add these (Raw editor makes it fast):
 
 ```
-# --- database (reference the Postgres service; note the +psycopg driver) ---
-JOBSEARCH_DATABASE_URL=postgresql+psycopg://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}
+# --- database (reference the Postgres service's canonical URL; the app
+#     normalizes the postgres:// scheme to psycopg3 automatically) ---
+JOBSEARCH_DATABASE_URL=${{Postgres.DATABASE_URL}}
 
 # --- security (generate — see below) ---
 JOBSEARCH_ENCRYPTION_KEY=<openssl rand -base64 32>

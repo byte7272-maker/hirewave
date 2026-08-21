@@ -38,3 +38,4 @@ data/
 *.sqlite
 *.db
 railway-variables.txt
+_jwt_hex_values.txt

@@ -56,14 +56,31 @@ class _Keys:
     public_pem: bytes
 
 
+def _load_pem(value: str) -> bytes:
+    """Accept a PEM key from an env var in whatever form survives the platform:
+
+    * a raw PEM (real newlines),
+    * a single line with literal ``\\n`` escapes, or
+    * a **hex-encoded** PEM — the copy-safe form for env vars, since hex has no
+      ``+`` / ``/`` / ``=`` characters that get mangled on paste.
+    """
+    v = value.strip()
+    if not v:
+        return b""
+    if "BEGIN" in v or "\\n" in v or "\n" in v:
+        return v.replace("\\n", "\n").encode()
+    try:
+        return bytes.fromhex(v)  # hex-encoded PEM
+    except ValueError:
+        return v.encode()
+
+
 @lru_cache
 def _keys() -> _Keys:
-    # PEMs may be provided with real newlines OR as a single line with literal
-    # "\n" escapes (the common way to fit a key into one .env value).
-    priv = os.getenv("JOBSEARCH_JWT_PRIVATE_KEY", "").replace("\\n", "\n")
-    pub = os.getenv("JOBSEARCH_JWT_PUBLIC_KEY", "").replace("\\n", "\n")
+    priv = _load_pem(os.getenv("JOBSEARCH_JWT_PRIVATE_KEY", ""))
+    pub = _load_pem(os.getenv("JOBSEARCH_JWT_PUBLIC_KEY", ""))
     if priv and pub:
-        return _Keys(priv.encode(), pub.encode())
+        return _Keys(priv, pub)
     # Ephemeral dev keypair.
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_pem = key.private_bytes(
