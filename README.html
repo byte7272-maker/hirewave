@@ -1,0 +1,443 @@
+# Job-Search Automation Platform — Core Engines
+
+Python engine layer for the Job-Search Automation Platform described in the
+[high-level plan](#mapping-to-the-plan). These are the five **framework-free
+core engines** that a web/API layer (FastAPI/Next.js) will later call. Every
+engine runs fully offline out of the box (deterministic mock LLM + embeddings,
+simulated automation), so the whole pipeline is testable with **no API keys**.
+
+```
+Integration → Verification → Matching → Generation → Automation
+  (OAuth)      (anti-fraud)   (ranking)   (résumé)    (submit)
+```
+
+## The five engines
+
+| # | Engine | Module | What it does |
+|---|--------|--------|--------------|
+| 1 | **Integration** | `jobsearch.engines.integration` | OAuth 2.0 (PKCE) connect flow for LinkedIn, Gmail, Google Drive, Indeed, Greenhouse, Workday; AES-256-GCM encrypted token store; auto-refresh; revoke. |
+| 2 | **Generation** | `jobsearch.engines.generation` | Tailored, ATS-optimized résumés & cover letters via a pluggable LLM. Keyword extraction/injection, ATS scoring, versioning, **mandatory human approval gate**. |
+| 3 | **Matching** | `jobsearch.engines.matching` | Semantic (embedding cosine) + weighted scoring (skills/location/salary/seniority) → composite `match_score` 0–100, gap analysis, per-user feedback learning. |
+| 4 | **Verification** | `jobsearch.engines.verification` | Fraud/authenticity scoring (urgency language, unrealistic promises, off-platform contact, salary plausibility, domain age, posting velocity, scam DB) → 0–100 + display policy. |
+| 5 | **Automation** | `jobsearch.engines.automation` | Platform adapters (LinkedIn/Indeed/Greenhouse/Workday/email) to submit **only after approval**. Rate limiting, audit trail, CAPTCHA escalation, manual fallback. |
+
+Shared foundation: `jobsearch.models` (domain data model), `jobsearch.llm`
+(provider-agnostic LLM/embeddings), `jobsearch.security` (field encryption),
+`jobsearch.store` (in-memory reference repositories), `jobsearch.platform`
+(a facade that wires all five together).
+
+## Run the whole stack (Docker)
+
+The fastest way to run everything — Postgres + API + frontend — is Docker Compose:
+
+```bash
+cp .env.docker.example .env      # set POSTGRES_PASSWORD; other secrets optional for mock mode
+docker compose up --build
+```
+
+- Frontend → http://localhost:3000
+- API + docs → http://localhost:8000/docs
+- Health → http://localhost:8000/health (`persistence: postgresql`)
+
+It boots in mock/simulate mode with no external keys. See
+[docs/RUNBOOK.md](docs/RUNBOOK.md) for generating the production secrets
+(encryption + JWT keys) and turning on live Claude / embeddings / OAuth / email.
+
+## Quick start (engine dev, no Docker)
+
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate   |   *nix: source .venv/bin/activate
+pip install pydantic pydantic-settings httpx numpy cryptography pytest pytest-asyncio
+
+# run everything offline
+PYTHONPATH=src python examples/demo.py
+PYTHONPATH=src pytest -q
+```
+
+> Behind a TLS-intercepting proxy, add
+> `--trusted-host pypi.org --trusted-host files.pythonhosted.org` to `pip`.
+> Once `setuptools` is available you can `pip install -e ".[dev]"` and drop the
+> `PYTHONPATH=src` prefix.
+
+Minimal usage:
+
+```python
+from jobsearch.platform import JobSearchPlatform
+
+p = JobSearchPlatform()
+
+verdict = p.verification.verify(job)          # -> VerificationResult (0-100)
+ranked  = p.matching.rank(profile, jobs)      # -> [MatchResult] sorted by score
+resume  = p.generation.generate_resume(profile, ranked[0].job)
+cover   = p.generation.generate_cover_letter(profile, ranked[0].job, resume=resume)
+
+p.generation.approve(resume); p.generation.approve(cover)   # human-in-the-loop gate
+result  = p.automation.submit(ApplicationContext(...))       # only runs if approved
+```
+
+## Configuration
+
+Copy `.env.example` → `.env`. All settings default to safe offline values.
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `JOBSEARCH_LLM_PROVIDER` | `anthropic` / `openai` / `mock` | `mock` |
+| `JOBSEARCH_EMBEDDING_PROVIDER` | `openai` / `mock` | `mock` |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | real generation/embeddings | — |
+| `JOBSEARCH_ENCRYPTION_KEY` | 32-byte key (base64/hex) for token encryption | ephemeral |
+| `JOBSEARCH_AUTOMATION_MODE` | `simulate` / `live` | `simulate` |
+| `<PROVIDER>_CLIENT_ID/SECRET` | OAuth app credentials for live flows | — |
+
+Generate an encryption key:
+
+```bash
+PYTHONPATH=src python -m jobsearch.security.crypto keygen
+```
+
+### Real Claude-powered generation
+
+The résumé/cover-letter engine can generate with real Claude instead of the mock:
+
+```bash
+pip install "anthropic>=0.40"
+export JOBSEARCH_LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-ant-...          # or run `ant auth login` (ambient creds work too)
+# optional: export ANTHROPIC_MODEL=claude-opus-4-8   (the default)
+
+PYTHONPATH=src python examples/anthropic_smoke.py    # prints a real resume + cover letter
+```
+
+The provider ([`jobsearch/llm/providers.py`](src/jobsearch/llm/providers.py)) targets
+`claude-opus-4-8` and deliberately **omits `temperature`/`top_p`/`top_k`** — those are
+rejected with a 400 on Opus 4.8/4.7; output is steered via the prompt instead. It resolves
+ambient credentials (env var or `ant` profile) when no key is configured, filters response
+content to text blocks, and surfaces API errors as clear exceptions. The whole platform still
+runs offline with the mock provider when `JOBSEARCH_LLM_PROVIDER` is unset.
+
+### Real semantic embeddings (job matching)
+
+Anthropic has no embeddings API, so the matching engine uses OpenAI for true
+semantic similarity (falling back to deterministic mock embeddings offline):
+
+```bash
+pip install "openai>=1.40"
+export JOBSEARCH_EMBEDDING_PROVIDER=openai
+export OPENAI_API_KEY=sk-...            # OPENAI_EMBEDDING_MODEL defaults to text-embedding-3-small
+```
+
+Two efficiency measures make this API-friendly: `MatchingEngine.rank()` embeds the
+profile and **all jobs in a single batched request** (one call, not N), and real
+providers are wrapped in [`CachingEmbeddingProvider`](src/jobsearch/llm/cache.py)
+— an LRU cache keyed by text — so re-ranks (e.g. after a save/apply/dismiss
+feedback signal) and shared postings never re-embed. The OpenAI provider chunks
+large batches, guards empty strings, and returns L2-normalized vectors in order.
+
+## Design principles
+
+- **Provider-agnostic** — engines depend on the `LLMProvider` /
+  `EmbeddingProvider` ports, never a vendor SDK. Swap Claude ⇄ OpenAI ⇄ mock via config.
+- **Ports & adapters** — the OAuth token endpoint (`TokenExchanger`), persistence
+  (repositories), and submission targets (`ApplicationAdapter`) are all injected,
+  so the same engines run under tests, a CLI, or a web server unchanged.
+- **Offline-first** — deterministic mocks mean CI needs no secrets and no network.
+- **Safety by construction** — submission physically cannot proceed without
+  `resume.approved` (and cover letter, if present); rate limiting and audit
+  trails are enforced in the engine, not left to callers.
+
+## Web API layer
+
+A FastAPI app (`jobsearch.api`) exposes the plan's §5 REST endpoints over the
+engines, with JWT (RS256) auth. Run it:
+
+```bash
+pip install "fastapi>=0.110" "uvicorn[standard]>=0.29" "pyjwt>=2.8"
+PYTHONPATH=src python -m jobsearch.api          # http://127.0.0.1:8000
+# interactive docs at /docs  (OpenAPI at /openapi.json)
+```
+
+Endpoint groups (all under `/api/v1`, bearer-auth except register/login):
+
+| Group | Endpoints | Engine |
+|-------|-----------|--------|
+| **auth** | `register`, `login`, `refresh`, `logout` | JWT RS256 + PBKDF2 |
+| **users** | `users/me`, `users/me/profile`, `users/me/preferences` | — |
+| **integrations** | `connect/{provider}`, `callback/{provider}`, list, revoke | Integration |
+| **jobs** | list/search, `{id}`, `matches`, `ingest`, `{id}/verification` | Matching + Verification |
+| **documents** | `resumes/generate`, **`resumes/upload`**, `resumes/{id}/file`, CRUD, `cover-letters/generate` | Generation + storage |
+| **applications** | create, list, `{id}`, `{id}/submit`, `{id}/status` | Automation |
+| **notifications** | list, `{id}/read`, `read-all` | — |
+
+Auth uses short-lived access tokens + refresh tokens; the résumé/cover-letter
+approval gate is enforced server-side (`PUT .../submit` returns **403** until the
+documents are approved). Example flow:
+
+```bash
+curl -sX POST localhost:8000/api/v1/auth/register -d '{"email":"a@b.com","password":"supersecret"}' -H 'content-type: application/json'
+TOK=$(curl -sX POST localhost:8000/api/v1/auth/login -d '{"email":"a@b.com","password":"supersecret"}' -H 'content-type: application/json' | jq -r .access_token)
+curl -s localhost:8000/api/v1/jobs/matches -H "Authorization: Bearer $TOK"
+```
+
+The app is built by `create_app()` and keeps state (in-memory repos + engines) on
+`app.state`. Making it production-grade is mainly swapping the in-memory
+repositories in `jobsearch/api/state.py` for DB-backed ones with the same methods
+— no handler changes — and providing real RSA JWT keys + OAuth client secrets.
+
+## Frontend (Next.js)
+
+A full web client lives in [`frontend/`](frontend) — Next.js App Router +
+TypeScript, talking to this API. It proxies `/api/*` to the backend (no CORS) and
+covers the whole journey: auth → profile → job matches (with authenticity
+badges) → resume/cover-letter generation → approval gate → submission →
+notifications. See [frontend/README.md](frontend/README.md).
+
+```bash
+# terminal 1 — backend
+PYTHONPATH=src python -m jobsearch.api
+# terminal 2 — frontend
+cd frontend && npm install && npm run dev      # http://localhost:3000
+```
+
+## Security monitoring (exposure alerts)
+
+A **Security** page lets a user monitor their own email for exposure in known
+data breaches — defensive and consent-based, per
+[docs/DARKWEB_MONITORING_PLAN.md](docs/DARKWEB_MONITORING_PLAN.md). The flow:
+**enroll → verify ownership (one-time code) → scan → alerts**.
+
+- **We never crawl the dark web or buy dumps** — the [`ExposureProvider`](src/jobsearch/engines/monitoring/providers.py)
+  port queries a licensed source: `mock` offline, or **Have I Been Pwned** live
+  (`JOBSEARCH_EXPOSURE_PROVIDER=hibp` + `HIBP_API_KEY`).
+- **Privacy by design** ([`MonitoringEngine`](src/jobsearch/engines/monitoring/engine.py)):
+  the email is stored **AES-256-GCM encrypted** (never plaintext); only a one-way
+  hash and a masked label (`s**@gmail.com`) are kept in the clear. An identifier
+  is **never queried until ownership is verified**. Findings record *what category*
+  of data leaked and *where* — **never the leaked secret**.
+- Each new finding raises a `SECURITY_EXPOSURE` notification with remediation
+  advice; a per-user enrollment cap deters abuse. Endpoints under
+  `/api/v1/monitoring` (identifiers/verify/scan/findings).
+- The verification code is emailed in production; in dev it's returned in the
+  enroll response so the flow is usable without a mail channel.
+
+**Password exposure check (Phase 2, k-anonymity):** the Security page also checks
+whether a password appears in known breaches — the **password never leaves the
+browser**. The client ([`lib/pwned.ts`](frontend/src/lib/pwned.ts)) computes the
+SHA-1, sends only the **first 5 hex chars** to `GET /api/v1/monitoring/password-range/{prefix}`
+(which proxies HIBP Pwned Passwords), and matches the remaining hash locally. The
+endpoint accepts *only* a 5-char prefix — it structurally cannot receive a
+password or full hash — responds `no-store`, and **nothing is persisted**.
+
+A commercial dark-web-intel vendor and remediation UX are later phases (see the plan).
+
+## Persistence (SQL)
+
+By default the platform uses in-memory repositories (great for tests and the
+offline demo). Set `JOBSEARCH_DATABASE_URL` to persist to a real database — the
+repositories are swapped with an identical method surface, so **no engine or API
+handler changes**:
+
+```bash
+pip install "sqlalchemy>=2.0"                       # or .[postgres] for Postgres
+export JOBSEARCH_ENCRYPTION_KEY=$(python -m jobsearch.security.crypto keygen)  # so tokens decrypt across restarts
+export JOBSEARCH_DATABASE_URL=sqlite:///./data/jobsearch.db
+#   or: postgresql+psycopg://user:pass@localhost:5432/jobsearch
+PYTHONPATH=src python -m jobsearch.api               # /health reports "persistence": "sqlite"
+```
+
+Each entity is one table ([`persistence/tables.py`](src/jobsearch/persistence/tables.py))
+with a JSON `data` column (Mongo-like schema flexibility) plus promoted, indexed
+columns for the fields callers query (`id`, `user_id`, `provider`, `email`).
+[`SqlRepository`](src/jobsearch/persistence/sql_repository.py) reconstructs domain
+models from the JSON; `build_repositories()` picks in-memory vs. SQL from config.
+OAuth tokens stay AES-256-GCM encrypted at rest. Schema is created on startup via
+`create_all` (add Alembic for migrations in production). VerificationResults are a
+rebuildable cache (recomputed on demand), not a system of record.
+
+> Note: because a real DB returns *copies* (not live references like the
+> in-memory store), API handlers persist mutations explicitly with `repo.add()`
+> after editing — the correct pattern for any database.
+
+## Live application automation
+
+Submission runs in `simulate` mode by default (synthetic confirmations, no I/O).
+The first **live** channel is implemented: **direct email via the user's
+connected Gmail** — the safest path (no headless browser, no ToS gray area).
+
+```bash
+export JOBSEARCH_AUTOMATION_MODE=live
+```
+
+Flow: the user approves their résumé + cover letter (the mandatory gate), submits
+with `{"platform": "email"}`; the API fetches the user's decrypted Gmail token
+from the integration engine, and [`EmailAdapter._submit_live`](src/jobsearch/engines/automation/adapters.py)
+sends an RFC 822 message (cover letter as body, résumé attached) through the
+[Gmail send API](src/jobsearch/engines/automation/gmail.py). The recipient is the
+posting's `application_email`, else `careers@<company_domain>`. If Gmail isn't
+connected or the send fails, the engine returns a **manual fallback** (pre-filled
+link + step-by-step instructions) and notifies the user — it never silently drops.
+
+> A real send additionally needs real Google OAuth credentials
+> (`GOOGLE_CLIENT_ID`/`SECRET` with the `gmail.send` scope) and the live
+> `HttpxTokenExchanger` instead of the mock — see below.
+
+### LinkedIn Easy Apply / Indeed (headless browser)
+
+[`LinkedInAdapter` / `IndeedAdapter`](src/jobsearch/engines/automation/adapters.py)
+drive a headless browser ([Playwright](src/jobsearch/engines/automation/browser.py),
+in the `automation` extra) for quick-apply flows. Because this is ToS-sensitive
+automation, every uncertain branch **degrades safely** instead of risking a wrong
+submission:
+
+- **Never enters the user's password** — operates on a browser session the user
+  already authenticated (a Playwright `storage_state`); a login wall → manual fallback.
+- **Never solves CAPTCHAs** — detects a challenge and escalates it to the user
+  (`captcha_required`), as the plan specifies.
+- **Never fabricates answers** — fills only factual profile fields (name, email,
+  phone, location); any *unknown required question* aborts to a manual fallback.
+- Apply button absent, or Playwright not installed → manual fallback, never a crash.
+
+```bash
+pip install .[automation] && playwright install chromium
+```
+
+> The safety *orchestration* (login/CAPTCHA/unknown-field escalation, no-credential,
+> no-fabrication) is fully unit-tested with a fake driver. The Playwright **DOM
+> selectors are best-effort** and need validation against real accounts — but
+> selector drift degrades to a manual fallback rather than a bad submission.
+> Greenhouse/Workday still raise `NotImplementedError` in live mode (→ fallback).
+
+## Live OAuth integrations
+
+Integrations run a **mock** token exchanger offline (fake tokens, no network).
+Set `JOBSEARCH_OAUTH_MODE=live` to perform real RFC 6749 token exchange via
+[`HttpxTokenExchanger`](src/jobsearch/engines/integration/exchangers.py):
+
+```bash
+export JOBSEARCH_OAUTH_MODE=live
+export JOBSEARCH_OAUTH_SUCCESS_REDIRECT=http://localhost:3000/integrations
+export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...      # Gmail + Google Drive
+export LINKEDIN_CLIENT_ID=... LINKEDIN_CLIENT_SECRET=...  # etc.
+```
+
+- `connect/{provider}` builds the real authorize URL (PKCE where the provider
+  supports it) and returns it; the frontend sends the user there.
+- `callback/{provider}` exchanges the code, **AES-256-GCM encrypts** the tokens,
+  and — when `OAUTH_SUCCESS_REDIRECT` is set — 302-redirects the browser back to
+  the frontend (`?connected=` / `?error=`). Tokens auto-refresh on expiry.
+- Misconfiguration (live mode, no client id/secret) returns a clear **400** at
+  connect; exchange failures surface as a clean error / error-redirect, never a
+  raw traceback; a user-denied callback (`?error=access_denied`) is handled.
+
+Once Gmail is connected live, the email automation channel above sends for real.
+
+## Résumé upload
+
+Users can bring their own résumé instead of (or alongside) an AI-generated one.
+The **Documents** page has a prominent "⬆ Upload résumé" button (also linked from
+the dashboard); `POST /api/v1/resumes/upload` (multipart) stores the file via a
+[`DocumentStore`](src/jobsearch/storage.py) and records an `uploaded` résumé,
+downloadable at `GET /api/v1/resumes/{id}/file`. When such a résumé is used in an
+application, the automation adapters attach the **real uploaded file** (e.g. the
+user's PDF) instead of the generated markdown. Storage is in-memory by default;
+set `JOBSEARCH_DOCUMENT_DIR` (backed by a volume/S3) for durable files.
+Uploaded PDF/DOCX are text-extracted (via the `documents` extra) so they feed
+the ATS preview and interview prep.
+
+## Interview prep
+
+The **Interview Prep** page ([`InterviewEngine`](src/jobsearch/engines/interview/engine.py))
+suggests likely questions and drafts a suggested answer for each, **grounded in
+the user's résumé** (an uploaded PDF/DOCX or a generated one) and optionally
+tailored to a target job. Questions are derived deterministically (intro,
+motivation, technical, behavioral/STAR, experience, skill-gap, closing); answers
+come from the LLM, instructed to use **only facts in the résumé — never
+fabricated**. `POST /api/v1/interview/prep` with `{resume_id?, job_posting_id?,
+count?}`. Runs offline with the mock LLM; real Claude produces distinct STAR
+answers per question.
+
+### Mock interview trainer
+
+The Interview page also has a **Mock Interview** mode: a stateful, conversational
+practice interview with an **AI-generated interviewer persona** (name, role,
+company, and a style you pick — friendly / formal / technical / skeptical /
+behavioral). The interviewer greets you, asks a question, reacts to your answer,
+and asks the next one — mimicking a real conversation
+([`MockInterviewTrainer`](src/jobsearch/engines/interview/mock_interview.py)).
+Each answer is **rated on content and style** —
+[`rate_answer`](src/jobsearch/engines/interview/rating.py) scores *structure*
+(STAR), *specificity* (metrics/detail), *conciseness*, and *confidence* (filler/
+hedging) 0–100 with concrete improvement tips — and the session ends with an
+aggregate summary. Endpoints: `POST /interview/mock/start`,
+`POST /interview/mock/{id}/reply`, `GET /interview/mock[/{id}]`. Sessions are
+persisted. The question progression is deterministic (grounded), the persona/
+conversation is LLM-driven, and rating is heuristic (works offline, no LLM).
+
+**Voice + realism** (browser [Web Speech API](frontend/src/lib/speech.ts)): a
+"🔊 Voice" toggle has the **interviewer read questions aloud** (SpeechSynthesis),
+and a **🎤 Speak** button lets you **answer by voice** (SpeechRecognition, with
+live interim transcript). Both feature-detect and fall back to typing where
+unsupported. Each answer also records **response time** (shown per-answer and as
+a session average), and a **live filler-word counter** nudges you as you compose.
+
+**Adaptive difficulty** — pick Easy / Normal / Hard. On Normal, challenging
+personas (skeptical/technical) ask a **probing follow-up** when an answer scores
+low; Hard presses harder. The follow-up targets the answer's *weakest* dimension
+(e.g. low specificity → "give me a concrete example with a number"). A **past-
+interviews** list lets you review completed sessions (with their score) or resume
+an in-progress one — sessions are persisted per user.
+
+### Still to do for production
+- **Deploy:** a `docker-compose.yml` (Postgres + API + frontend) and an operator
+  [runbook](docs/RUNBOOK.md) are included — bring the stack up with one command.
+  For scale, add Alembic migrations (schema is `create_all` on startup today) and
+  optionally MongoDB/Redis (the JSON-column design already gives doc flexibility).
+- Validate the LinkedIn/Indeed Playwright selectors against real accounts and wire
+  per-user authenticated `storage_state`; implement `_submit_live` for Greenhouse/Workday.
+- Provide real domain-age / scam-DB providers behind verification's context.
+- Register OAuth apps with each provider to obtain the client id/secret above
+  (the exchange machinery is done — this is account/console setup).
+
+## Layout
+
+```
+src/jobsearch/
+  config.py                 # env-driven settings
+  models/                   # domain entities (§4 of the plan)
+  llm/                      # provider-agnostic LLM + embeddings (+ mocks)
+  security/crypto.py        # AES-256-GCM field encryption
+  store.py                  # in-memory repos + encrypted token store
+  engines/
+    integration/            # engine 1 — OAuth
+    generation/             # engine 2 — résumé/cover letter (+ ats.py)
+    matching/               # engine 3 — ranking (+ scoring.py, feedback.py)
+    verification/           # engine 4 — fraud scoring (+ signals.py)
+    automation/             # engine 5 — submission (+ adapters.py)
+  platform.py               # facade wiring all five engines
+  api/                      # FastAPI web layer (§5 endpoints, JWT RS256)
+    app.py                  #   create_app() factory
+    security.py             #   PBKDF2 + JWT RS256
+    state.py                #   repos + wired engines
+    deps.py, schemas.py     #   DI + request/response DTOs
+    routers/                #   auth, users, integrations, jobs, documents, applications, notifications
+examples/demo.py            # runnable offline end-to-end walkthrough
+tests/                      # 38 tests, all offline (engines + API)
+```
+
+## Mapping to the plan
+
+| Plan section | Where it lives |
+|--------------|----------------|
+| §4 Data Model | `jobsearch/models/` |
+| §6.1 Integration Module | `engines/integration/` |
+| §6.2 Generation Module + human gate | `engines/generation/` |
+| §6.3 Matching Module + RL feedback | `engines/matching/` |
+| §6.4 Authenticity Verification | `engines/verification/` |
+| §6.5 Application Automation + safety controls | `engines/automation/` |
+| §7 Security (AES-256, least-privilege scopes) | `security/crypto.py`, `engines/integration/providers.py` |
+
+## Status
+
+Phase-1/2 engine layer, offline-complete and tested. Not yet built: the HTTP/API
+layer, real persistence, live automation adapters (`_submit_live`), and the
+external data lookups behind verification (domain-age/scam-DB providers) — all
+have defined seams to plug into.

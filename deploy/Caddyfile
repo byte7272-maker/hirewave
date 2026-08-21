@@ -1,0 +1,28 @@
+# Caddy terminates HTTPS for the API and proxies to the container.
+# {$API_DOMAIN} is injected from the API_DOMAIN env var (docker-compose.prod.yml).
+# Caddy obtains + renews a Let's Encrypt certificate automatically — just point
+# an A/AAAA DNS record for this domain at the VPS's public IP first.
+
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# Proxy everything to the FastAPI container on the internal compose network.
+	reverse_proxy api:8000 {
+		health_uri /health
+		health_interval 30s
+	}
+
+	# Basic hardening headers.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

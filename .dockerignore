@@ -1,0 +1,22 @@
+# API build context is the repo root — keep it lean.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.git/
+.gitignore
+data/
+*.sqlite
+*.db
+
+# The frontend has its own build context; exclude it from the API image.
+frontend/
+
+# Docs / local env
+docs/
+.env
+.env.*
+!.env.docker.example

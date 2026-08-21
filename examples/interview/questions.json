@@ -1,0 +1,20 @@
+{
+  "technical": [
+    { "category": "intro", "question": "Give me the two-minute version of your background." },
+    { "category": "technical", "question": "Walk me through the architecture of a system you're proud of." },
+    { "category": "technical", "question": "How would you design a rate limiter for a public API?" },
+    { "category": "experience", "question": "Tell me about the hardest production incident you owned." },
+    { "category": "closing", "question": "What questions do you have for me?" }
+  ],
+  "behavioral": [
+    { "category": "intro", "question": "Tell me about yourself." },
+    { "category": "behavioral", "question": "Describe a time you disagreed with a teammate. What happened?" },
+    { "category": "behavioral", "question": "Tell me about a project that failed and what you learned." },
+    { "category": "motivation", "question": "Why this role, and why now?" }
+  ],
+  "default": [
+    { "category": "intro", "question": "Tell me about yourself and what you're looking for." },
+    { "category": "experience", "question": "What work are you most proud of, and why?" },
+    { "category": "closing", "question": "What questions can I answer for you?" }
+  ]
+}

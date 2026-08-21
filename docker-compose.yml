@@ -1,0 +1,95 @@
+# Job-Search Automation Platform — full stack in one command:
+#   cp .env.docker.example .env   # then fill in secrets
+#   docker compose up --build
+#
+# Frontend:  http://localhost:3000
+# API:       http://localhost:8000  (docs at /docs)
+# Postgres:  localhost:5432
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobsearch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobsearch}
+      POSTGRES_DB: jobsearch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobsearch -d jobsearch"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    env_file:
+      - .env
+    environment:
+      # The compose Postgres always wins over anything in .env.
+      JOBSEARCH_DATABASE_URL: postgresql+psycopg://jobsearch:${POSTGRES_PASSWORD:-jobsearch}@db:5432/jobsearch
+      # The API and coturn share ONE secret so ephemeral creds validate on both
+      # sides. No-ops until you set TURN_* in .env and run with `--profile turn`.
+      JOBSEARCH_TURN_URLS: ${JOBSEARCH_TURN_URLS:-}
+      JOBSEARCH_TURN_SECRET: ${TURN_SECRET:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Bind to loopback only. Docker's published ports bypass the host firewall,
+      # so we never expose the API directly — in prod, Caddy (same network)
+      # reaches it as `api:8000`; locally you still curl http://localhost:8000.
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_PROXY_TARGET: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  # TURN relay for peer video calls behind restrictive / symmetric NATs.
+  # OPT-IN — only starts with `docker compose --profile turn up`. The default
+  # `docker compose up` skips it, and peer calls fall back to public STUN.
+  #
+  # Set TURN_SECRET in .env (shared with the api service) and point the client
+  # at this relay with JOBSEARCH_TURN_URLS, e.g.
+  #   TURN_SECRET=$(openssl rand -hex 32)
+  #   JOBSEARCH_TURN_URLS=turn:<your-host>:3478?transport=udp
+  #
+  # network_mode: host is the reliable choice for a real relay (coturn hands out
+  # a wide UDP range) and requires a Linux host. On Docker Desktop (Win/Mac),
+  # which has no host networking, comment `network_mode: host` and instead
+  # publish the ports (see the `ports:` block below).
+  coturn:
+    image: coturn/coturn:4.6
+    profiles: ["turn"]
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env before starting the turn profile}
+      - --realm=${TURN_REALM:-hirewave.local}
+    # --- Docker Desktop alternative (no host networking) ---------------------
+    # Remove `network_mode: host` above and uncomment:
+    # ports:
+    #   - "3478:3478/udp"
+    #   - "3478:3478/tcp"
+    #   - "49160-49200:49160-49200/udp"
+
+volumes:
+  pgdata:

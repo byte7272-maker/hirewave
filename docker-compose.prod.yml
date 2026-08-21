@@ -1,0 +1,47 @@
+# Production overlay for a single VPS (e.g. Hetzner CX22).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --profile turn up -d db api caddy coturn
+#
+# Adds a Caddy reverse proxy that terminates HTTPS (auto Let's Encrypt) in front
+# of the API, and makes every service restart on boot. The frontend service is
+# intentionally NOT started here — it lives on Readdy/Vercel; this box is just
+# the backend. See deploy/provision.sh for the one-shot host setup.
+
+services:
+  api:
+    restart: unless-stopped
+    # The base file already binds the API to 127.0.0.1 only (loopback, not
+    # internet-exposed). Caddy reaches it over the compose network as `api:8000`.
+    volumes:
+      # Mount local secrets (e.g. the Firebase service-account JSON) read-only.
+      # Put the file at ./deploy/secrets/firebase-sa.json on the server, then set
+      # JOBSEARCH_FIREBASE_CREDENTIALS_FILE=/run/secrets/firebase-sa.json in .env.
+      - ./deploy/secrets:/run/secrets:ro
+
+  db:
+    restart: unless-stopped
+
+  coturn:
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env, e.g. api.hirewave.com}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificates — must persist across restarts
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

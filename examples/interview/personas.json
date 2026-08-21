@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Dr. Amara Osei",
+    "role": "VP of Engineering",
+    "company": "Northwind",
+    "style": "skeptical",
+    "gender": "female",
+    "voice": "firm",
+    "voice_id": "",
+    "avatar_url": "",
+    "video_url": "",
+    "bio": "Runs Northwind's bar-raiser loop and presses candidates for evidence and depth."
+  },
+  {
+    "name": "Marco Bianchi",
+    "role": "Staff Engineer",
+    "company": "Northwind",
+    "style": "technical",
+    "gender": "male",
+    "voice": "crisp",
+    "voice_id": "",
+    "bio": "Digs into system design and the specifics of what you actually built."
+  },
+  {
+    "name": "Priya Raman",
+    "role": "Hiring Manager",
+    "company": "Northwind",
+    "style": "friendly",
+    "gender": "female",
+    "voice": "warm",
+    "voice_id": "",
+    "bio": "Warm, encouraging, focused on how you work with a team."
+  }
+]

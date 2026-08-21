@@ -1,0 +1,39 @@
+# Node (frontend deps/build — must not be committed)
+node_modules/
+dist/
+out/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+*.key
+*.pem
+secrets/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local data
+data/
+*.sqlite
+*.db
