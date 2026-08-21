@@ -25,3 +25,5 @@ EXPOSE 8000
 # Honor $PORT when the host assigns one (Railway/Cloud Run); default 8000 for
 # compose/VPS where Caddy proxies to api:8000. `exec` keeps uvicorn as PID 1.
 CMD ["sh", "-c", "exec uvicorn jobsearch.api.app:create_app --factory --host 0.0.0.0 --port ${PORT:-8000}"]
+
+# redeploy trigger 4ff731e
