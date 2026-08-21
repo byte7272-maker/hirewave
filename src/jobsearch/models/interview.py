@@ -42,6 +42,12 @@ class InterviewPrep(DomainModel):
 
 
 # --- mock interview trainer -------------------------------------------------
+class InterviewDifficulty(str, Enum):
+    EASY = "easy"  # no follow-ups
+    NORMAL = "normal"  # a probing follow-up on weak answers (challenging personas)
+    HARD = "hard"  # presses harder, more follow-ups
+
+
 class InterviewerStyle(str, Enum):
     FRIENDLY = "friendly"
     FORMAL = "formal"
@@ -58,6 +64,10 @@ class InterviewerPersona(DomainModel):
     role: str
     company: str = ""
     style: InterviewerStyle = InterviewerStyle.FRIENDLY
+    #: How tough this interviewer is — shown on the persona card so the user can
+    #: pick easy vs. challenging. Also the default difficulty when a session
+    #: starts with this persona (the request can still override it).
+    difficulty: Optional[InterviewDifficulty] = None
     bio: str = ""
     initials: str = ""  # for a simple avatar chip
     #: Presentation hints so the client renders a consistent on-screen
@@ -89,12 +99,6 @@ class AnswerFeedback(DomainModel):
 class SessionStatus(str, Enum):
     ACTIVE = "active"
     COMPLETED = "completed"
-
-
-class InterviewDifficulty(str, Enum):
-    EASY = "easy"  # no follow-ups
-    NORMAL = "normal"  # a probing follow-up on weak answers (challenging personas)
-    HARD = "hard"  # presses harder, more follow-ups
 
 
 class InterviewTurn(DomainModel):

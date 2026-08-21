@@ -112,7 +112,9 @@ def test_api_capabilities_offline_defaults():
     client = _client()
     h = _auth(client)
     caps = client.get("/api/v1/interview/media/capabilities", headers=h).json()
-    assert caps == {"tts": False, "video": False, "personas": 0}
+    # TTS/video are off offline; personas are the built-in gallery (always present).
+    assert caps["tts"] is False and caps["video"] is False
+    assert caps["personas"] >= 4
 
 
 def test_api_tts_501_when_unconfigured():

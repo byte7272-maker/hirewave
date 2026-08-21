@@ -17,7 +17,7 @@ import hashlib
 from typing import Optional
 
 from jobsearch.engines.interview.engine import InterviewEngine
-from jobsearch.engines.interview.persona_library import PersonaLibrary
+from jobsearch.engines.interview.persona_library import PersonaLibrary, avatar_for
 from jobsearch.engines.interview.question_bank import QuestionBank
 from jobsearch.engines.interview.rating import rate_answer
 from jobsearch.llm import LLMProvider, build_llm
@@ -107,15 +107,22 @@ class MockInterviewTrainer:
         company = (job.company if job and job.company else "") or ""
         seed = f"{company}|{style.value}|{job.title if job else ''}"
 
-        # User-directed persona library wins when configured.
+        def _contextualize(p: InterviewerPersona) -> InterviewerPersona:
+            # Gallery personas are generic; set them at the target company so the
+            # interviewer "works there" for this session.
+            if company and not p.company:
+                p.company = company
+            return p
+
+        # A configured library or the built-in gallery.
         if not self.persona_library.is_empty():
             if persona_id:
                 chosen = next((p for p in self.persona_library.all() if p.id == persona_id), None)
                 if chosen is not None:
-                    return chosen.model_copy(deep=True)
+                    return _contextualize(chosen.model_copy(deep=True))
             resolved = self.persona_library.resolve(style=style, seed=seed)
             if resolved is not None:
-                return resolved
+                return _contextualize(resolved)
 
         first = _pick(seed + "f", _FIRST_NAMES)
         name = f"{first} {_pick(seed + 'l', _LAST_NAMES)}"
@@ -136,6 +143,7 @@ class MockInterviewTrainer:
         return InterviewerPersona(
             name=name, role=role, company=company, style=style, bio=bio,
             initials=initials, gender=gender, voice=voice,
+            avatar_url=avatar_for(name, gender=gender),
         )
 
     def _plan_questions(
@@ -174,7 +182,8 @@ class MockInterviewTrainer:
             persona=persona,
             resume_id=resume.id if resume else None,
             job_posting_id=job.id if job else None,
-            difficulty=difficulty or InterviewDifficulty.NORMAL,
+            # Explicit request wins; else the persona's own difficulty; else normal.
+            difficulty=difficulty or persona.difficulty or InterviewDifficulty.NORMAL,
             plan=planned,
             max_questions=max_q,
         )

@@ -23,13 +23,54 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from jobsearch.config import Settings, get_settings
-from jobsearch.models.interview import InterviewerPersona, InterviewerStyle
+from jobsearch.models.interview import (
+    InterviewDifficulty,
+    InterviewerPersona,
+    InterviewerStyle,
+)
 
 
 def _initials(name: str) -> str:
     return "".join(p[0] for p in name.split()[:2]).upper() or "?"
+
+
+def avatar_for(name: str, *, gender: str = "neutral") -> str:
+    """A deterministic, free avatar image URL for a persona (DiceBear). The same
+    name always yields the same face, so a persona looks consistent everywhere."""
+    return f"https://api.dicebear.com/9.x/avataaars/svg?seed={quote(name)}"
+
+
+# Built-in interviewer gallery — shown on the persona page when the user hasn't
+# supplied their own JOBSEARCH_PERSONA_LIBRARY. A deliberate mix of difficulty
+# (easy → hard) and style so the candidate can pick a warm-up or a grilling.
+_DEFAULT_PERSONAS: list[dict] = [
+    {"name": "Devon Clark", "role": "Recruiter", "style": "friendly",
+     "difficulty": "easy", "gender": "male", "voice": "warm",
+     "bio": "A friendly recruiter running a relaxed first-round screen — expect conversational, get-to-know-you questions with no pressure."},
+    {"name": "Maya Patel", "role": "Hiring Manager", "style": "friendly",
+     "difficulty": "easy", "gender": "female", "voice": "warm",
+     "bio": "A warm, encouraging hiring manager who puts candidates at ease and focuses on your strengths and potential."},
+    {"name": "Priya Nair", "role": "HR Director", "style": "formal",
+     "difficulty": "normal", "gender": "female", "voice": "measured",
+     "bio": "A structured HR director who runs a professional, by-the-book interview covering your background, motivations, and fit."},
+    {"name": "Marcus Chen", "role": "Engineering Manager", "style": "behavioral",
+     "difficulty": "normal", "gender": "male", "voice": "warm",
+     "bio": "A behavioral interviewer who digs into your stories: how you collaborate, handle conflict, and lead through ambiguity."},
+    {"name": "Dr. Elena Rossi", "role": "Technical Lead", "style": "technical",
+     "difficulty": "hard", "gender": "female", "voice": "crisp",
+     "bio": "A detail-oriented technical lead who probes deep into your decisions, trade-offs, and how things actually work under the hood."},
+    {"name": "Jordan Blake", "role": "VP of Engineering", "style": "skeptical",
+     "difficulty": "hard", "gender": "neutral", "voice": "firm",
+     "bio": "A skeptical senior leader who presses for evidence, challenges your claims, and expects depth and composure under pressure."},
+]
+
+
+def default_personas() -> list[InterviewerPersona]:
+    """The built-in interviewer gallery (with images, bios, and difficulty)."""
+    return [p for p in (_to_persona(r) for r in _DEFAULT_PERSONAS) if p is not None]
 
 
 def _to_persona(raw: dict) -> Optional[InterviewerPersona]:
@@ -44,17 +85,23 @@ def _to_persona(raw: dict) -> Optional[InterviewerPersona]:
     gender = str(raw.get("gender", "neutral"))
     if gender not in {"female", "male", "neutral"}:
         gender = "neutral"
+    try:
+        difficulty = InterviewDifficulty(str(raw["difficulty"])) if raw.get("difficulty") else None
+    except ValueError:
+        difficulty = None
     return InterviewerPersona(
         name=name,
         role=role,
         company=str(raw.get("company", "")),
         style=style,
+        difficulty=difficulty,
         bio=str(raw.get("bio", "")),
         initials=str(raw.get("initials", "")) or _initials(name),
         gender=gender,
         voice=str(raw.get("voice", "")),
         voice_id=str(raw.get("voice_id", "")),
-        avatar_url=str(raw.get("avatar_url", "")),
+        # Fall back to a generated avatar so every persona has an image.
+        avatar_url=str(raw.get("avatar_url", "")) or avatar_for(name, gender=gender),
         video_url=str(raw.get("video_url", "")),
     )
 
@@ -85,8 +132,14 @@ class PersonaLibrary:
 
     @classmethod
     def from_settings(cls, settings: Optional[Settings] = None) -> "PersonaLibrary":
+        """A user-supplied library when ``JOBSEARCH_PERSONA_LIBRARY`` is set,
+        otherwise the built-in gallery (so the persona page is never empty)."""
         s = settings or get_settings()
-        return cls.from_path(s.persona_library_path) if s.persona_library_path else cls([])
+        if s.persona_library_path:
+            lib = cls.from_path(s.persona_library_path)
+            if not lib.is_empty():
+                return lib
+        return cls(default_personas())
 
     # -- access -------------------------------------------------------------
     def is_empty(self) -> bool:

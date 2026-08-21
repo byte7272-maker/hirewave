@@ -146,7 +146,9 @@ def media_capabilities(user: CurrentUser, state: StateDep) -> dict:
 
 @router.get("/personas", response_model=list[InterviewerPersona])
 def list_personas(user: CurrentUser, state: StateDep) -> list[InterviewerPersona]:
-    """The user-directed persona library (empty ⇒ interviewers are generated)."""
+    """The interviewer gallery — each with an avatar image, a description (`bio`),
+    a `difficulty` (easy → hard), and a `style`. Start a mock interview with one
+    by passing its `id` as `persona_id` to `/mock/start`."""
     return state.persona_library.all()
 
 

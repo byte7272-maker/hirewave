@@ -177,7 +177,9 @@ def test_api_full_mock_interview():
     start = client.post(
         "/api/v1/interview/mock/start",
         headers=h,
-        json={"style": "skeptical", "max_questions": 2},
+        # Pin difficulty=easy so completion is deterministic (the skeptical
+        # gallery persona defaults to HARD, which adds follow-ups).
+        json={"style": "skeptical", "difficulty": "easy", "max_questions": 2},
     )
     assert start.status_code == 201
     session = start.json()
@@ -225,3 +227,43 @@ def test_reply_to_unknown_session_404():
         ).status_code
         == 404
     )
+
+
+# ---- built-in persona gallery (images, descriptions, difficulty) ----------
+def test_persona_gallery_has_images_bios_and_difficulty_mix():
+    from jobsearch.engines.interview.persona_library import PersonaLibrary
+    gallery = PersonaLibrary.from_settings().all()
+    assert len(gallery) >= 4
+    # every persona has an avatar image, a description, and a difficulty
+    assert all(p.avatar_url.startswith("http") for p in gallery)
+    assert all(p.bio for p in gallery)
+    assert all(p.difficulty is not None for p in gallery)
+    # a genuine spread from easy to hard
+    diffs = {p.difficulty.value for p in gallery}
+    assert "easy" in diffs and "hard" in diffs
+
+
+def test_api_personas_returns_gallery():
+    from fastapi.testclient import TestClient
+    from jobsearch.api.app import create_app
+    from jobsearch.api.state import AppState
+    from jobsearch.engines.integration import MockTokenExchanger
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    client.post("/api/v1/auth/register", json={"email": "g@b.com", "password": "supersecret12", "full_name": "G"})
+    tok = client.post("/api/v1/auth/login", json={"email": "g@b.com", "password": "supersecret12"}).json()["access_token"]
+    personas = client.get("/api/v1/interview/personas", headers={"Authorization": f"Bearer {tok}"}).json()
+    assert len(personas) >= 4
+    p = personas[0]
+    assert p["avatar_url"].startswith("http") and p["bio"] and p["difficulty"] in ("easy", "normal", "hard")
+
+
+def test_session_inherits_persona_difficulty():
+    # Starting with the technical gallery persona (HARD) → session is HARD unless overridden.
+    from jobsearch.engines.interview import MockInterviewTrainer
+    from jobsearch.models import UserProfile
+    from jobsearch.models.interview import InterviewerStyle
+    trainer = MockInterviewTrainer()
+    persona = trainer.create_persona(style=InterviewerStyle.TECHNICAL)
+    assert persona.difficulty is not None  # gallery persona carries a difficulty
+    sess = trainer.start_session(UserProfile(user_id="u1"), style=InterviewerStyle.TECHNICAL, max_questions=3)
+    assert sess.difficulty == persona.difficulty
