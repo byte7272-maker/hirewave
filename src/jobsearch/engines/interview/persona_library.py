@@ -37,6 +37,13 @@ def _initials(name: str) -> str:
     return "".join(p[0] for p in name.split()[:2]).upper() or "?"
 
 
+def persona_id_for(name: str) -> str:
+    """A *stable* id for a gallery/library persona, derived from its name, so the
+    same persona keeps the same id across restarts and redeploys. This lets
+    per-user settings (e.g. a chosen voice) key on the persona reliably."""
+    return "persona_" + hashlib.md5(name.strip().lower().encode()).hexdigest()[:12]
+
+
 def avatar_for(name: str, *, gender: str = "neutral") -> str:
     """A deterministic, free avatar image URL for a persona (DiceBear). The same
     name always yields the same face, so a persona looks consistent everywhere."""
@@ -90,6 +97,8 @@ def _to_persona(raw: dict) -> Optional[InterviewerPersona]:
     except ValueError:
         difficulty = None
     return InterviewerPersona(
+        # Stable, name-derived id unless the record pins one explicitly.
+        id=str(raw.get("id", "")) or persona_id_for(name),
         name=name,
         role=role,
         company=str(raw.get("company", "")),

@@ -108,6 +108,41 @@ class VocabularyAnalysis(DomainModel):
     summary: str = ""  # one-line coaching takeaway
 
 
+class VoiceSource(str, Enum):
+    BROWSER = "browser"  # a device speech-synthesis voice (client-side TTS)
+    SERVER = "server"  # a server/neural voice id (used when server TTS is on)
+    UPLOADED = "uploaded"  # an uploaded audio clip the client plays (e.g. an intro)
+
+
+class PersonaVoice(DomainModel):
+    """A user's chosen voice for one interviewer persona.
+
+    Lets each persona speak in a voice the user picks or uploads. Keyed by
+    ``{user_id}:{persona_id}`` so it's per-user and survives restarts (persona
+    ids are stable). ``source`` selects where the voice comes from; the other
+    fields carry the settings for that source.
+    """
+
+    id: str = ""  # composite "{user_id}:{persona_id}"
+    user_id: str
+    persona_id: str
+    source: VoiceSource = VoiceSource.BROWSER
+    #: Browser source — the SpeechSynthesisVoice identifier (voiceURI or name)
+    #: plus optional tuning the client applies.
+    voice_uri: str = ""
+    lang: str = ""  # e.g. "en-US"
+    rate: float = 1.0  # 0.5-2.0
+    pitch: float = 1.0  # 0-2
+    #: Server source — a neural voice id (e.g. "elevenlabs:rachel"), used when
+    #: server-side TTS is configured.
+    voice_id: str = ""
+    #: Uploaded source — a web-playable audio clip stored for this persona.
+    audio_url: str = ""
+    content_type: str = ""
+    original_filename: str = ""
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class AnswerFeedback(DomainModel):
     """Rating of a single candidate answer — content + style (0-100)."""
 

@@ -98,6 +98,7 @@ class AppState:
         self.exposure_findings = repos.exposure_findings
         self.community_questions = repos.community_questions
         self.experience_highlights = repos.experience_highlights
+        self.persona_voices = repos.persona_voices  # per-user persona voice choices
         self.documents = build_document_store(self.settings)  # uploaded résumé files
         # VerificationResults are a rebuildable cache (the plan's Redis tier), not
         # a system of record — verification is recomputed on demand when missing.

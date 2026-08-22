@@ -40,10 +40,12 @@ from jobsearch.models.interview import (
     InterviewTurn,
     MockInterviewSession,
     MockInterviewSummary,
+    PersonaVoice,
     QuestionCategory,
     SessionStatus,
     VocabSuggestion,
     VocabularyAnalysis,
+    VoiceSource,
 )
 from jobsearch.models.job import JobPosting, VerificationFlag, VerificationResult
 from jobsearch.models.monitoring import (
@@ -119,11 +121,13 @@ __all__ = [
     "OAuthToken",
     "Provider",
     "QuestionCategory",
+    "PersonaVoice",
     "Resume",
     "SessionStatus",
     "Severity",
     "VocabSuggestion",
     "VocabularyAnalysis",
+    "VoiceSource",
     "ResumeFormat",
     "ResumeSource",
     "User",

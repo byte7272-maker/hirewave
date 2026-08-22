@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
+from jobsearch.models.common import utcnow
 from jobsearch.api.schemas import (
     AvatarVideoRequest,
     InterviewPrepRequest,
     MockInterviewReplyRequest,
     MockInterviewStartRequest,
+    PersonaVoiceUpdate,
     TtsRequest,
     VocabularyRequest,
 )
@@ -19,12 +21,28 @@ from jobsearch.models import (
     InterviewerStyle,
     InterviewPrep,
     MockInterviewSession,
+    PersonaVoice,
     SessionStatus,
     UserProfile,
     VocabularyAnalysis,
+    VoiceSource,
 )
 
 router = APIRouter(prefix="/api/v1/interview", tags=["interview"])
+
+#: Audio formats a browser <audio> element can reliably play. Uploaded persona
+#: voice clips must be one of these so playback is compatible everywhere.
+_AUDIO_TYPES = {
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/mp4": "m4a",
+    "audio/aac": "aac",
+    "audio/x-m4a": "m4a",
+}
 
 
 @router.post("/prep", response_model=InterviewPrep, status_code=status.HTTP_201_CREATED)
@@ -209,3 +227,135 @@ def render_video(body: AvatarVideoRequest, user: CurrentUser, state: StateDep) -
     if not url:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "video source did not return a clip")
     return {"video_url": url}
+
+
+# --- per-persona voice selection (upload / change voice per persona) ---------
+def _persona_or_404(state: StateDep, persona_id: str) -> InterviewerPersona:
+    for p in state.persona_library.all():
+        if p.id == persona_id:
+            return p
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "persona not found")
+
+
+def _voice_id(user_id: str, persona_id: str) -> str:
+    return f"{user_id}:{persona_id}"
+
+
+def _default_voice(user_id: str, persona: InterviewerPersona) -> PersonaVoice:
+    """The effective voice when the user hasn't chosen one — carries the persona's
+    gender/tone/voice_id hints so the client can auto-pick a matching voice."""
+    return PersonaVoice(
+        id=_voice_id(user_id, persona.id),
+        user_id=user_id,
+        persona_id=persona.id,
+        source=VoiceSource.SERVER if persona.voice_id else VoiceSource.BROWSER,
+        voice_id=persona.voice_id,
+        lang="en-US",
+    )
+
+
+@router.get("/voices", response_model=list[PersonaVoice])
+def list_voice_prefs(user: CurrentUser, state: StateDep) -> list[PersonaVoice]:
+    """Every persona-voice the user has saved (empty when they've customized none).
+    The client overlays these on the persona gallery."""
+    return state.persona_voices.find(user_id=user.id)
+
+
+@router.get("/personas/{persona_id}/voice", response_model=PersonaVoice)
+def get_voice_pref(persona_id: str, user: CurrentUser, state: StateDep) -> PersonaVoice:
+    """The effective voice for one persona — the user's saved choice, or a default
+    derived from the persona's gender/tone if they haven't chosen one."""
+    persona = _persona_or_404(state, persona_id)
+    saved = state.persona_voices.get(_voice_id(user.id, persona_id))
+    return saved or _default_voice(user.id, persona)
+
+
+@router.put("/personas/{persona_id}/voice", response_model=PersonaVoice)
+def set_voice_pref(
+    persona_id: str, body: PersonaVoiceUpdate, user: CurrentUser, state: StateDep
+) -> PersonaVoice:
+    """Dynamically change a persona's voice: pick a browser voice (voice_uri +
+    rate/pitch/lang), or point it at a server neural voice_id."""
+    persona = _persona_or_404(state, persona_id)
+    pref = state.persona_voices.get(_voice_id(user.id, persona_id)) or _default_voice(
+        user.id, persona
+    )
+    data = body.model_dump(exclude_unset=True)
+    if "source" in data and data["source"] is not None:
+        try:
+            pref.source = VoiceSource(data.pop("source"))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid voice source") from exc
+    if data.get("rate") is not None:
+        pref.rate = max(0.5, min(2.0, float(data.pop("rate"))))
+    if data.get("pitch") is not None:
+        pref.pitch = max(0.0, min(2.0, float(data.pop("pitch"))))
+    for field in ("voice_uri", "lang", "voice_id"):
+        if data.get(field) is not None:
+            setattr(pref, field, str(data[field]))
+    pref.updated_at = utcnow()
+    return state.persona_voices.add(pref)
+
+
+@router.post("/personas/{persona_id}/voice/upload", response_model=PersonaVoice)
+async def upload_voice_clip(
+    persona_id: str,
+    user: CurrentUser,
+    state: StateDep,
+    file: UploadFile = File(...),
+) -> PersonaVoice:
+    """Upload a custom audio clip for a persona (e.g. an intro/greeting in a real
+    voice). Must be a web-playable format (mp3/wav/ogg/webm/m4a/aac)."""
+    persona = _persona_or_404(state, persona_id)
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype not in _AUDIO_TYPES:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "unsupported audio format; use mp3, wav, ogg, webm, m4a, or aac",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")
+    if len(data) > state.settings.max_upload_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
+        )
+    pref = state.persona_voices.get(_voice_id(user.id, persona_id)) or _default_voice(
+        user.id, persona
+    )
+    key = f"voice_{user.id}_{persona_id}"
+    state.documents.put(key, data, content_type=ctype)
+    pref.source = VoiceSource.UPLOADED
+    pref.audio_url = f"/api/v1/interview/personas/{persona_id}/voice/audio"
+    pref.content_type = ctype
+    pref.original_filename = file.filename or f"voice.{_AUDIO_TYPES[ctype]}"
+    pref.updated_at = utcnow()
+    return state.persona_voices.add(pref)
+
+
+@router.get("/personas/{persona_id}/voice/audio")
+def get_voice_clip(persona_id: str, user: CurrentUser, state: StateDep) -> Response:
+    """Stream back the user's uploaded voice clip for a persona (for <audio>)."""
+    pref = state.persona_voices.get(_voice_id(user.id, persona_id))
+    if pref is None or pref.source != VoiceSource.UPLOADED:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no uploaded voice for this persona")
+    stored = state.documents.get(f"voice_{user.id}_{persona_id}")
+    if stored is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "voice clip not found")
+    audio, content_type = stored
+    return Response(
+        content=audio,
+        media_type=content_type or pref.content_type or "audio/mpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@router.delete("/personas/{persona_id}/voice", status_code=status.HTTP_204_NO_CONTENT)
+def reset_voice_pref(persona_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Reset a persona back to its default voice (clears any upload/choice)."""
+    _persona_or_404(state, persona_id)
+    key = _voice_id(user.id, persona_id)
+    if state.persona_voices.get(key) is not None:
+        state.persona_voices.delete(key)
+    state.documents.delete(f"voice_{user.id}_{persona_id}")

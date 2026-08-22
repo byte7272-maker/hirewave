@@ -33,6 +33,7 @@ from jobsearch.models import (
     MonitoredIdentifier,
     Notification,
     OAuthToken,
+    PersonaVoice,
     PracticeSession,
     PracticeSignal,
     ReminderPrefs,
@@ -86,6 +87,9 @@ _SPECS: dict[str, TableSpec] = {
     ),
     "experience_highlights": TableSpec(
         "experience_highlights", ExperienceHighlight, "id", ("user_id",)
+    ),
+    "persona_voices": TableSpec(
+        "persona_voices", PersonaVoice, "id", ("user_id", "persona_id")
     ),
     "saved_searches": TableSpec("saved_searches", SavedSearch, "id", ("user_id",)),
     "authenticity_records": TableSpec("authenticity_records", JobAuthenticityRecord, "id", ("key",)),

@@ -197,6 +197,15 @@ class VocabularyRequest(BaseModel):
     rewrite: bool = False
 
 
+class PersonaVoiceUpdate(BaseModel):
+    source: Optional[str] = None  # browser | server | uploaded
+    voice_uri: Optional[str] = None  # browser SpeechSynthesisVoice id
+    lang: Optional[str] = None  # e.g. "en-US"
+    rate: Optional[float] = None  # 0.5-2.0
+    pitch: Optional[float] = None  # 0-2
+    voice_id: Optional[str] = None  # server neural voice id
+
+
 class TtsRequest(BaseModel):
     text: str
     voice: str = ""  # provider voice id; blank = provider default
