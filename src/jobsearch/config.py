@@ -19,6 +19,8 @@ AutomationMode = Literal["simulate", "live"]
 OAuthMode = Literal["mock", "live"]
 ExposureProviderName = Literal["mock", "hibp"]
 MediaProviderName = Literal["none", "http"]
+TtsProviderName = Literal["none", "http", "elevenlabs", "openai"]
+VoiceCloneProviderName = Literal["none", "mock", "elevenlabs"]
 
 
 class Settings(BaseSettings):
@@ -87,13 +89,22 @@ class Settings(BaseSettings):
     # files* to upgrade the mock interview. Left at the defaults, the interview
     # runs fully offline with the browser's own voice + animated avatar.
     #
-    # Neural voice (TTS): "http" POSTs {text, voice} to your endpoint and expects
-    # audio bytes back — front a vendor (ElevenLabs / OpenAI / Azure) or self-host.
-    tts_provider: MediaProviderName = "none"
-    tts_url: str = ""
+    # Neural voice (TTS). "none" = browser voice only. "elevenlabs"/"openai" =
+    # first-class adapters (just set the key). "http" = your own {text, voice}→
+    # audio-bytes endpoint (front any vendor / self-host).
+    tts_provider: TtsProviderName = "none"
+    tts_url: str = ""  # only for tts_provider="http"
     tts_api_key: str = Field(default="", validation_alias="JOBSEARCH_TTS_API_KEY")
+    tts_voice: str = ""  # default voice id (per-persona voice overrides it)
+    tts_model: str = ""  # e.g. "eleven_turbo_v2_5" or "gpt-4o-mini-tts"; blank=vendor default
     tts_media_type: str = "audio/mpeg"
     tts_timeout_seconds: float = 30.0
+    # Voice cloning — produce a custom neural voice from uploaded audio samples.
+    # "none" = off, "mock" = offline stub (fake voice ids, for dev/tests),
+    # "elevenlabs" = real (uses tts_api_key unless voice_clone_api_key is set).
+    voice_clone_provider: VoiceCloneProviderName = "none"
+    voice_clone_api_key: str = Field(default="", validation_alias="JOBSEARCH_VOICE_CLONE_API_KEY")
+    voice_clone_timeout_seconds: float = 60.0
     # Neural talking-head video: "http" POSTs {persona, text} and returns
     # {"video_url": "..."} — front D-ID / HeyGen or self-host.
     avatar_provider: MediaProviderName = "none"

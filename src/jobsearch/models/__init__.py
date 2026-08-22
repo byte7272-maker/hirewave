@@ -32,6 +32,7 @@ from jobsearch.models.integration import OAuthToken, Provider
 from jobsearch.models.interview import (
     AnswerFeedback,
     CommunityQuestion,
+    CustomVoice,
     InterviewDifficulty,
     InterviewerPersona,
     InterviewerStyle,
@@ -85,6 +86,7 @@ __all__ = [
     "CommunityQuestion",
     "CoverLetter",
     "Connection",
+    "CustomVoice",
     "DirectMessage",
     "EmployerStatus",
     "ExperienceHighlight",

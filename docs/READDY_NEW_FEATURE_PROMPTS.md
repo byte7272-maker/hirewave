@@ -221,7 +221,117 @@ and retry. Both features are already live on the backend.
 
 ---
 
+## Feature 7 — Interviewer voices (browser TTS) + per-persona voice picker & upload
+
+> Make the **AI interviewer speak its questions out loud**, and let the user
+> **choose or upload a different voice for each persona**. Voices play in the
+> browser (free, realistic on Chrome/Edge); the backend persists each persona's
+> voice choice so it sticks across sessions and devices.
+>
+> **Speak questions (browser TTS):** when the interviewer asks a question (the
+> latest `turns[]` item with `speaker === "interviewer"`, greeting, or follow-up),
+> speak it with the Web Speech API: build a `SpeechSynthesisUtterance(text)`, set
+> the chosen voice + `rate`/`pitch`/`lang` (see below), and `speechSynthesis.speak(...)`.
+> Feature-detect `window.speechSynthesis`; if absent, just show text (no error).
+> Add a **🔊 voice on/off** toggle and stop speech (`speechSynthesis.cancel()`)
+> when the user starts recording an answer or leaves the room.
+>
+> **Load available browser voices:** call `speechSynthesis.getVoices()` (it
+> populates asynchronously — also listen for the `voiceschanged` event). Prefer
+> voices whose name contains "Natural", "Neural", "Online", or "Google" for
+> realism.
+>
+> **Per-persona voice, saved on the backend:**
+> - `GET /api/v1/interview/voices` → the user's saved voice choices (array of
+>   `{persona_id, source, voice_uri, lang, rate, pitch, voice_id, audio_url,
+>   content_type}`). Overlay these onto the persona gallery on load.
+> - `GET /api/v1/interview/personas/{personaId}/voice` → the **effective** voice
+>   for one persona (the saved choice, or a sensible default derived from the
+>   persona's gender/tone). Use `source` to decide how to speak:
+>   - `"browser"` → speak with `speechSynthesis` using `voice_uri` (match it to a
+>     `getVoices()` entry by `voiceURI`/name), `rate`, `pitch`, `lang`.
+>   - `"server"` → a neural `voice_id` is set; if `GET /media/capabilities` returns
+>     `tts: true`, POST the line to `/api/v1/interview/tts` and play the returned
+>     audio; otherwise fall back to a browser voice.
+>   - `"uploaded"` → the user attached a custom clip; play it from `audio_url`
+>     (see upload below). Since an uploaded clip can't synthesize arbitrary
+>     question text, use it as the persona's **intro/greeting**, and speak the
+>     actual questions with a browser voice.
+> - **Voice picker UI** on each persona card / a "Voice" settings panel: a dropdown
+>   of the available browser voices + **rate** and **pitch** sliders + a **"Preview"**
+>   button (speak a sample line: "Hi, I'm {persona.name}. Let's begin your
+>   interview."). On change, **`PUT /api/v1/interview/personas/{personaId}/voice`**
+>   with `{ source: "browser", voice_uri, lang, rate, pitch }`. (Rate is clamped
+>   server-side to 0.5–2.0, pitch to 0–2.)
+>
+> **Upload a custom voice clip:** an "Upload voice" control per persona →
+> **`POST /api/v1/interview/personas/{personaId}/voice/upload`** as
+> **multipart/form-data** with a `file` field. **Only web-playable audio is
+> accepted: mp3, wav, ogg, webm, m4a, aac** (the API returns `415` otherwise —
+> show "Use an mp3, wav, m4a, ogg, or webm file"). On success the persona's
+> `source` becomes `"uploaded"` and `audio_url` points at
+> `/api/v1/interview/personas/{personaId}/voice/audio`. Play it with an `<audio>`
+> element (fetch it **with the auth header** — it's owner-scoped — and use a blob
+> URL, since `<audio src>` can't send a bearer token).
+>
+> **Reset:** a "Use default voice" button → **`DELETE /api/v1/interview/personas/{personaId}/voice`**
+> (returns `204`) and reverts to the derived default.
+>
+> **Format note:** everything the app plays is a standard browser-supported format —
+> browser TTS needs no file; uploaded clips are validated to mp3/wav/ogg/webm/m4a/aac;
+> server neural audio comes back as `audio/mpeg`. All play in a plain `<audio>`/
+> `SpeechSynthesis`, no plugins.
+
+---
+
+## Feature 8 — Custom voices from audio samples (voice cloning)
+
+> Add a **"Custom voices"** area (in the interview voice settings) where users can
+> **create a neural voice from their own audio samples** and assign it to any
+> persona, so the interviewer speaks in that voice. This is **gated on the backend
+> being configured** — first check `GET /api/v1/interview/media/capabilities`: if
+> **`voice_clone` is `false`**, hide/disable this whole area with a note "Custom
+> voices aren't enabled yet." Only show it when `voice_clone` is `true`.
+>
+> **Create a voice:** a form with a **name**, a **file picker for one or more audio
+> samples** (mp3/wav/ogg/webm/m4a/aac — reject others client-side too), and a
+> **required consent checkbox**: *"I own this voice or have the person's permission
+> to clone it."* On submit, call **`POST /api/v1/interview/voices/custom`** as
+> **multipart/form-data** with fields `name`, `consent` (`"true"`), and one or more
+> `files`. Handle responses: `201` → success (show the new voice); `400` with a
+> consent message → the box wasn't checked; `415` → "Use mp3, wav, ogg, webm, m4a,
+> or aac"; `501` → cloning isn't configured (shouldn't happen if you gated on
+> capabilities). The returned object has `{ id, name, provider, external_voice_id,
+> status, sample_count }`.
+>
+> **List / manage:** `GET /api/v1/interview/voices/custom` lists the user's voices;
+> show each with its name and a **Delete** button → `DELETE /api/v1/interview/voices/custom/{id}`
+> (`204`).
+>
+> **Assign to a persona:** in the per-persona voice picker (Feature 7), add the
+> user's custom voices as options alongside the browser voices. Selecting one calls
+> **`PUT /api/v1/interview/personas/{personaId}/voice`** with
+> `{ "source": "server", "voice_id": <that voice's external_voice_id> }`. From then
+> on, when speaking that persona's lines, since `source` is `"server"`, POST the
+> text to `/api/v1/interview/tts` and play the returned `audio/mpeg` (this is where
+> the cloned voice actually reads the questions). If `capabilities.tts` is somehow
+> false, fall back to a browser voice.
+>
+> **Guidance copy:** tell users good samples are ~1–3 minutes of clear, single-
+> speaker audio. Reassure them nothing is fetched from their accounts — only the
+> files they upload are sent, and only to produce the voice.
+
+---
+
 ## Notes
+- Feature 8 (voice cloning) and server TTS require a configured provider —
+  ElevenLabs for cloning, OpenAI or ElevenLabs for premium TTS. See
+  `docs/VOICE_PROVIDERS.md` for the Railway env vars + cost estimates. Until then,
+  `capabilities.voice_clone`/`tts` are `false` and the app uses browser voices.
+- Feature 7's voice **choices/uploads are persisted by the backend** (endpoints
+  above); the actual speaking happens in the browser. Server neural TTS
+  (`/media/capabilities.tts`) is currently **off** — the app speaks with browser
+  voices until a neural provider is configured.
 - Feature 3 and Enhancements 4–6 are **frontend-only** — they reuse the existing
   vocabulary (Feature 2) and mock-interview endpoints; there is nothing new to
   call on the backend.

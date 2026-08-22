@@ -16,6 +16,7 @@ from jobsearch.api.schemas import (
     VocabularyRequest,
 )
 from jobsearch.models import (
+    CustomVoice,
     InterviewDifficulty,
     InterviewerPersona,
     InterviewerStyle,
@@ -183,6 +184,7 @@ def media_capabilities(user: CurrentUser, state: StateDep) -> dict:
     return {
         "tts": state.speech.enabled,
         "video": state.avatar_video.enabled,
+        "voice_clone": state.voice_clone.enabled,
         "personas": len(state.persona_library.all()),
     }
 
@@ -359,3 +361,83 @@ def reset_voice_pref(persona_id: str, user: CurrentUser, state: StateDep) -> Non
     if state.persona_voices.get(key) is not None:
         state.persona_voices.delete(key)
     state.documents.delete(f"voice_{user.id}_{persona_id}")
+
+
+# --- custom voices cloned from the user's audio samples ---------------------
+@router.post("/voices/custom", response_model=CustomVoice, status_code=status.HTTP_201_CREATED)
+async def create_custom_voice(
+    user: CurrentUser,
+    state: StateDep,
+    name: str = Form(...),
+    consent: bool = Form(False),
+    files: list[UploadFile] = File(...),
+) -> CustomVoice:
+    """Produce a custom neural voice from uploaded audio samples.
+
+    Requires ``consent`` — the user must affirm they own or have permission to use
+    the voice. 501 when no cloning provider is configured. Samples must be
+    web/vendor-friendly audio (mp3/wav/ogg/webm/m4a/aac). The resulting voice id
+    can be assigned to a persona (``PUT .../voice`` with source=server), then it
+    speaks the interview questions in that voice."""
+    if not state.voice_clone.enabled:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "voice cloning is not configured")
+    if not consent:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "consent required: you must own or have permission to use this voice",
+        )
+    if not name.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "name is required")
+    samples: list[bytes] = []
+    for f in files:
+        ctype = (f.content_type or "").split(";")[0].strip().lower()
+        if ctype not in _AUDIO_TYPES:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                "unsupported audio format; use mp3, wav, ogg, webm, m4a, or aac",
+            )
+        data = await f.read()
+        if not data:
+            continue
+        if len(data) > state.settings.max_upload_bytes:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"a sample exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
+            )
+        samples.append(data)
+    if not samples:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "at least one audio sample is required")
+
+    result = state.voice_clone.create(name.strip(), samples)
+    if result is None:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "voice cloning provider did not return a voice")
+    voice = CustomVoice(
+        user_id=user.id,
+        name=name.strip(),
+        provider=result.provider,
+        external_voice_id=result.external_id,
+        status=result.status,
+        consent_attested=True,
+        sample_count=len(samples),
+        preview_url=result.preview_url,
+    )
+    return state.custom_voices.add(voice)
+
+
+@router.get("/voices/custom", response_model=list[CustomVoice])
+def list_custom_voices(user: CurrentUser, state: StateDep) -> list[CustomVoice]:
+    """The user's cloned voices — assign one to a persona via its external_voice_id."""
+    return sorted(
+        state.custom_voices.find(user_id=user.id), key=lambda v: v.created_at, reverse=True
+    )
+
+
+@router.delete("/voices/custom/{voice_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_custom_voice(voice_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Delete a cloned voice (also removes it at the provider)."""
+    voice = state.custom_voices.get(voice_id)
+    if voice is None or voice.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "custom voice not found")
+    if voice.external_voice_id:
+        state.voice_clone.delete(voice.external_voice_id)
+    state.custom_voices.delete(voice.id)

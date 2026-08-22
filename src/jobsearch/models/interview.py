@@ -143,6 +143,27 @@ class PersonaVoice(DomainModel):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class CustomVoice(DomainModel):
+    """A neural voice the user produced from their own audio samples.
+
+    ``external_voice_id`` is the id the TTS provider speaks any text with, so a
+    persona set to this voice (source=server, voice_id=external_voice_id) can read
+    the dynamic interview questions in it. ``consent_attested`` records that the
+    user affirmed they own or have permission to use the voice.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("cvoice_"))
+    user_id: str
+    name: str
+    provider: str = ""  # "mock" | "elevenlabs" | ...
+    external_voice_id: str = ""
+    status: str = "ready"  # "ready" | "processing" | "failed"
+    consent_attested: bool = False
+    sample_count: int = 0
+    preview_url: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class AnswerFeedback(DomainModel):
     """Rating of a single candidate answer — content + style (0-100)."""
 

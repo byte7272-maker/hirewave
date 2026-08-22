@@ -18,6 +18,7 @@ from jobsearch.models import (
     CommunityQuestion,
     Connection,
     CoverLetter,
+    CustomVoice,
     DirectMessage,
     ExperienceHighlight,
     ExposureFinding,
@@ -62,6 +63,7 @@ class Repositories:
     community_questions: Repository[CommunityQuestion]
     experience_highlights: Repository[ExperienceHighlight]
     persona_voices: Repository[PersonaVoice]
+    custom_voices: Repository[CustomVoice]
     saved_searches: Repository[SavedSearch]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
@@ -103,6 +105,7 @@ def build_repositories(
             community_questions=InMemoryRepository(),
             experience_highlights=InMemoryRepository(),
             persona_voices=InMemoryRepository(),
+            custom_voices=InMemoryRepository(),
             saved_searches=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
@@ -144,6 +147,7 @@ def build_repositories(
         community_questions=repo("community_questions"),
         experience_highlights=repo("experience_highlights"),
         persona_voices=repo("persona_voices"),
+        custom_voices=repo("custom_voices"),
         saved_searches=repo("saved_searches"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),

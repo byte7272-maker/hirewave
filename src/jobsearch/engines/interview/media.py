@@ -71,8 +71,79 @@ class HttpSpeechProvider:
         return resp.content
 
 
+class ElevenLabsSpeechProvider:
+    """First-class ElevenLabs TTS. ``voice`` (per call) overrides the default;
+    with a cloned voice's id it speaks arbitrary text in that voice."""
+
+    enabled = True
+    _BASE = "https://api.elevenlabs.io/v1/text-to-speech"
+
+    def __init__(
+        self, api_key: str, *, voice: str = "", model: str = "", timeout: float = 30.0
+    ) -> None:
+        self._api_key = api_key
+        self._voice = voice or "21m00Tcm4TlvDq8ikWAM"  # "Rachel" — a stock voice
+        self._model = model or "eleven_turbo_v2_5"
+        self._timeout = timeout
+
+    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
+        import httpx
+
+        vid = voice or self._voice
+        try:
+            resp = httpx.post(
+                f"{self._BASE}/{vid}",
+                headers={"xi-api-key": self._api_key, "Content-Type": "application/json"},
+                json={"text": text, "model_id": self._model},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return resp.content
+
+
+class OpenAISpeechProvider:
+    """First-class OpenAI TTS (``/v1/audio/speech``). ``voice`` names a built-in
+    voice (alloy, echo, fable, onyx, nova, shimmer, …)."""
+
+    enabled = True
+    _URL = "https://api.openai.com/v1/audio/speech"
+
+    def __init__(
+        self, api_key: str, *, voice: str = "", model: str = "", timeout: float = 30.0
+    ) -> None:
+        self._api_key = api_key
+        self._voice = voice or "alloy"
+        self._model = model or "gpt-4o-mini-tts"
+        self._timeout = timeout
+
+    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
+        import httpx
+
+        try:
+            resp = httpx.post(
+                self._URL,
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json={"model": self._model, "voice": voice or self._voice, "input": text},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return resp.content
+
+
 def build_speech_provider(settings: Optional[Settings] = None) -> SpeechProvider:
     s = settings or get_settings()
+    if s.tts_provider == "elevenlabs" and s.tts_api_key:
+        return ElevenLabsSpeechProvider(
+            s.tts_api_key, voice=s.tts_voice, model=s.tts_model, timeout=s.tts_timeout_seconds
+        )
+    if s.tts_provider == "openai" and s.tts_api_key:
+        return OpenAISpeechProvider(
+            s.tts_api_key, voice=s.tts_voice, model=s.tts_model, timeout=s.tts_timeout_seconds
+        )
     if s.tts_provider == "http" and s.tts_url:
         return HttpSpeechProvider(s.tts_url, api_key=s.tts_api_key, timeout=s.tts_timeout_seconds)
     return NullSpeechProvider()
