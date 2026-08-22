@@ -26,7 +26,7 @@ _FILLER_WORDS = {
     "just", "really", "very", "stuff", "kinda", "sorta", "maybe", "right", "okay", "well",
 }
 
-# Weak / vague words → stronger, more precise alternatives (interview register).
+# Weak / vague words -> stronger, more precise alternatives (interview register).
 _WEAK: dict[str, list[str]] = {
     "responsible for": ["owned", "led", "drove"],
     "worked on": ["led", "owned", "built", "drove"],
@@ -102,7 +102,7 @@ class VocabularyAnalyzer:
             if n:
                 filler_count += n
                 suggestions.append(VocabSuggestion(original=phrase, kind="filler", count=n,
-                                                   note="Filler phrase — cut it for a crisper answer."))
+                                                   note="Filler phrase - cut it for a crisper answer."))
                 seen_phrases.add(phrase)
         for phrase, alts in _WEAK.items():
             if " " not in phrase:
@@ -111,7 +111,7 @@ class VocabularyAnalyzer:
             if n:
                 suggestions.append(VocabSuggestion(original=phrase, kind="weak", count=n,
                                                    suggestions=_sentence_case_pick(alts),
-                                                   note="Vague — lead with a strong action verb."))
+                                                   note="Vague - lead with a strong action verb."))
                 seen_phrases.add(phrase)
 
         # --- single-word fillers + weak words --------------------------------
@@ -123,13 +123,13 @@ class VocabularyAnalyzer:
             if c and not any(w in p for p in seen_phrases):
                 suggestions.append(VocabSuggestion(original=w, kind="weak", count=c,
                                                    suggestions=_sentence_case_pick(alts),
-                                                   note="Weak verb/word — a stronger choice lands better."))
+                                                   note="Weak verb/word - a stronger choice lands better."))
         for w in _FILLER_WORDS:
             c = counts.get(w, 0)
             if c:
                 filler_count += c
                 suggestions.append(VocabSuggestion(original=w, kind="filler", count=c,
-                                                   note="Filler — remove or replace with substance."))
+                                                   note="Filler - remove or replace with substance."))
 
         # --- over-used content words -----------------------------------------
         content = [w for w in lwords if w not in _STOPWORDS and w not in _FILLER_WORDS and len(w) > 3]
@@ -138,7 +138,7 @@ class VocabularyAnalyzer:
         for w, c in content_counts.items():
             if c >= overuse_threshold and w not in _WEAK:
                 suggestions.append(VocabSuggestion(original=w, kind="overused", count=c,
-                                                   note=f"Used {c}× — vary it so it doesn't feel repetitive."))
+                                                   note=f"Used {c}x - vary it so it doesn't feel repetitive."))
 
         # --- metrics + score --------------------------------------------------
         unique_content = len(set(content))
@@ -170,7 +170,7 @@ class VocabularyAnalyzer:
     @staticmethod
     def _summary(fillers: int, weak: int, overused: int, richness: float, score: int) -> str:
         if score >= 85:
-            return "Strong, precise vocabulary — keep it up."
+            return "Strong, precise vocabulary - keep it up."
         parts = []
         if fillers:
             parts.append(f"trim {fillers} filler word{'s' if fillers != 1 else ''}")
