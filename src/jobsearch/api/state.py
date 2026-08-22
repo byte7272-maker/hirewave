@@ -101,6 +101,7 @@ class AppState:
         self.experience_highlights = repos.experience_highlights
         self.persona_voices = repos.persona_voices  # per-user persona voice choices
         self.custom_voices = repos.custom_voices  # voices cloned from user samples
+        self.onboarding = repos.onboarding  # beginner Getting-Started progress
         self.documents = build_document_store(self.settings)  # uploaded résumé files
         # VerificationResults are a rebuildable cache (the plan's Redis tier), not
         # a system of record — verification is recomputed on demand when missing.

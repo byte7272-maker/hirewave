@@ -58,6 +58,7 @@ from jobsearch.models.monitoring import (
 from jobsearch.models.board import Board, BoardMember, BoardPost, member_key
 from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.notification import Notification, NotificationType
+from jobsearch.models.onboarding import OnboardingProgress
 from jobsearch.models.practice import PracticeSession, PracticeSignal, PracticeStatus
 from jobsearch.models.reminders import ReminderPrefs
 from jobsearch.models.saved_search import SavedSearch
@@ -115,6 +116,7 @@ __all__ = [
     "MonitoredIdentifier",
     "Notification",
     "NotificationType",
+    "OnboardingProgress",
     "PracticeSession",
     "PracticeSignal",
     "PracticeStatus",

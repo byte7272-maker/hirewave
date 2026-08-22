@@ -23,6 +23,7 @@ from jobsearch.api.routers import (
     jobs,
     monitoring,
     notifications,
+    onboarding,
     practice,
     reminders,
     social,
@@ -54,6 +55,7 @@ _ROUTERS = [
     applications.router,
     monitoring.router,
     notifications.router,
+    onboarding.router,
     reminders.router,
 ]
 

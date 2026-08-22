@@ -197,6 +197,14 @@ class VocabularyRequest(BaseModel):
     rewrite: bool = False
 
 
+class OnboardingStepUpdate(BaseModel):
+    status: str  # "completed" | "dismissed" | "started"
+
+
+class OnboardingHubUpdate(BaseModel):
+    dismissed: bool = True
+
+
 class PersonaVoiceUpdate(BaseModel):
     source: Optional[str] = None  # browser | server | uploaded
     voice_uri: Optional[str] = None  # browser SpeechSynthesisVoice id

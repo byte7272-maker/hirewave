@@ -34,6 +34,7 @@ from jobsearch.models import (
     MonitoredIdentifier,
     Notification,
     OAuthToken,
+    OnboardingProgress,
     PersonaVoice,
     PracticeSession,
     PracticeSignal,
@@ -93,6 +94,7 @@ _SPECS: dict[str, TableSpec] = {
         "persona_voices", PersonaVoice, "id", ("user_id", "persona_id")
     ),
     "custom_voices": TableSpec("custom_voices", CustomVoice, "id", ("user_id",)),
+    "onboarding": TableSpec("onboarding", OnboardingProgress, "user_id", ()),
     "saved_searches": TableSpec("saved_searches", SavedSearch, "id", ("user_id",)),
     "authenticity_records": TableSpec("authenticity_records", JobAuthenticityRecord, "id", ("key",)),
     "inbox_messages": TableSpec("inbox_messages", InboxMessage, "id", ("user_id",)),

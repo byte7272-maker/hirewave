@@ -30,6 +30,7 @@ from jobsearch.models import (
     MonitoredIdentifier,
     Notification,
     OAuthToken,
+    OnboardingProgress,
     PersonaVoice,
     PracticeSession,
     PracticeSignal,
@@ -64,6 +65,7 @@ class Repositories:
     experience_highlights: Repository[ExperienceHighlight]
     persona_voices: Repository[PersonaVoice]
     custom_voices: Repository[CustomVoice]
+    onboarding: Repository[OnboardingProgress]
     saved_searches: Repository[SavedSearch]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
@@ -106,6 +108,7 @@ def build_repositories(
             experience_highlights=InMemoryRepository(),
             persona_voices=InMemoryRepository(),
             custom_voices=InMemoryRepository(),
+            onboarding=InMemoryRepository(id_attr="user_id"),
             saved_searches=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
@@ -148,6 +151,7 @@ def build_repositories(
         experience_highlights=repo("experience_highlights"),
         persona_voices=repo("persona_voices"),
         custom_voices=repo("custom_voices"),
+        onboarding=repo("onboarding"),
         saved_searches=repo("saved_searches"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),
