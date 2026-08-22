@@ -84,6 +84,30 @@ class InterviewerPersona(DomainModel):
     video_url: str = ""
 
 
+class VocabSuggestion(DomainModel):
+    """One word/phrase worth changing, with stronger alternatives."""
+
+    original: str
+    kind: str  # "filler" | "weak" | "overused"
+    count: int = 1
+    suggestions: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
+class VocabularyAnalysis(DomainModel):
+    """Vocabulary analysis of a (recorded or live-transcribed) spoken answer."""
+
+    word_count: int = 0
+    unique_words: int = 0
+    vocabulary_richness: float = 0.0  # 0-1, distinct content words / content words
+    filler_count: int = 0
+    filler_ratio: float = 0.0  # fillers / total words
+    score: int = 0  # 0-100 overall vocabulary strength
+    suggestions: list[VocabSuggestion] = Field(default_factory=list)
+    polished: str = ""  # optional LLM rewrite applying the suggestions
+    summary: str = ""  # one-line coaching takeaway
+
+
 class AnswerFeedback(DomainModel):
     """Rating of a single candidate answer — content + style (0-100)."""
 

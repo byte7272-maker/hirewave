@@ -19,6 +19,7 @@ from jobsearch.engines.interview import (
     MockInterviewTrainer,
     PersonaLibrary,
     QuestionBank,
+    VocabularyAnalyzer,
     build_avatar_provider,
     build_speech_provider,
 )
@@ -131,6 +132,8 @@ class AppState:
         self.mock_trainer = MockInterviewTrainer(
             llm=llm, persona_library=self.persona_library, question_bank=self.question_bank
         )
+        # Vocabulary analysis for recorded / live-transcribed spoken answers.
+        self.vocabulary = VocabularyAnalyzer(llm=llm)
         self.community = CommunityQuestionEngine(repo=repos.community_questions)
         self.matching = MatchingEngine(embedder=embedder)
         self.verification = VerificationEngine()

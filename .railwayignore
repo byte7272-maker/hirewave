@@ -1,0 +1,23 @@
+# Keep `railway up` uploads small — never send deps, build output, or secrets.
+node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.git/
+dist/
+out/
+*.local
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+data/
+*.sqlite
+*.db
+frontend/
+webapp/node_modules/
+railway-variables.txt
+_jwt_hex_values.txt
+deploy/secrets/

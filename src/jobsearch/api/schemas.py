@@ -166,6 +166,14 @@ class MockInterviewReplyRequest(BaseModel):
     response_seconds: Optional[float] = None
 
 
+class VocabularyRequest(BaseModel):
+    #: The transcript to analyze — a recorded answer or the running text from
+    #: live speech-to-text.
+    text: str
+    #: When true (and an LLM is configured), also return a polished rewrite.
+    rewrite: bool = False
+
+
 class TtsRequest(BaseModel):
     text: str
     voice: str = ""  # provider voice id; blank = provider default

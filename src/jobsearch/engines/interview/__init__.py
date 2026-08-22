@@ -16,10 +16,12 @@ from jobsearch.engines.interview.mock_interview import MockInterviewTrainer
 from jobsearch.engines.interview.persona_library import PersonaLibrary
 from jobsearch.engines.interview.question_bank import QuestionBank
 from jobsearch.engines.interview.rating import rate_answer
+from jobsearch.engines.interview.vocabulary import VocabularyAnalyzer
 
 __all__ = [
     "AvatarVideoProvider",
     "CommunityQuestionEngine",
+    "VocabularyAnalyzer",
     "HttpAvatarVideoProvider",
     "HttpSpeechProvider",
     "InterviewEngine",

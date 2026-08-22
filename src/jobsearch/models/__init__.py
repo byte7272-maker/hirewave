@@ -37,6 +37,8 @@ from jobsearch.models.interview import (
     MockInterviewSummary,
     QuestionCategory,
     SessionStatus,
+    VocabSuggestion,
+    VocabularyAnalysis,
 )
 from jobsearch.models.job import JobPosting, VerificationFlag, VerificationResult
 from jobsearch.models.monitoring import (
@@ -112,6 +114,8 @@ __all__ = [
     "Resume",
     "SessionStatus",
     "Severity",
+    "VocabSuggestion",
+    "VocabularyAnalysis",
     "ResumeFormat",
     "ResumeSource",
     "User",

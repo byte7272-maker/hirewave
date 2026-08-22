@@ -60,15 +60,55 @@ Screens: **Applications board** (Draft → Submitted → Interviewing → Offer)
 - `DELETE /api/v1/applications/{id}`.
 
 ## 6. AI mock interviews & personas  ← (currently missing on Readdy)
-Screens: **Interview prep**, **Mock interview room with an AI interviewer persona** (avatar + voice).
-- `GET /api/v1/interview/personas` → the AI interviewer characters (name, role, style, avatar).
-- `POST /api/v1/interview/prep` `{resume_id?, job_posting_id?, count}` → likely questions to study.
-- `POST /api/v1/interview/mock/start` `{persona_id?, style?, difficulty?, max_questions, job_posting_id?}` → start a session.
-- `POST /api/v1/interview/mock/{id}/reply` `{answer, response_seconds?}` → answer; returns the persona's follow-up + feedback.
+Screens: **Persona gallery / pick an interviewer**, **Mock interview room**, **Interview prep**.
+
+### Persona gallery (build this page)
+- `GET /api/v1/interview/personas` → an **array of interviewer characters**. Each has
+  `id`, `name`, `role`, `company`, `bio` (a 1-sentence **description**), `difficulty`
+  (`easy` | `normal` | `hard`), `style`, `initials`, `gender`, and **`avatar_url`**
+  (a ready image URL — render `<img src={avatar_url}>`).
+- **Render a card per persona:** avatar image, name + role, the `bio`, and a
+  **difficulty badge** (easy = green, normal = amber, hard = red — some are gentle
+  warm-ups, others grill you). Clicking a card starts an interview with it.
+- **Résumé-first indicator:** above the gallery, call `GET /api/v1/resumes`. If it
+  returns an **empty array**, show a banner: *"Upload your résumé first so your
+  questions match your experience"* (link to §2). If non-empty, show "Using your
+  résumé: <name>". Questions are grounded in the **résumé + the job's industry**,
+  so this genuinely changes them.
+
+### Running an interview
+- `POST /api/v1/interview/mock/start` `{persona_id, resume_id?, job_posting_id?, max_questions}`
+  → start with the chosen persona; pass `resume_id` + `job_posting_id` for tailored
+  questions. (`difficulty` is optional — defaults to the persona's own.)
+- `POST /api/v1/interview/mock/{id}/reply` `{answer, response_seconds?}` → the persona's
+  follow-up + per-answer feedback; `status` becomes `completed` with a `summary` at the end.
 - `GET /api/v1/interview/mock/{id}` (transcript) · `GET /api/v1/interview/mock` (past sessions).
-- `GET /api/v1/interview/media/capabilities` → whether voice/video are enabled.
-- `POST /api/v1/interview/tts` `{text, voice}` → natural voice audio for the interviewer.
+
+### Prep + media
+- `POST /api/v1/interview/prep` `{resume_id?, job_posting_id?, count}` → likely questions +
+  suggested answers (also grounded in résumé + job).
+- `GET /api/v1/interview/media/capabilities` → `{tts, video, personas}` (persona count).
+- `POST /api/v1/interview/tts` `{text, voice}` → interviewer voice audio (when configured).
 - `POST /api/v1/interview/video` `{text, persona}` → talking-avatar video (when configured).
+
+### Vocabulary analysis (recorded / live-transcribed answers)
+- `POST /api/v1/interview/vocabulary` `{text, rewrite?}` → analyzes the words in a
+  spoken answer and suggests replacements. **Use this on the transcript of a
+  recorded response, or on the running text from live speech-to-text** (it's
+  deterministic and fast — safe to call as the candidate speaks, e.g. debounced
+  every ~1–2s). Response:
+  - `score` (0–100 vocabulary strength), `summary` (one-line coaching takeaway).
+  - `word_count`, `unique_words`, `vocabulary_richness` (0–1), `filler_count`,
+    `filler_ratio`.
+  - `suggestions[]` — each `{original, kind, count, suggestions[], note}` where
+    `kind` is `"filler"` | `"weak"` | `"overused"`. For `weak` items, `suggestions`
+    holds stronger word choices (e.g. "responsible for" → owned / led / drove);
+    for `filler`/`overused`, `suggestions` may be empty and `note` explains the fix.
+    **Render these as inline word-replacement chips** (tap a suggestion to swap it
+    into the transcript), and show the score + filler count as live meters.
+  - `polished` — only when `rewrite: true` is sent **and** an LLM is configured: a
+    full rewrite of the answer with the stronger wording (use for a one-tap
+    "Polish my answer" button, not on every keystroke).
 
 ## 7. Crowdsourced interview questions
 Screen: **Community questions** (search by job title, contribute, upvote).

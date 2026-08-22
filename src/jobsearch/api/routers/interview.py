@@ -11,6 +11,7 @@ from jobsearch.api.schemas import (
     MockInterviewReplyRequest,
     MockInterviewStartRequest,
     TtsRequest,
+    VocabularyRequest,
 )
 from jobsearch.models import (
     InterviewDifficulty,
@@ -20,6 +21,7 @@ from jobsearch.models import (
     MockInterviewSession,
     SessionStatus,
     UserProfile,
+    VocabularyAnalysis,
 )
 
 router = APIRouter(prefix="/api/v1/interview", tags=["interview"])
@@ -130,6 +132,20 @@ def get_mock(session_id: str, user: CurrentUser, state: StateDep) -> MockIntervi
 @router.get("/mock", response_model=list[MockInterviewSession])
 def list_mock(user: CurrentUser, state: StateDep) -> list[MockInterviewSession]:
     return state.mock_interviews.find(user_id=user.id)
+
+
+@router.post("/vocabulary", response_model=VocabularyAnalysis)
+def analyze_vocabulary(
+    body: VocabularyRequest, user: CurrentUser, state: StateDep
+) -> VocabularyAnalysis:
+    """Analyze the vocabulary of a spoken answer (recorded or live-transcribed).
+
+    Returns filler words, weak/vague words with stronger alternatives, over-used
+    words, a richness metric and a 0-100 strength score. Deterministic and fast
+    enough to call on a live transcript as the user speaks; pass ``rewrite: true``
+    to also get an LLM-polished version of the whole answer.
+    """
+    return state.vocabulary.analyze(body.text, rewrite=body.rewrite)
 
 
 # --- user-directed media + persona sources ----------------------------------
