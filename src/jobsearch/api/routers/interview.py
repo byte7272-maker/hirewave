@@ -209,7 +209,11 @@ def synthesize_tts(body: TtsRequest, user: CurrentUser, state: StateDep) -> Resp
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "text is empty")
     audio = state.speech.synthesize(body.text, voice=body.voice)
     if audio is None:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "voice source did not return audio")
+        detail = "voice source did not return audio"
+        err = getattr(state.speech, "last_error", "")
+        if err:
+            detail = f"{detail} ({err})"
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
     return Response(
         content=audio,
         media_type=state.settings.tts_media_type,

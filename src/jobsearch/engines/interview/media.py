@@ -85,6 +85,7 @@ class ElevenLabsSpeechProvider:
         self._voice = voice or "21m00Tcm4TlvDq8ikWAM"  # "Rachel" — a stock voice
         self._model = model or "eleven_turbo_v2_5"
         self._timeout = timeout
+        self.last_error = ""
 
     def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
         import httpx
@@ -98,8 +99,13 @@ class ElevenLabsSpeechProvider:
                 timeout=self._timeout,
             )
             resp.raise_for_status()
-        except httpx.HTTPError:
+        except httpx.HTTPStatusError as e:
+            self.last_error = f"{e.response.status_code}: {e.response.text[:300]}"
             return None
+        except httpx.HTTPError as e:
+            self.last_error = str(e)[:300]
+            return None
+        self.last_error = ""
         return resp.content
 
 
@@ -115,8 +121,11 @@ class OpenAISpeechProvider:
     ) -> None:
         self._api_key = api_key
         self._voice = voice or "alloy"
-        self._model = model or "gpt-4o-mini-tts"
+        # tts-1 is universally available + cheapest; opt into gpt-4o-mini-tts via
+        # JOBSEARCH_TTS_MODEL when the account has it.
+        self._model = model or "tts-1"
         self._timeout = timeout
+        self.last_error = ""
 
     def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
         import httpx
@@ -129,8 +138,13 @@ class OpenAISpeechProvider:
                 timeout=self._timeout,
             )
             resp.raise_for_status()
-        except httpx.HTTPError:
+        except httpx.HTTPStatusError as e:
+            self.last_error = f"{e.response.status_code}: {e.response.text[:300]}"
             return None
+        except httpx.HTTPError as e:
+            self.last_error = str(e)[:300]
+            return None
+        self.last_error = ""
         return resp.content
 
 
