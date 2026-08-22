@@ -34,8 +34,10 @@ def generate_prep(
     """Generate likely interview questions + suggested answers.
 
     Answers are grounded in the selected résumé's text (an uploaded PDF/DOCX,
-    or a generated résumé) when available, otherwise the structured profile.
-    Optionally tailored to a target job posting.
+    or a generated résumé) when available, otherwise the structured profile —
+    plus any work-experience highlights the user has brought in (self-written or
+    produced by an AI agent in their work environment). Optionally tailored to a
+    target job posting.
     """
     profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
 
@@ -51,7 +53,14 @@ def generate_prep(
         if job is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
 
-    return state.interview.generate(profile, resume=resume, job=job, count=body.count)
+    experience_context = state.experience.context_text(user.id)
+    return state.interview.generate(
+        profile,
+        resume=resume,
+        job=job,
+        count=body.count,
+        experience_context=experience_context,
+    )
 
 
 # --- mock interview trainer -------------------------------------------------

@@ -19,6 +19,7 @@ from jobsearch.models import (
     Connection,
     CoverLetter,
     DirectMessage,
+    ExperienceHighlight,
     ExposureFinding,
     InboxMessage,
     Invite,
@@ -58,6 +59,7 @@ class Repositories:
     monitored_identifiers: Repository[MonitoredIdentifier]
     exposure_findings: Repository[ExposureFinding]
     community_questions: Repository[CommunityQuestion]
+    experience_highlights: Repository[ExperienceHighlight]
     saved_searches: Repository[SavedSearch]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
@@ -97,6 +99,7 @@ def build_repositories(
             monitored_identifiers=InMemoryRepository(),
             exposure_findings=InMemoryRepository(),
             community_questions=InMemoryRepository(),
+            experience_highlights=InMemoryRepository(),
             saved_searches=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
@@ -136,6 +139,7 @@ def build_repositories(
         monitored_identifiers=repo("monitored_identifiers"),
         exposure_findings=repo("exposure_findings"),
         community_questions=repo("community_questions"),
+        experience_highlights=repo("experience_highlights"),
         saved_searches=repo("saved_searches"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),

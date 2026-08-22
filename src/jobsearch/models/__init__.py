@@ -7,6 +7,11 @@ maps them to PostgreSQL / MongoDB rows; the engines operate on them directly.
 from jobsearch.models.application import Application, ApplicationStatus
 from jobsearch.models.common import new_id, utcnow
 from jobsearch.models.document import CoverLetter, Resume, ResumeFormat, ResumeSource
+from jobsearch.models.experience import (
+    ExperienceHighlight,
+    ExperienceKind,
+    ExperienceSource,
+)
 from jobsearch.models.authenticity import (
     EmployerStatus,
     JobAuthenticityRecord,
@@ -80,6 +85,9 @@ __all__ = [
     "Connection",
     "DirectMessage",
     "EmployerStatus",
+    "ExperienceHighlight",
+    "ExperienceKind",
+    "ExperienceSource",
     "InboxMessage",
     "Invite",
     "InviteStatus",

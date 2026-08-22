@@ -34,6 +34,7 @@ from jobsearch.engines.assistant import AssistantEngine, AutoApplyEngine, DraftP
 from jobsearch.engines.authenticity import JobAuthenticityEngine, build_employer_verifier
 from jobsearch.engines.boards import BoardsEngine
 from jobsearch.engines.email_sender import build_email_sender
+from jobsearch.engines.experience import ExperienceEngine
 from jobsearch.engines.gmail_fetch import build_gmail_fetcher
 from jobsearch.engines.inbox import InboxEngine
 from jobsearch.engines.practice import PracticeEngine
@@ -96,6 +97,7 @@ class AppState:
         self.monitored_identifiers = repos.monitored_identifiers
         self.exposure_findings = repos.exposure_findings
         self.community_questions = repos.community_questions
+        self.experience_highlights = repos.experience_highlights
         self.documents = build_document_store(self.settings)  # uploaded résumé files
         # VerificationResults are a rebuildable cache (the plan's Redis tier), not
         # a system of record — verification is recomputed on demand when missing.
@@ -134,6 +136,9 @@ class AppState:
         )
         # Vocabulary analysis for recorded / live-transcribed spoken answers.
         self.vocabulary = VocabularyAnalyzer(llm=llm)
+        # User-brought work-experience highlights (self-written or produced by an
+        # AI agent in the user's own work environment) → interview grounding.
+        self.experience = ExperienceEngine(repo=repos.experience_highlights)
         self.community = CommunityQuestionEngine(repo=repos.community_questions)
         self.matching = MatchingEngine(embedder=embedder)
         self.verification = VerificationEngine()

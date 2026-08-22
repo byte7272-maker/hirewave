@@ -130,6 +130,29 @@ class CoverLetterUpdate(BaseModel):
     approved: Optional[bool] = None
 
 
+# --- work-experience highlights ---------------------------------------------
+class ExperienceCreate(BaseModel):
+    content: str  # the highlight / story / analysis text
+    title: str = ""
+    kind: str = "highlight"  # highlight|story|project|analysis|interaction|achievement
+    source: str = "self_written"  # self_written|ai_generated|imported
+    source_tool: str = ""  # e.g. "Microsoft 365 Copilot", "Glean" (for ai_generated)
+    skills: list[str] = []
+    company: str = ""
+    period: str = ""
+
+
+class ExperienceUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+    kind: Optional[str] = None
+    source: Optional[str] = None
+    source_tool: Optional[str] = None
+    skills: Optional[list[str]] = None
+    company: Optional[str] = None
+    period: Optional[str] = None
+
+
 # --- applications -----------------------------------------------------------
 class ApplicationCreate(BaseModel):
     job_posting_id: str

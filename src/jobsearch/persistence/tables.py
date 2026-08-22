@@ -23,6 +23,7 @@ from jobsearch.models import (
     Connection,
     CoverLetter,
     DirectMessage,
+    ExperienceHighlight,
     ExposureFinding,
     InboxMessage,
     Invite,
@@ -82,6 +83,9 @@ _SPECS: dict[str, TableSpec] = {
     ),
     "community_questions": TableSpec(
         "community_questions", CommunityQuestion, "id", ("user_id", "job_title_key")
+    ),
+    "experience_highlights": TableSpec(
+        "experience_highlights", ExperienceHighlight, "id", ("user_id",)
     ),
     "saved_searches": TableSpec("saved_searches", SavedSearch, "id", ("user_id",)),
     "authenticity_records": TableSpec("authenticity_records", JobAuthenticityRecord, "id", ("key",)),

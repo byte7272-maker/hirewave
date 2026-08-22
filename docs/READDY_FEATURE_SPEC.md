@@ -37,6 +37,42 @@ Screens: **Documents / Résumé manager** — upload, generate, edit, download.
 - `POST /api/v1/cover-letters/generate` `{job_posting_id, resume_id?, tone}` → AI cover letter.
 - `GET·PUT /api/v1/cover-letters/{id}`.
 
+## 2b. Work-experience highlights  ← (NEW — build this section)
+Screen: **My Work Highlights** (a card list under Documents or Profile, or its own sidebar item).
+
+**What it is (show this framing to users):** a place to bring in richer narrative
+work material than a résumé's bullets — accomplishment **highlights**, STAR-style
+**stories**, **project** write-ups, **analyses**, notable **interactions**. The
+content is either **self-written** or **produced by an AI agent inside the user's
+own work environment** (e.g. Microsoft 365 Copilot, Glean, a Teams/email
+assistant) — a tool with legitimate access to their real work email, chats, and
+software that can surface past projects, results, and interactions they'd
+forgotten. **The platform never connects to those work tools or handles work
+credentials** — the user runs their own work agent, then pastes or uploads the
+finished summary here and attests to it. These highlights automatically enrich
+interview prep (below): suggested answers can then reference real work the
+candidate might not have recalled.
+
+- `GET /api/v1/experience` → list the user's highlights (newest first). Each:
+  `{id, title, content, kind, source, source_tool, skills[], company, period,
+  original_filename, created_at}`.
+  - `kind` ∈ `highlight | story | project | analysis | interaction | achievement`
+  - `source` ∈ `self_written | ai_generated | imported`
+  - `source_tool` = free text label of the AI tool that wrote it (e.g. "Microsoft
+    365 Copilot") — show it as a small provenance chip on ai_generated items.
+- `POST /api/v1/experience` `{content, title?, kind?, source?, source_tool?, skills?[], company?, period?}`
+  → add a pasted highlight (content min 10 chars, else 400). **Give users a
+  "paste from your work AI assistant" text box + a source picker (self-written /
+  AI-generated) + an optional "which tool?" field.**
+- `POST /api/v1/experience/upload` → **multipart file** (PDF/DOCX/MD/TXT) an AI
+  agent exported; text is extracted and stored. Form fields: `title, kind, source
+  (default imported), source_tool, company, period`.
+- `GET /api/v1/experience/{id}` · `PUT /api/v1/experience/{id}` (edit any field) ·
+  `DELETE /api/v1/experience/{id}`.
+- ⚠️ **Do NOT** offer to connect to the user's work email/Teams/etc. from here —
+  that stays inside their employer's environment. This section only accepts the
+  content they bring.
+
 ## 3. Job search & AI matches
 Screens: **Search jobs**, **Matches (ranked)**, **Job detail**.
 - `POST /api/v1/job-search/run` `{role, location, remote, sources[]}` → aggregate jobs from multiple sites.
@@ -86,7 +122,10 @@ Screens: **Persona gallery / pick an interviewer**, **Mock interview room**, **I
 
 ### Prep + media
 - `POST /api/v1/interview/prep` `{resume_id?, job_posting_id?, count}` → likely questions +
-  suggested answers (also grounded in résumé + job).
+  suggested answers (grounded in résumé + job **+ the user's work-experience
+  highlights from §2b** — no extra params needed; the backend folds them in
+  automatically). `based_on_document: true` when answers were grounded in the
+  résumé or highlights.
 - `GET /api/v1/interview/media/capabilities` → `{tts, video, personas}` (persona count).
 - `POST /api/v1/interview/tts` `{text, voice}` → interviewer voice audio (when configured).
 - `POST /api/v1/interview/video` `{text, persona}` → talking-avatar video (when configured).

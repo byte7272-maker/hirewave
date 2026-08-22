@@ -57,11 +57,16 @@ class InterviewEngine:
         resume: Optional[Resume] = None,
         job: Optional[JobPosting] = None,
         count: int = 6,
+        experience_context: str = "",
     ) -> InterviewPrep:
         count = max(3, min(count, 12))
         document_text = (resume.rendered_text if resume else "").strip()
-        based_on_document = bool(document_text)
-        context = document_text or profile.to_context_text()
+        extra = (experience_context or "").strip()
+        # Answers count as document-grounded when we have either the résumé text
+        # or the user's brought-in work-experience highlights.
+        based_on_document = bool(document_text or extra)
+        base = document_text or profile.to_context_text()
+        context = f"{base}\n\n{extra}" if extra else base
 
         questions = self._derive_questions(profile, job)[:count]
         for q in questions:
