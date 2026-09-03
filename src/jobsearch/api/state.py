@@ -228,6 +228,7 @@ class AppState:
             documents=self.documents,
             settings=self.settings,
             notifier=self.notifications.add,
+            screener=self.screener,
         )
         self.draft_prep = DraftPrepEngine(
             generation=self.generation,

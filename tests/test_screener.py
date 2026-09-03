@@ -77,6 +77,36 @@ def test_learns_then_autofills_next_application():
     assert res[0]["answer"] == "Yes" and res[1]["answer"] == "15"
 
 
+# --- integration: form-fill uses the screener memory -----------------------
+def test_form_fill_uses_screener_and_license_rule():
+    from jobsearch.engines.assistant.form_fill import FormField, FormFillEngine
+    from jobsearch.models import User, UserProfile
+
+    mem = ScreenerMemory()
+    user = User(email="s@demo.com", full_name="Sam Dev")
+    mem.learn(user.id, "How many years of Security and Investigations experience do you currently have?", "15")
+    mem.learn(user.id, "Do you have a valid driver's license?", "Yes")
+
+    fields = [
+        FormField(name="q_sec", label="Years of security experience?", required=True),
+        FormField(name="q_lic", label="Do you have a valid driver's license?", type="select"),
+        FormField(name="q_licnum", label="Driver's license number", type="text"),
+        FormField(name="q_new", label="What is your expected salary?"),
+    ]
+    plan = FormFillEngine().plan(
+        user, UserProfile(user_id=user.id), fields,
+        screener_suggest=lambda q: mem.suggest(user.id, q),
+    )
+    by = {e.field: e for e in plan.entries}
+    # screener auto-filled the two known questions
+    assert by["q_sec"].status == "filled" and by["q_sec"].value == "15" and by["q_sec"].source == "screener"
+    assert by["q_lic"].status == "filled" and by["q_lic"].value == "Yes"
+    # a license *number* is still refused as a credential
+    assert by["q_licnum"].status == "blocked"
+    # a brand-new question is left for the user, never guessed
+    assert by["q_new"].status == "needs_input"
+
+
 # --- API --------------------------------------------------------------------
 def _client():
     return TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))

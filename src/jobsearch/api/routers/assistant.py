@@ -74,7 +74,11 @@ def _prepare(job_id, user, state, fields_in):
             resume_data = b""
     covers = state.cover_letters.find(user_id=user.id)
     cover_text = sorted(covers, key=lambda c: c.id)[-1].content if covers else ""
-    plan = state.assistant.autofill(account, profile, fields, job_id=job_id, resume_name=resume_name, cover_text=cover_text)
+    plan = state.assistant.autofill(
+        account, profile, fields, job_id=job_id, resume_name=resume_name, cover_text=cover_text,
+        # Auto-fill recurring screener questions from the user's learned answers.
+        screener_suggest=lambda q: state.screener.suggest(user.id, q),
+    )
     return account, plan, resume_name, resume_data
 
 

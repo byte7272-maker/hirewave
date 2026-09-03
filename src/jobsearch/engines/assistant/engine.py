@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from jobsearch.engines.assistant.form_fill import FillPlan, FormField, FormFillEngine
 from jobsearch.engines.assistant.live_fill import LiveFillEngine, LiveFillResult
@@ -82,8 +82,12 @@ class AssistantEngine:
         job_id: Optional[str] = None,
         resume_name: str = "",
         cover_text: str = "",
+        screener_suggest: Optional[Callable[[str], Optional[dict]]] = None,
     ) -> FillPlan:
-        plan = self.form_fill.plan(user, profile, fields, resume_name=resume_name, cover_text=cover_text)
+        plan = self.form_fill.plan(
+            user, profile, fields, resume_name=resume_name, cover_text=cover_text,
+            screener_suggest=screener_suggest,
+        )
         self.record(
             user.id, "autofill", job_id=job_id, status="proposed",
             detail=f"{plan.filled} auto-filled · {plan.needs_input} for you · {plan.blocked} refused (credentials)",

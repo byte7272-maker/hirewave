@@ -15,13 +15,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from jobsearch.models import User, UserProfile
 
 _CREDENTIAL = re.compile(
     r"password|passphrase|\bpin\b|ssn|social security|national id|tax id|passport|"
-    r"driver'?s? licen|credit card|card number|\bcvv\b|\bcvc\b|routing|bank account|"
+    # A driver's-license *number/id* is a credential; a yes/no 'do you have a
+    # license?' is a screener question (handled by the screener memory), so only
+    # block when it's clearly asking for the number/id.
+    r"driver'?s? licen[sc]e\s*(?:number|no\b|#|id\b)|"
+    r"credit card|card number|\bcvv\b|\bcvc\b|routing|bank account|"
     r"account number|security code|mother'?s maiden",
     re.IGNORECASE,
 )
@@ -83,6 +87,7 @@ class FormFillEngine:
         *,
         resume_name: str = "",
         cover_text: str = "",
+        screener_suggest: Optional[Callable[[str], Optional[dict]]] = None,
     ) -> FillPlan:
         prefs = profile.preferences
         location = user.location or (prefs.target_locations[0] if prefs.target_locations else "")
@@ -107,11 +112,24 @@ class FormFillEngine:
             value, source = self._resolve(key, f, user, profile, location, salary, resume_name, cover_text)
             if value:
                 plan.entries.append(FillEntry(field=f.name, label=f.label or f.name, value=value, source=source, status="filled"))
-            else:
+                continue
+
+            # Not in the profile — try the learned screener-answer memory (a prior
+            # application's answer to this same question). Reviewed before submit.
+            hit = screener_suggest(f.label or f.name) if screener_suggest else None
+            if hit and hit.get("answer"):
                 plan.entries.append(FillEntry(
-                    field=f.name, label=f.label or f.name, value="", source="", status="needs_input",
-                    reason="Not in your profile — fill this in yourself (we don't guess).",
+                    field=f.name, label=f.label or f.name, value=str(hit["answer"]),
+                    source="screener", status="filled",
+                    reason=f"From your saved answers (matched \"{hit.get('matched_question', '')}\", "
+                           f"{int(hit.get('confidence', 0) * 100)}% match) — check it's right.",
                 ))
+                continue
+
+            plan.entries.append(FillEntry(
+                field=f.name, label=f.label or f.name, value="", source="", status="needs_input",
+                reason="Not in your profile — fill this in yourself (we don't guess).",
+            ))
         return plan
 
     def _resolve(self, key, f, user, profile, location, salary, resume_name, cover_text) -> tuple[str, str]:

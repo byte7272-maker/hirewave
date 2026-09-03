@@ -109,8 +109,11 @@ class AutoApplyEngine:
         driver_builder: DriverBuilder = build_browser_driver,
         notifier: Optional[Callable] = None,
         event_notifier: Optional[Callable[[str, int, list], None]] = None,
+        screener=None,
     ) -> None:
         self.assistant = assistant
+        #: Learned screener-answer memory; auto-fills recurring form questions.
+        self.screener = screener
         self.sessions = sessions
         self.grants = grants or InMemoryRepository()
         self.users = users
@@ -262,7 +265,11 @@ class AutoApplyEngine:
                     resume_data = b""
         covers = self.cover_letters.find(user_id=user.id)
         cover_text = sorted(covers, key=lambda c: c.id)[-1].content if covers else ""
-        plan = self._form_fill.plan(user, profile, demo_application_form(), resume_name=resume_name, cover_text=cover_text)
+        suggest = (lambda q: self.screener.suggest(user.id, q)) if self.screener else None
+        plan = self._form_fill.plan(
+            user, profile, demo_application_form(), resume_name=resume_name,
+            cover_text=cover_text, screener_suggest=suggest,
+        )
         return plan, resume_name, resume_data
 
     def _record_application(self, user_id: str, job: JobPosting, confirmation: str) -> None:
