@@ -1,97 +1,133 @@
-"""Connect a provider session — run this on YOUR OWN machine.
+"""Local session-capture helper — ``python -m jobsearch.connect``.
 
-    python -m jobsearch.connect linkedin --api https://api.hirewave.com --token <JWT>
+Connects a job site (LinkedIn, Indeed, …) to Hirewave so the assistant can act on
+your behalf, **without your password ever leaving your machine**:
 
-It opens a real browser to the provider's login page. **You** log in (the
-password is typed into the provider's own page — this tool never sees it). Once
-you're in, it captures the browser's ``storage_state`` (cookies only) and either
-uploads it to your account (encrypted at rest) or saves it to a file.
+1. The Hirewave app's *Connect* dialog gives you a short-lived pairing **code**.
+2. This helper opens the provider's *real* login page in a browser on your own
+   computer. You log in normally — your password goes to the provider, never to
+   Hirewave or this script.
+3. It then captures **only the session cookies** (Playwright ``storage_state``)
+   and hands them to Hirewave against the pairing code. No login token needed.
 
-The uploaded session is what lets the assistant auto-apply on your behalf, under
-the limits of the grants you create — without this app ever handling a password.
+Usage::
 
-Requires the automation extra locally:  pip install .[automation]  &&  playwright install chromium
+    python -m jobsearch.connect --provider linkedin --code <PAIRING_CODE>
+
+Requires Playwright (a one-time setup)::
+
+    pip install playwright
+    python -m playwright install chromium
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
+import os
+import urllib.error
 import urllib.request
 
-# Where each provider's sign-in lives, and a hint that we've landed post-login.
-PROVIDERS = {
-    "linkedin": {"login": "https://www.linkedin.com/login", "signed_in": "/feed"},
-    "indeed": {"login": "https://secure.indeed.com/account/login", "signed_in": "indeed.com"},
-    "glassdoor": {"login": "https://www.glassdoor.com/profile/login_input.htm", "signed_in": "glassdoor.com/member"},
+# Where the Hirewave API lives (override with --api-base or HIREWAVE_API_BASE).
+_DEFAULT_API = os.environ.get(
+    "HIREWAVE_API_BASE", "https://hirewave-production-3db3.up.railway.app"
+)
+
+# Real provider login pages — you authenticate here, on their own site.
+_LOGIN_URLS = {
+    "linkedin": "https://www.linkedin.com/login",
+    "indeed": "https://secure.indeed.com/account/login",
+    "glassdoor": "https://www.glassdoor.com/profile/login_input.htm",
+    "ziprecruiter": "https://www.ziprecruiter.com/authn/login",
+    "dice": "https://www.dice.com/dashboard/login",
+    "greenhouse": "https://app.greenhouse.io/users/sign_in",
+    "workday": "https://www.workday.com/en-us/signin.html",
 }
 
 
-def capture(provider: str, *, timeout_s: int = 300) -> str:  # pragma: no cover - interactive browser
-    """Open a headed browser, let the user log in, return the storage_state JSON."""
+def submit(api_base: str, code: str, provider: str, storage_state: str, label: str) -> dict:
+    """Hand the captured session to Hirewave against the pairing code."""
+    url = api_base.rstrip("/") + "/api/v1/auto-apply/sessions/connect"
+    payload = json.dumps(
+        {"code": code, "storage_state": storage_state, "label": label}
+    ).encode()
+    req = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:  # pragma: no cover - network
+        detail = exc.read().decode(errors="replace")
+        raise SystemExit(f"Hirewave rejected the connection ({exc.code}): {detail}")
+    except urllib.error.URLError as exc:  # pragma: no cover - network
+        raise SystemExit(f"Couldn't reach Hirewave at {api_base}: {exc.reason}")
+
+
+def capture(provider: str, *, headless: bool = False) -> str:
+    """Open the provider's real login; after you sign in, return the session JSON."""
     try:
         from playwright.sync_api import sync_playwright
-    except ImportError as exc:
+    except ImportError:  # pragma: no cover - optional dependency
         raise SystemExit(
-            "playwright is required locally: pip install .[automation] && playwright install chromium"
-        ) from exc
+            "Playwright is required for the capture step. Install it once:\n"
+            "    pip install playwright\n"
+            "    python -m playwright install chromium"
+        )
 
-    conf = PROVIDERS.get(provider)
-    if conf is None:
-        raise SystemExit(f"unknown provider '{provider}'. Known: {', '.join(PROVIDERS)}")
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False)
-        ctx = browser.new_context()
-        page = ctx.new_page()
-        page.goto(conf["login"], wait_until="domcontentloaded")
-        print(f"\nA browser opened at the {provider} login page.")
-        print("Log in there (your password stays in the provider's page — this tool never sees it).")
-        input("When you're fully logged in, come back here and press Enter to capture the session... ")
-        state = ctx.storage_state()
+    login_url = _LOGIN_URLS.get(provider.lower()) or f"https://www.{provider.lower()}.com"
+    with sync_playwright() as p:  # pragma: no cover - drives a real browser
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context()
+        page = context.new_page()
+        page.goto(login_url, wait_until="domcontentloaded")
+        print(f"\n  A browser window opened at the {provider} login page.")
+        print(f"  -> Log in normally. Your password is entered on {provider}'s own")
+        print("     site — Hirewave and this script never see it.")
+        print("  -> When you are fully logged in, return here and press Enter.\n")
+        try:
+            input("  Press Enter once you're logged in (Ctrl+C to cancel)... ")
+        except (KeyboardInterrupt, EOFError):
+            browser.close()
+            raise SystemExit("\nCancelled — nothing was sent.")
+        state = context.storage_state()
         browser.close()
     return json.dumps(state)
 
 
-def upload(api_base: str, token: str, provider: str, storage_state: str, label: str = "") -> dict:
-    """POST the captured session to the account (over HTTPS)."""
-    url = api_base.rstrip("/") + "/api/v1/auto-apply/sessions"
-    payload = json.dumps({"provider": provider, "storage_state": storage_state, "label": label}).encode()
-    req = urllib.request.Request(
-        url, data=payload, method="POST",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+def main(argv: "list[str] | None" = None) -> None:
+    ap = argparse.ArgumentParser(
+        prog="python -m jobsearch.connect",
+        description="Connect a job site to Hirewave (your password stays on your machine).",
     )
-    with urllib.request.urlopen(req) as resp:  # noqa: S310 - user-supplied API base
-        return json.loads(resp.read().decode())
-
-
-def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(prog="python -m jobsearch.connect", description="Connect a provider session (no password leaves your machine).")
-    ap.add_argument("provider", choices=sorted(PROVIDERS), help="which provider to connect")
-    ap.add_argument("--api", help="API base URL, e.g. https://api.hirewave.com (omit to just save a file)")
-    ap.add_argument("--token", help="your API access token (JWT) — required with --api")
-    ap.add_argument("--label", default="", help="a label to recognize this session (e.g. your account email)")
-    ap.add_argument("--save", help="write the storage_state to this file instead of/as well as uploading")
+    ap.add_argument("--provider", required=True, help="linkedin | indeed | glassdoor | ...")
+    ap.add_argument("--code", help="the pairing code from the Hirewave Connect dialog")
+    ap.add_argument("--api-base", default=_DEFAULT_API, help="Hirewave API base URL")
+    ap.add_argument("--label", default="", help="a label to recognize this account (e.g. your email)")
+    ap.add_argument(
+        "--headless", action="store_true",
+        help="(advanced) run without a visible window — not recommended for login",
+    )
     args = ap.parse_args(argv)
 
-    storage_state = capture(args.provider)
+    code = (args.code or "").strip()
+    if not code:
+        try:
+            code = input("Paste the pairing code from Hirewave's Connect dialog: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            raise SystemExit("\nCancelled.")
+    if not code:
+        raise SystemExit("A pairing code is required — start 'Connect' in Hirewave to get one.")
 
-    if args.save:
-        with open(args.save, "w", encoding="utf-8") as fh:
-            fh.write(storage_state)
-        print(f"Saved session to {args.save}")
+    print(f"\nConnecting {args.provider} to Hirewave...")
+    storage_state = capture(args.provider, headless=args.headless)
+    result = submit(args.api_base, code, args.provider, storage_state, args.label)
 
-    if args.api:
-        if not args.token:
-            ap.error("--token is required with --api")
-        out = upload(args.api, args.token, args.provider, storage_state, args.label)
-        print(f"Connected {out.get('provider')} session (status: {out.get('status')}).")
-    elif not args.save:
-        print("Nothing to do: pass --api (+ --token) to upload, or --save to write a file.")
-        return 1
-    return 0
+    if result.get("status") == "connected":
+        print(f"\n  ✓ {args.provider} connected. Return to Hirewave — it will show as connected.")
+    else:
+        print(f"\n  Unexpected response from Hirewave: {result}")
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main(sys.argv[1:]))
+if __name__ == "__main__":  # python -m jobsearch.connect
+    main()
