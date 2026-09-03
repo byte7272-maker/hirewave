@@ -52,6 +52,36 @@ class Resume(DomainModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class ResumeSuggestion(DomainModel):
+    """One concrete suggested change to a résumé."""
+
+    category: str  # "impact" | "keywords" | "clarity" | "length" | "structure"
+    title: str
+    detail: str
+    severity: str = "suggestion"  # "critical" | "important" | "suggestion"
+
+
+class ResumeReview(DomainModel):
+    """An assessment of a résumé — a score, strengths, and suggested changes."""
+
+    resume_id: str
+    score: int = 0  # 0-100 overall strength
+    summary: str = ""  # one-paragraph assessment
+    strengths: list[str] = Field(default_factory=list)
+    suggestions: list[ResumeSuggestion] = Field(default_factory=list)
+    missing_keywords: list[str] = Field(default_factory=list)  # vs a target job
+    word_count: int = 0
+
+
+class ResumeRevision(DomainModel):
+    """A prompt-controlled AI rewrite of a résumé — a *preview* to review before
+    the user applies it (nothing is saved until they do)."""
+
+    resume_id: str
+    instruction: str
+    preview: str = ""  # the revised résumé text
+
+
 class CoverLetterSource(str, Enum):
     GENERATED = "generated"  # produced by the generation engine
     UPLOADED = "uploaded"  # the user's own file

@@ -34,13 +34,18 @@ existing API base + `Authorization: Bearer <access_token>` (401 → refresh → 
 - `PUT /api/v1/onboarding` body `{ "dismissed": true }` → hide the whole hub
   (`false` restores it). Returns the updated view.
 
-**Step keys → copy** (you supply the UI text/icons):
-| key | title | one-liner |
-|-----|-------|-----------|
-| profile | Set up your profile | Add your résumé so everything is tailored to you |
-| find_jobs | Find your first jobs | Run a search and see your AI-ranked matches |
-| apply | Apply with AI | Generate a tailored résumé + cover letter and submit |
-| interview | Practice an interview | Do a mock interview with an AI persona |
+**Step keys → copy** (you supply the UI text/icons). The first four are the
+beginner **core**; the last three are a second **"Go further"** group — each now
+has its own full wizard too (Prompts 6–8):
+| key | group | title | one-liner |
+|-----|-------|-------|-----------|
+| profile | core | Set up your profile | Add your résumé so everything is tailored to you |
+| find_jobs | core | Find your first jobs | Run a search and see your AI-ranked matches |
+| apply | core | Apply with AI | Generate a tailored résumé + cover letter and submit |
+| interview | core | Practice an interview | Do a mock interview with an AI persona |
+| highlights | go further | Add work highlights | Bring in stories/wins that sharpen your answers |
+| auto_apply | go further | Turn on auto-apply | Let the agent apply for you — with your review |
+| security | go further | Protect your info | Check if your email/passwords were exposed |
 
 ---
 
@@ -56,9 +61,10 @@ existing API base + `Authorization: Bearer <access_token>` (401 → refresh → 
 >   checklist: each row shows the step's title (from the table above), a check when
 >   `done`, and a **Start / Resume** button that opens that step's wizard (Prompts
 >   2–5). Completed rows show a ✓ and read-only.
-> - Below the core steps, a collapsed "**More to explore**" section lists the
->   non-core steps (highlights, auto_apply, security) as simple links to those
->   pages — no full wizard needed.
+> - Below the core steps, a **"Go further"** section lists the non-core steps
+>   (highlights, auto_apply, security) as their own checklist rows, each opening a
+>   full wizard (Prompts 6–8) — same treatment as the core rows (title, done-check,
+>   Start/Resume). Keep it collapsed until the core 4 are done, then auto-expand.
 > - A **"Dismiss"** on the panel calls `PUT /api/v1/onboarding {dismissed:true}`
 >   and hides it; if `dismissed` is already true, don't show the panel at all (but
 >   offer a small "Show getting-started" link in settings to restore via
@@ -139,6 +145,73 @@ existing API base + `Authorization: Bearer <access_token>` (401 → refresh → 
 
 ---
 
+## Prompt 6 — Wizard: "Add work highlights" (step `highlights`)
+
+> Opened from the hub's **highlights** step. Steps:
+> 1. **Explain** — "Bring in your best work — accomplishments, project stories, or
+>    wins. You can write them yourself, or paste what an AI assistant in your own
+>    work tools (Copilot, Glean, a Teams/email assistant) summarized for you. These
+>    make your interview answers stronger and more specific." Note plainly: **we
+>    never connect to your work email or accounts — you bring the finished text.**
+> 2. **Add one highlight** — a big paste box + a source toggle (**I wrote this /
+>    AI-generated**); if AI-generated, show an optional "Which tool?" field. Submit
+>    to `POST /api/v1/experience` `{ content, title?, source, source_tool? }`
+>    (content ≥ 10 chars, else `400`). Optionally allow a file upload via
+>    `POST /api/v1/experience/upload` (multipart, PDF/DOCX/MD/TXT).
+> 3. **Done** — "Added — this now feeds your interview prep." `highlights`
+>    auto-detects done once one exists; re-fetch the hub. "Skip" →
+>    `PUT /api/v1/onboarding/highlights {status:"dismissed"}`.
+
+---
+
+## Prompt 7 — Wizard: "Turn on auto-apply" (step `auto_apply`)
+
+> Opened from the hub's **auto_apply** step. This sets up the agent to apply for
+> the user — so **be explicit about consent and control at every step**. Steps:
+> 1. **Explain + consent** — "Auto-apply can prepare and submit applications for
+>    you to jobs that match your criteria. **You stay in control:** it only applies
+>    to verified postings, respects daily limits, and you can review the queue and
+>    pause it anytime. Nothing runs until you turn it on." A clear **"I understand
+>    and want to enable auto-apply"** checkbox gates the Next button.
+> 2. **Set safe limits** — simple fields with beginner-friendly defaults: a **name**,
+>    **max total** applications, **daily cap**, and **only verified jobs** (on by
+>    default). Keep it **manual-run by default** (`interval_minutes: 0`) so it never
+>    fires on its own until they choose a cadence.
+> 3. **Create the grant** — `POST /api/v1/auto-apply/grants` with
+>    `{ name, scope:"criteria", criteria:{…}, require_verified:true, max_submits,
+>    daily_cap, interval_minutes:0, mode:"auto" }`.
+> 4. **Review the queue** — show `GET /api/v1/auto-apply/queue` (what *would* be
+>    applied to) so they see it's their call, and point them to the Auto-apply page
+>    to run or pause. Primary: **Done**.
+> 5. **Done** — `auto_apply` auto-detects done once a grant exists; re-fetch the
+>    hub. "Skip" → `PUT /api/v1/onboarding/auto_apply {status:"dismissed"}`.
+> ⚠️ Do **not** auto-run applications from inside the wizard — creating the grant is
+> enough; submitting stays a deliberate action on the Auto-apply page.
+
+---
+
+## Prompt 8 — Wizard: "Protect your info" (step `security`)
+
+> Opened from the hub's **security** step. Two quick, privacy-safe checks. Steps:
+> 1. **Explain** — "Job hunting means sharing your email around. Let's check if it
+>    has shown up in known data breaches, and whether a password you use is exposed
+>    — your password never leaves your browser."
+> 2. **Monitor an email** — input an email → `POST /api/v1/monitoring/identifiers
+>    { email }`. The response includes a **verification code** (in dev; production
+>    emails it). Enter it → `POST /api/v1/monitoring/identifiers/{id}/verify
+>    { code }`. Then **scan** → `POST /api/v1/monitoring/scan` and show any findings
+>    (`GET /api/v1/monitoring/findings`) with severity badges. (Verification proves
+>    the user owns the email before anything is scanned.)
+> 3. **Check a password (optional)** — the k-anonymity check: SHA-1 the password in
+>    the browser, send **only the first 5 hex chars** to
+>    `GET /api/v1/monitoring/password-range/{prefix}`, match the returned suffixes
+>    **locally**. Never send the password or full hash; clear the field after.
+> 4. **Done** — "You're monitoring your email." `security` auto-detects done once an
+>    identifier is enrolled; re-fetch the hub. "Skip" →
+>    `PUT /api/v1/onboarding/security {status:"dismissed"}`.
+
+---
+
 ## Notes for Readdy
 - The **hub never needs to tell the backend a step is done** for the auto-detected
   cases — it computes `done` from real data. Only call `PUT /onboarding/{step}` for
@@ -146,5 +219,9 @@ existing API base + `Authorization: Bearer <access_token>` (401 → refresh → 
 - Keep each wizard **short (3–5 steps)** and always allow **Skip** and **Back**.
 - Re-fetch `GET /api/v1/onboarding` after any wizard closes so the checklist and
   progress bar update immediately.
-- These four are the beginner core; `highlights`, `auto_apply`, and `security` are
-  linked from "More to explore" and get lighter treatment for now.
+- All **seven** steps now have full wizards: the **core 4** (Prompts 2–5) plus the
+  **"Go further"** three (Prompts 6–8). The backend already tracks and
+  auto-detects all seven — no backend change needed for the new three.
+- The **auto_apply** wizard is the one to handle carefully: gate it behind an
+  explicit consent checkbox, default to conservative limits + manual run, and never
+  submit applications from inside the wizard.

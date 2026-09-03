@@ -13,6 +13,7 @@ from typing import Optional
 from jobsearch.config import Settings, get_settings
 from jobsearch.engines.automation import AutomationEngine
 from jobsearch.engines.generation import GenerationEngine
+from jobsearch.engines.resume_assistant import ResumeAssistant
 from jobsearch.engines.interview import (
     CommunityQuestionEngine,
     InterviewEngine,
@@ -129,6 +130,7 @@ class AppState:
         )
         self.linkedin_provider = build_linkedin_provider(self.settings)
         self.generation = GenerationEngine(llm=llm)
+        self.resume_assistant = ResumeAssistant(llm=llm)  # review + prompt-controlled revise
         self.interview = InterviewEngine(llm=llm)
         # Interview media (voice/video) + user-directed content sources.
         self.persona_library = PersonaLibrary.from_settings(self.settings)

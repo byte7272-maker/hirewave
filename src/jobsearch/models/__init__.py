@@ -11,7 +11,10 @@ from jobsearch.models.document import (
     CoverLetterSource,
     Resume,
     ResumeFormat,
+    ResumeReview,
+    ResumeRevision,
     ResumeSource,
+    ResumeSuggestion,
 )
 from jobsearch.models.experience import (
     ExperienceHighlight,
@@ -140,7 +143,10 @@ __all__ = [
     "VocabularyAnalysis",
     "VoiceSource",
     "ResumeFormat",
+    "ResumeReview",
+    "ResumeRevision",
     "ResumeSource",
+    "ResumeSuggestion",
     "User",
     "UserProfile",
     "VerificationFlag",

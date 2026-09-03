@@ -119,6 +119,17 @@ class ResumeUpdate(BaseModel):
     approved: Optional[bool] = None
 
 
+class ResumeReviewRequest(BaseModel):
+    job_posting_id: Optional[str] = None  # tailor the review to a target job
+
+
+class ResumeReviseRequest(BaseModel):
+    #: What to change, in plain language ("make it more concise", "emphasise
+    #: leadership", "tailor to a product manager role").
+    instruction: str
+    job_posting_id: Optional[str] = None
+
+
 class CoverLetterGenerateRequest(BaseModel):
     job_posting_id: str
     resume_id: Optional[str] = None

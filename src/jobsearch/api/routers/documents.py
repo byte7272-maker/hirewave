@@ -9,6 +9,8 @@ from jobsearch.api.schemas import (
     CoverLetterGenerateRequest,
     CoverLetterUpdate,
     ResumeGenerateRequest,
+    ResumeReviewRequest,
+    ResumeReviseRequest,
     ResumeUpdate,
 )
 from jobsearch.models import (
@@ -16,6 +18,8 @@ from jobsearch.models import (
     CoverLetterSource,
     Resume,
     ResumeFormat,
+    ResumeReview,
+    ResumeRevision,
     ResumeSource,
     UserProfile,
 )
@@ -134,6 +138,34 @@ def update_resume(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(resume, field, value)
     return state.resumes.add(resume)  # persist the mutation (no-op for in-memory)
+
+
+@router.post("/resumes/{resume_id}/review", response_model=ResumeReview)
+def review_resume(
+    resume_id: str, body: ResumeReviewRequest, user: CurrentUser, state: StateDep
+) -> ResumeReview:
+    """Analyze a résumé — score, strengths, concrete suggested changes, and (if a
+    job is given) the requirements it's missing. Read-only; changes nothing."""
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    return state.resume_assistant.review(resume, job=job)
+
+
+@router.post("/resumes/{resume_id}/revise", response_model=ResumeRevision)
+def revise_resume(
+    resume_id: str, body: ResumeReviseRequest, user: CurrentUser, state: StateDep
+) -> ResumeRevision:
+    """Prompt-controlled AI rewrite. Returns a **preview** grounded in the résumé's
+    real facts — nothing is saved. To apply it, PUT the preview back as
+    ``rendered_text`` (keeps the human-in-the-loop)."""
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    try:
+        return state.resume_assistant.revise(resume, body.instruction, job=job)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
 
 @router.delete("/resumes/{resume_id}", status_code=status.HTTP_204_NO_CONTENT)
