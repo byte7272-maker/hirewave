@@ -6,7 +6,13 @@ maps them to PostgreSQL / MongoDB rows; the engines operate on them directly.
 
 from jobsearch.models.application import Application, ApplicationStatus
 from jobsearch.models.common import new_id, utcnow
-from jobsearch.models.document import CoverLetter, Resume, ResumeFormat, ResumeSource
+from jobsearch.models.document import (
+    CoverLetter,
+    CoverLetterSource,
+    Resume,
+    ResumeFormat,
+    ResumeSource,
+)
 from jobsearch.models.experience import (
     ExperienceHighlight,
     ExperienceKind,
@@ -86,6 +92,7 @@ __all__ = [
     "BoardPost",
     "CommunityQuestion",
     "CoverLetter",
+    "CoverLetterSource",
     "Connection",
     "CustomVoice",
     "DirectMessage",

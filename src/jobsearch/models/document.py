@@ -52,12 +52,22 @@ class Resume(DomainModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class CoverLetterSource(str, Enum):
+    GENERATED = "generated"  # produced by the generation engine
+    UPLOADED = "uploaded"  # the user's own file
+
+
 class CoverLetter(DomainModel):
     id: str = Field(default_factory=lambda: new_id("cl_"))
     user_id: str
-    job_posting_id: str
+    #: Optional — a generated letter targets a job; an uploaded one may be generic.
+    job_posting_id: Optional[str] = None
     resume_id: Optional[str] = None
     tone: str = "professional"
+    source: CoverLetterSource = CoverLetterSource.GENERATED
     content: str = ""
+    file_url: str = ""  # populated once an uploaded file is stored
+    original_filename: str = ""  # for uploaded files
+    content_type: str = ""  # MIME type of the uploaded file
     approved: bool = False  # human-in-the-loop gate
     generated_at: datetime = Field(default_factory=utcnow)

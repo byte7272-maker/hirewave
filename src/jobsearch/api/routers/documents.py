@@ -11,7 +11,14 @@ from jobsearch.api.schemas import (
     ResumeGenerateRequest,
     ResumeUpdate,
 )
-from jobsearch.models import CoverLetter, Resume, ResumeFormat, ResumeSource, UserProfile
+from jobsearch.models import (
+    CoverLetter,
+    CoverLetterSource,
+    Resume,
+    ResumeFormat,
+    ResumeSource,
+    UserProfile,
+)
 from jobsearch.textextract import extract_text
 
 _EXT_FORMAT = {
@@ -151,12 +158,85 @@ def generate_cover_letter(
     return state.cover_letters.add(cl)
 
 
+@router.post(
+    "/cover-letters/upload", response_model=CoverLetter, status_code=status.HTTP_201_CREATED
+)
+async def upload_cover_letter(
+    user: CurrentUser,
+    state: StateDep,
+    file: UploadFile = File(...),
+    job_posting_id: str = Form(""),
+    resume_id: str = Form(""),
+) -> CoverLetter:
+    """Upload the user's own cover-letter file (PDF/DOCX/MD/TXT). Optionally tie it
+    to a job and résumé; leave those blank for a generic letter."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")
+    if len(data) > state.settings.max_upload_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
+        )
+    if job_posting_id:
+        _require_job(state, job_posting_id)  # 404 if it doesn't exist
+    if resume_id:
+        r = state.resumes.get(resume_id)
+        if r is None or r.user_id != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+
+    filename = file.filename or "cover-letter"
+    content_type = file.content_type or "application/octet-stream"
+    cl = CoverLetter(
+        user_id=user.id,
+        job_posting_id=job_posting_id or None,
+        resume_id=resume_id or None,
+        source=CoverLetterSource.UPLOADED,
+        original_filename=filename,
+        content_type=content_type,
+        # Readable text for review / applications (empty for unparseable binaries).
+        content=extract_text(data, filename=filename, content_type=content_type)[:20000],
+    )
+    state.documents.put(cl.id, data, content_type=content_type)
+    cl.file_url = f"/api/v1/cover-letters/{cl.id}/file"
+    return state.cover_letters.add(cl)
+
+
+@router.get("/cover-letters", response_model=list[CoverLetter])
+def list_cover_letters(user: CurrentUser, state: StateDep) -> list[CoverLetter]:
+    return state.cover_letters.find(user_id=user.id)
+
+
+@router.get("/cover-letters/{cover_letter_id}/file")
+def download_cover_letter_file(
+    cover_letter_id: str, user: CurrentUser, state: StateDep
+) -> Response:
+    cl = get_cover_letter(cover_letter_id, user, state)  # 404s if not owned
+    stored = state.documents.get(cl.id)
+    if stored is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no file stored for this cover letter")
+    data, content_type = stored
+    fname = cl.original_filename or "cover-letter.txt"
+    return Response(
+        content=data,
+        media_type=content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @router.get("/cover-letters/{cover_letter_id}", response_model=CoverLetter)
 def get_cover_letter(cover_letter_id: str, user: CurrentUser, state: StateDep) -> CoverLetter:
     cl = state.cover_letters.get(cover_letter_id)
     if cl is None or cl.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "cover letter not found")
     return cl
+
+
+@router.delete("/cover-letters/{cover_letter_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cover_letter(cover_letter_id: str, user: CurrentUser, state: StateDep) -> None:
+    cl = get_cover_letter(cover_letter_id, user, state)
+    state.documents.delete(cl.id)
+    state.cover_letters.delete(cl.id)
 
 
 @router.put("/cover-letters/{cover_letter_id}", response_model=CoverLetter)
