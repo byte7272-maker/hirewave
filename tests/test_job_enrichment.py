@@ -10,7 +10,14 @@ from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.engines.integration import MockTokenExchanger
 from jobsearch.engines.matching.scoring import recency_fit
-from jobsearch.engines.sourcing.skills import enrich_requirements, extract_skills
+from jobsearch.engines.sourcing.skills import (
+    detect_benefits,
+    detect_employment_type,
+    detect_seniority,
+    detect_years_experience,
+    enrich_requirements,
+    extract_skills,
+)
 from jobsearch.models import JobPosting
 from jobsearch.models.common import utcnow
 
@@ -35,6 +42,51 @@ def test_enrich_drops_generic_when_concrete_found():
 def test_enrich_keeps_generics_when_nothing_concrete():
     out = enrich_requirements(["Communication"], "A general role with no listed tools.")
     assert out == ["Communication"]  # nothing better found → keep what we had
+
+
+# --- structured metadata ----------------------------------------------------
+def test_detect_job_metadata():
+    text = ("Senior Backend Engineer — full-time. Requires 5+ years of experience. "
+            "Benefits: medical, dental, 401(k), and remote work with equity.")
+    assert detect_seniority(text) == "senior"
+    assert detect_employment_type(text) == "full-time"
+    assert detect_years_experience(text) == 5
+    bens = detect_benefits(text)
+    for b in ("Medical", "Dental", "401(k)", "Remote", "Equity"):
+        assert b in bens
+
+
+def test_metadata_populated_on_ingested_job():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    client.post("/api/v1/auth/register", json={"email": "m@demo.com", "password": "supersecret12", "full_name": "M"})
+    tok = client.post("/api/v1/auth/login", json={"email": "m@demo.com", "password": "supersecret12"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    client.post("/api/v1/job-search/run", headers=h, json={"role": "senior backend engineer", "location": "NYC", "remote": True})
+    jobs = [j for j in client.get("/api/v1/jobs", headers=h).json() if j["company"] != "QuickCash Global"]
+    j = jobs[0]
+    assert j["seniority"] == "senior"  # parsed from the "Senior ..." title
+    assert "seniority" in j and "employment_type" in j and "benefits" in j  # fields present
+    assert j["times_seen"] >= 1 and j["first_seen_at"] and j["last_seen_at"]
+
+
+# --- repeat sightings -------------------------------------------------------
+def test_repeat_search_increments_times_seen():
+    from jobsearch.engines.sourcing.aggregator import JobAggregator
+    from jobsearch.engines.verification import VerificationEngine
+    from jobsearch.store import InMemoryRepository
+
+    jobs = InMemoryRepository()
+    agg = JobAggregator([], jobs, VerificationEngine(), {})
+    raw = [{"source_platform": "linkedin", "external_id": "abc",
+            "title": "Backend Engineer", "company": "Globex", "location": "NYC",
+            "description": "Python and AWS."}]
+    agg.ingest(list(raw))            # first sighting
+    agg.ingest(list(raw))            # seen again
+    agg.ingest(list(raw))            # and again
+    stored = jobs.all()
+    assert len(stored) == 1  # still one job, not three
+    assert stored[0].times_seen == 3
+    assert stored[0].last_seen_at >= stored[0].first_seen_at
 
 
 # --- recency ----------------------------------------------------------------

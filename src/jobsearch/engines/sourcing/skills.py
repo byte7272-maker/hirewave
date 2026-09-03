@@ -10,6 +10,7 @@ have real signal to work with. Deterministic, offline, no LLM.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 # Canonical lexicon. Multi-word phrases are matched as substrings; single tokens
 # on word boundaries. Keep these lowercase; display form comes from _DISPLAY.
@@ -74,6 +75,65 @@ def extract_skills(text: str, *, limit: int = 15) -> list[str]:
             found.append(disp)
             seen.add(disp.lower())
     return found[:limit]
+
+
+_SENIORITY_HINTS = [
+    ("director", ["director", "head of", "vp", "vice president"]),
+    ("principal", ["principal"]),
+    ("staff", ["staff"]),
+    ("lead", ["lead", "team lead"]),
+    ("senior", ["senior", "sr.", "sr "]),
+    ("mid", ["mid-level", "mid level", "intermediate"]),
+    ("junior", ["junior", "jr.", "entry level", "entry-level", "graduate"]),
+    ("intern", ["intern", "internship"]),
+]
+_EMPLOYMENT = [
+    ("internship", ["internship", "intern "]),
+    ("part-time", ["part-time", "part time"]),
+    ("contract", ["contract", "contractor", "c2c", "1099"]),
+    ("temporary", ["temporary", "temp ", "seasonal"]),
+    ("full-time", ["full-time", "full time", "permanent"]),
+]
+_BENEFITS = {
+    "401(k)": ["401k", "401(k)", "retirement"],
+    "Medical": ["medical", "health insurance", "healthcare"],
+    "Dental": ["dental"],
+    "Vision": ["vision"],
+    "PTO": ["pto", "paid time off", "paid vacation", "unlimited vacation"],
+    "Remote": ["remote", "work from home", "wfh"],
+    "Equity": ["equity", "stock options", "rsu", "stock grant"],
+    "Bonus": ["bonus", "commission"],
+    "Parental leave": ["parental leave", "maternity", "paternity"],
+    "Tuition": ["tuition", "learning stipend", "professional development"],
+}
+_YEARS_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years|yrs)\b", re.IGNORECASE)
+
+
+def detect_seniority(text: str) -> str:
+    low = (text or "").lower()
+    for level, hints in _SENIORITY_HINTS:
+        if any(h in low for h in hints):
+            return level
+    return ""
+
+
+def detect_employment_type(text: str) -> str:
+    low = f" {(text or '').lower()} "
+    for etype, hints in _EMPLOYMENT:
+        if any(h in low for h in hints):
+            return etype
+    return ""
+
+
+def detect_years_experience(text: str) -> "Optional[int]":
+    nums = [int(m) for m in _YEARS_RE.findall(text or "")]
+    return min(nums) if nums else None  # the minimum stated requirement
+
+
+def detect_benefits(text: str, *, limit: int = 8) -> list[str]:
+    low = (text or "").lower()
+    out = [label for label, hints in _BENEFITS.items() if any(h in low for h in hints)]
+    return out[:limit]
 
 
 def enrich_requirements(existing: list[str], text: str, *, limit: int = 20) -> list[str]:

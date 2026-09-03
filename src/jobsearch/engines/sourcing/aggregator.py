@@ -14,9 +14,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
-from jobsearch.engines.sourcing.skills import enrich_requirements
+from jobsearch.engines.sourcing.skills import (
+    detect_benefits,
+    detect_employment_type,
+    detect_seniority,
+    detect_years_experience,
+    enrich_requirements,
+)
 from jobsearch.engines.sourcing.sources import JobQuery, JobSource
 from jobsearch.models import JobPosting, VerificationResult
+from jobsearch.models.common import utcnow
 from jobsearch.models.job import SalaryRange
 
 
@@ -63,9 +70,9 @@ class JobAggregator:
         # Enrich sparse/generic requirements with concrete skills mined from the
         # title + description, so matching / résumé-review / interview prep have
         # real signal to work with.
-        requirements = enrich_requirements(
-            list(raw.get("requirements") or []), f"{title}\n{description}"
-        )
+        blob = f"{title}\n{description}"
+        requirements = enrich_requirements(list(raw.get("requirements") or []), blob)
+        # Structured metadata — prefer an explicit source value, else parse the text.
         return JobPosting(
             source_platform=str(raw.get("source_platform", "")),
             external_id=str(raw.get("external_id", "")),
@@ -78,6 +85,11 @@ class JobAggregator:
             requirements=requirements,
             salary_range=salary,
             posted_at=_parse_dt(raw.get("posted_at")),
+            seniority=str(raw.get("seniority") or detect_seniority(blob)),
+            employment_type=str(raw.get("employment_type") or detect_employment_type(blob)),
+            years_experience=raw.get("years_experience") if raw.get("years_experience") is not None
+            else detect_years_experience(blob),
+            benefits=list(raw.get("benefits") or []) or detect_benefits(blob),
             url=str(raw.get("url", "")),
             application_email=str(raw.get("application_email", "")),
         )
@@ -93,13 +105,22 @@ class JobAggregator:
             job = self._to_job(r)
             batch.setdefault(_norm_key(job), job)
 
-        # Skip anything already stored (by external id, or same normalized role).
-        existing_keys = {_norm_key(j) for j in self.jobs.all()}
-        existing_ext = {(j.source_platform, j.external_id) for j in self.jobs.all() if j.external_id}
+        # Index what's already stored so a re-sighting can be counted (not just
+        # skipped) — same external id, or same normalized role+company+location.
+        stored = self.jobs.all()
+        by_key = {_norm_key(j): j for j in stored}
+        by_ext = {(j.source_platform, j.external_id): j for j in stored if j.external_id}
 
         result = AggregationResult(found=len(raw), sources=sorted(used))
         for key, job in batch.items():
-            if key in existing_keys or (job.external_id and (job.source_platform, job.external_id) in existing_ext):
+            existing = by_key.get(key) or (
+                by_ext.get((job.source_platform, job.external_id)) if job.external_id else None
+            )
+            if existing is not None:
+                # Seen again — bump the sighting count + timestamp (re-posting signal).
+                existing.times_seen += 1
+                existing.last_seen_at = utcnow()
+                self.jobs.add(existing)
                 result.duplicates += 1
                 continue
             self.jobs.add(job)
@@ -109,7 +130,7 @@ class JobAggregator:
                 result.hidden += 1
             result.ingested += 1
             result.job_ids.append(job.id)
-            existing_keys.add(key)
+            by_key[key] = job  # so a later batch item can't re-add the same role
         return result
 
     def search(self, query: JobQuery, *, sources_filter: Optional[set[str]] = None) -> AggregationResult:

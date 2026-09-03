@@ -29,6 +29,17 @@ class JobPosting(DomainModel):
     company_domain: str = ""  # used by authenticity verification
     application_email: str = ""  # where email submissions are sent, when known
 
+    # Structured metadata parsed from the title/description at ingestion.
+    seniority: str = ""  # junior | mid | senior | lead | staff | principal | director
+    employment_type: str = ""  # full-time | part-time | contract | temporary | internship
+    years_experience: Optional[int] = None  # required years of experience
+    benefits: list[str] = Field(default_factory=list)  # e.g. 401(k), medical, remote
+
+    # Repeat-sighting tracking — how often this posting has resurfaced over time.
+    times_seen: int = 1
+    first_seen_at: datetime = Field(default_factory=utcnow)
+    last_seen_at: datetime = Field(default_factory=utcnow)
+
     # Populated by the engines (not the ingestion source):
     is_verified: Optional[bool] = None
     match_score: Optional[float] = None  # 0-100, per current user

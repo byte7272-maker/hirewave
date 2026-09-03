@@ -163,6 +163,9 @@ def salary_fit(profile: UserProfile, job: JobPosting) -> float:
 
 
 def _implied_seniority(job: JobPosting) -> Optional[int]:
+    # Prefer the structured seniority parsed at ingestion; fall back to the text.
+    if job.seniority and job.seniority.lower() in _SENIORITY_RANK:
+        return _SENIORITY_RANK[job.seniority.lower()]
     text = (job.title + " " + job.description).lower()
     best: Optional[int] = None
     for level, hints in _SENIORITY_HINTS.items():

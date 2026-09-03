@@ -96,6 +96,56 @@ def list_integrations(user: CurrentUser, state: StateDep) -> list[dict]:
     return state.integration.list_connections(user.id)
 
 
+# Job-search sites the app knows about + whether the AI/auto-apply tool can act
+# on them. (key, display name, auto-apply supported).
+_JOB_APPS = [
+    ("linkedin", "LinkedIn", True),
+    ("indeed", "Indeed", True),
+    ("greenhouse", "Greenhouse", True),
+    ("workday", "Workday", True),
+    ("glassdoor", "Glassdoor", False),
+    ("ziprecruiter", "ZipRecruiter", False),
+    ("dice", "Dice", False),
+    ("gmail", "Gmail job alerts", False),
+]
+
+
+@router.get("/connected-apps")
+def connected_apps(user: CurrentUser, state: StateDep) -> list[dict]:
+    """The job-search sites and their auth status through Hirewave — name,
+    whether the account is currently authenticated (via OAuth or a connected
+    browser session), and whether the AI/auto-apply tool therefore has access."""
+    oauth = {c["provider"]: c for c in state.integration.list_connections(user.id)}
+    sessions = {s.provider: s for s in state.sessions.list_for(user.id)}
+    out = []
+    for key, name, auto_apply in _JOB_APPS:
+        tok = oauth.get(key)
+        sess = sessions.get(key)
+        method, st, connected_at, authenticated, label = "", "not_connected", None, False, ""
+        if tok and not tok["expired"]:
+            method, st, connected_at, authenticated = "oauth", "connected", tok["connected_at"], True
+        elif tok and tok["expired"]:
+            method, st, connected_at = "oauth", "expired", tok["connected_at"]
+        elif sess is not None and sess.status == "active":
+            method, st, connected_at, authenticated = "browser_session", "connected", sess.updated_at.isoformat(), True
+            label = sess.label
+        elif sess is not None:
+            method, st, connected_at, label = "browser_session", sess.status, sess.updated_at.isoformat(), sess.label
+        out.append({
+            "provider": key,
+            "name": name,
+            "authenticated": authenticated,
+            "status": st,  # connected | expired | revoked | not_connected
+            "method": method,  # oauth | browser_session | ""
+            "connected_at": connected_at,
+            "account_label": label,
+            "supports_auto_apply": auto_apply,
+            # AI tool can act when the account is authenticated AND the site is supported.
+            "ai_access": authenticated and auto_apply,
+        })
+    return out
+
+
 @router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke(provider: str, user: CurrentUser, state: StateDep) -> None:
     prov = _provider(provider)
