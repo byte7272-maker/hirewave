@@ -38,6 +38,7 @@ from jobsearch.models.auto_apply import (
     AutoApplyCriteria,
     AutoApplyGrant,
     BrowserSession,
+    ConnectIntent,
 )
 from jobsearch.models.integration import OAuthToken, Provider
 from jobsearch.models.interview import (
@@ -93,6 +94,7 @@ __all__ = [
     "AutomationAction",
     "AutomationConsent",
     "BrowserSession",
+    "ConnectIntent",
     "Board",
     "BoardMember",
     "BoardPost",

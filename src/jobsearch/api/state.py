@@ -229,6 +229,7 @@ class AppState:
             settings=self.settings,
             notifier=self.notifications.add,
             screener=self.screener,
+            connect_intents=repos.connect_intents,
         )
         self.draft_prep = DraftPrepEngine(
             generation=self.generation,

@@ -17,7 +17,9 @@ from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AutoApplyCriteriaIn,
     BrowserSessionOut,
+    ConnectIntentRequest,
     ConnectSessionRequest,
+    ConnectSubmit,
     CreateGrantRequest,
     GrantOut,
     JobOutcomeOut,
@@ -97,6 +99,42 @@ def connect_session(body: ConnectSessionRequest, user: CurrentUser, state: State
 @router.get("/sessions", response_model=list[BrowserSessionOut])
 def list_sessions(user: CurrentUser, state: StateDep) -> list[BrowserSessionOut]:
     return [_session_out(s) for s in state.auto_apply.list_sessions(user.id)]
+
+
+@router.post("/sessions/connect-intent")
+def create_connect_intent(
+    body: ConnectIntentRequest, user: CurrentUser, state: StateDep
+) -> dict:
+    """Start a minimal-footprint connect: issue a short-lived pairing code the
+    capture helper submits the session against. The app then polls status."""
+    intent = state.auto_apply.create_connect_intent(user.id, body.provider)
+    return {
+        "code": intent.code,
+        "provider": intent.provider,
+        "status": intent.status,
+        "expires_at": intent.expires_at.isoformat() if intent.expires_at else None,
+    }
+
+
+@router.post("/sessions/connect")
+def submit_connect(body: ConnectSubmit, state: StateDep) -> dict:
+    """Capture helper endpoint — **no login token required**; the pairing code
+    authorizes creating the session for the user who started the connect. Only a
+    cookie ``storage_state`` is accepted (never a password)."""
+    try:
+        intent = state.auto_apply.complete_connect(body.code, body.storage_state, label=body.label)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    return {"status": intent.status, "provider": intent.provider}
+
+
+@router.get("/sessions/connect-intent/{code}")
+def connect_status(code: str, user: CurrentUser, state: StateDep) -> dict:
+    """The app polls this until ``status`` becomes ``connected`` (or ``expired``)."""
+    intent = state.auto_apply.connect_status(user.id, code)
+    if intent is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "connect code not found")
+    return {"status": intent.status, "provider": intent.provider, "session_id": intent.session_id}
 
 
 @router.delete("/sessions/{provider}", status_code=status.HTTP_204_NO_CONTENT)

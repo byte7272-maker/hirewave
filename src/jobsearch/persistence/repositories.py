@@ -13,6 +13,7 @@ from jobsearch.models import (
     AutomationConsent,
     Board,
     BrowserSession,
+    ConnectIntent,
     BoardMember,
     BoardPost,
     CommunityQuestion,
@@ -85,6 +86,7 @@ class Repositories:
     reminder_prefs: Repository[ReminderPrefs]
     token_store: TokenStore
     session_store: SessionStore
+    connect_intents: Repository[ConnectIntent]
     backend: str = "memory"
 
 
@@ -129,6 +131,7 @@ def build_repositories(
             reminder_prefs=InMemoryRepository(id_attr="user_id"),
             token_store=TokenStore(cipher),
             session_store=SessionStore(cipher),
+            connect_intents=InMemoryRepository(),
             backend="memory",
         )
 
@@ -173,5 +176,6 @@ def build_repositories(
         reminder_prefs=repo("reminder_prefs"),
         token_store=TokenStore(cipher, repo=oauth_repo),
         session_store=SessionStore(cipher, repo=repo("browser_sessions")),
+        connect_intents=repo("connect_intents"),
         backend=engine.dialect.name,
     )

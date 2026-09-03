@@ -17,6 +17,7 @@ from jobsearch.models import (
     AutomationConsent,
     Board,
     BrowserSession,
+    ConnectIntent,
     BoardMember,
     BoardPost,
     CommunityQuestion,
@@ -111,6 +112,7 @@ _SPECS: dict[str, TableSpec] = {
     "practice_sessions": TableSpec("practice_sessions", PracticeSession, "id", ()),
     "practice_signals": TableSpec("practice_signals", PracticeSignal, "id", ("session_id",)),
     "browser_sessions": TableSpec("browser_sessions", BrowserSession, "id", ("user_id", "provider")),
+    "connect_intents": TableSpec("connect_intents", ConnectIntent, "id", ("code", "user_id")),
     "auto_apply_grants": TableSpec("auto_apply_grants", AutoApplyGrant, "id", ("user_id",)),
     "reminder_prefs": TableSpec("reminder_prefs", ReminderPrefs, "user_id", ()),
 }

@@ -41,6 +41,27 @@ class BrowserSession(DomainModel):
     expires_at: Optional[datetime] = None
 
 
+class ConnectIntent(DomainModel):
+    """A short-lived pairing for connecting a provider session with a minimal
+    in-app footprint. The app issues one; the capture helper (browser extension /
+    local helper) submits the captured ``storage_state`` against the ``code`` — so
+    the helper never needs the user's login token, and the app just polls status.
+    The code is a high-entropy, single-use secret with a short TTL.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("cxn_"))
+    code: str = ""  # high-entropy pairing secret
+    user_id: str
+    provider: str = ""
+    status: str = "pending"  # pending | connected | expired
+    session_id: str = ""  # set once the session is captured
+    created_at: datetime = Field(default_factory=utcnow)
+    expires_at: Optional[datetime] = None
+
+    def is_expired(self, *, at: Optional[datetime] = None) -> bool:
+        return self.expires_at is not None and (at or utcnow()) >= self.expires_at
+
+
 class AutoApplyCriteria(DomainModel):
     """A group rule — a job matches when it satisfies every set constraint."""
 

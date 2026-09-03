@@ -560,6 +560,17 @@ class ConnectSessionRequest(BaseModel):
     label: str = ""  # e.g. the account email, to recognize it later
 
 
+class ConnectIntentRequest(BaseModel):
+    provider: str
+
+
+class ConnectSubmit(BaseModel):
+    """Sent by the capture helper — the code authenticates, not a login token."""
+    code: str
+    storage_state: str
+    label: str = ""
+
+
 class BrowserSessionOut(BaseModel):
     provider: str
     label: str

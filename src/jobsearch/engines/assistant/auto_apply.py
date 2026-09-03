@@ -28,6 +28,7 @@ from jobsearch.models import (
     ApplicationStatus,
     AutoApplyCriteria,
     AutoApplyGrant,
+    ConnectIntent,
     JobPosting,
     User,
     UserProfile,
@@ -110,10 +111,13 @@ class AutoApplyEngine:
         notifier: Optional[Callable] = None,
         event_notifier: Optional[Callable[[str, int, list], None]] = None,
         screener=None,
+        connect_intents: Optional[Repository[ConnectIntent]] = None,
     ) -> None:
         self.assistant = assistant
         #: Learned screener-answer memory; auto-fills recurring form questions.
         self.screener = screener
+        #: Short-lived connect-pairing codes (minimal-footprint session capture).
+        self.connect_intents = connect_intents or InMemoryRepository()
         self.sessions = sessions
         self.grants = grants or InMemoryRepository()
         self.users = users
@@ -142,6 +146,55 @@ class AutoApplyEngine:
 
     def disconnect_session(self, user_id: str, provider: str) -> bool:
         return self.sessions.delete(user_id, provider.lower())
+
+    # ---- minimal-footprint connect pairing --------------------------------
+    def create_connect_intent(self, user_id: str, provider: str, *, ttl_minutes: int = 10):
+        """Issue a short-lived pairing code so a capture helper can submit a
+        session without the user's login token. The app polls its status."""
+        import secrets
+        from datetime import timedelta
+
+        intent = ConnectIntent(
+            code=secrets.token_urlsafe(32),
+            user_id=user_id,
+            provider=provider.lower(),
+            expires_at=utcnow() + timedelta(minutes=ttl_minutes),
+        )
+        return self.connect_intents.add(intent)
+
+    def _intent_by_code(self, code: str):
+        found = self.connect_intents.find(code=code) if code else []
+        return found[0] if found else None
+
+    def complete_connect(self, code: str, storage_state: str, *, label: str = ""):
+        """Capture helper submits the storage_state against the code — creates the
+        provider session for the paired user. Single-use; the code authenticates."""
+        intent = self._intent_by_code(code)
+        if intent is None:
+            raise ValueError("invalid connect code")
+        if intent.status == "connected":
+            raise ValueError("this connect code was already used")
+        if intent.is_expired():
+            intent.status = "expired"
+            self.connect_intents.add(intent)
+            raise ValueError("this connect code has expired")
+        if not storage_state.strip():
+            raise ValueError("storage_state is required")
+        sess = self.connect_session(intent.user_id, intent.provider, storage_state, label=label)
+        intent.status = "connected"
+        intent.session_id = sess.id
+        self.connect_intents.add(intent)
+        return intent
+
+    def connect_status(self, user_id: str, code: str):
+        """Owner-scoped status lookup for the app to poll."""
+        intent = self._intent_by_code(code)
+        if intent is None or intent.user_id != user_id:
+            return None
+        if intent.status == "pending" and intent.is_expired():
+            intent.status = "expired"
+            self.connect_intents.add(intent)
+        return intent
 
     # ---- grant CRUD -------------------------------------------------------
     def create_grant(
