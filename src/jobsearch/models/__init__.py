@@ -8,6 +8,8 @@ from jobsearch.models.application import Application, ApplicationStatus
 from jobsearch.models.common import new_id, utcnow
 from jobsearch.models.document import (
     CoverLetter,
+    CoverLetterReview,
+    CoverLetterRevision,
     CoverLetterSource,
     Resume,
     ResumeFormat,
@@ -95,6 +97,8 @@ __all__ = [
     "BoardPost",
     "CommunityQuestion",
     "CoverLetter",
+    "CoverLetterReview",
+    "CoverLetterRevision",
     "CoverLetterSource",
     "Connection",
     "CustomVoice",

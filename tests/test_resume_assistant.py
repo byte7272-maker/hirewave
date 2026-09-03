@@ -8,11 +8,15 @@ from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.engines.integration import MockTokenExchanger
 from jobsearch.engines.resume_assistant import ResumeAssistant
-from jobsearch.models import JobPosting, Resume, ResumeSource
+from jobsearch.models import CoverLetter, JobPosting, Resume, ResumeSource
 
 
 def _resume(text: str) -> Resume:
     return Resume(user_id="u1", source=ResumeSource.UPLOADED, rendered_text=text)
+
+
+def _cover(text: str, job_id=None) -> CoverLetter:
+    return CoverLetter(user_id="u1", job_posting_id=job_id, content=text)
 
 
 # --- engine: review ---------------------------------------------------------
@@ -81,6 +85,35 @@ def test_revise_requires_instruction_and_text():
         pass
 
 
+# --- engine: cover letters --------------------------------------------------
+def test_cover_letter_review_flags_cliches_and_generic():
+    cl = _cover(
+        "To whom it may concern, I am writing to express my interest in this role. "
+        "I am a hard worker and a team player who can hit the ground running."
+    )
+    review = ResumeAssistant().review_cover_letter(cl)
+    titles = " ".join(s.title.lower() for s in review.suggestions)
+    assert "generic" in titles  # clichés flagged
+    assert any(s.category == "impact" for s in review.suggestions)  # no metric
+    assert 0 <= review.score <= 100 and review.summary
+
+
+def test_cover_letter_review_wants_company_named():
+    cl = _cover(
+        "Dear Hiring Manager, I led a team that grew revenue 30% last year and would "
+        "bring that same focus here. Sincerely, Sam."
+    )
+    job = JobPosting(title="PM", company="Acme", requirements=[])
+    review = ResumeAssistant().review_cover_letter(cl, job=job)
+    assert any(s.title == "Name the company" for s in review.suggestions)
+
+
+def test_cover_letter_revise_preview():
+    cl = _cover("Dear team, I want the job. Thanks.")
+    rev = ResumeAssistant().revise_cover_letter(cl, "Make it warmer and more specific")
+    assert rev.cover_letter_id == cl.id and rev.preview
+
+
 # --- API --------------------------------------------------------------------
 def _auth(client, email="ra@demo.com"):
     client.post("/api/v1/auth/register", json={"email": email, "password": "supersecret12", "full_name": "RA"})
@@ -131,3 +164,37 @@ def test_api_review_requires_auth_and_ownership():
     hb = _auth(client, "b@demo.com")
     res = _upload(client, ha, "- A's resume content")
     assert client.post(f"/api/v1/resumes/{res['id']}/review", headers=hb, json={}).status_code == 404
+
+
+def test_api_cover_letter_review_and_revise_flow():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    cl = client.post(
+        "/api/v1/cover-letters/upload", headers=h,
+        files={"file": ("cover.txt", b"To whom it may concern, I am a hard worker and team player.", "text/plain")},
+    ).json()
+    clid = cl["id"]
+
+    rev = client.post(f"/api/v1/cover-letters/{clid}/review", headers=h, json={})
+    assert rev.status_code == 200
+    body = rev.json()
+    assert body["cover_letter_id"] == clid and 0 <= body["score"] <= 100
+    assert body["summary"] and isinstance(body["suggestions"], list)
+
+    r = client.post(f"/api/v1/cover-letters/{clid}/revise", headers=h, json={"instruction": "Make it specific and warm"})
+    assert r.status_code == 200
+    preview = r.json()["preview"]
+    assert preview
+    upd = client.put(f"/api/v1/cover-letters/{clid}", headers=h, json={"content": preview})
+    assert upd.status_code == 200 and upd.json()["content"] == preview
+
+
+def test_api_cover_letter_revise_empty_instruction_400():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    cl = client.post(
+        "/api/v1/cover-letters/upload", headers=h,
+        files={"file": ("c.txt", b"Some cover letter content here.", "text/plain")},
+    ).json()
+    r = client.post(f"/api/v1/cover-letters/{cl['id']}/revise", headers=h, json={"instruction": "  "})
+    assert r.status_code == 400

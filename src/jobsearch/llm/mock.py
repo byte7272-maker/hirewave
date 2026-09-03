@@ -104,11 +104,17 @@ class MockLLMProvider(LLMProvider):
             )
 
         if "editor" in sys_l and "rewrite" in sys_l:
-            # Résumé revise: echo back a lightly-restructured version of the input.
-            body = prompt.split("Current résumé:", 1)[-1].split("Rewrite it", 1)[0].strip()
-            return (body or "Revised résumé.") + "\n\n(Revised per your instruction.)"
+            # Résumé / cover-letter revise: echo back a lightly-edited version.
+            m = re.search(r"Current [^\n:]*:\n(.*?)\n\nRewrite", prompt, re.S)
+            body = (m.group(1).strip() if m else "").strip()
+            return (body or "Revised document.") + "\n\n(Revised per your instruction.)"
 
         if "reviewer" in sys_l:
+            if "cover-letter" in sys_l or "cover letter" in sys_l:
+                return (
+                    "A clear, courteous letter. To strengthen it, name the company, add "
+                    "one concrete achievement, and cut any generic phrasing."
+                )
             return (
                 "Solid résumé with a clear structure. To strengthen it, quantify a few "
                 "more results and lead each bullet with a strong action verb."

@@ -82,6 +82,25 @@ class ResumeRevision(DomainModel):
     preview: str = ""  # the revised résumé text
 
 
+class CoverLetterReview(DomainModel):
+    """An assessment of a cover letter — score, strengths, suggested changes."""
+
+    cover_letter_id: str
+    score: int = 0  # 0-100
+    summary: str = ""
+    strengths: list[str] = Field(default_factory=list)
+    suggestions: list[ResumeSuggestion] = Field(default_factory=list)
+    word_count: int = 0
+
+
+class CoverLetterRevision(DomainModel):
+    """A prompt-controlled AI rewrite of a cover letter — a preview to review."""
+
+    cover_letter_id: str
+    instruction: str
+    preview: str = ""
+
+
 class CoverLetterSource(str, Enum):
     GENERATED = "generated"  # produced by the generation engine
     UPLOADED = "uploaded"  # the user's own file

@@ -15,6 +15,8 @@ from jobsearch.api.schemas import (
 )
 from jobsearch.models import (
     CoverLetter,
+    CoverLetterReview,
+    CoverLetterRevision,
     CoverLetterSource,
     Resume,
     ResumeFormat,
@@ -279,3 +281,33 @@ def update_cover_letter(
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(cl, field, value)
     return state.cover_letters.add(cl)  # persist the mutation
+
+
+@router.post("/cover-letters/{cover_letter_id}/review", response_model=CoverLetterReview)
+def review_cover_letter(
+    cover_letter_id: str, body: ResumeReviewRequest, user: CurrentUser, state: StateDep
+) -> CoverLetterReview:
+    """Analyze a cover letter — score, strengths, and concrete suggested changes
+    (length, clichés, specificity, personalization). Read-only."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    job_id = body.job_posting_id or cl.job_posting_id
+    job = _require_job(state, job_id) if job_id else None
+    return state.resume_assistant.review_cover_letter(cl, job=job)
+
+
+@router.post("/cover-letters/{cover_letter_id}/revise", response_model=CoverLetterRevision)
+def revise_cover_letter(
+    cover_letter_id: str, body: ResumeReviseRequest, user: CurrentUser, state: StateDep
+) -> CoverLetterRevision:
+    """Prompt-controlled AI rewrite of a cover letter. Returns a **preview**
+    grounded in the letter's real facts — nothing is saved. Apply via
+    ``PUT /cover-letters/{id} { content: <preview> }``."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    job_id = body.job_posting_id or cl.job_posting_id
+    job = _require_job(state, job_id) if job_id else None
+    try:
+        return state.resume_assistant.revise_cover_letter(cl, body.instruction, job=job)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
