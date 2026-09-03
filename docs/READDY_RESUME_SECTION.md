@@ -80,6 +80,26 @@ bearer header → blob URL** (a plain link 401s).
 
 ---
 
+---
+
+## Cover letters get the same treatment
+
+Cover letters now have identical **Review** and **Improve with AI** endpoints — wire
+the same two panels into the cover-letter detail view:
+- **Review:** `POST /api/v1/cover-letters/{id}/review` `{ job_posting_id? }` →
+  `{ cover_letter_id, score, summary, strengths[], suggestions[], word_count }`
+  (same `suggestion` shape). Its checks are cover-letter-specific: length (~250–400
+  words), generic clichés, a concrete result, **naming the target company**, and a
+  proper sign-off. If the letter is already tied to a job, the review uses that job
+  automatically.
+- **Revise:** `POST /api/v1/cover-letters/{id}/revise` `{ instruction, job_posting_id? }`
+  → `{ cover_letter_id, instruction, preview }`. **Apply** with
+  `PUT /api/v1/cover-letters/{id} { content: <preview> }` (the cover-letter body
+  field is `content`, not `rendered_text`). Preset chips: "Make it warmer", "More
+  specific", "Cut clichés", "Tailor to this job", "Tighten it".
+
+---
+
 ## Notes for Readdy
 - **Nothing is destructive without an explicit action:** `review` changes nothing;
   `revise` returns a preview only; the change is saved only when the user clicks
