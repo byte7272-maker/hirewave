@@ -37,6 +37,7 @@ from jobsearch.models import (
     ReminderPrefs,
     Resume,
     SavedSearch,
+    ScreenerAnswer,
     User,
     UserProfile,
 )
@@ -66,6 +67,7 @@ class Repositories:
     persona_voices: Repository[PersonaVoice]
     custom_voices: Repository[CustomVoice]
     onboarding: Repository[OnboardingProgress]
+    screener_answers: Repository[ScreenerAnswer]
     saved_searches: Repository[SavedSearch]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
@@ -109,6 +111,7 @@ def build_repositories(
             persona_voices=InMemoryRepository(),
             custom_voices=InMemoryRepository(),
             onboarding=InMemoryRepository(id_attr="user_id"),
+            screener_answers=InMemoryRepository(),
             saved_searches=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
@@ -152,6 +155,7 @@ def build_repositories(
         persona_voices=repo("persona_voices"),
         custom_voices=repo("custom_voices"),
         onboarding=repo("onboarding"),
+        screener_answers=repo("screener_answers"),
         saved_searches=repo("saved_searches"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),

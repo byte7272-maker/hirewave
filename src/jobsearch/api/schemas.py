@@ -208,6 +208,25 @@ class VocabularyRequest(BaseModel):
     rewrite: bool = False
 
 
+class ScreenerAnswerIn(BaseModel):
+    question: str
+    answer: str
+    kind: str = ""  # blank = inferred (boolean/numeric/text)
+
+
+class ScreenerLearnBatch(BaseModel):
+    answers: list[ScreenerAnswerIn]
+
+
+class ScreenerSuggestRequest(BaseModel):
+    questions: list[str]
+
+
+class ScreenerAnswerUpdate(BaseModel):
+    answer: Optional[str] = None
+    kind: Optional[str] = None
+
+
 class OnboardingStepUpdate(BaseModel):
     status: str  # "completed" | "dismissed" | "started"
 

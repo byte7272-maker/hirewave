@@ -41,6 +41,7 @@ from jobsearch.models import (
     ReminderPrefs,
     Resume,
     SavedSearch,
+    ScreenerAnswer,
     User,
     UserProfile,
 )
@@ -95,6 +96,7 @@ _SPECS: dict[str, TableSpec] = {
     ),
     "custom_voices": TableSpec("custom_voices", CustomVoice, "id", ("user_id",)),
     "onboarding": TableSpec("onboarding", OnboardingProgress, "user_id", ()),
+    "screener_answers": TableSpec("screener_answers", ScreenerAnswer, "id", ("user_id", "question_key")),
     "saved_searches": TableSpec("saved_searches", SavedSearch, "id", ("user_id",)),
     "authenticity_records": TableSpec("authenticity_records", JobAuthenticityRecord, "id", ("key",)),
     "inbox_messages": TableSpec("inbox_messages", InboxMessage, "id", ("user_id",)),

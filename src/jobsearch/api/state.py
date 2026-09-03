@@ -41,6 +41,7 @@ from jobsearch.engines.gmail_fetch import build_gmail_fetcher
 from jobsearch.engines.inbox import InboxEngine
 from jobsearch.engines.practice import PracticeEngine
 from jobsearch.engines.reminders import ReminderEngine
+from jobsearch.engines.screener import ScreenerMemory
 from jobsearch.engines.social import SocialEngine
 from jobsearch.engines.sourcing import (
     JobAggregator,
@@ -210,6 +211,10 @@ class AppState:
         # Connected provider sessions (cookies, encrypted) + standing auto-apply.
         self.sessions = repos.session_store
         self.auto_apply_grants = repos.auto_apply_grants
+        # Learned screener-answer memory — auto-fills recurring application
+        # questions (driver's license, years of experience, work authorization…).
+        self.screener_answers = repos.screener_answers
+        self.screener = ScreenerMemory(repo=repos.screener_answers)
         self.auto_apply = AutoApplyEngine(
             assistant=self.assistant,
             sessions=repos.session_store,
