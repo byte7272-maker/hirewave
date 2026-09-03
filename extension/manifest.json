@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Hirewave Connect",
+  "version": "1.0.0",
+  "description": "Connect a job site to Hirewave — captures your session (cookies only, never your password) so the assistant can apply for you.",
+  "permissions": ["cookies", "tabs", "storage"],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "https://*.indeed.com/*",
+    "https://*.glassdoor.com/*",
+    "https://*.greenhouse.io/*",
+    "https://*.workday.com/*",
+    "https://*.myworkday.com/*",
+    "https://*.ziprecruiter.com/*",
+    "https://*.dice.com/*",
+    "https://hirewave-production-3db3.up.railway.app/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Hirewave Connect"
+  }
+}
