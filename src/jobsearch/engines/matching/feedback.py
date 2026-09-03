@@ -54,6 +54,7 @@ class FeedbackStore:
             location=max(0.01, w.location + gain * breakdown.location),
             salary=max(0.01, w.salary + gain * breakdown.salary),
             seniority=max(0.01, w.seniority + gain * breakdown.seniority),
+            recency=max(0.01, w.recency + gain * breakdown.recency),
         ).normalized()
         self._weights[user_id] = updated
         return updated

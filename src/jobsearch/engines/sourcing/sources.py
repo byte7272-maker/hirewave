@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Optional, Protocol, runtime_checkable
+
+from jobsearch.models.common import utcnow
 
 from jobsearch.config import Settings, get_settings
 
@@ -73,9 +76,14 @@ class MockJobSource:
                 "company_domain": domain,
                 "location": loc,
                 "remote": remote,
-                "description": f"{title} at {company}. Own core product work and collaborate across teams.",
+                "description": (
+                    f"{title} at {company}. Own core product work and collaborate across "
+                    f"teams. Build and scale services in Python and AWS, with Docker and "
+                    f"Kubernetes; strong SQL and REST API design. Agile environment."
+                ),
                 "requirements": [role, "Collaboration", "Communication"],
                 "salary_range": {"currency": "USD", "minimum": base, "maximum": base + 40000},
+                "posted_at": (utcnow() - timedelta(days=i * 4 + 1)).isoformat(),
                 "url": f"https://{board}.com/jobs/{company.lower().replace(' ', '-')}-{i}",
             })
         # A cross-board DUPLICATE of the first role (same title+company, other board).

@@ -11,11 +11,25 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
+from jobsearch.engines.sourcing.skills import enrich_requirements
 from jobsearch.engines.sourcing.sources import JobQuery, JobSource
 from jobsearch.models import JobPosting, VerificationResult
 from jobsearch.models.job import SalaryRange
+
+
+def _parse_dt(value) -> Optional[datetime]:
+    """Parse a posted-at value (ISO string or datetime); None when absent/bad."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
 
 
 @dataclass
@@ -44,17 +58,26 @@ class JobAggregator:
     def _to_job(raw: dict) -> JobPosting:
         sr = raw.get("salary_range")
         salary = SalaryRange(**sr) if isinstance(sr, dict) and sr else None
+        title = str(raw.get("title", ""))
+        description = str(raw.get("description", ""))
+        # Enrich sparse/generic requirements with concrete skills mined from the
+        # title + description, so matching / résumé-review / interview prep have
+        # real signal to work with.
+        requirements = enrich_requirements(
+            list(raw.get("requirements") or []), f"{title}\n{description}"
+        )
         return JobPosting(
             source_platform=str(raw.get("source_platform", "")),
             external_id=str(raw.get("external_id", "")),
-            title=str(raw.get("title", "")),
+            title=title,
             company=str(raw.get("company", "")),
             company_domain=str(raw.get("company_domain", "")),
             location=str(raw.get("location", "")),
             remote=bool(raw.get("remote", False)),
-            description=str(raw.get("description", "")),
-            requirements=list(raw.get("requirements") or []),
+            description=description,
+            requirements=requirements,
             salary_range=salary,
+            posted_at=_parse_dt(raw.get("posted_at")),
             url=str(raw.get("url", "")),
             application_email=str(raw.get("application_email", "")),
         )

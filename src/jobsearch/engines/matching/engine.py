@@ -10,6 +10,7 @@ from jobsearch.engines.matching.scoring import (
     MatchResult,
     MatchWeights,
     location_fit,
+    recency_fit,
     salary_fit,
     seniority_fit,
     skills_fit,
@@ -59,6 +60,7 @@ class MatchingEngine:
             location=location_fit(profile, job),
             salary=salary_fit(profile, job),
             seniority=seniority_fit(profile, job),
+            recency=recency_fit(job),
         )
         weights = self.feedback.weights_for(profile.user_id)
         composite = breakdown.composite(weights)

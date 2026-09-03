@@ -49,11 +49,13 @@ class MatchWeights:
     semantic: float = 0.45
     skills: float = 0.30
     location: float = 0.10
-    salary: float = 0.10
+    salary: float = 0.08
     seniority: float = 0.05
+    recency: float = 0.02  # a light nudge toward fresher postings
 
     def normalized(self) -> "MatchWeights":
-        total = self.semantic + self.skills + self.location + self.salary + self.seniority
+        total = (self.semantic + self.skills + self.location + self.salary
+                 + self.seniority + self.recency)
         if total <= 0:
             return MatchWeights()
         return MatchWeights(
@@ -62,6 +64,7 @@ class MatchWeights:
             location=self.location / total,
             salary=self.salary / total,
             seniority=self.seniority / total,
+            recency=self.recency / total,
         )
 
 
@@ -72,6 +75,7 @@ class MatchBreakdown:
     location: float = 0.0
     salary: float = 0.0
     seniority: float = 0.0
+    recency: float = 0.5  # neutral when the posting age is unknown
 
     def composite(self, weights: MatchWeights) -> float:
         w = weights.normalized()
@@ -81,6 +85,7 @@ class MatchBreakdown:
             + self.location * w.location
             + self.salary * w.salary
             + self.seniority * w.seniority
+            + self.recency * w.recency
         )
         return round(100.0 * max(0.0, min(1.0, raw)), 1)
 
@@ -177,3 +182,16 @@ def seniority_fit(profile: UserProfile, job: JobPosting) -> float:
         return 0.7
     diff = abs(want_rank - job_rank)
     return max(0.0, 1.0 - 0.25 * diff)
+
+
+def recency_fit(job: JobPosting) -> float:
+    """Fresher postings score higher; unknown age is neutral (never penalized).
+    ~1.0 for the last few days, decaying to ~0.2 by ~90 days old."""
+    age = job.age_days
+    if age is None:
+        return 0.5
+    if age <= 3:
+        return 1.0
+    if age >= 90:
+        return 0.15
+    return round(1.0 - 0.85 * (age - 3) / 87, 3)

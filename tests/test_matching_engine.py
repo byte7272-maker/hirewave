@@ -37,5 +37,6 @@ def test_feedback_adjusts_weights(profile, matching_job):
     after = engine.feedback.weights_for(profile.user_id)
     # Weights changed and remain normalized.
     assert (before.semantic, before.skills) != (after.semantic, after.skills)
-    total = after.semantic + after.skills + after.location + after.salary + after.seniority
+    total = (after.semantic + after.skills + after.location + after.salary
+             + after.seniority + after.recency)
     assert abs(total - 1.0) < 1e-6

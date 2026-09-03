@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from jobsearch.models.common import DomainModel, new_id, utcnow
 from jobsearch.models.user import SalaryRange
@@ -32,6 +32,39 @@ class JobPosting(DomainModel):
     # Populated by the engines (not the ingestion source):
     is_verified: Optional[bool] = None
     match_score: Optional[float] = None  # 0-100, per current user
+
+    @computed_field  # serialized: how old the posting is, in days (None if unknown)
+    @property
+    def age_days(self) -> Optional[int]:
+        if self.posted_at is None:
+            return None
+        posted = self.posted_at
+        now = utcnow()
+        if posted.tzinfo is None:  # compare naive-vs-naive
+            now = now.replace(tzinfo=None)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        return max(0, (now - posted).days)
+
+    @computed_field  # serialized: human-readable "posted X ago" (empty if unknown)
+    @property
+    def posted_ago(self) -> str:
+        d = self.age_days
+        if d is None:
+            return ""
+        if d == 0:
+            return "today"
+        if d == 1:
+            return "yesterday"
+        if d < 7:
+            return f"{d} days ago"
+        if d < 14:
+            return "1 week ago"
+        if d < 31:
+            return f"{d // 7} weeks ago"
+        if d < 60:
+            return "1 month ago"
+        return f"{d // 30} months ago"
 
     def to_matching_text(self) -> str:
         """Flatten the posting into text for embedding / matching."""
