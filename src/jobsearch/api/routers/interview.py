@@ -247,15 +247,44 @@ def _voice_id(user_id: str, persona_id: str) -> str:
     return f"{user_id}:{persona_id}"
 
 
-def _default_voice(user_id: str, persona: InterviewerPersona) -> PersonaVoice:
-    """The effective voice when the user hasn't chosen one — carries the persona's
-    gender/tone/voice_id hints so the client can auto-pick a matching voice."""
+# Distinct OpenAI TTS voices per built-in persona so they don't all sound alike.
+# The six stock voices (universally available on the OpenAI TTS models).
+_OPENAI_GALLERY_VOICE = {
+    "Devon Clark": "echo",       # male, warm
+    "Maya Patel": "nova",        # female, warm
+    "Priya Nair": "shimmer",     # female, measured
+    "Marcus Chen": "onyx",       # male, deep
+    "Dr. Elena Rossi": "fable",  # female, crisp/expressive
+    "Jordan Blake": "alloy",     # neutral, firm
+}
+_OPENAI_BY_GENDER = {"male": "onyx", "female": "shimmer", "neutral": "alloy"}
+
+
+def _server_voice_for(persona: InterviewerPersona, settings) -> str:
+    """A concrete neural voice id for a persona, so each interviewer sounds
+    distinct. An explicit persona.voice_id always wins; otherwise, when the
+    active TTS provider is OpenAI, map to a distinct stock voice (by name for the
+    built-in gallery, else by gender). Other providers get no auto-mapping."""
+    if persona.voice_id:
+        return persona.voice_id
+    if getattr(settings, "tts_provider", "none") == "openai":
+        return _OPENAI_GALLERY_VOICE.get(persona.name) or _OPENAI_BY_GENDER.get(
+            persona.gender, "alloy"
+        )
+    return ""
+
+
+def _default_voice(user_id: str, persona: InterviewerPersona, settings=None) -> PersonaVoice:
+    """The effective voice when the user hasn't chosen one. Resolves a concrete
+    server voice id (distinct per persona) so the client speaks each interviewer
+    in a different neural voice instead of one shared default."""
+    vid = _server_voice_for(persona, settings) if settings is not None else persona.voice_id
     return PersonaVoice(
         id=_voice_id(user_id, persona.id),
         user_id=user_id,
         persona_id=persona.id,
-        source=VoiceSource.SERVER if persona.voice_id else VoiceSource.BROWSER,
-        voice_id=persona.voice_id,
+        source=VoiceSource.SERVER if vid else VoiceSource.BROWSER,
+        voice_id=vid,
         lang="en-US",
     )
 
@@ -273,7 +302,7 @@ def get_voice_pref(persona_id: str, user: CurrentUser, state: StateDep) -> Perso
     derived from the persona's gender/tone if they haven't chosen one."""
     persona = _persona_or_404(state, persona_id)
     saved = state.persona_voices.get(_voice_id(user.id, persona_id))
-    return saved or _default_voice(user.id, persona)
+    return saved or _default_voice(user.id, persona, state.settings)
 
 
 @router.put("/personas/{persona_id}/voice", response_model=PersonaVoice)
@@ -284,7 +313,7 @@ def set_voice_pref(
     rate/pitch/lang), or point it at a server neural voice_id."""
     persona = _persona_or_404(state, persona_id)
     pref = state.persona_voices.get(_voice_id(user.id, persona_id)) or _default_voice(
-        user.id, persona
+        user.id, persona, state.settings
     )
     data = body.model_dump(exclude_unset=True)
     if "source" in data and data["source"] is not None:
@@ -328,7 +357,7 @@ async def upload_voice_clip(
             f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
         )
     pref = state.persona_voices.get(_voice_id(user.id, persona_id)) or _default_voice(
-        user.id, persona
+        user.id, persona, state.settings
     )
     key = f"voice_{user.id}_{persona_id}"
     state.documents.put(key, data, content_type=ctype)

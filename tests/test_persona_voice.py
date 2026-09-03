@@ -50,6 +50,24 @@ def test_default_voice_is_derived():
     assert v["source"] in ("browser", "server")  # derived from the persona
 
 
+def test_openai_provider_gives_distinct_server_voices():
+    from jobsearch.config import Settings
+
+    client = TestClient(
+        create_app(state=AppState(settings=Settings(tts_provider="openai", tts_api_key="k"), exchanger=MockTokenExchanger()))
+    )
+    h = _auth(client)
+    personas = client.get("/api/v1/interview/personas", headers=h).json()
+    voices = []
+    for p in personas:
+        v = client.get(f"/api/v1/interview/personas/{p['id']}/voice", headers=h).json()
+        assert v["source"] == "server"
+        assert v["voice_id"]  # a concrete neural voice, not empty
+        voices.append(v["voice_id"])
+    # the gallery no longer sounds identical — several distinct voices
+    assert len(set(voices)) >= 4
+
+
 def test_set_browser_voice_and_persist():
     client = _client()
     h = _auth(client)
