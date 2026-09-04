@@ -10,7 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.api.schemas import IngestRequest, MatchOut, SaveJobRequest
+from jobsearch.api.schemas import IngestRequest, MatchOut, ReorderSavedRequest, SaveJobRequest
 from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResult
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -187,14 +187,33 @@ def save_job(body: SaveJobRequest, user: CurrentUser, state: StateDep) -> SavedJ
 
 @router.get("/saved", response_model=list[JobPosting])
 def list_saved_jobs(user: CurrentUser, state: StateDep) -> list[JobPosting]:
-    """The user's saved jobs (full postings), most-recently-saved first."""
-    saved = sorted(state.saved_jobs.find(user_id=user.id), key=lambda s: s.saved_at, reverse=True)
+    """The user's saved jobs (full postings). Ordered by the user's manual order
+    (``display_order``), then most-recently-saved first."""
+    saved = sorted(
+        state.saved_jobs.find(user_id=user.id),
+        key=lambda s: (s.display_order, -s.saved_at.timestamp()),
+    )
     out = []
     for s in saved:
         job = state.jobs.get(s.job_posting_id)
         if job is not None:
             out.append(job)
     return out
+
+
+@router.put("/saved/reorder", response_model=list[JobPosting])
+def reorder_saved_jobs(
+    body: ReorderSavedRequest, user: CurrentUser, state: StateDep
+) -> list[JobPosting]:
+    """Persist the user's manual ordering of saved jobs (cross-device). ``ids`` is
+    the job ids in the desired order; any saved job not listed keeps its place
+    after the listed ones. Returns the newly-ordered saved jobs."""
+    positions = {jid: idx for idx, jid in enumerate(body.ids)}
+    for s in state.saved_jobs.find(user_id=user.id):
+        if s.job_posting_id in positions:
+            s.display_order = positions[s.job_posting_id]
+            state.saved_jobs.add(s)
+    return list_saved_jobs(user, state)
 
 
 @router.delete("/saved/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

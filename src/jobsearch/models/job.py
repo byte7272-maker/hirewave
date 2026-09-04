@@ -93,6 +93,7 @@ class SavedJob(DomainModel):
     user_id: str
     job_posting_id: str
     note: str = ""
+    display_order: int = 0  # user's manual ordering (lower = higher in the list)
     saved_at: datetime = Field(default_factory=utcnow)
 
 

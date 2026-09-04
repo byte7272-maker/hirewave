@@ -56,6 +56,24 @@ def test_save_is_idempotent():
     assert len(saved) == 1  # not duplicated
 
 
+def test_reorder_saved_jobs_persists_order():
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/job-search/run", headers=h, json={"role": "engineer", "location": "NYC", "remote": True})
+    ids = [j["id"] for j in client.get("/api/v1/jobs", headers=h).json()][:3]
+    assert len(ids) == 3
+    for jid in ids:
+        client.post("/api/v1/jobs/saved", headers=h, json={"job_posting_id": jid})
+
+    # reorder to the reverse of insertion
+    want = list(reversed(ids))
+    r = client.put("/api/v1/jobs/saved/reorder", headers=h, json={"ids": want})
+    assert r.status_code == 200
+    assert [j["id"] for j in r.json()] == want
+    # and a fresh GET reflects the persisted order (cross-device)
+    assert [j["id"] for j in client.get("/api/v1/jobs/saved", headers=h).json()] == want
+
+
 def test_save_unknown_job_404_and_unsave_missing_404():
     client = _client()
     h = _auth(client)

@@ -101,6 +101,11 @@ class SaveJobRequest(BaseModel):
     note: Optional[str] = None
 
 
+class ReorderSavedRequest(BaseModel):
+    #: job ids in the desired order (the frontend sends the visible saved-job ids)
+    ids: list[str]
+
+
 class MatchOut(BaseModel):
     job_id: str
     title: str
