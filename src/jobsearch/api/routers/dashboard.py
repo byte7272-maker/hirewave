@@ -7,15 +7,19 @@ the dashboard reflects reality even for a brand-new account (all zeros).
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.routers.jobs import _visible
 from jobsearch.models import UserProfile
+from jobsearch.models.common import utcnow
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 _STRONG_MATCH = 60.0  # score at/above which a match counts as "strong"
+_WEEKLY_TARGET = 5  # default weekly application goal (drives the progress bar)
 
 
 @router.get("/summary")
@@ -35,6 +39,15 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     for a in apps:
         s = a.status.value if hasattr(a.status, "value") else str(a.status)
         by_status[s] = by_status.get(s, 0) + 1
+
+    # --- this-week activity → the weekly goal --------------------------------
+    week_ago = utcnow() - timedelta(days=7)
+    mock_sessions = state.mock_interviews.find(user_id=uid)
+    apps_this_week = sum(
+        1 for a in apps
+        if getattr(a, "submitted_at", None) is not None and a.submitted_at >= week_ago
+    )
+    interviews_this_week = sum(1 for m in mock_sessions if m.created_at >= week_ago)
 
     # --- connected job sites (OAuth or an active browser session) -----------
     authed = {c["provider"] for c in state.integration.list_connections(uid) if not c["expired"]}
@@ -70,7 +83,13 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
             "offered": by_status.get("offered", 0),
             "by_status": by_status,
         },
-        "interviews": len(state.mock_interviews.find(user_id=uid)),
+        "interviews": len(mock_sessions),
+        "weekly_goal": {
+            "target": _WEEKLY_TARGET,
+            "done": apps_this_week,  # applications submitted in the last 7 days
+            "applications_this_week": apps_this_week,
+            "interviews_this_week": interviews_this_week,
+        },
         "resumes": resume_count,
         "cover_letters": len(state.cover_letters.find(user_id=uid)),
         "highlights": len(state.experience.list_for(uid)),

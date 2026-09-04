@@ -29,6 +29,7 @@ def test_fresh_account_is_all_zeros():
     assert d["connected_apps"]["count"] == 0
     assert d["profile_complete"] is False
     assert d["recent_activity"] == []
+    assert d["weekly_goal"]["target"] == 5 and d["weekly_goal"]["done"] == 0
 
 
 def test_counts_reflect_real_activity():
@@ -61,6 +62,18 @@ def test_applications_by_status():
     d = client.get("/api/v1/dashboard/summary", headers=h).json()
     assert d["applications"]["total"] == 1
     assert sum(d["applications"]["by_status"].values()) == 1
+
+
+def test_weekly_goal_counts_this_weeks_activity():
+    client = _client()
+    h = _auth(client)
+    # a mock interview started now counts toward this week
+    client.post("/api/v1/interview/mock/start", headers=h, json={"difficulty": "easy", "max_questions": 2})
+    d = client.get("/api/v1/dashboard/summary", headers=h).json()
+    wg = d["weekly_goal"]
+    assert wg["target"] == 5
+    assert wg["interviews_this_week"] == 1
+    assert wg["done"] == 0  # 'done' tracks submitted applications; none yet
 
 
 def test_requires_auth():
