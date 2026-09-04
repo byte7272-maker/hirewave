@@ -76,6 +76,11 @@ def matches(
                 matching_skills=r.matching_skills,
                 gap_skills=r.gap_skills,
                 authenticity_score=v.authenticity_score if v else None,
+                url=r.job.url,
+                location=r.job.location,
+                remote=r.job.remote,
+                posted_ago=r.job.posted_ago,
+                source_platform=r.job.source_platform,
             )
         )
     return out

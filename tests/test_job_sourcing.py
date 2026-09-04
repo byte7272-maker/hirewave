@@ -119,6 +119,10 @@ def test_api_run_ingests_into_matches():
     assert len(body["sources"]) >= 3
     matches = client.get("/api/v1/jobs/matches", headers=h).json()
     assert len(matches) == body["ingested"] - body["hidden"]  # scam excluded from matches
+    # each match carries a direct link + card fields so the user can open the posting
+    m = matches[0]
+    assert m["url"].startswith("http")
+    assert "location" in m and "remote" in m and "posted_ago" in m and "source_platform" in m
 
 
 def test_api_saved_search_crud_and_run():

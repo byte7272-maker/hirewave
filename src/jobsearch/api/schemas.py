@@ -114,6 +114,12 @@ class MatchOut(BaseModel):
     matching_skills: list[str]
     gap_skills: list[str]
     authenticity_score: Optional[int] = None
+    #: Direct link to the posting (e.g. the LinkedIn URL) so the user can open it.
+    url: str = ""
+    location: str = ""
+    remote: bool = False
+    posted_ago: str = ""  # e.g. "2 days ago" (empty when unknown)
+    source_platform: str = ""  # e.g. "linkedin"
 
 
 # --- documents --------------------------------------------------------------
