@@ -124,12 +124,30 @@ def list_resumes(user: CurrentUser, state: StateDep) -> list[Resume]:
     return state.resumes.find(user_id=user.id)
 
 
+def ensure_rendered_text(state: StateDep, resume: Resume) -> Resume:
+    """Self-heal: if a résumé has no extracted text but its file is stored,
+    re-extract now (e.g. after the PDF/DOCX parser became available) and persist."""
+    if resume.rendered_text or state.documents is None:
+        return resume
+    try:
+        stored = state.documents.get(resume.id)
+    except Exception:  # noqa: BLE001
+        stored = None
+    if stored:
+        data, ctype = stored
+        text = extract_text(data, filename=resume.original_filename, content_type=ctype)[:20000]
+        if text:
+            resume.rendered_text = text
+            state.resumes.add(resume)
+    return resume
+
+
 @router.get("/resumes/{resume_id}", response_model=Resume)
 def get_resume(resume_id: str, user: CurrentUser, state: StateDep) -> Resume:
     resume = state.resumes.get(resume_id)
     if resume is None or resume.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
-    return resume
+    return ensure_rendered_text(state, resume)
 
 
 @router.put("/resumes/{resume_id}", response_model=Resume)

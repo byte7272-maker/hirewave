@@ -13,7 +13,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --upgrade pip setuptools wheel \
-    && pip install ".[api,postgres,anthropic,openai,firebase]"
+    && pip install ".[api,postgres,anthropic,openai,firebase,documents]"
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 appuser

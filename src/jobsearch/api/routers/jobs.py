@@ -70,6 +70,8 @@ def _matching_profile(state: StateDep, user_id: str, resume_id: str) -> UserProf
     resume = state.resumes.get(resume_id)
     if resume is None or resume.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    from jobsearch.api.routers.documents import ensure_rendered_text
+    resume = ensure_rendered_text(state, resume)  # heal empty text from stored file
     text = (resume.rendered_text or "").strip()
     skills = list(dict.fromkeys([*profile.skills, *extract_skills(text, limit=25)]))
     return profile.model_copy(update={
