@@ -125,6 +125,20 @@ def test_api_run_ingests_into_matches():
     assert "location" in m and "remote" in m and "posted_ago" in m and "source_platform" in m
 
 
+def test_repeat_search_reports_matched_jobs_not_empty():
+    # A repeat search of an already-ingested role ingests 0 new (global dedup) but
+    # must still report the jobs it surfaced via matched_job_ids (so the UI isn't
+    # falsely "empty").
+    client = _client()
+    h = _auth(client)
+    first = client.post("/api/v1/job-search/run", headers=h, json={"role": "IT operations director", "remote": True}).json()
+    assert first["ingested"] > 0
+    assert len(first["matched_job_ids"]) == first["ingested"] + first["duplicates"]
+    second = client.post("/api/v1/job-search/run", headers=h, json={"role": "IT operations director", "remote": True}).json()
+    assert second["ingested"] == 0  # nothing net-new
+    assert len(second["matched_job_ids"]) > 0  # but the roles are still surfaced
+
+
 def test_api_saved_search_crud_and_run():
     client = _client()
     h = _auth(client)

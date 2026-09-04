@@ -48,7 +48,10 @@ class AggregationResult:
     duplicates: int = 0  # skipped as dup of a batch/stored posting
     hidden: int = 0  # ingested but auto-hidden by the fraud filter
     sources: list[str] = field(default_factory=list)
-    job_ids: list[str] = field(default_factory=list)
+    job_ids: list[str] = field(default_factory=list)  # newly-ingested only
+    #: Every job this search surfaced — newly ingested AND already-present dupes —
+    #: so callers can show the search's real results (not just net-new).
+    matched_job_ids: list[str] = field(default_factory=list)
 
 
 def _norm_key(job: JobPosting) -> str:
@@ -126,6 +129,7 @@ class JobAggregator:
                 existing.last_seen_at = utcnow()
                 self.jobs.add(existing)
                 result.duplicates += 1
+                result.matched_job_ids.append(existing.id)  # still a result of this search
                 continue
             self.jobs.add(job)
             v: VerificationResult = self.verification.verify(job)
@@ -134,6 +138,7 @@ class JobAggregator:
                 result.hidden += 1
             result.ingested += 1
             result.job_ids.append(job.id)
+            result.matched_job_ids.append(job.id)
             by_key[key] = job  # so a later batch item can't re-add the same role
         return result
 

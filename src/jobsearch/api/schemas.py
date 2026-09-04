@@ -539,7 +539,10 @@ class AggregationOut(BaseModel):
     duplicates: int
     hidden: int
     sources: list[str]
-    job_ids: list[str]
+    job_ids: list[str]  # newly-ingested only
+    #: All jobs this search surfaced (new + already-present) — use this to show
+    #: results, so a repeat search of an existing role isn't reported as empty.
+    matched_job_ids: list[str] = Field(default_factory=list)
     drafts_prepared: int = 0  # if the draft_prep assistant is enabled
 
 

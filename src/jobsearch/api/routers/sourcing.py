@@ -26,6 +26,7 @@ def _out(r: AggregationResult) -> AggregationOut:
     return AggregationOut(
         found=r.found, ingested=r.ingested, duplicates=r.duplicates,
         hidden=r.hidden, sources=r.sources, job_ids=r.job_ids,
+        matched_job_ids=r.matched_job_ids,
     )
 
 
