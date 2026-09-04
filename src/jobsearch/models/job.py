@@ -85,6 +85,17 @@ class JobPosting(DomainModel):
         return "\n".join(p for p in parts if p)
 
 
+class SavedJob(DomainModel):
+    """A job the user bookmarked. Keyed ``{user_id}:{job_posting_id}`` so saving is
+    idempotent (no duplicates)."""
+
+    id: str = ""  # composite "{user_id}:{job_posting_id}"
+    user_id: str
+    job_posting_id: str
+    note: str = ""
+    saved_at: datetime = Field(default_factory=utcnow)
+
+
 class VerificationFlag(str, Enum):
     """Discrete fraud/quality signals raised during verification."""
 

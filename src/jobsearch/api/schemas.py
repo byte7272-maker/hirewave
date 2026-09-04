@@ -96,6 +96,11 @@ class IngestRequest(BaseModel):
     jobs: list[JobInput]
 
 
+class SaveJobRequest(BaseModel):
+    job_posting_id: str
+    note: Optional[str] = None
+
+
 class MatchOut(BaseModel):
     job_id: str
     title: str

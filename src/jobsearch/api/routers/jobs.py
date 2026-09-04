@@ -10,8 +10,8 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.api.schemas import IngestRequest, MatchOut
-from jobsearch.models import JobPosting, UserProfile, VerificationResult
+from jobsearch.api.schemas import IngestRequest, MatchOut, SaveJobRequest
+from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResult
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
@@ -165,6 +165,44 @@ def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
         state.verifications[job.id] = state.verification.verify(job)
         ingested += 1
     return {"ingested": ingested, "total": len(state.jobs.all())}
+
+
+# --- saved jobs (bookmarks) -------------------------------------------------
+def _saved_id(user_id: str, job_id: str) -> str:
+    return f"{user_id}:{job_id}"
+
+
+@router.post("/saved", response_model=SavedJob, status_code=status.HTTP_201_CREATED)
+def save_job(body: SaveJobRequest, user: CurrentUser, state: StateDep) -> SavedJob:
+    """Bookmark a job. Idempotent — saving the same job again just updates it."""
+    if state.jobs.get(body.job_posting_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+    sid = _saved_id(user.id, body.job_posting_id)
+    existing = state.saved_jobs.get(sid)
+    saved = existing or SavedJob(id=sid, user_id=user.id, job_posting_id=body.job_posting_id)
+    if body.note is not None:
+        saved.note = body.note
+    return state.saved_jobs.add(saved)
+
+
+@router.get("/saved", response_model=list[JobPosting])
+def list_saved_jobs(user: CurrentUser, state: StateDep) -> list[JobPosting]:
+    """The user's saved jobs (full postings), most-recently-saved first."""
+    saved = sorted(state.saved_jobs.find(user_id=user.id), key=lambda s: s.saved_at, reverse=True)
+    out = []
+    for s in saved:
+        job = state.jobs.get(s.job_posting_id)
+        if job is not None:
+            out.append(job)
+    return out
+
+
+@router.delete("/saved/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unsave_job(job_id: str, user: CurrentUser, state: StateDep) -> None:
+    sid = _saved_id(user.id, job_id)
+    if state.saved_jobs.get(sid) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job is not saved")
+    state.saved_jobs.delete(sid)
 
 
 @router.get("/{job_id}", response_model=JobPosting)

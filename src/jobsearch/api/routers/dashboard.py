@@ -93,6 +93,7 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
         "resumes": resume_count,
         "cover_letters": len(state.cover_letters.find(user_id=uid)),
         "highlights": len(state.experience.list_for(uid)),
+        "saved_jobs": len(state.saved_jobs.find(user_id=uid)),
         "saved_searches": len(state.saved_searches_repo.find(user_id=uid)),
         "connected_apps": {"count": len(authed), "providers": sorted(authed)},
         "unread_notifications": sum(1 for n in state.notifications.find(user_id=uid) if not n.is_read),

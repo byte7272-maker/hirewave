@@ -37,6 +37,7 @@ from jobsearch.models import (
     PracticeSignal,
     ReminderPrefs,
     Resume,
+    SavedJob,
     SavedSearch,
     ScreenerAnswer,
     User,
@@ -70,6 +71,7 @@ class Repositories:
     onboarding: Repository[OnboardingProgress]
     screener_answers: Repository[ScreenerAnswer]
     saved_searches: Repository[SavedSearch]
+    saved_jobs: Repository[SavedJob]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
     invites: Repository[Invite]
@@ -115,6 +117,7 @@ def build_repositories(
             onboarding=InMemoryRepository(id_attr="user_id"),
             screener_answers=InMemoryRepository(),
             saved_searches=InMemoryRepository(),
+            saved_jobs=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
             invites=InMemoryRepository(),
@@ -160,6 +163,7 @@ def build_repositories(
         onboarding=repo("onboarding"),
         screener_answers=repo("screener_answers"),
         saved_searches=repo("saved_searches"),
+        saved_jobs=repo("saved_jobs"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),
         invites=repo("invites"),

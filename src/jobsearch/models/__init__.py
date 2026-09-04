@@ -60,7 +60,7 @@ from jobsearch.models.interview import (
     VocabularyAnalysis,
     VoiceSource,
 )
-from jobsearch.models.job import JobPosting, VerificationFlag, VerificationResult
+from jobsearch.models.job import JobPosting, SavedJob, VerificationFlag, VerificationResult
 from jobsearch.models.monitoring import (
     ExposureFinding,
     IdentifierType,
@@ -127,6 +127,7 @@ __all__ = [
     "InterviewerPersona",
     "InterviewerStyle",
     "JobPosting",
+    "SavedJob",
     "JobPreferences",
     "MockInterviewSession",
     "MockInterviewSummary",

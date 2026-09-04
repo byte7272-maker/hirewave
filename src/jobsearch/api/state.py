@@ -153,6 +153,7 @@ class AppState:
         self.verification = VerificationEngine()
         # Multi-site job sourcing agent: fan out → normalize → dedupe → verify → ingest.
         self.saved_searches_repo = repos.saved_searches
+        self.saved_jobs = repos.saved_jobs  # user-bookmarked jobs
         self.job_sources = build_job_sources(self.settings)
         self.aggregator = JobAggregator(
             self.job_sources, self.jobs, self.verification, self.verifications
