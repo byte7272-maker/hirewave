@@ -116,10 +116,19 @@ _CATEGORY_RULES: list[tuple[str, list[str]]] = [
                           "machine learning", "ml engineer", "data science", "business intelligence", "bi developer"]),
     ("Product", ["product manager", "product owner", "product lead", "technical product", "program manager"]),
     ("Design", ["designer", "ux", "ui/ux", "user experience", "user interface", "graphic", "creative director"]),
+    # IT & Systems is checked BEFORE Engineering and Operations so infra/ops/IT
+    # roles (which share vocabulary with both) land here, not under "Engineering"
+    # or a bare "operations" match.
+    ("IT & Systems", ["it operations", "information technology", "it support", "it manager", "it director",
+                     "it specialist", "it administrator", "service delivery", "systems administrator",
+                     "system administrator", "systems engineer", "systems analyst", "sysadmin", "infrastructure",
+                     "network administrator", "network engineer", "network operations", "noc ",
+                     "help desk", "helpdesk", "service desk", "desktop support", "endpoint", "technical support engineer",
+                     "cloud operations", "technical operations", "technology operations", "vmware", "active directory",
+                     "technician", "systems support"]),
     ("Engineering", ["software engineer", "developer", "programmer", "backend", "frontend", "full stack",
-                    "full-stack", "devops", "sre", "site reliability", "software architect", "platform engineer", "qa engineer"]),
-    ("IT & Systems", ["service delivery", "systems administrator", "sysadmin", "network engineer",
-                     "help desk", "service desk", "desktop support", "it support", "it manager", "information technology", "technician"]),
+                    "full-stack", "devops", "sre", "site reliability", "software architect", "platform engineer",
+                    "qa engineer", "mobile engineer", "web developer"]),
     ("Customer Success & Support", ["customer success", "customer support", "support engineer",
                                    "technical support", "customer service", "account support"]),
     ("Marketing", ["marketing", "seo", "content strategist", "brand manager", "growth", "social media",
@@ -128,12 +137,15 @@ _CATEGORY_RULES: list[tuple[str, list[str]]] = [
     ("Finance & Accounting", ["accountant", "accounting", "controller", "fp&a", "auditor", "treasury",
                              "bookkeeper", "financial analyst", "finance manager"]),
     ("People & HR", ["human resources", "recruiter", "talent acquisition", "people ops", "hris", "compensation"]),
-    ("Operations", ["operations", "logistics", "supply chain", "procurement", "office manager", "project coordinator"]),
+    ("Operations", ["operations manager", "business operations", "logistics", "supply chain",
+                   "procurement", "office manager", "project coordinator", "operations analyst"]),
     ("Legal", ["attorney", "lawyer", "paralegal", "legal counsel", "compliance officer"]),
     ("Healthcare", ["nurse", "physician", "clinical", "healthcare", "therapist", "pharmacist", "medical assistant"]),
 ]
 #: The catalog shown to users (broad categories they can select), plus "Other".
 CATEGORIES = [name for name, _ in _CATEGORY_RULES] + ["Other"]
+#: Bump when _CATEGORY_RULES changes so stored jobs re-classify once on read.
+CATEGORY_VERSION = 2
 
 
 def detect_category(text: str) -> str:

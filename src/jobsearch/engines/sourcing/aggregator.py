@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional
 
 from jobsearch.engines.sourcing.skills import (
+    CATEGORY_VERSION,
     detect_benefits,
     detect_category,
     detect_employment_type,
@@ -87,6 +88,7 @@ class JobAggregator:
             salary_range=salary,
             posted_at=_parse_dt(raw.get("posted_at")),
             category=str(raw.get("category") or detect_category(f"{title} {title} {description}")),
+            category_version=CATEGORY_VERSION,
             seniority=str(raw.get("seniority") or detect_seniority(blob)),
             employment_type=str(raw.get("employment_type") or detect_employment_type(blob)),
             years_experience=raw.get("years_experience") if raw.get("years_experience") is not None

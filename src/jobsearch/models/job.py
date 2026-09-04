@@ -31,6 +31,7 @@ class JobPosting(DomainModel):
 
     # Structured metadata parsed from the title/description at ingestion.
     category: str = ""  # broad job category (Engineering, Data & Analytics, …)
+    category_version: int = 0  # classifier version that set `category` (for re-backfill)
     seniority: str = ""  # junior | mid | senior | lead | staff | principal | director
     employment_type: str = ""  # full-time | part-time | contract | temporary | internship
     years_experience: Optional[int] = None  # required years of experience

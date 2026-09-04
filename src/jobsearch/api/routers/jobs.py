@@ -11,7 +11,12 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import IngestRequest, MatchOut, ReorderSavedRequest, SaveJobRequest
-from jobsearch.engines.sourcing.skills import CATEGORIES, detect_category, extract_skills
+from jobsearch.engines.sourcing.skills import (
+    CATEGORIES,
+    CATEGORY_VERSION,
+    detect_category,
+    extract_skills,
+)
 from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResult
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -95,11 +100,12 @@ def matches(
     if not selected:
         selected = set(profile.preferences.job_categories)
     visible = [j for j in state.jobs.all() if _visible(state, j)]
-    # Lazily backfill categories for jobs ingested before classification existed,
-    # so the category focus works on the whole pool (self-heals on read).
+    # Lazily (re)classify jobs whose category predates the current classifier, so
+    # the category focus works on the whole pool (self-heals on read, once).
     for j in visible:
-        if not j.category:
+        if not j.category or getattr(j, "category_version", 0) < CATEGORY_VERSION:
             j.category = detect_category(f"{j.title} {j.title} {j.description}")
+            j.category_version = CATEGORY_VERSION
             state.jobs.add(j)
     if selected:
         visible = [j for j in visible if (j.category or "Other") in selected]
