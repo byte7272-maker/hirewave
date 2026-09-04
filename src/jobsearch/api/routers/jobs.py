@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import IngestRequest, MatchOut, ReorderSavedRequest, SaveJobRequest
+from jobsearch.engines.sourcing.skills import CATEGORIES, extract_skills
 from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResult
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
@@ -54,15 +55,48 @@ def list_jobs(
     return results
 
 
+def _matching_profile(state: StateDep, user_id: str, resume_id: str) -> UserProfile:
+    """The profile to rank against. With ``resume_id`` the ranking is driven by
+    that résumé's text + the skills mined from it (so matches reflect the résumé
+    the user chose), layered over their structured profile."""
+    profile = state.profiles.get(user_id) or UserProfile(user_id=user_id)
+    if not resume_id:
+        return profile
+    resume = state.resumes.get(resume_id)
+    if resume is None or resume.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    text = (resume.rendered_text or "").strip()
+    skills = list(dict.fromkeys([*profile.skills, *extract_skills(text, limit=25)]))
+    return profile.model_copy(update={
+        "summary": text[:4000] or profile.summary,
+        "skills": skills,
+        "headline": profile.headline or resume.target_role,
+    })
+
+
+@router.get("/categories")
+def job_categories(_user: CurrentUser) -> dict:
+    """The broad job categories a user can pick to focus their matches on."""
+    return {"categories": CATEGORIES}
+
+
 @router.get("/matches", response_model=list[MatchOut])
 def matches(
     state: StateDep,
     user: CurrentUser,
     limit: int = Query(20, ge=1, le=100),
     min_score: float = 0.0,
+    resume_id: Optional[str] = Query(None, description="rank against this résumé (user picks when several)"),
+    categories: str = Query("", description="comma-separated broad categories to focus on; blank = your saved prefs"),
 ) -> list[MatchOut]:
-    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+    profile = _matching_profile(state, user.id, resume_id)
+    # Category focus: explicit query wins, else the user's saved preference.
+    selected = {c.strip() for c in categories.split(",") if c.strip()}
+    if not selected:
+        selected = set(profile.preferences.job_categories)
     visible = [j for j in state.jobs.all() if _visible(state, j)]
+    if selected:
+        visible = [j for j in visible if (j.category or "Other") in selected]
     ranked = state.matching.rank(profile, visible, limit=limit, min_score=min_score)
     out = []
     for r in ranked:
@@ -81,6 +115,7 @@ def matches(
                 remote=r.job.remote,
                 posted_ago=r.job.posted_ago,
                 source_platform=r.job.source_platform,
+                category=r.job.category,
             )
         )
     return out

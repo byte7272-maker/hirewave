@@ -68,6 +68,8 @@ class PreferencesUpdate(BaseModel):
     target_roles: Optional[list[str]] = None
     target_locations: Optional[list[str]] = None
     seniority: Optional[str] = None
+    #: Broad job categories the user wants to focus matches on (see GET /jobs/categories).
+    job_categories: Optional[list[str]] = None
 
 
 # --- integrations -----------------------------------------------------------
@@ -120,6 +122,7 @@ class MatchOut(BaseModel):
     remote: bool = False
     posted_ago: str = ""  # e.g. "2 days ago" (empty when unknown)
     source_platform: str = ""  # e.g. "linkedin"
+    category: str = ""  # broad category (Engineering, Data & Analytics, …)
 
 
 # --- documents --------------------------------------------------------------

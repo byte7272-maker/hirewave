@@ -43,6 +43,8 @@ class JobPreferences(DomainModel):
     target_roles: list[str] = Field(default_factory=list)
     target_locations: list[str] = Field(default_factory=list)
     seniority: Optional[str] = None  # e.g. "junior", "mid", "senior", "staff"
+    #: Broad job categories to focus matches on (empty = all categories).
+    job_categories: list[str] = Field(default_factory=list)
 
 
 class UserProfile(DomainModel):

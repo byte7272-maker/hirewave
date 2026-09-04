@@ -30,6 +30,7 @@ class JobPosting(DomainModel):
     application_email: str = ""  # where email submissions are sent, when known
 
     # Structured metadata parsed from the title/description at ingestion.
+    category: str = ""  # broad job category (Engineering, Data & Analytics, …)
     seniority: str = ""  # junior | mid | senior | lead | staff | principal | director
     employment_type: str = ""  # full-time | part-time | contract | temporary | internship
     years_experience: Optional[int] = None  # required years of experience

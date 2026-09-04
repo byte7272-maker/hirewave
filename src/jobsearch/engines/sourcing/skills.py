@@ -109,6 +109,42 @@ _BENEFITS = {
 _YEARS_RE = re.compile(r"(\d{1,2})\s*\+?\s*(?:years|yrs)\b", re.IGNORECASE)
 
 
+# Broad job categories the user can filter by. Order = specificity (a "data
+# engineer" should land in Data, not Engineering), then display order.
+_CATEGORY_RULES: list[tuple[str, list[str]]] = [
+    ("Data & Analytics", ["data scientist", "data analyst", "data engineer", "analytics",
+                          "machine learning", "ml engineer", "data science", "business intelligence", "bi developer"]),
+    ("Product", ["product manager", "product owner", "product lead", "technical product", "program manager"]),
+    ("Design", ["designer", "ux", "ui/ux", "user experience", "user interface", "graphic", "creative director"]),
+    ("Engineering", ["software engineer", "developer", "programmer", "backend", "frontend", "full stack",
+                    "full-stack", "devops", "sre", "site reliability", "software architect", "platform engineer", "qa engineer"]),
+    ("IT & Systems", ["service delivery", "systems administrator", "sysadmin", "network engineer",
+                     "help desk", "service desk", "desktop support", "it support", "it manager", "information technology", "technician"]),
+    ("Customer Success & Support", ["customer success", "customer support", "support engineer",
+                                   "technical support", "customer service", "account support"]),
+    ("Marketing", ["marketing", "seo", "content strategist", "brand manager", "growth", "social media",
+                  "communications", "copywriter", "demand generation"]),
+    ("Sales", ["sales", "account executive", "account manager", "business development", "sdr", "bdr", "partnerships"]),
+    ("Finance & Accounting", ["accountant", "accounting", "controller", "fp&a", "auditor", "treasury",
+                             "bookkeeper", "financial analyst", "finance manager"]),
+    ("People & HR", ["human resources", "recruiter", "talent acquisition", "people ops", "hris", "compensation"]),
+    ("Operations", ["operations", "logistics", "supply chain", "procurement", "office manager", "project coordinator"]),
+    ("Legal", ["attorney", "lawyer", "paralegal", "legal counsel", "compliance officer"]),
+    ("Healthcare", ["nurse", "physician", "clinical", "healthcare", "therapist", "pharmacist", "medical assistant"]),
+]
+#: The catalog shown to users (broad categories they can select), plus "Other".
+CATEGORIES = [name for name, _ in _CATEGORY_RULES] + ["Other"]
+
+
+def detect_category(text: str) -> str:
+    """Classify a posting into one broad category (from CATEGORIES)."""
+    low = (text or "").lower()
+    for cat, hints in _CATEGORY_RULES:
+        if any(h in low for h in hints):
+            return cat
+    return "Other"
+
+
 def detect_seniority(text: str) -> str:
     low = (text or "").lower()
     for level, hints in _SENIORITY_HINTS:
