@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jobsearch.api.routers import (
+    admin,
     applications,
     assistant,
     auth,
@@ -61,6 +62,7 @@ _ROUTERS = [
     notifications.router,
     onboarding.router,
     reminders.router,
+    admin.router,
 ]
 
 
@@ -71,12 +73,15 @@ def create_app(
     cors_origins: Optional[list[str]] = None,
 ) -> FastAPI:
     """Build the API. Pass a custom ``state``/``exchanger`` for tests."""
-    app = FastAPI(
-        title="Job-Search Automation Platform API",
-        version="0.1.0",
-        description="HTTP layer over the five core engines (plan §5).",
-    )
     app_state = state or AppState(exchanger=exchanger)
+    # Stealth-aware title so /docs and /openapi.json don't reveal the real brand
+    # before launch (neutral codename until JOBSEARCH_BRAND_MODE=public).
+    brand = app_state.settings.public_brand
+    app = FastAPI(
+        title=f"{brand} API",
+        version="0.1.0",
+        description="HTTP layer over the core engines.",
+    )
     app.state.jobsearch = app_state
 
     # Explicit arg wins (tests); otherwise take the configured, comma-separated
@@ -102,9 +107,22 @@ def create_app(
         return {
             "status": "ok",
             "llm_provider": s.generation.llm.name,
+            "review_model": s.settings.review_model,  # model for resume/cover-letter AI
             "embedding_provider": s.matching.embedder.name,
             "automation_mode": s.settings.automation_mode,
             "persistence": s.backend,
+        }
+
+    @app.get("/api/v1/branding", tags=["meta"])
+    def branding() -> dict:
+        """Public display identity for the frontend. Returns the codename while in
+        stealth mode; the real brand only once JOBSEARCH_BRAND_MODE=public. Also
+        tells the UI whether signups are open/invite/closed so it can show the gate."""
+        s: AppState = app.state.jobsearch
+        return {
+            "name": s.settings.public_brand,
+            "brand_mode": s.settings.brand_mode,
+            "signup_mode": s.settings.signup_mode,
         }
 
     return app

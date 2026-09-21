@@ -34,6 +34,8 @@ class ReminderEngine:
         self.prefs = prefs or InMemoryRepository(id_attr="user_id")
         self.users = users
         self.settings = settings
+        #: Public brand name (codename in stealth mode) for user-facing copy.
+        self._brand = getattr(settings, "public_brand", None) or "the app"
         self.sms = sms or build_sms_sender(settings)
         self.push = push or build_push_sender(settings)
         self.email = email
@@ -160,8 +162,8 @@ class ReminderEngine:
         prefs = prefs or self.get_prefs(user.id)
         fired = self._dispatch(
             user, prefs, now=now,
-            title="Renew your Hirewave automation",
-            body="It's time to review and renew your job-search automation. Open Hirewave to keep it running.",
+            title=f"Renew your {self._brand} automation",
+            body=f"It's time to review and renew your job-search automation. Open {self._brand} to keep it running.",
             url=self._assistant_url(),
         )
         prefs.last_reminded_at = now or utcnow()
@@ -179,7 +181,7 @@ class ReminderEngine:
         if user is None:
             return {}
         sample = ", ".join((titles or [])[:3])
-        body = f"Hirewave auto-applied to {count} job(s)" + (f": {sample}" + ("…" if count > 3 else "") if sample else ".")
+        body = f"{self._brand} auto-applied to {count} job(s)" + (f": {sample}" + ("..." if count > 3 else "") if sample else ".")
         return self._dispatch(user, prefs, now=now, title="New applications submitted", body=body, url=self._assistant_url())
 
     def run_due_reminders(self, *, now: Optional[datetime] = None) -> list[dict]:
@@ -226,8 +228,8 @@ class ReminderEngine:
             parts.append(f"{summary['new_matches']} new matches")
         if summary.get("review_due"):
             parts.append("session review due")
-        body = "Today on Hirewave: " + (", ".join(parts) if parts else "no automation activity") + "."
-        fired = self._dispatch(user, prefs, now=now, title="Your Hirewave daily digest", body=body, url=self._assistant_url())
+        body = f"Today on {self._brand}: " + (", ".join(parts) if parts else "no automation activity") + "."
+        fired = self._dispatch(user, prefs, now=now, title=f"Your {self._brand} daily digest", body=body, url=self._assistant_url())
         prefs.last_digest_at = now or utcnow()
         self.prefs.add(prefs)
         return fired

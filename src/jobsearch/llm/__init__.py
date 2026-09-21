@@ -14,7 +14,7 @@ from jobsearch.llm.base import (
     cosine_similarity,
 )
 from jobsearch.llm.cache import CachingEmbeddingProvider
-from jobsearch.llm.factory import build_embedder, build_llm
+from jobsearch.llm.factory import build_embedder, build_llm, build_review_llm
 
 __all__ = [
     "CachingEmbeddingProvider",
@@ -23,5 +23,6 @@ __all__ = [
     "LLMProvider",
     "build_embedder",
     "build_llm",
+    "build_review_llm",
     "cosine_similarity",
 ]

@@ -7,7 +7,13 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from jobsearch.engines.generation import Tone
-from jobsearch.models import ApplicationStatus, ResumeFormat
+from jobsearch.models import (
+    Application,
+    ApplicationStatus,
+    JobPosting,
+    ResumeFormat,
+    ResumeSuggestion,
+)
 from jobsearch.models.user import (
     Education,
     JobPreferences,
@@ -23,6 +29,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8)
     full_name: str = ""
     location: str = ""
+    invite_code: str = ""  # required when signup_mode = "invite"
 
 
 class LoginRequest(BaseModel):
@@ -44,6 +51,24 @@ class FirebaseAuthRequest(BaseModel):
     # The Firebase ID token from the frontend after the user signs in with
     # Firebase Auth (email / Google / …). We verify it and issue our own session.
     id_token: str
+    invite_code: str = ""  # required for a NEW account when signup_mode = "invite"
+
+
+class MintInviteRequest(BaseModel):
+    label: str = ""  # who/what it's for
+    max_uses: int = 1
+    ttl_hours: Optional[int] = None  # expiry; None = no expiry
+    count: int = 1  # mint several at once
+
+
+class InviteOut(BaseModel):
+    id: str
+    code: str
+    label: str = ""
+    max_uses: int = 1
+    uses: int = 0
+    active: bool = True
+    expires_at: Optional[str] = None
 
 
 class UserOut(BaseModel):
@@ -91,6 +116,7 @@ class JobInput(BaseModel):
     requirements: list[str] = Field(default_factory=list)
     salary_range: Optional[SalaryRange] = None
     url: str = ""
+    company_logo_url: str = ""  # explicit logo from the source, when provided
     application_email: str = ""
 
 
@@ -122,7 +148,24 @@ class MatchOut(BaseModel):
     remote: bool = False
     posted_ago: str = ""  # e.g. "2 days ago" (empty when unknown)
     source_platform: str = ""  # e.g. "linkedin"
+    source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
     category: str = ""  # broad category (Engineering, Data & Analytics, …)
+    #: Salary: structured range + a ready-to-display string ("$90k - $130k"); the
+    #: string is empty when no salary is known.
+    salary_range: Optional[SalaryRange] = None
+    salary_display: str = ""
+    #: Company logo for display: the source's logo when provided, else derived from
+    #: the company domain. May be empty — the UI should fall back to a lettermark.
+    company_logo: str = ""
+    #: Cross-posting indicators. ``likely_duplicate`` = another kept posting looks
+    #: like the same job (across boards); they share ``duplicate_group_id`` and are
+    #: listed in ``cross_posting_ids``. ``consolidated_count`` identical re-posts
+    #: were merged into this one (from ``consolidated_sources``).
+    likely_duplicate: bool = False
+    duplicate_group_id: str = ""
+    cross_posting_ids: list[str] = Field(default_factory=list)
+    consolidated_count: int = 0
+    consolidated_sources: list[str] = Field(default_factory=list)
 
 
 # --- documents --------------------------------------------------------------
@@ -144,9 +187,16 @@ class ResumeReviewRequest(BaseModel):
 
 class ResumeReviseRequest(BaseModel):
     #: What to change, in plain language ("make it more concise", "emphasise
-    #: leadership", "tailor to a product manager role").
-    instruction: str
+    #: leadership", "tailor to a product manager role"). Single instruction.
+    instruction: str = ""
+    #: Several prompts to apply together in one rewrite (multi-select). Combined
+    #: with ``instruction``; at least one of the two must be non-empty.
+    instructions: list[str] = Field(default_factory=list)
     job_posting_id: Optional[str] = None
+
+
+class TailorRequest(BaseModel):
+    job_posting_id: str  # the job to tailor for (required)
 
 
 class CoverLetterGenerateRequest(BaseModel):
@@ -196,6 +246,102 @@ class SubmitRequest(BaseModel):
 
 class StatusUpdate(BaseModel):
     status: ApplicationStatus
+
+
+class JobCard(BaseModel):
+    """The job display fields an application/saved card needs, so the frontend can
+    render company, title, and logo without a second fetch per row."""
+
+    job_posting_id: str
+    title: str = ""
+    company: str = ""
+    company_logo: str = ""  # resolved logo (source's, else domain-derived); may be empty
+    location: str = ""
+    remote: bool = False
+    url: str = ""
+    source_platform: str = ""
+    source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
+    category: str = ""
+    posted_ago: str = ""
+    salary_range: Optional[SalaryRange] = None
+    salary_display: str = ""  # ready-to-display salary ("$90k - $130k"); empty if unknown
+
+    @classmethod
+    def from_job(cls, job: JobPosting) -> "JobCard":
+        return cls(
+            job_posting_id=job.id,
+            title=job.title,
+            company=job.company,
+            company_logo=job.company_logo,
+            location=job.location,
+            remote=job.remote,
+            url=job.url,
+            source_platform=job.source_platform,
+            source_display=job.source_display,
+            category=job.category,
+            posted_ago=job.posted_ago,
+            salary_range=job.salary_range,
+            salary_display=job.salary_display,
+        )
+
+
+class ApplicationOut(Application):
+    """An application plus a snapshot of its job's display fields (``job``). All the
+    original application fields stay at the top level — this is additive."""
+
+    job: Optional[JobCard] = None
+
+
+class ResumeTailoring(BaseModel):
+    """A résumé-for-a-job view: which job, how well it fits, and what to change to
+    tailor it. Backs the 'tailor this résumé for a job' section so the user always
+    sees the target job and a perspective before revising."""
+
+    resume_id: str
+    job: JobCard  # the target job (title, company, logo, salary, url…) — WHICH job
+    fit_score: int = 0  # 0-100 résumé-vs-this-job fit
+    matching_skills: list[str] = Field(default_factory=list)  # requirements you already cover
+    missing_keywords: list[str] = Field(default_factory=list)  # requirements not surfaced yet
+    qualifications: str = ""  # perspective on how you qualify for THIS job
+    summary: str = ""  # one-line overall
+    tailoring: list[ResumeSuggestion] = Field(default_factory=list)  # concrete changes to tailor it
+
+
+class CoverLetterTailoring(BaseModel):
+    """A cover-letter-for-a-job view: which job, how well the letter targets it, and
+    what to change to tailor it. Parallels :class:`ResumeTailoring`."""
+
+    cover_letter_id: str
+    job: JobCard  # the target job — WHICH job
+    fit_score: int = 0  # 0-100 how well the letter targets this job
+    addressed: list[str] = Field(default_factory=list)  # job requirements the letter mentions
+    missing_points: list[str] = Field(default_factory=list)  # job requirements not mentioned yet
+    qualifications: str = ""  # perspective on how the letter targets THIS job
+    summary: str = ""  # one-line overall
+    tailoring: list[ResumeSuggestion] = Field(default_factory=list)  # concrete changes to tailor it
+
+
+class CreateVersionRequest(BaseModel):
+    """Save an accepted rewrite as a new version of a résumé/cover letter."""
+
+    content: str  # the new version's full text (e.g. an accepted revise preview)
+    label: Optional[str] = None  # optional tag; defaults to the target job's type
+    job_posting_id: Optional[str] = None  # the job this version targets, if any
+    instruction: str = ""  # what was asked for (used in the change summary)
+
+
+class VersionReuseSuggestion(BaseModel):
+    """Whether an existing saved version fits a new job — so the user can reuse a
+    past tailored version (with slight tweaks) instead of starting over."""
+
+    job: JobCard
+    best_version: Optional[int] = None  # the saved version that fits best (None = none saved)
+    best_label: str = ""
+    fit: int = 0  # 0-100 keyword coverage of the job by that version
+    covered: list[str] = Field(default_factory=list)  # job requirements it already covers
+    missing: list[str] = Field(default_factory=list)  # what to add — the slight modifications
+    reuse_recommended: bool = False
+    recommendation: str = ""
 
 
 class InterviewPrepRequest(BaseModel):

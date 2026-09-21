@@ -6,7 +6,9 @@ never collide with ``/jobs/{job_id}``.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from typing import Optional
+
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
@@ -17,9 +19,17 @@ from jobsearch.api.schemas import (
     SavedSearchUpdate,
 )
 from jobsearch.engines.sourcing import AggregationResult, JobQuery, parse_job_alert
-from jobsearch.models import SavedSearch
+from jobsearch.engines.suggestions import SuggestionResult
+from jobsearch.models import SavedSearch, UserProfile
 
 router = APIRouter(prefix="/api/v1/job-search", tags=["job-search"])
+
+
+def _record_search(state: StateDep, user_id: str, role: str, location: str, remote) -> None:
+    """Remember the searched role on the user's profile (best-effort)."""
+    profile = state.profiles.get(user_id) or UserProfile(user_id=user_id)
+    profile.record_search(role, location=location or "", remote=remote)
+    state.profiles.add(profile)
 
 
 def _out(r: AggregationResult) -> AggregationOut:
@@ -40,6 +50,7 @@ def run_search(body: JobSearchRunRequest, user: CurrentUser, state: StateDep) ->
     """
     if not body.role.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "role is required")
+    _record_search(state, user.id, body.role, body.location, body.remote)  # remember it
     query = JobQuery(role=body.role, location=body.location, remote=body.remote)
     result = state.aggregator.search(query, sources_filter=set(body.sources) if body.sources else None)
     out = _out(result)
@@ -47,6 +58,51 @@ def run_search(body: JobSearchRunRequest, user: CurrentUser, state: StateDep) ->
     if result.ingested and state.assistant.has(user.id, "draft_prep"):
         out.drafts_prepared = len(state.draft_prep.run(user.id))
     return out
+
+
+@router.get("/suggestions", response_model=SuggestionResult)
+def suggestions(
+    user: CurrentUser,
+    state: StateDep,
+    resume_id: Optional[str] = Query(None, description="rank against this résumé; omit for your most recent"),
+    limit: int = Query(12, ge=1, le=40),
+) -> SuggestionResult:
+    """Job titles the user is likely qualified for — from their résumé + interaction
+    history — including adjacent roles they may not have searched. Also returns the
+    roles they recently searched. Read-only."""
+    from jobsearch.api.routers.documents import ensure_rendered_text
+    from jobsearch.api.routers.jobs import _visible
+
+    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+
+    # Pick the résumé to ground on: the requested one, else the most recent.
+    resume = None
+    if resume_id:
+        resume = state.resumes.get(resume_id)
+        if resume is None or resume.user_id != user.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    else:
+        owned = state.resumes.find(user_id=user.id)
+        resume = max(owned, key=lambda r: r.created_at) if owned else None
+    if resume is not None:
+        resume = ensure_rendered_text(state, resume)
+
+    # Titles the user has already engaged with (so we can flag/deprioritise them).
+    known: set[str] = {s.role for s in profile.recent_searches}
+    known |= {s.role for s in state.saved_search.list(user.id)}
+    for sj in state.saved_jobs.find(user_id=user.id):
+        job = state.jobs.get(sj.job_posting_id)
+        if job:
+            known.add(job.title)
+    for app in state.applications.find(user_id=user.id):
+        job = state.jobs.get(app.job_posting_id)
+        if job:
+            known.add(job.title)
+
+    visible = [j for j in state.jobs.all() if _visible(state, j)]
+    return state.title_suggestions.suggest(
+        profile, resume=resume, jobs=visible, known_titles=known, limit=limit
+    )
 
 
 @router.post("/import-email", response_model=EmailImportOut)

@@ -34,15 +34,45 @@ class Settings(BaseSettings):
         populate_by_name=True,  # accept field names in addition to env aliases
     )
 
+    # --- Branding / stealth ------------------------------------------------
+    # In stealth mode the app presents a neutral codename everywhere the public
+    # brand would show (API title, /branding, docs) so the real name and site
+    # aren't revealed pre-launch. Flip JOBSEARCH_BRAND_MODE=public for production.
+    brand_name: str = Field(default="Hirewave", validation_alias="JOBSEARCH_BRAND_NAME")
+    brand_codename: str = Field(default="Project Harbor", validation_alias="JOBSEARCH_BRAND_CODENAME")
+    brand_mode: Literal["stealth", "public"] = Field(
+        default="stealth", validation_alias="JOBSEARCH_BRAND_MODE"
+    )
+
+    # --- Signup gating (who may create an account) -------------------------
+    # "open" = anyone (default). "invite" = a valid code required (shared
+    # JOBSEARCH_SIGNUP_CODE, or a minted single-use invite). "closed" = no new
+    # accounts. Admin endpoints that mint invites require JOBSEARCH_ADMIN_TOKEN.
+    signup_mode: Literal["open", "invite", "closed"] = Field(
+        default="open", validation_alias="JOBSEARCH_SIGNUP_MODE"
+    )
+    signup_access_code: str = Field(default="", validation_alias="JOBSEARCH_SIGNUP_CODE")
+    admin_token: str = Field(default="", validation_alias="JOBSEARCH_ADMIN_TOKEN")
+
     # --- LLM / embeddings --------------------------------------------------
     llm_provider: LLMProviderName = "mock"
     embedding_provider: EmbeddingProviderName = "mock"
+
+    @property
+    def public_brand(self) -> str:
+        """The brand name safe to show publicly: the real name only in production
+        (public) mode, otherwise the neutral codename."""
+        return self.brand_name if self.brand_mode == "public" else self.brand_codename
 
     # These read from the bare (un-prefixed) vendor env vars by convention.
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
     anthropic_model: str = Field(default="claude-opus-4-8", validation_alias="ANTHROPIC_MODEL")
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL")
+    #: Model for résumé/cover-letter AI (expert review, tailoring, revise, change
+    #: summaries). Defaults to the cheapest tier; point it at a stronger model
+    #: (e.g. gpt-4o, or a claude-* id when llm_provider=anthropic) for deeper critique.
+    review_model: str = Field(default="gpt-4o-mini", validation_alias="JOBSEARCH_REVIEW_MODEL")
     openai_embedding_model: str = Field(
         default="text-embedding-3-small", validation_alias="OPENAI_EMBEDDING_MODEL"
     )

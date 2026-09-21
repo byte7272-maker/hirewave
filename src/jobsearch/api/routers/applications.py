@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, status
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     ApplicationCreate,
+    ApplicationOut,
+    JobCard,
     StatusUpdate,
     SubmitRequest,
     SubmitResponse,
@@ -32,10 +34,20 @@ def _owned(state: StateDep, user_id: str, application_id: str) -> Application:
     return app
 
 
-@router.post("", response_model=Application, status_code=status.HTTP_201_CREATED)
+def _out(state: StateDep, app: Application) -> ApplicationOut:
+    """Attach the job's display fields (company, title, logo) to the application so
+    an application card can render without a second fetch per row."""
+    job = state.jobs.get(app.job_posting_id)
+    return ApplicationOut(
+        **app.model_dump(),
+        job=JobCard.from_job(job) if job is not None else None,
+    )
+
+
+@router.post("", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
 def create_application(
     body: ApplicationCreate, user: CurrentUser, state: StateDep
-) -> Application:
+) -> ApplicationOut:
     if state.jobs.get(body.job_posting_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
     app = Application(
@@ -44,22 +56,22 @@ def create_application(
         resume_id=body.resume_id,
         cover_letter_id=body.cover_letter_id,
     )
-    return state.applications.add(app)
+    return _out(state, state.applications.add(app))
 
 
-@router.get("", response_model=list[Application])
+@router.get("", response_model=list[ApplicationOut])
 def list_applications(
     user: CurrentUser, state: StateDep, status_filter: Optional[ApplicationStatus] = None
-) -> list[Application]:
+) -> list[ApplicationOut]:
     apps = state.applications.find(user_id=user.id)
     if status_filter is not None:
         apps = [a for a in apps if a.status == status_filter]
-    return apps
+    return [_out(state, a) for a in apps]
 
 
-@router.get("/{application_id}", response_model=Application)
-def get_application(application_id: str, user: CurrentUser, state: StateDep) -> Application:
-    return _owned(state, user.id, application_id)
+@router.get("/{application_id}", response_model=ApplicationOut)
+def get_application(application_id: str, user: CurrentUser, state: StateDep) -> ApplicationOut:
+    return _out(state, _owned(state, user.id, application_id))
 
 
 @router.put("/{application_id}/submit", response_model=SubmitResponse)
@@ -135,15 +147,15 @@ def submit(
     )
 
 
-@router.put("/{application_id}/status", response_model=Application)
+@router.put("/{application_id}/status", response_model=ApplicationOut)
 def update_status(
     application_id: str, body: StatusUpdate, user: CurrentUser, state: StateDep
-) -> Application:
+) -> ApplicationOut:
     app = _owned(state, user.id, application_id)
     app.status = body.status
     app.updated_at = utcnow()
     app.record_event("status_manual_update", status=body.status.value)
-    return state.applications.add(app)  # persist the mutation
+    return _out(state, state.applications.add(app))  # persist the mutation
 
 
 @router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT)

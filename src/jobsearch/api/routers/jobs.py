@@ -91,7 +91,7 @@ def job_categories(_user: CurrentUser) -> dict:
 def matches(
     state: StateDep,
     user: CurrentUser,
-    limit: int = Query(20, ge=1, le=100),
+    limit: Optional[int] = Query(None, ge=1, description="max matches to return; omit for all"),
     min_score: float = 0.0,
     resume_id: Optional[str] = Query(None, description="rank against this résumé (user picks when several)"),
     categories: str = Query("", description="comma-separated broad categories to focus on; blank = your saved prefs"),
@@ -129,7 +129,16 @@ def matches(
                 remote=r.job.remote,
                 posted_ago=r.job.posted_ago,
                 source_platform=r.job.source_platform,
+                source_display=r.job.source_display,
                 category=r.job.category,
+                salary_range=r.job.salary_range,
+                salary_display=r.job.salary_display,
+                company_logo=r.job.company_logo,
+                likely_duplicate=r.job.likely_duplicate,
+                duplicate_group_id=r.job.duplicate_group_id,
+                cross_posting_ids=r.job.cross_posting_ids,
+                consolidated_count=r.job.consolidated_count,
+                consolidated_sources=r.job.consolidated_sources,
             )
         )
     return out

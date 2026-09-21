@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, HTTPException, status
 
 from jobsearch.api.deps import StateDep
@@ -34,10 +36,30 @@ def _tokens(user_id: str) -> TokenResponse:
     )
 
 
+def _require_signup_allowed(state: StateDep, code: str, email: str = "") -> None:
+    """Gate account creation per ``signup_mode``. Open = anyone; closed = nobody;
+    invite = a valid shared code (JOBSEARCH_SIGNUP_CODE) or a minted invite. Raises
+    403 when not allowed. A managed invite is consumed only on a successful check."""
+    mode = state.settings.signup_mode
+    if mode == "open":
+        return
+    if mode == "closed":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "signups are currently closed")
+    # invite mode
+    code = (code or "").strip()
+    shared = state.settings.signup_access_code
+    if shared and code and secrets.compare_digest(code, shared):
+        return
+    if state.signup.redeem(code, email=email):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "a valid invite code is required to sign up")
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def register(body: RegisterRequest, state: StateDep) -> UserOut:
     if state.user_by_email(body.email):
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
+    _require_signup_allowed(state, body.invite_code, email=body.email.lower())
     user = User(
         email=body.email.lower(),
         hashed_password=hash_password(body.password),
@@ -74,6 +96,9 @@ def firebase_login(body: FirebaseAuthRequest, state: StateDep) -> TokenResponse:
 
     user = state.user_by_email(email)
     if user is None:
+        # First sign-in creates the account -> apply the signup gate. Existing users
+        # signing in again are unaffected.
+        _require_signup_allowed(state, body.invite_code, email=email)
         user = User(email=email, full_name=claims.get("name", ""), firebase_uid=claims.get("uid", ""))
         state.users.add(user)
         state.profiles.add(UserProfile(user_id=user.id))

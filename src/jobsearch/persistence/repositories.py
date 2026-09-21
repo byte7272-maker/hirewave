@@ -40,6 +40,8 @@ from jobsearch.models import (
     SavedJob,
     SavedSearch,
     ScreenerAnswer,
+    SignupInvite,
+    StoredDocument,
     User,
     UserProfile,
 )
@@ -86,6 +88,8 @@ class Repositories:
     practice_signals: Repository[PracticeSignal]
     auto_apply_grants: Repository[AutoApplyGrant]
     reminder_prefs: Repository[ReminderPrefs]
+    documents: Repository[StoredDocument]
+    signup_invites: Repository[SignupInvite]
     token_store: TokenStore
     session_store: SessionStore
     connect_intents: Repository[ConnectIntent]
@@ -132,6 +136,8 @@ def build_repositories(
             practice_signals=InMemoryRepository(),
             auto_apply_grants=InMemoryRepository(),
             reminder_prefs=InMemoryRepository(id_attr="user_id"),
+            documents=InMemoryRepository(),
+            signup_invites=InMemoryRepository(),
             token_store=TokenStore(cipher),
             session_store=SessionStore(cipher),
             connect_intents=InMemoryRepository(),
@@ -178,6 +184,8 @@ def build_repositories(
         practice_signals=repo("practice_signals"),
         auto_apply_grants=repo("auto_apply_grants"),
         reminder_prefs=repo("reminder_prefs"),
+        documents=repo("documents"),
+        signup_invites=repo("signup_invites"),
         token_store=TokenStore(cipher, repo=oauth_repo),
         session_store=SessionStore(cipher, repo=repo("browser_sessions")),
         connect_intents=repo("connect_intents"),

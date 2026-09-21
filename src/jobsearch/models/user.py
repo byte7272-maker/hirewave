@@ -47,6 +47,17 @@ class JobPreferences(DomainModel):
     job_categories: list[str] = Field(default_factory=list)
 
 
+class RecentSearch(DomainModel):
+    """A job title the user searched, remembered so the app can prefill and learn
+    which roles they pursue (feeds title suggestions)."""
+
+    role: str
+    location: str = ""
+    remote: Optional[bool] = None
+    count: int = 1  # times this role was searched
+    last_at: datetime = Field(default_factory=utcnow)
+
+
 class UserProfile(DomainModel):
     """1:1 with User — the structured context feeding matching & generation."""
 
@@ -57,6 +68,25 @@ class UserProfile(DomainModel):
     work_experience: list[WorkExperience] = Field(default_factory=list)
     education: list[Education] = Field(default_factory=list)
     preferences: JobPreferences = Field(default_factory=JobPreferences)
+    #: Recently searched roles (most-recent first, capped) — the app's memory of
+    #: what the user looked for, so it can prefill and suggest adjacent titles.
+    recent_searches: list[RecentSearch] = Field(default_factory=list)
+
+    def record_search(self, role: str, *, location: str = "", remote: Optional[bool] = None,
+                      cap: int = 25) -> None:
+        """Remember a searched role: dedupe by normalized role (bump its count and
+        recency), move it to the front, and cap the list."""
+        role = (role or "").strip()
+        if not role:
+            return
+        key = role.lower()
+        kept = [s for s in self.recent_searches if s.role.strip().lower() != key]
+        prior = next((s for s in self.recent_searches if s.role.strip().lower() == key), None)
+        entry = RecentSearch(
+            role=role, location=location, remote=remote,
+            count=(prior.count + 1) if prior else 1, last_at=utcnow(),
+        )
+        self.recent_searches = [entry, *kept][:cap]
 
     def to_context_text(self) -> str:
         """Flatten the profile into text for embedding / LLM prompts."""

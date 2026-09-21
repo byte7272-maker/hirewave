@@ -9,8 +9,14 @@ which a web page/bookmarklet cannot), packages them as a Playwright
 `storage_state`, and submits them to Hirewave against the short-lived **pairing
 code** from the app. Your password is never read or sent.
 
-## Install (unpacked, Chrome / Edge)
+## Install
 
+**End users:** install from the Chrome Web Store / Microsoft Edge Add-ons (the
+Hirewave "Connect a site" screen links to it). The browser handles install and
+auto-updates. See `STORE_LISTING.md` for the submission kit and `build.py` to
+package a store-ready zip.
+
+**Developers (unpacked):**
 1. Go to `chrome://extensions` (or `edge://extensions`).
 2. Turn on **Developer mode** (top-right).
 3. Click **Load unpacked** and select this `extension/` folder.
@@ -39,5 +45,7 @@ code** from the app. Your password is never read or sent.
   `host_permissions`.
 - To point at a non-production Hirewave, set the API base under **Advanced** in the
   popup (persisted per browser).
-- No icons are bundled; Chrome shows a default. Add `icons` to `manifest.json` to
-  brand it.
+- Branded icons (16/32/48/128) are in `icons/` and declared in the manifest.
+- Packaging: `python extension/build.py` -> `extension/dist/hirewave-connect-<version>.zip`.
+- Store submission: `STORE_LISTING.md` (copy + permission justifications); privacy
+  policy in `PRIVACY.md` (host it publicly and put the URL in both listings).

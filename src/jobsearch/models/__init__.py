@@ -11,12 +11,15 @@ from jobsearch.models.document import (
     CoverLetterReview,
     CoverLetterRevision,
     CoverLetterSource,
+    DocumentVersion,
     Resume,
     ResumeFormat,
+    QualityRating,
     ResumeReview,
     ResumeRevision,
     ResumeSource,
     ResumeSuggestion,
+    StoredDocument,
 )
 from jobsearch.models.experience import (
     ExperienceHighlight,
@@ -72,6 +75,7 @@ from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.notification import Notification, NotificationType
 from jobsearch.models.onboarding import OnboardingProgress
 from jobsearch.models.screener import ScreenerAnswer
+from jobsearch.models.signup import SignupInvite
 from jobsearch.models.practice import PracticeSession, PracticeSignal, PracticeStatus
 from jobsearch.models.reminders import ReminderPrefs
 from jobsearch.models.saved_search import SavedSearch
@@ -82,7 +86,7 @@ from jobsearch.models.social import (
     InviteStatus,
     pair_key,
 )
-from jobsearch.models.user import JobPreferences, User, UserProfile
+from jobsearch.models.user import JobPreferences, RecentSearch, User, UserProfile
 
 __all__ = [
     "AUTOMATION_SCOPES",
@@ -106,6 +110,7 @@ __all__ = [
     "Connection",
     "CustomVoice",
     "DirectMessage",
+    "DocumentVersion",
     "EmployerStatus",
     "ExperienceHighlight",
     "ExperienceKind",
@@ -138,6 +143,8 @@ __all__ = [
     "PracticeSession",
     "PracticeSignal",
     "PracticeStatus",
+    "QualityRating",
+    "RecentSearch",
     "ReminderPrefs",
     "SavedSearch",
     "OAuthToken",
@@ -155,7 +162,9 @@ __all__ = [
     "ResumeRevision",
     "ResumeSource",
     "ResumeSuggestion",
+    "StoredDocument",
     "ScreenerAnswer",
+    "SignupInvite",
     "User",
     "UserProfile",
     "VerificationFlag",

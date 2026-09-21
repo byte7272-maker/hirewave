@@ -36,6 +36,28 @@ That's it. Once `signIn*` resolves, `hw_access` / `hw_refresh` are in
 `localStorage`, so the existing API client, the session keep-alive, the review
 checkpoint, and reminders all work with **no other changes**.
 
+### Gated signups (development / invite-only)
+
+When the backend runs with `JOBSEARCH_SIGNUP_MODE=invite`, **creating a new account**
+requires an invite code (existing users sign in normally). Collect the code on your
+signup form and pass it through:
+
+```tsx
+import { signInWithGoogle, signUpWithEmail, InviteRequiredError } from "./firebase-login";
+
+try {
+  await signInWithGoogle(inviteCode);            // or signUpWithEmail(email, pw, inviteCode)
+} catch (e) {
+  if (e instanceof InviteRequiredError) {
+    // show "You need an invite code to join right now" + reveal the code field
+  } else { throw e; }
+}
+```
+
+Fetch `GET /api/v1/branding` on load — its `signup_mode` (`open`/`invite`/`closed`)
+tells you whether to show the invite-code field at all. Returning users never need a
+code, so it's safe to always pass it when you have one.
+
 ## 3. What does NOT change
 
 - The whole rest of the app (`/api/v1/*` calls, tokens, refresh, keep-alive,

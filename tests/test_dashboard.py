@@ -49,6 +49,8 @@ def test_counts_reflect_real_activity():
     assert d["highlights"] == 1
     assert d["interviews"] == 1
     assert d["matches"]["total"] >= 1 and d["matches"]["top"] is not None
+    # the featured top-match card carries a logo + link for display
+    assert "company_logo" in d["matches"]["top"] and "url" in d["matches"]["top"]
     assert d["connected_apps"]["count"] == 1 and "linkedin" in d["connected_apps"]["providers"]
     assert d["profile_complete"] is True
 

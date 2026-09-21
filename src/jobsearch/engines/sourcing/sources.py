@@ -161,6 +161,9 @@ class HttpAggregatorJobSource:
             "requirements": list(r.get("requirements") or []),
             "salary_range": sr if isinstance(sr, dict) and sr else None,
             "url": str(r.get("url", "")),
+            "company_logo_url": str(
+                r.get("company_logo_url") or r.get("company_logo") or r.get("logo") or ""
+            ),
         }
 
 

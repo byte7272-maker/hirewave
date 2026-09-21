@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hirewave Connect — Privacy Policy</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; background: #f7f9fc; color: #1a1f2b;
+      font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main {
+      max-width: 760px; margin: 0 auto; padding: 40px 24px 72px;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .brand .logo {
+      width: 40px; height: 40px; border-radius: 9px;
+      background: linear-gradient(#3b82f6, #2563eb); color: #fff;
+      display: grid; place-items: center; font-weight: 800; font-size: 22px;
+    }
+    .brand b { font-size: 18px; }
+    .brand span { color: #2563eb; }
+    h1 { font-size: 30px; margin: 0 0 4px; }
+    .updated { color: #64748b; font-size: 14px; margin: 0 0 28px; }
+    h2 { font-size: 20px; margin: 34px 0 10px; }
+    p, li { color: #2b3444; }
+    ul { padding-left: 22px; }
+    li { margin: 6px 0; }
+    .callout {
+      background: #eef4ff; border: 1px solid #dbe6ff; border-radius: 12px;
+      padding: 16px 18px; margin: 22px 0;
+    }
+    code { background: #eef2f7; padding: 1px 6px; border-radius: 5px; font-size: 90%; }
+    footer { margin-top: 44px; color: #64748b; font-size: 14px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f1420; color: #e6e8ec; }
+      p, li { color: #cbd2dc; }
+      .callout { background: #16233d; border-color: #24365c; }
+      code { background: #1c2333; }
+      .updated, footer { color: #94a3b8; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <div class="logo">H</div>
+    <b>Hirewave <span>Connect</span></b>
+  </div>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: September 16, 2026</p>
+
+  <p>
+    Hirewave Connect is a browser extension that lets you connect a job site (such as
+    LinkedIn or Indeed) to your Hirewave account so Hirewave's assistant can act on
+    that site on your behalf. This policy explains exactly what the extension
+    accesses, what it sends, and what it never touches.
+  </p>
+
+  <div class="callout">
+    <strong>The short version:</strong> the extension captures your job-site
+    <em>session cookies</em> — only when you click Connect, only for the site you
+    choose — and sends them to Hirewave against a one-time pairing code. It never
+    reads, stores, or transmits your password.
+  </div>
+
+  <h2>What the extension does</h2>
+  <p>When <strong>you</strong> click <strong>Connect this site</strong> in the extension popup, it:</p>
+  <ul>
+    <li>Reads the <strong>session cookies</strong> the job site already set in this
+      browser after <em>you</em> logged in on that site's own page.</li>
+    <li>Packages those cookies into a session bundle.</li>
+    <li>Sends that bundle over HTTPS to the Hirewave API, matched to a short-lived,
+      single-use <strong>pairing code</strong> you copied from the Hirewave app.</li>
+  </ul>
+  <p>
+    The extension takes <strong>no action on its own</strong>. It reads cookies only
+    in direct response to your click, only for the job site you select, and only when
+    you have supplied a valid pairing code.
+  </p>
+
+  <h2>What it accesses and why</h2>
+  <ul>
+    <li><strong>Cookies</strong> (limited to the job-site domains in the manifest) —
+      to capture the authenticated session so Hirewave can apply for you.</li>
+    <li><strong>Active tab URL</strong> — only to auto-detect which supported job site
+      you are on, so the correct provider is pre-selected. No browsing history is read
+      or stored.</li>
+    <li><strong>Local storage</strong> — to remember the Hirewave API address you set
+      (defaults to the production Hirewave API). Stored only in this browser.</li>
+  </ul>
+
+  <h2>What it never accesses</h2>
+  <ul>
+    <li><strong>Your passwords.</strong> The extension never reads, stores, or
+      transmits any password or login credential.</li>
+    <li><strong>Your Hirewave login token.</strong> The pairing code — not your
+      Hirewave credentials — authorizes attaching the session.</li>
+    <li>Cookies or data from any site other than the supported job sites you
+      explicitly connect.</li>
+  </ul>
+
+  <h2>What is sent, where, and how it is stored</h2>
+  <ul>
+    <li><strong>Sent:</strong> the selected job site's session cookies + the pairing
+      code + an optional label you type, to the Hirewave API over HTTPS.</li>
+    <li><strong>Stored by Hirewave:</strong> the session is stored
+      <strong>encrypted at rest</strong> and used solely to perform actions you
+      request. It is scoped to your account.</li>
+    <li><strong>Stored by the extension locally:</strong> only the Hirewave API
+      address. No cookies or session data are retained in the extension after they are
+      sent.</li>
+  </ul>
+
+  <h2>Data sharing</h2>
+  <p>
+    Hirewave does not sell your data and does not share captured sessions with third
+    parties. Sessions are transmitted only to the Hirewave API.
+  </p>
+
+  <h2>Your control</h2>
+  <ul>
+    <li>The extension acts only when you click Connect.</li>
+    <li>Pairing codes are single-use and expire (about 10 minutes).</li>
+    <li>You can disconnect a site at any time from the Hirewave app, which
+      invalidates the stored session.</li>
+    <li>Removing the extension stops all access immediately.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>
+    For questions about this policy or your data, contact the Hirewave team at the
+    address published on the Hirewave website.
+  </p>
+
+  <footer>© 2026 Hirewave. Hirewave Connect browser extension.</footer>
+</main>
+</body>
+</html>

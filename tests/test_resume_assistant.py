@@ -57,6 +57,25 @@ def test_review_missing_keywords_from_job():
     assert any(s.category == "keywords" for s in review.suggestions)
 
 
+def test_review_flags_ats_completeness_and_pronouns():
+    # Expert rubric checks (adapted from the ats-screener dimensions + XYZ formula):
+    # multi-column layout, missing sections, and first-person pronouns are surfaced.
+    r = _resume(
+        "Name | City | 2021-2024 | Remote\n"
+        "- I was responsible for the billing system\n"
+        "- Worked on the API"
+    )
+    review = ResumeAssistant().review(r)
+    cats = {s.category for s in review.suggestions}
+    assert "ats" in cats  # the ' | ' column layout is flagged
+    assert "sections" in cats  # no Education/Skills/contact
+    assert "clarity" in cats  # first-person 'I'
+    standards = {rt.standard for rt in review.ratings}
+    assert {"ATS parseability", "Completeness"} <= standards  # richer breakdown
+    # the quantify suggestion now teaches the XYZ formula
+    assert any("xyz" in s.title.lower() or "xyz" in s.detail.lower() for s in review.suggestions)
+
+
 def test_review_empty_resume_safe():
     review = ResumeAssistant().review(_resume("   "))
     assert review.suggestions == [] and "No readable" in review.summary
@@ -149,12 +168,14 @@ def test_api_review_and_revise_flow():
     assert upd.status_code == 200 and upd.json()["rendered_text"] == prev
 
 
-def test_api_revise_empty_instruction_400():
+def test_api_revise_no_prompt_does_general_improve():
+    # A bare "Improve" with no specific prompt still produces a rewrite (general
+    # improvement) rather than erroring, so the button always does something.
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)
-    res = _upload(client, h, "- Some content")
+    res = _upload(client, h, "- Some content here to improve")
     r = client.post(f"/api/v1/resumes/{res['id']}/revise", headers=h, json={"instruction": "   "})
-    assert r.status_code == 400
+    assert r.status_code == 200 and r.json()["preview"]
 
 
 def test_api_review_requires_auth_and_ownership():
@@ -189,7 +210,7 @@ def test_api_cover_letter_review_and_revise_flow():
     assert upd.status_code == 200 and upd.json()["content"] == preview
 
 
-def test_api_cover_letter_revise_empty_instruction_400():
+def test_api_cover_letter_revise_no_prompt_does_general_improve():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)
     cl = client.post(
@@ -197,4 +218,4 @@ def test_api_cover_letter_revise_empty_instruction_400():
         files={"file": ("c.txt", b"Some cover letter content here.", "text/plain")},
     ).json()
     r = client.post(f"/api/v1/cover-letters/{cl['id']}/revise", headers=h, json={"instruction": "  "})
-    assert r.status_code == 400
+    assert r.status_code == 200 and r.json()["preview"]

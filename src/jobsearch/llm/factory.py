@@ -26,6 +26,26 @@ def build_llm(settings: Settings | None = None) -> LLMProvider:
     return MockLLMProvider()
 
 
+def build_review_llm(settings: Settings | None = None) -> LLMProvider:
+    """The LLM for résumé/cover-letter AI (expert review, tailoring, revise, change
+    summaries). Uses ``review_model`` — cheapest by default — so critique quality can
+    be dialed up independently of the general LLM without touching code. Falls back to
+    the general model / mock, and ignores an OpenAI-shaped override when on Anthropic."""
+    s = settings or get_settings()
+    review_model = (s.review_model or "").strip()
+
+    if s.llm_provider == "anthropic":
+        from jobsearch.llm.providers import AnthropicLLMProvider
+
+        model = review_model if review_model.startswith("claude") else s.anthropic_model
+        return AnthropicLLMProvider(s.anthropic_api_key, model)
+    if s.llm_provider == "openai" and s.openai_api_key:
+        from jobsearch.llm.providers import OpenAILLMProvider
+
+        return OpenAILLMProvider(s.openai_api_key, review_model or s.openai_model)
+    return MockLLMProvider()
+
+
 def build_embedder(settings: Settings | None = None) -> EmbeddingProvider:
     """Return the configured embedding provider (falls back to mock).
 

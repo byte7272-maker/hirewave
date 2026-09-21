@@ -34,6 +34,7 @@ class SocialEngine:
         notifier: Optional[Callable[[Notification], None]] = None,
         email_sender=None,
         base_url: str = "http://localhost:3000",
+        brand: str = "the app",
     ) -> None:
         self.invites = invites or InMemoryRepository(id_attr="id")
         self.connections = connections or InMemoryRepository(id_attr="id")
@@ -42,6 +43,7 @@ class SocialEngine:
         self._notifier = notifier or (lambda n: None)
         self.email_sender = email_sender
         self.base_url = base_url
+        self.brand = brand  # public brand name (codename in stealth mode)
 
     # -- invites ------------------------------------------------------------
     def create_invite(self, user_id: str) -> Invite:
@@ -61,8 +63,8 @@ class SocialEngine:
         if self.email_sender is not None:
             sent = self.email_sender.send(
                 to=email.strip(),
-                subject=f"{name} invited you to connect on Hirewave",
-                body=(f"{name} wants to connect with you on Hirewave.\n\n"
+                subject=f"{name} invited you to connect on {self.brand}",
+                body=(f"{name} wants to connect with you on {self.brand}.\n\n"
                       f"Join here: {link}\n\nOr enter this code in Messages: {inv.code}"),
             ) and self.email_sender.live
         return inv, link, sent

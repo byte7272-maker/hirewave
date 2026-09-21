@@ -181,3 +181,44 @@ def test_api_state_survives_restart(tmp_path):
     conns = c2.get("/api/v1/integrations", headers=h2).json()
     assert any(c["provider"] == "linkedin" for c in conns)
     assert state2.integration.get_access_token(me["id"], Provider.LINKEDIN).startswith("mock-access")
+
+
+def test_uploaded_resume_file_survives_restart(tmp_path):
+    """An uploaded résumé file's raw bytes must persist across a restart on a SQL
+    backend (regression: the document store used to be in-memory only, so files
+    vanished when the container restarted and the byte-level re-extraction and the
+    download endpoint both broke)."""
+    settings = _settings(tmp_path, generate_key())
+
+    # --- process 1: register + upload a résumé file ------------------------
+    c1, state1 = _client(settings)
+    assert type(state1.documents).__name__ == "RepositoryDocumentStore"
+    c1.post(
+        "/api/v1/auth/register",
+        json={"email": "up@demo.com", "password": "supersecret", "full_name": "Up"},
+    )
+    tok = c1.post(
+        "/api/v1/auth/login", json={"email": "up@demo.com", "password": "supersecret"}
+    ).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+
+    body = b"Bayete Williams - IT Director. Skills: ITIL, VMware, Active Directory."
+    up = c1.post(
+        "/api/v1/resumes/upload",
+        headers=h,
+        files={"file": ("resume.txt", body, "text/plain")},
+    )
+    assert up.status_code == 201
+    rid = up.json()["id"]
+
+    # --- process 2: brand-new AppState on the same DB file -----------------
+    c2, _ = _client(settings)
+    tok2 = c2.post(
+        "/api/v1/auth/login", json={"email": "up@demo.com", "password": "supersecret"}
+    ).json()
+    h2 = {"Authorization": f"Bearer {tok2['access_token']}"}
+
+    # The original file bytes are still downloadable after the "restart".
+    dl = c2.get(f"/api/v1/resumes/{rid}/file", headers=h2)
+    assert dl.status_code == 200
+    assert dl.content == body

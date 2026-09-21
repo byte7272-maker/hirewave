@@ -42,7 +42,9 @@ from jobsearch.engines.inbox import InboxEngine
 from jobsearch.engines.practice import PracticeEngine
 from jobsearch.engines.reminders import ReminderEngine
 from jobsearch.engines.screener import ScreenerMemory
+from jobsearch.engines.signup import SignupInviteEngine
 from jobsearch.engines.social import SocialEngine
+from jobsearch.engines.suggestions import SuggestionEngine
 from jobsearch.engines.sourcing import (
     JobAggregator,
     SavedSearchEngine,
@@ -52,7 +54,7 @@ from jobsearch.api.firebase_auth import build_firebase_verifier
 from jobsearch.engines.matching import MatchingEngine
 from jobsearch.engines.monitoring import MonitoringEngine
 from jobsearch.engines.verification import VerificationEngine
-from jobsearch.llm import build_embedder, build_llm
+from jobsearch.llm import build_embedder, build_llm, build_review_llm
 from jobsearch.models import User, VerificationResult
 from jobsearch.persistence import build_repositories
 from jobsearch.security.crypto import FieldCipher
@@ -104,7 +106,15 @@ class AppState:
         self.persona_voices = repos.persona_voices  # per-user persona voice choices
         self.custom_voices = repos.custom_voices  # voices cloned from user samples
         self.onboarding = repos.onboarding  # beginner Getting-Started progress
-        self.documents = build_document_store(self.settings)  # uploaded résumé files
+        # Account-creation invites (used when signup_mode = "invite").
+        self.signup = SignupInviteEngine(repo=repos.signup_invites)
+        # Uploaded résumé/cover-letter files. On a SQL backend, keep the bytes in
+        # Postgres (durable across restarts on ephemeral-disk hosts like Railway);
+        # otherwise honor document_dir / fall back to in-memory.
+        self.documents = build_document_store(
+            self.settings,
+            repo=repos.documents if repos.backend != "memory" else None,
+        )
         # VerificationResults are a rebuildable cache (the plan's Redis tier), not
         # a system of record — verification is recomputed on demand when missing.
         self.verifications: dict[str, VerificationResult] = {}
@@ -131,7 +141,9 @@ class AppState:
         )
         self.linkedin_provider = build_linkedin_provider(self.settings)
         self.generation = GenerationEngine(llm=llm)
-        self.resume_assistant = ResumeAssistant(llm=llm)  # review + prompt-controlled revise
+        # Résumé/cover-letter AI uses its own (configurable) model — cheapest by
+        # default, dial up via JOBSEARCH_REVIEW_MODEL for deeper expert critique.
+        self.resume_assistant = ResumeAssistant(llm=build_review_llm(self.settings))
         self.interview = InterviewEngine(llm=llm)
         # Interview media (voice/video) + user-directed content sources.
         self.persona_library = PersonaLibrary.from_settings(self.settings)
@@ -150,6 +162,9 @@ class AppState:
         self.experience = ExperienceEngine(repo=repos.experience_highlights)
         self.community = CommunityQuestionEngine(repo=repos.community_questions)
         self.matching = MatchingEngine(embedder=embedder)
+        # Suggested job titles: roles the user is qualified for (résumé + history),
+        # including adjacent titles they may not be aware of.
+        self.title_suggestions = SuggestionEngine(llm=llm)
         self.verification = VerificationEngine()
         # Multi-site job sourcing agent: fan out → normalize → dedupe → verify → ingest.
         self.saved_searches_repo = repos.saved_searches
@@ -187,6 +202,7 @@ class AppState:
             notifier=self.notifications.add,
             email_sender=build_email_sender(self.settings),
             base_url=self.settings.app_base_url,
+            brand=self.settings.public_brand,
         )
         self.practice = PracticeEngine(
             sessions=repos.practice_sessions,

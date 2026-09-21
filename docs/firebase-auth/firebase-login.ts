@@ -39,32 +39,46 @@ function storeSession(access: string, refresh: string) {
   localStorage.setItem("hw_reviewed_at", String(Date.now())); // fresh consent point
 }
 
-// Exchange a Firebase ID token for the app's session tokens.
-async function exchange(idToken: string) {
+// Thrown when the backend rejects a NEW account because signups are gated
+// (signup_mode=invite/closed). The login UI can catch this and prompt for a code.
+export class InviteRequiredError extends Error {
+  constructor(msg = "An invite code is required to create an account.") {
+    super(msg);
+    this.name = "InviteRequiredError";
+  }
+}
+
+// Exchange a Firebase ID token for the app's session tokens. `inviteCode` is only
+// needed the first time an account is created while signups are gated; it's ignored
+// for existing users, so it's safe to always pass it through when you have one.
+async function exchange(idToken: string, inviteCode = "") {
   const res = await fetch(`${API_BASE}/api/v1/auth/firebase`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id_token: idToken }),
+    body: JSON.stringify({ id_token: idToken, invite_code: inviteCode }),
   });
+  if (res.status === 403) throw new InviteRequiredError();
   if (!res.ok) throw new Error(`sign-in failed: ${res.status}`);
   const { access_token, refresh_token } = await res.json();
   storeSession(access_token, refresh_token);
 }
 
 // --- Public actions for your login screen ---------------------------------
-export async function signInWithGoogle() {
+// Pass the invite code (when your signup form collects one) — required for a NEW
+// account while signups are gated, ignored for returning users.
+export async function signInWithGoogle(inviteCode = "") {
   const { user } = await signInWithPopup(auth, new GoogleAuthProvider());
-  await exchange(await user.getIdToken());
+  await exchange(await user.getIdToken(), inviteCode);
 }
 
 export async function signInWithEmail(email: string, password: string) {
   const { user } = await signInWithEmailAndPassword(auth, email, password);
-  await exchange(await user.getIdToken());
+  await exchange(await user.getIdToken()); // returning user — no invite needed
 }
 
-export async function signUpWithEmail(email: string, password: string) {
+export async function signUpWithEmail(email: string, password: string, inviteCode = "") {
   const { user } = await createUserWithEmailAndPassword(auth, email, password);
-  await exchange(await user.getIdToken()); // backend creates the account on first exchange
+  await exchange(await user.getIdToken(), inviteCode); // backend creates the account on first exchange
 }
 
 export async function signOut() {

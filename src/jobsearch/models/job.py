@@ -12,6 +12,61 @@ from jobsearch.models.common import DomainModel, new_id, utcnow
 from jobsearch.models.user import SalaryRange
 
 
+_SOURCE_NAMES = {
+    "linkedin": "LinkedIn", "indeed": "Indeed", "glassdoor": "Glassdoor",
+    "monster": "Monster", "ziprecruiter": "ZipRecruiter", "dice": "Dice",
+    "greenhouse": "Greenhouse", "lever": "Lever", "wellfound": "Wellfound",
+    "aggregator": "Aggregator",
+}
+
+
+def _money(amount: Optional[int], currency: str) -> str:
+    """Format a salary amount compactly, ASCII-only (e.g. ``$120k``, ``90k EUR``)."""
+    if not amount:
+        return ""
+    if amount >= 1000 and amount % 1000 == 0:
+        val = f"{amount // 1000}k"
+    elif amount >= 10000:
+        val = f"{amount / 1000:.0f}k"
+    else:
+        val = f"{amount:,}"
+    return f"${val}" if currency == "USD" else f"{val} {currency}"
+
+
+def format_salary(salary: "Optional[SalaryRange]") -> str:
+    """A human-readable salary string, ASCII-only (``$90k - $130k``, ``From $90k``);
+    empty when no salary is known."""
+    if salary is None:
+        return ""
+    cur = salary.currency or "USD"
+    lo, hi = _money(salary.minimum, cur), _money(salary.maximum, cur)
+    if lo and hi:
+        return lo if lo == hi else f"{lo} - {hi}"
+    if lo:
+        return f"From {lo}"
+    if hi:
+        return f"Up to {hi}"
+    return ""
+
+
+def source_display_name(source_platform: str) -> str:
+    """A nicely-cased board name for display (``linkedin`` -> ``LinkedIn``)."""
+    s = (source_platform or "").strip()
+    return _SOURCE_NAMES.get(s.lower(), s.title()) if s else ""
+
+
+def company_logo_from(domain: str) -> str:
+    """Best-effort company logo URL derived from a company web/email domain.
+
+    Uses Clearbit's public logo endpoint (no API key, real company marks). Returns
+    "" when there is no domain, so callers can fall back to a lettermark. The image
+    may 404 for unknown/placeholder domains — the frontend should handle a broken
+    image by showing initials.
+    """
+    d = (domain or "").strip().lower()
+    return f"https://logo.clearbit.com/{d}" if d else ""
+
+
 class JobPosting(DomainModel):
     id: str = Field(default_factory=lambda: new_id("job_"))
     source_platform: str = ""  # e.g. "linkedin", "indeed", "greenhouse"
@@ -27,6 +82,7 @@ class JobPosting(DomainModel):
     fetched_at: datetime = Field(default_factory=utcnow)
     url: str = ""
     company_domain: str = ""  # used by authenticity verification
+    company_logo_url: str = ""  # explicit logo from the source (e.g. LinkedIn), when provided
     application_email: str = ""  # where email submissions are sent, when known
 
     # Structured metadata parsed from the title/description at ingestion.
@@ -41,6 +97,16 @@ class JobPosting(DomainModel):
     times_seen: int = 1
     first_seen_at: datetime = Field(default_factory=utcnow)
     last_seen_at: datetime = Field(default_factory=utcnow)
+
+    # Cross-posting: the same opening often appears on several boards. Postings that
+    # look like the same job (same company + position) are KEPT (not collapsed) and
+    # linked via a shared group id, so the user sees each source. Only obvious
+    # identical re-posts (same company + position + description language) are
+    # consolidated into one, tracked by the counters below.
+    duplicate_group_id: str = ""  # shared by postings likely to be the same job
+    cross_posting_ids: list[str] = Field(default_factory=list)  # other kept postings, likely the same job
+    consolidated_count: int = 0  # identical re-posts merged into this one
+    consolidated_sources: list[str] = Field(default_factory=list)  # boards those merged posts came from
 
     # Populated by the engines (not the ingestion source):
     is_verified: Optional[bool] = None
@@ -78,6 +144,26 @@ class JobPosting(DomainModel):
         if d < 60:
             return "1 month ago"
         return f"{d // 30} months ago"
+
+    @computed_field  # resolved logo for display: explicit source logo, else domain-derived
+    @property
+    def company_logo(self) -> str:
+        return self.company_logo_url or company_logo_from(self.company_domain)
+
+    @computed_field  # True when another kept posting looks like the same job (cross-board)
+    @property
+    def likely_duplicate(self) -> bool:
+        return bool(self.cross_posting_ids)
+
+    @computed_field  # human-readable salary (e.g. "$90k - $130k"); empty when unknown
+    @property
+    def salary_display(self) -> str:
+        return format_salary(self.salary_range)
+
+    @computed_field  # nicely-cased source board name (e.g. "LinkedIn")
+    @property
+    def source_display(self) -> str:
+        return source_display_name(self.source_platform)
 
     def to_matching_text(self) -> str:
         """Flatten the posting into text for embedding / matching."""

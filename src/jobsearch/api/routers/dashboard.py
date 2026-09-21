@@ -72,7 +72,7 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
             "strong": len(strong),
             "top": (
                 {"job_id": top.job.id, "title": top.job.title, "company": top.job.company,
-                 "score": top.score}
+                 "company_logo": top.job.company_logo, "url": top.job.url, "score": top.score}
                 if top else None
             ),
         },
