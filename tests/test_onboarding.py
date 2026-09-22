@@ -103,6 +103,44 @@ def test_dismiss_hub_persists():
     assert client.put("/api/v1/onboarding", headers=h, json={"dismissed": False}).json()["dismissed"] is False
 
 
+def test_resume_step_defaults_to_first_incomplete():
+    client = _client()
+    h = _auth(client)
+    b = client.get("/api/v1/onboarding", headers=h).json()
+    # Nothing opened yet, nothing done -> resume at the first core step.
+    assert b["current_step"] == ""
+    assert b["resume_step"] == "profile"
+
+
+def test_started_pointer_is_remembered():
+    client = _client()
+    h = _auth(client)
+    # Opening the "apply" step records it as the current step...
+    b = client.put("/api/v1/onboarding/apply", headers=h, json={"status": "started"}).json()
+    assert b["current_step"] == "apply" and b["resume_step"] == "apply"
+    # ...and it survives a fresh fetch (persisted).
+    assert client.get("/api/v1/onboarding", headers=h).json()["resume_step"] == "apply"
+
+
+def test_resume_advances_past_the_opened_step_once_done():
+    client = _client()
+    h = _auth(client)
+    client.put("/api/v1/onboarding/apply", headers=h, json={"status": "started"})
+    # Once that step is done, the wizard should resume at the next not-done step,
+    # not sit on the completed one.
+    b = client.put("/api/v1/onboarding/apply", headers=h, json={"status": "completed"}).json()
+    assert b["current_step"] == "apply"  # raw pointer unchanged
+    assert b["resume_step"] != "apply" and b["resume_step"] in {"profile", "find_jobs", "interview"}
+
+
+def test_completed_status_does_not_move_the_pointer():
+    client = _client()
+    h = _auth(client)
+    # Marking done without opening it shouldn't set the "last opened" pointer.
+    b = client.put("/api/v1/onboarding/find_jobs", headers=h, json={"status": "completed"}).json()
+    assert b["current_step"] == ""
+
+
 def test_requires_auth():
     client = _client()
     assert client.get("/api/v1/onboarding").status_code == 401

@@ -24,4 +24,7 @@ class OnboardingProgress(DomainModel):
     #: step_key -> "completed" | "dismissed" | "started". Overrides/augments the
     #: derived status (e.g. mark a step done that isn't auto-detectable).
     marks: dict[str, str] = Field(default_factory=dict)
+    #: The step the user last opened, so the wizard reopens exactly there instead
+    #: of guessing from the first not-done step. Blank until they open one.
+    current_step: str = ""
     updated_at: datetime = Field(default_factory=utcnow)

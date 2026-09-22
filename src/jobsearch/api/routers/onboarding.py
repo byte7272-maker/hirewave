@@ -78,11 +78,23 @@ def _view(state, user_id: str) -> dict:
             core_total += 1
             core_done += 1 if done else 0
     percent = round(core_done / core_total * 100) if core_total else 0
+    # Where the wizard should reopen: the step the user last opened if it's still
+    # not done, otherwise the first not-done step (core first — _STEPS is ordered
+    # core-first). Blank when everything is done.
+    done_by_key = {s["key"]: s["done"] for s in steps}
+    not_done = [s["key"] for s in steps if not s["done"]]
+    stored = rec.current_step if rec.current_step in _VALID_STEPS else ""
+    if stored and not done_by_key.get(stored, False):
+        resume_step = stored
+    else:
+        resume_step = not_done[0] if not_done else ""
     return {
         "dismissed": rec.dismissed,
         "core_total": core_total,
         "core_completed": core_done,
         "percent": percent,
+        "current_step": stored,  # the raw stored pointer (last opened), or ""
+        "resume_step": resume_step,  # the step the wizard should open to
         "steps": steps,
     }
 
@@ -114,6 +126,10 @@ def update_step(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid status")
     rec = _record(state, user.id)
     rec.marks[step] = body.status
+    # "started" means the user just opened this step -> remember it so the wizard
+    # reopens exactly here next time.
+    if body.status == "started":
+        rec.current_step = step
     rec.updated_at = utcnow()
     state.onboarding.add(rec)
     return _view(state, user.id)
