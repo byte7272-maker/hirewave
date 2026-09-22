@@ -21,6 +21,54 @@ from jobsearch.models import (
     UserProfile,
 )
 
+#: Suggested time budget (seconds) to answer a question of each category, so a
+#: guided practice mode can pause the right length after reading the question.
+_CATEGORY_SECONDS = {
+    QuestionCategory.INTRO: 90,
+    QuestionCategory.MOTIVATION: 60,
+    QuestionCategory.TECHNICAL: 120,
+    QuestionCategory.BEHAVIORAL: 120,
+    QuestionCategory.EXPERIENCE: 120,
+    QuestionCategory.GAP: 90,
+    QuestionCategory.CLOSING: 60,
+}
+
+
+#: A short how-to-answer hint per category, shown/read in guided practice.
+_CATEGORY_TIPS = {
+    QuestionCategory.INTRO: "Keep it ~90 seconds: present, then past, then why this role.",
+    QuestionCategory.MOTIVATION: "Connect the role's mission to your genuine motivations.",
+    QuestionCategory.TECHNICAL: "Give a specific example where the skill drove a result.",
+    QuestionCategory.BEHAVIORAL: "Use STAR: Situation, Task, Action, Result -- lead with the result.",
+    QuestionCategory.EXPERIENCE: "Lead with impact and ownership, not just responsibilities.",
+    QuestionCategory.GAP: "Show a credible learning plan and any adjacent experience.",
+    QuestionCategory.CLOSING: "Align your growth with a realistic path in this role.",
+}
+
+
+def suggested_answer_seconds(category: QuestionCategory) -> int:
+    """A sensible spoken-answer time budget for a question category."""
+    return _CATEGORY_SECONDS.get(category, 90)
+
+
+def infer_category(question_text: str) -> QuestionCategory:
+    """Best-effort category for a free-text (mock-interview) question, so we can
+    pick an answer-time budget + label the coaching prompt. Deterministic."""
+    q = (question_text or "").lower()
+    if "tell me about yourself" in q or "your background" in q:
+        return QuestionCategory.INTRO
+    if q.startswith("why") or "interested in" in q or "looking for in your next" in q:
+        return QuestionCategory.MOTIVATION
+    if "time you" in q or "describe a time" in q or "disagree" in q or "failed" in q or "mistake" in q:
+        return QuestionCategory.BEHAVIORAL
+    if "experience with" in q or "hands-on" in q or "how would you" in q or "get up to speed" in q:
+        return QuestionCategory.TECHNICAL
+    if "walk me through your role" in q or "contributions" in q:
+        return QuestionCategory.EXPERIENCE
+    if "see yourself" in q or "few years" in q:
+        return QuestionCategory.CLOSING
+    return QuestionCategory.BEHAVIORAL
+
 _COACH_SYSTEM = (
     "You are an expert interview coach. Draft a concise answer (3-5 sentences) the "
     "candidate can adapt in their own voice. Use ONLY facts present in the "
@@ -79,6 +127,36 @@ class InterviewEngine:
             based_on_document=based_on_document,
             questions=questions,
         )
+
+    # -- guided practice coaching ------------------------------------------
+    def coach(
+        self,
+        question_text: str,
+        profile: UserProfile,
+        *,
+        resume: Optional[Resume] = None,
+        job: Optional[JobPosting] = None,
+        experience_context: str = "",
+    ) -> InterviewQuestion:
+        """A grounded model answer + tips + time budget for a single question
+        (used by the mock interview's guided practice mode). Reuses the same
+        résumé-grounded drafting as prep, so the model answer never fabricates.
+
+        Returns an ``InterviewQuestion`` with ``suggested_answer`` filled and the
+        inferred ``category`` (the caller derives the time budget from it via
+        :func:`suggested_answer_seconds`)."""
+        document_text = (resume.rendered_text if resume else "").strip()
+        extra = (experience_context or "").strip()
+        base = document_text or profile.to_context_text()
+        context = f"{base}\n\n{extra}" if extra else base
+        category = infer_category(question_text)
+        q = InterviewQuestion(
+            category=category,
+            question=question_text,
+            tips=_CATEGORY_TIPS.get(category, ""),
+        )
+        q.suggested_answer = self._answer(q, profile, job, context)
+        return q
 
     # -- question derivation ------------------------------------------------
     def _derive_questions(

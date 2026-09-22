@@ -419,6 +419,17 @@ class VocabularyRequest(BaseModel):
     rewrite: bool = False
 
 
+class MockCoachOut(BaseModel):
+    """Guided-practice coaching for the current mock-interview question: a model
+    answer to (optionally) read aloud, plus how long to pause for the candidate."""
+
+    question: str  # the current interviewer question
+    category: str  # inferred category (intro/behavioral/technical/…)
+    model_answer: str  # a résumé-grounded sample answer (never fabricated)
+    answer_seconds: int  # suggested time budget to answer before moving on
+    tips: str = ""  # short how-to-answer hint
+
+
 class ScreenerAnswerIn(BaseModel):
     question: str
     answer: str

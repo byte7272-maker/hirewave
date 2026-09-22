@@ -1,7 +1,11 @@
 """Interview prep + a conversational mock interview trainer."""
 
 from jobsearch.engines.interview.community import CommunityQuestionEngine, normalize_title
-from jobsearch.engines.interview.engine import InterviewEngine
+from jobsearch.engines.interview.engine import (
+    InterviewEngine,
+    infer_category,
+    suggested_answer_seconds,
+)
 from jobsearch.engines.interview.media import (
     AvatarVideoProvider,
     ElevenLabsSpeechProvider,
@@ -51,6 +55,8 @@ __all__ = [
     "build_avatar_provider",
     "build_speech_provider",
     "build_voice_clone_provider",
+    "infer_category",
+    "suggested_answer_seconds",
     "voice_catalog",
     "rate_answer",
 ]

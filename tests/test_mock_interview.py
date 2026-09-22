@@ -229,6 +229,46 @@ def test_reply_to_unknown_session_404():
     )
 
 
+# ---- guided practice coaching (read question -> pause to respond) -----------
+def test_api_coach_current_question():
+    client = _client()
+    h = _auth(client)
+    client.put("/api/v1/users/me", headers=h, json={"skills": ["Python", "FastAPI"]})
+    sid = client.post(
+        "/api/v1/interview/mock/start",
+        headers=h,
+        json={"style": "behavioral", "difficulty": "easy", "max_questions": 3},
+    ).json()["id"]
+
+    coach = client.get(f"/api/v1/interview/mock/{sid}/coach", headers=h)
+    assert coach.status_code == 200
+    data = coach.json()
+    # Coaches the CURRENT (opening) interviewer question, with a model answer and a
+    # concrete pause budget so practice mode knows how long to leave the mic on.
+    assert data["question"]
+    assert data["model_answer"]
+    assert data["answer_seconds"] >= 30
+    assert data["category"] in {"intro", "motivation", "technical", "behavioral", "experience", "gap", "closing"}
+
+
+def test_coach_unknown_session_404():
+    client = _client()
+    h = _auth(client)
+    assert client.get("/api/v1/interview/mock/nope/coach", headers=h).status_code == 404
+
+
+def test_coach_answer_seconds_by_category():
+    from jobsearch.engines.interview import infer_category, suggested_answer_seconds
+
+    assert infer_category("Tell me about yourself and your background.").value == "intro"
+    assert infer_category("Describe a time you disagreed with a manager.").value == "behavioral"
+    assert infer_category("Can you describe your hands-on experience with Python?").value == "technical"
+    # behavioral answers get a longer budget than a quick motivation question
+    assert suggested_answer_seconds(infer_category("Describe a time you failed.")) >= suggested_answer_seconds(
+        infer_category("Why are you interested in this role?")
+    )
+
+
 # ---- built-in persona gallery (images, descriptions, difficulty) ----------
 def test_persona_gallery_has_images_bios_and_difficulty_mix():
     from jobsearch.engines.interview.persona_library import PersonaLibrary

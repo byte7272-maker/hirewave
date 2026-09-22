@@ -9,12 +9,14 @@ from jobsearch.models.common import utcnow
 from jobsearch.api.schemas import (
     AvatarVideoRequest,
     InterviewPrepRequest,
+    MockCoachOut,
     MockInterviewReplyRequest,
     MockInterviewStartRequest,
     PersonaVoiceUpdate,
     TtsRequest,
     VocabularyRequest,
 )
+from jobsearch.engines.interview import suggested_answer_seconds
 from jobsearch.models import (
     CustomVoice,
     InterviewDifficulty,
@@ -155,6 +157,41 @@ def reply_mock(
 @router.get("/mock/{session_id}", response_model=MockInterviewSession)
 def get_mock(session_id: str, user: CurrentUser, state: StateDep) -> MockInterviewSession:
     return _owned_session(session_id, user, state)
+
+
+@router.get("/mock/{session_id}/coach", response_model=MockCoachOut)
+def coach_mock(session_id: str, user: CurrentUser, state: StateDep) -> MockCoachOut:
+    """Guided-practice coaching for the CURRENT interviewer question.
+
+    Powers a practice mode that reads the question aloud, optionally reads a
+    model answer, then pauses ``answer_seconds`` for the candidate to respond.
+    The model answer is grounded strictly in the user's résumé/profile (never
+    fabricated), reusing the same drafting as interview prep."""
+    session = _owned_session(session_id, user, state)
+    # The current question is the most recent interviewer turn.
+    question = next(
+        (t.question or t.text for t in reversed(session.turns) if t.speaker == "interviewer"),
+        "",
+    )
+    if not question:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no interviewer question to coach yet")
+    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+    resume = state.resumes.get(session.resume_id) if session.resume_id else None
+    job = state.jobs.get(session.job_posting_id) if session.job_posting_id else None
+    coached = state.interview.coach(
+        question,
+        profile,
+        resume=resume,
+        job=job,
+        experience_context=state.experience.context_text(user.id),
+    )
+    return MockCoachOut(
+        question=coached.question,
+        category=coached.category.value,
+        model_answer=coached.suggested_answer,
+        answer_seconds=suggested_answer_seconds(coached.category),
+        tips=coached.tips,
+    )
 
 
 @router.get("/mock", response_model=list[MockInterviewSession])
