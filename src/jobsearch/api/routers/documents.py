@@ -297,7 +297,8 @@ def render_resume_with_template(
     resume = get_resume(resume_id, user, state)
     template = next((t for t in BUILTIN_TEMPLATES if t.id == template_id), None) \
         or state.resume_templates.get(template_id)
-    if template is None or not template.shared:
+    # Only an approved/public template or the user's own may be applied.
+    if template is None or not (template.status == "approved" or template.created_by == user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
     if template.created_by:  # a stored (non-builtin) template — track usage
         template.uses += 1

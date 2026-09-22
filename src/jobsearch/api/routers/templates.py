@@ -18,6 +18,7 @@ from jobsearch.models import (
     ResumeTemplate,
     ResumeTemplateStyle,
 )
+from jobsearch.models.resume_template import validate_template
 
 router = APIRouter(prefix="/api/v1/resume-templates", tags=["resume-templates"])
 
@@ -51,11 +52,15 @@ def list_templates(
     user: CurrentUser, state: StateDep,
     category: Optional[str] = Query(None, description="filter by type/category"),
 ) -> list[ResumeTemplate]:
-    """The shared library: 8 built-in defaults + every shared user-contributed
-    template, newest contributions first. Optional ``category`` filter."""
-    shared = [t for t in state.resume_templates.all() if t.shared]
-    shared.sort(key=lambda t: t.created_at, reverse=True)
-    templates = [*BUILTIN_TEMPLATES, *shared]
+    """The shared library: 8 built-in defaults + APPROVED community templates, plus
+    the requesting user's own templates (any status, so they can use them while
+    pending). Newest contributions first. Optional ``category`` filter."""
+    visible = [
+        t for t in state.resume_templates.all()
+        if (t.shared and t.status == "approved") or t.created_by == user.id
+    ]
+    visible.sort(key=lambda t: t.created_at, reverse=True)
+    templates = [*BUILTIN_TEMPLATES, *visible]
     if category:
         templates = [t for t in templates if t.category == category]
     return templates
@@ -87,18 +92,40 @@ def generate_template(
 def save_template(
     body: SaveTemplateRequest, user: CurrentUser, state: StateDep
 ) -> ResumeTemplate:
-    """Save a template to the SHARED library (available to all users), tracked by
-    category. The contributor is recorded so only they can delete it."""
+    """Save a template. It passes the automated **quality gate** (valid, ATS-safe
+    style + clean text) before it can be shared, then either goes public immediately
+    (if auto-approve is on) or waits "pending" for an admin. The contributor can use
+    and delete their own template regardless of status.
+
+    Only the STYLE is stored — never any résumé content."""
     if not body.name.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "a name is required")
+    problems = validate_template(body.name, body.description, body.style)
+    if problems:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "; ".join(problems))
     category = body.category if body.category in TEMPLATE_CATEGORIES else _infer_category(
         f"{body.name} {body.description}")
+    approved = state.settings.template_auto_approve
     tpl = ResumeTemplate(
         name=body.name.strip(), description=body.description.strip(), category=category,
         source=body.source if body.source in ("custom", "generated") else "custom",
-        created_by=user.id, shared=True, style=body.style,
+        created_by=user.id, shared=True, status="approved" if approved else "pending",
+        style=body.style,
     )
     return state.resume_templates.add(tpl)
+
+
+@router.post("/{template_id}/flag", status_code=status.HTTP_204_NO_CONTENT)
+def flag_template(template_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Report a community template. Past the flag threshold it auto-hides (back to
+    "pending") for an admin to review. Built-in presets can't be flagged."""
+    tpl = state.resume_templates.get(template_id)
+    if tpl is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
+    tpl.flags += 1
+    if tpl.flags >= state.settings.template_flag_threshold and tpl.status == "approved":
+        tpl.status = "pending"
+    state.resume_templates.add(tpl)
 
 
 def _find(state: StateDep, template_id: str) -> Optional[ResumeTemplate]:
@@ -109,9 +136,9 @@ def _find(state: StateDep, template_id: str) -> Optional[ResumeTemplate]:
 
 
 @router.get("/{template_id}", response_model=ResumeTemplate)
-def get_template(template_id: str, _user: CurrentUser, state: StateDep) -> ResumeTemplate:
+def get_template(template_id: str, user: CurrentUser, state: StateDep) -> ResumeTemplate:
     tpl = _find(state, template_id)
-    if tpl is None or not tpl.shared:
+    if tpl is None or not (tpl.status == "approved" or tpl.created_by == user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
     return tpl
 

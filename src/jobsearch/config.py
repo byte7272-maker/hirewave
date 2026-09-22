@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     )
     signup_access_code: str = Field(default="", validation_alias="JOBSEARCH_SIGNUP_CODE")
     admin_token: str = Field(default="", validation_alias="JOBSEARCH_ADMIN_TOKEN")
+    #: When true, a community résumé template that passes automated validation goes
+    #: public immediately; when false it stays "pending" until an admin approves it.
+    template_auto_approve: bool = Field(default=True, validation_alias="JOBSEARCH_TEMPLATE_AUTO_APPROVE")
+    #: Community reports at/above which a shared template auto-hides for review.
+    template_flag_threshold: int = Field(default=3, validation_alias="JOBSEARCH_TEMPLATE_FLAG_THRESHOLD")
 
     # --- LLM / embeddings --------------------------------------------------
     llm_provider: LLMProviderName = "mock"
