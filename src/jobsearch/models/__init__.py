@@ -74,6 +74,7 @@ from jobsearch.models.board import Board, BoardMember, BoardPost, member_key
 from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.notification import Notification, NotificationType
 from jobsearch.models.onboarding import OnboardingProgress
+from jobsearch.models.cover_letter_schema import CoverLetterData
 from jobsearch.models.resume_schema import (
     ResumeBasics,
     ResumeData,
@@ -111,6 +112,7 @@ __all__ = [
     "BoardPost",
     "CommunityQuestion",
     "CoverLetter",
+    "CoverLetterData",
     "CoverLetterReview",
     "CoverLetterRevision",
     "CoverLetterSource",

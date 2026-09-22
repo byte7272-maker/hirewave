@@ -163,15 +163,14 @@ def _metrics(text: str) -> set[str]:
     return {_norm_metric(m) for m in _METRIC_RE.findall(text or "") if any(c.isdigit() for c in m)}
 
 
-def find_new_metrics(original_text: str, data: "ResumeData") -> list[dict]:
-    """Flag numbers in an AI-improved résumé that are NOT in the original text — likely
-    invented metrics the user should verify before accepting. Conservative (may flag a
-    reworded-but-true figure); the point is to surface, not to block."""
+def new_number_flags(original_text: str, items: list[tuple[str, str]]) -> list[dict]:
+    """Flag numbers in AI-improved text (``items`` = (field, text) pairs) that are NOT
+    in the original — likely invented, for the user to verify. Conservative on purpose
+    (may flag a reworded-but-true figure); it surfaces, it does not block."""
     original = _metrics(original_text)
     seen: set[tuple[str, str]] = set()
     flags: list[dict] = []
-
-    def scan(text: str, field: str) -> None:
+    for field, text in items:
         for m in _METRIC_RE.findall(text or ""):
             if not any(c.isdigit() for c in m):
                 continue
@@ -180,13 +179,15 @@ def find_new_metrics(original_text: str, data: "ResumeData") -> list[dict]:
                 continue
             seen.add((n, field))
             flags.append({"value": m.strip(), "field": field, "text": (text or "").strip()})
-
-    scan(data.basics.summary, "summary")
-    for i, w in enumerate(data.work):
-        scan(w.summary, f"work[{i}].summary")
-        for j, h in enumerate(w.highlights):
-            scan(h, f"work[{i}].highlights[{j}]")
-    for i, p in enumerate(data.projects):
-        for j, h in enumerate(p.highlights):
-            scan(h, f"projects[{i}].highlights[{j}]")
     return flags
+
+
+def find_new_metrics(original_text: str, data: "ResumeData") -> list[dict]:
+    """Invented-metric flags for an improved résumé (see :func:`new_number_flags`)."""
+    items: list[tuple[str, str]] = [("summary", data.basics.summary)]
+    for i, w in enumerate(data.work):
+        items.append((f"work[{i}].summary", w.summary))
+        items += [(f"work[{i}].highlights[{j}]", h) for j, h in enumerate(w.highlights)]
+    for i, p in enumerate(data.projects):
+        items += [(f"projects[{i}].highlights[{j}]", h) for j, h in enumerate(p.highlights)]
+    return new_number_flags(original_text, items)

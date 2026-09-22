@@ -10,6 +10,7 @@ from jobsearch.engines.generation import Tone
 from jobsearch.models import (
     Application,
     ApplicationStatus,
+    CoverLetterData,
     JobPosting,
     ResumeData,
     ResumeFormat,
@@ -340,6 +341,15 @@ class StructuredImprovement(BaseModel):
     markdown: str = ""
     #: Numbers not found in the original résumé — possibly invented; surface these for
     #: the user to verify (the human-in-the-loop safeguard).
+    flagged_metrics: list[FlaggedMetric] = Field(default_factory=list)
+
+
+class CoverLetterStructuredImprovement(BaseModel):
+    """Structure-aware cover-letter improvement — the cover-letter template shape plus
+    the markdown to save; parallels :class:`StructuredImprovement`."""
+
+    structured: CoverLetterData
+    markdown: str = ""
     flagged_metrics: list[FlaggedMetric] = Field(default_factory=list)
 
 

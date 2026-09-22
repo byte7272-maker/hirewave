@@ -165,6 +165,30 @@ def test_cover_letter_versions_and_reuse():
     assert reuse["best_version"] == 2 and "Python" in reuse["covered"]
 
 
+def test_cover_letter_structured_and_improve():
+    # Structure-aware Improve for cover letters (mirrors résumé): parse into the
+    # template shape, improve as that shape, save via /versions.
+    client = _client()
+    h = _auth(client, "clstruct@demo.com")
+    body = b"Dear Hiring Manager,\n\nI am excited to apply for the IT Director role at Globex. I cut incidents 40%.\n\nSincerely,\nSam Rivera"
+    cid = client.post(
+        "/api/v1/cover-letters/upload", headers=h,
+        files={"file": ("cl.txt", body, "text/plain")},
+    ).json()["id"]
+
+    s = client.get(f"/api/v1/cover-letters/{cid}/structured", headers=h).json()
+    assert {"name", "contact", "date", "company", "role", "salutation", "paragraphs", "closing", "signature"} == set(s.keys())
+    assert s["salutation"].startswith("Dear") and s["paragraphs"]
+
+    imp = client.post(f"/api/v1/cover-letters/{cid}/improve-structured", headers=h,
+                      json={"instructions": ["add a concrete result"]}).json()
+    assert {"structured", "markdown", "flagged_metrics"} <= set(imp.keys())
+    assert imp["markdown"] and isinstance(imp["flagged_metrics"], list)
+
+    v = client.post(f"/api/v1/cover-letters/{cid}/versions", headers=h, json={"content": imp["markdown"]})
+    assert v.status_code == 200 and v.json()["active_version"] == 2
+
+
 def test_upload_empty_rejected():
     client = _client()
     h = _auth(client)

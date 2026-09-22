@@ -22,6 +22,7 @@ from jobsearch.llm import LLMProvider, build_llm
 from jobsearch.engines.sourcing.skills import extract_skills
 from jobsearch.models import (
     CoverLetter,
+    CoverLetterData,
     CoverLetterReview,
     CoverLetterRevision,
     JobPosting,
@@ -808,6 +809,65 @@ class ResumeAssistant:
         elif addressed:
             parts.append("It already speaks to " + ", ".join(addressed[:4]) + ".")
         return " ".join(parts)
+
+    _CL_KEYS = (
+        "keys: name, contact[], date, company, role, salutation, paragraphs[], closing, signature"
+    )
+
+    def structure_cover_letter(self, cover_letter: CoverLetter) -> CoverLetterData:
+        """Parse a cover letter into the structured shape the templates render."""
+        text = (cover_letter.content or "").strip()
+        if not text:
+            return CoverLetterData()
+        try:
+            out = self.llm.complete(
+                "Extract the cover letter below into JSON with " + self._CL_KEYS + ". Use empty "
+                "strings/arrays when unknown. Do NOT invent anything.\n\nCover letter:\n" + text[:3000],
+                system="You extract structured data from cover letters and output only JSON.",
+                max_tokens=1200,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = CoverLetterData.model_validate(data)
+            if parsed.paragraphs or parsed.salutation or parsed.name:
+                return parsed
+        except Exception:  # noqa: BLE001
+            pass
+        # Deterministic fallback: split into paragraphs, detect salutation/closing.
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+        salutation = next((b for b in blocks if b.lower().startswith(("dear", "to whom"))), "")
+        closing = next((b for b in blocks if b.lower().startswith(("sincerely", "regards", "best", "thank you"))), "")
+        body = [b for b in blocks if b not in (salutation, closing)]
+        return CoverLetterData(salutation=salutation, paragraphs=body, closing=closing)
+
+    def improve_cover_letter_structured(
+        self, cover_letter: CoverLetter, *, instruction: str = "", job: Optional[JobPosting] = None
+    ) -> CoverLetterData:
+        """Improve a cover letter and return it as the structured template shape. Uses
+        ONLY facts present; LLM with a deterministic fallback (the parsed structure)."""
+        text = (cover_letter.content or "").strip()
+        if not text:
+            return CoverLetterData()
+        ctx = ""
+        if job:
+            ctx = f"\nTarget role: {job.title} at {job.company}."
+        focus = f" Focus improvements toward: {instruction}." if instruction else ""
+        try:
+            out = self.llm.complete(
+                "Improve the cover letter below and return ONLY JSON with " + self._CL_KEYS + ". "
+                "Open with a specific hook (not 'I am writing to'), name the company and role, back a "
+                "claim with a concrete result, cut cliches, keep it 250-400 words. Use ONLY facts "
+                "already present -- never invent employers, achievements, or metrics." + focus + ctx +
+                "\n\nCover letter:\n" + text[:3000],
+                system="You improve cover letters and output only valid JSON.",
+                max_tokens=1400,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = CoverLetterData.model_validate(data)
+            if parsed.paragraphs or parsed.salutation:
+                return parsed
+        except Exception:  # noqa: BLE001
+            pass
+        return self.structure_cover_letter(cover_letter)
 
     def revise_cover_letter(
         self, cover_letter: CoverLetter, instruction: str, *, job: Optional[JobPosting] = None

@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     CoverLetterGenerateRequest,
+    CoverLetterStructuredImprovement,
     CoverLetterTailoring,
     CoverLetterUpdate,
     CreateVersionRequest,
@@ -24,6 +25,7 @@ from jobsearch.api.schemas import (
 from jobsearch.models import DocumentVersion
 from jobsearch.models import (
     CoverLetter,
+    CoverLetterData,
     CoverLetterReview,
     CoverLetterRevision,
     CoverLetterSource,
@@ -636,6 +638,40 @@ def cover_letter_preview(
         content=png,
         media_type="image/png",
         headers={"Cache-Control": "private, max-age=300"},
+    )
+
+
+@router.get("/cover-letters/{cover_letter_id}/structured", response_model=CoverLetterData)
+def cover_letter_structured(
+    cover_letter_id: str, user: CurrentUser, state: StateDep
+) -> CoverLetterData:
+    """The cover letter parsed into the structured template shape (name, contact, date,
+    company, role, salutation, paragraphs, closing, signature)."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    return state.resume_assistant.structure_cover_letter(cl)
+
+
+@router.post("/cover-letters/{cover_letter_id}/improve-structured",
+             response_model=CoverLetterStructuredImprovement)
+def improve_cover_letter_structured(
+    cover_letter_id: str, body: ResumeReviseRequest, user: CurrentUser, state: StateDep
+) -> CoverLetterStructuredImprovement:
+    """AI-improve the cover letter and return it as the structured template shape (so
+    improvements keep the template's formatting), plus the markdown to save and any
+    possibly-invented numbers. Accept by POSTing the markdown to ``.../versions``."""
+    from jobsearch.models.cover_letter_schema import cover_letter_data_to_markdown
+    from jobsearch.models.resume_schema import new_number_flags
+
+    cl = get_cover_letter(cover_letter_id, user, state)
+    job_id = body.job_posting_id or cl.job_posting_id
+    job = _require_job(state, job_id) if job_id else None
+    focus = _combine_instructions(body.instruction, body.instructions)
+    improved = state.resume_assistant.improve_cover_letter_structured(cl, instruction=focus, job=job)
+    items = [(f"paragraphs[{i}]", p) for i, p in enumerate(improved.paragraphs)]
+    return CoverLetterStructuredImprovement(
+        structured=improved,
+        markdown=cover_letter_data_to_markdown(improved),
+        flagged_metrics=new_number_flags(cl.content or "", items),
     )
 
 
