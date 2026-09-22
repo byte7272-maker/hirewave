@@ -31,6 +31,7 @@ from jobsearch.api.routers import (
     reminders,
     social,
     sourcing,
+    templates,
     users,
     webrtc,
 )
@@ -63,6 +64,7 @@ _ROUTERS = [
     onboarding.router,
     reminders.router,
     admin.router,
+    templates.router,
 ]
 
 

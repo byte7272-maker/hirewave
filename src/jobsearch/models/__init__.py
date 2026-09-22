@@ -75,6 +75,11 @@ from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.notification import Notification, NotificationType
 from jobsearch.models.onboarding import OnboardingProgress
 from jobsearch.models.cover_letter_schema import CoverLetterData
+from jobsearch.models.resume_template import (
+    BUILTIN_TEMPLATES,
+    ResumeTemplate,
+    ResumeTemplateStyle,
+)
 from jobsearch.models.resume_schema import (
     ResumeBasics,
     ResumeData,
@@ -176,6 +181,9 @@ __all__ = [
     "ResumeEducation",
     "ResumeSkill",
     "ResumeWork",
+    "ResumeTemplate",
+    "ResumeTemplateStyle",
+    "BUILTIN_TEMPLATES",
     "StoredDocument",
     "ScreenerAnswer",
     "SignupInvite",

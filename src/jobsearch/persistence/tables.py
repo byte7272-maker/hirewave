@@ -43,6 +43,7 @@ from jobsearch.models import (
     Resume,
     SavedJob,
     SavedSearch,
+    ResumeTemplate,
     ScreenerAnswer,
     SignupInvite,
     StoredDocument,
@@ -121,6 +122,7 @@ _SPECS: dict[str, TableSpec] = {
     "reminder_prefs": TableSpec("reminder_prefs", ReminderPrefs, "user_id", ()),
     "documents": TableSpec("documents", StoredDocument, "id", ()),
     "signup_invites": TableSpec("signup_invites", SignupInvite, "id", ("code",)),
+    "resume_templates": TableSpec("resume_templates", ResumeTemplate, "id", ("user_id",)),
 }
 
 # Build the Table objects once and attach them to their specs.

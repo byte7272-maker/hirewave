@@ -34,6 +34,7 @@ from jobsearch.models import (
     ResumeRevision,
     ResumeSkill,
     ResumeSuggestion,
+    ResumeTemplateStyle,
     ResumeWork,
 )
 
@@ -482,6 +483,49 @@ class ResumeAssistant:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return ResumeRevision(resume_id=resume.id, instruction=instruction, preview=preview or base)
+
+    # -- template style generation -----------------------------------------
+    def generate_template_style(self, prompt: str) -> ResumeTemplateStyle:
+        """Turn a plain-language style description ("clean two-column tech résumé, teal
+        accent, modern sans-serif") into a template style config. LLM with a keyword
+        fallback so it works offline; always returns a valid, ATS-safe config."""
+        prompt = (prompt or "").strip()
+        try:
+            out = self.llm.complete(
+                "Design a resume style config from this description and return ONLY JSON with keys: "
+                "accent_color (hex), font_family (sans|serif|mono), layout (single|two-column), "
+                "heading_style (underline|bar|plain|caps), density (compact|normal|spacious), "
+                "name_size (small|medium|large), uppercase_headings (bool), show_divider (bool). "
+                "Keep it clean and ATS-friendly.\n\nDescription: " + prompt[:400],
+                system="You design resume templates and output only valid JSON config.",
+                max_tokens=250,
+            )
+            data = json.loads(_extract_json(out))
+            return ResumeTemplateStyle.model_validate({k: v for k, v in data.items()
+                                                       if k in ResumeTemplateStyle.model_fields})
+        except Exception:  # noqa: BLE001 - keyword fallback
+            pass
+        low = prompt.lower()
+        style = ResumeTemplateStyle()
+        colors = {"teal": "#0d9488", "green": "#16a34a", "navy": "#1e3a8a", "black": "#111111",
+                  "purple": "#7c3aed", "red": "#dc2626", "orange": "#ea580c", "gray": "#374151",
+                  "grey": "#374151", "blue": "#2563eb"}
+        for name, hexv in colors.items():
+            if name in low:
+                style.accent_color = hexv
+                break
+        if "serif" in low:
+            style.font_family = "serif"
+        if "mono" in low:
+            style.font_family = "mono"
+        if "two" in low and "column" in low:
+            style.layout = "two-column"
+        if any(w in low for w in ("minimal", "spacious", "airy")):
+            style.density = "spacious"
+            style.show_divider = False
+        if any(w in low for w in ("compact", "dense")):
+            style.density = "compact"
+        return style
 
     # -- structured parse (JSON Resume) ------------------------------------
     def structure(self, resume: Resume) -> ResumeData:

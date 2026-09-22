@@ -108,6 +108,7 @@ class AppState:
         self.onboarding = repos.onboarding  # beginner Getting-Started progress
         # Account-creation invites (used when signup_mode = "invite").
         self.signup = SignupInviteEngine(repo=repos.signup_invites)
+        self.resume_templates = repos.resume_templates  # user's saved résumé styles
         # Uploaded résumé/cover-letter files. On a SQL backend, keep the bytes in
         # Postgres (durable across restarts on ephemeral-disk hosts like Railway);
         # otherwise honor document_dir / fall back to in-memory.
