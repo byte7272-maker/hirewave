@@ -322,6 +322,15 @@ class CoverLetterTailoring(BaseModel):
     tailoring: list[ResumeSuggestion] = Field(default_factory=list)  # concrete changes to tailor it
 
 
+class FlaggedMetric(BaseModel):
+    """A number in the AI-improved résumé that is not in the original text — likely
+    invented; the UI should highlight it for the user to verify before accepting."""
+
+    value: str  # e.g. "30%", "$2M"
+    field: str  # where it appears, e.g. "work[0].highlights[1]" or "summary"
+    text: str  # the containing line
+
+
 class StructuredImprovement(BaseModel):
     """A field-level AI improvement of a résumé, as structured JSON Resume plus the
     markdown to save. The frontend renders ``structured`` in the chosen template
@@ -329,6 +338,9 @@ class StructuredImprovement(BaseModel):
 
     structured: ResumeData
     markdown: str = ""
+    #: Numbers not found in the original résumé — possibly invented; surface these for
+    #: the user to verify (the human-in-the-loop safeguard).
+    flagged_metrics: list[FlaggedMetric] = Field(default_factory=list)
 
 
 class CreateVersionRequest(BaseModel):

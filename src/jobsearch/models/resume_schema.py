@@ -8,6 +8,7 @@ compatibility.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from pydantic import Field
@@ -145,3 +146,47 @@ def resume_data_to_markdown(data: ResumeData) -> str:
             lines.append(", ".join(dict.fromkeys(parts)))
 
     return "\n".join(lines).strip()
+
+
+# A number, optionally with $, %, or a k/M/million-style magnitude suffix.
+_METRIC_RE = re.compile(
+    r"\$?\d[\d,]*(?:\.\d+)?\s?(?:%|k|m|bn|billion|million|thousand|hrs?|hours?|x)?",
+    re.IGNORECASE,
+)
+
+
+def _norm_metric(tok: str) -> str:
+    return re.sub(r"[\s,$]", "", tok).lower()
+
+
+def _metrics(text: str) -> set[str]:
+    return {_norm_metric(m) for m in _METRIC_RE.findall(text or "") if any(c.isdigit() for c in m)}
+
+
+def find_new_metrics(original_text: str, data: "ResumeData") -> list[dict]:
+    """Flag numbers in an AI-improved résumé that are NOT in the original text — likely
+    invented metrics the user should verify before accepting. Conservative (may flag a
+    reworded-but-true figure); the point is to surface, not to block."""
+    original = _metrics(original_text)
+    seen: set[tuple[str, str]] = set()
+    flags: list[dict] = []
+
+    def scan(text: str, field: str) -> None:
+        for m in _METRIC_RE.findall(text or ""):
+            if not any(c.isdigit() for c in m):
+                continue
+            n = _norm_metric(m)
+            if not n or n in original or (n, field) in seen:
+                continue
+            seen.add((n, field))
+            flags.append({"value": m.strip(), "field": field, "text": (text or "").strip()})
+
+    scan(data.basics.summary, "summary")
+    for i, w in enumerate(data.work):
+        scan(w.summary, f"work[{i}].summary")
+        for j, h in enumerate(w.highlights):
+            scan(h, f"work[{i}].highlights[{j}]")
+    for i, p in enumerate(data.projects):
+        for j, h in enumerate(p.highlights):
+            scan(h, f"projects[{i}].highlights[{j}]")
+    return flags

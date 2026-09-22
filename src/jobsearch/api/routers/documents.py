@@ -289,13 +289,17 @@ def improve_resume_structured(
     apply per-field and the chosen template's formatting stays intact), plus the
     ``markdown`` to save. Read-only preview — accept by POSTing the markdown to
     ``/resumes/{id}/versions``."""
-    from jobsearch.models.resume_schema import resume_data_to_markdown
+    from jobsearch.models.resume_schema import find_new_metrics, resume_data_to_markdown
 
     resume = get_resume(resume_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     focus = _combine_instructions(body.instruction, body.instructions)
     improved = state.resume_assistant.improve_structured(resume, instruction=focus, job=job)
-    return StructuredImprovement(structured=improved, markdown=resume_data_to_markdown(improved))
+    return StructuredImprovement(
+        structured=improved,
+        markdown=resume_data_to_markdown(improved),
+        flagged_metrics=find_new_metrics(resume.rendered_text or "", improved),
+    )
 
 
 @router.get("/resumes/{resume_id}/export.docx")

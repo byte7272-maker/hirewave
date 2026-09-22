@@ -175,9 +175,10 @@ def test_resume_improve_structured():
     r = client.post(f"/api/v1/resumes/{rid}/improve-structured", headers=h, json={"instructions": ["quantify impact"]})
     assert r.status_code == 200
     d = r.json()
-    assert set(["structured", "markdown"]) <= set(d.keys())
+    assert set(["structured", "markdown", "flagged_metrics"]) <= set(d.keys())
     assert d["structured"]["basics"]["name"] == "Bayete Williams"
     assert d["markdown"]  # serialized text to save
+    assert isinstance(d["flagged_metrics"], list)  # invented-number safeguard present
     # accept -> save as a version
     v = client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": d["markdown"]})
     assert v.status_code == 200 and v.json()["active_version"] == 2
