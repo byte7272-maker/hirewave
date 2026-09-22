@@ -136,13 +136,29 @@ def test_resume_preview_html_reflows_and_escapes():
     r = client.get(f"/api/v1/resumes/{rid}/preview.html", headers=h)
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert "pre-wrap" in r.text  # reflows to any container width
+    assert "<ul>" in r.text or "<h2>" in r.text  # markdown rendered to real formatting, not raw text
+    assert "**" not in r.text  # no raw markdown asterisks leaking through
     assert "&lt;IT Director&gt;" in r.text and "&amp;" in r.text  # user text is escaped
     # owner-scoped
     client.post("/api/v1/auth/register", json={"email": "z@x.com", "password": "supersecret", "full_name": "Z"})
     tok2 = client.post("/api/v1/auth/login", json={"email": "z@x.com", "password": "supersecret"}).json()
     other = {"Authorization": f"Bearer {tok2['access_token']}"}
     assert client.get(f"/api/v1/resumes/{rid}/preview.html", headers=other).status_code == 404
+
+
+def test_resume_export_docx():
+    # A professionally-formatted Word (.docx) export of the résumé.
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam Rivera**\n## Experience\n- Led a team and cut incidents 40%\n## Skills\nITIL, VMware", "text/markdown")},
+    ).json()["id"]
+    r = client.get(f"/api/v1/resumes/{rid}/export.docx", headers=h)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/vnd.openxmlformats")
+    assert r.content[:2] == b"PK"  # a real .docx (zip) file
+    assert ".docx" in r.headers.get("content-disposition", "")
 
 
 def test_resume_review_has_content_summary_and_ratings():

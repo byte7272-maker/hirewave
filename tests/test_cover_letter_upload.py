@@ -73,7 +73,7 @@ def test_cover_letter_preview_html():
     ).json()["id"]
     r = client.get(f"/api/v1/cover-letters/{cid}/preview.html", headers=h)
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
-    assert "pre-wrap" in r.text and "keen to apply" in r.text
+    assert "keen to apply" in r.text and "<p>" in r.text  # rendered as formatted HTML
 
 
 def test_cover_letter_preview_png_and_review_enriched():

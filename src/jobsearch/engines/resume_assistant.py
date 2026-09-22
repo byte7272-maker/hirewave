@@ -104,7 +104,11 @@ _REVISE_SYSTEM = (
     "titles, dates, metrics, or skills. Apply the XYZ formula to each bullet "
     "(accomplishment + measurable result + method), lead with strong past-tense action "
     "verbs, cut first-person pronouns and filler, keep it ATS-friendly (single column, "
-    "standard headings), and tighten toward 1-2 pages. Return only the revised resume text."
+    "standard headings), and tighten toward 1-2 pages. "
+    "Format the output as clean, consistent Markdown: the candidate name in **bold** at "
+    "the top, section headings as '## SECTION' (e.g. Summary, Experience, Skills, "
+    "Education), roles/titles in **bold**, and achievements as '-' bullet points. Use "
+    "Markdown only for structure -- no tables or code blocks. Return only the revised resume."
 )
 _CHANGE_SYSTEM = (
     "You summarize the edits between two document versions for a changelog. State "

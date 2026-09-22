@@ -33,7 +33,9 @@ from jobsearch.models import (
     ResumeSource,
     UserProfile,
 )
-from jobsearch.docpreview import render_text_html, render_text_preview
+from jobsearch.docpreview import build_docx, render_text_html, render_text_preview
+
+_DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 from jobsearch.textextract import extract_text
 
 _EXT_FORMAT = {
@@ -249,6 +251,22 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
     return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/resumes/{resume_id}/export.docx")
+def export_resume_docx(resume_id: str, user: CurrentUser, state: StateDep) -> Response:
+    """Download the résumé (active version) as a professionally-formatted Word (.docx)
+    document — real font, section headings, and bullet lists. A fresh formatted file,
+    not the original upload. 404s when there's no readable text."""
+    resume = get_resume(resume_id, user, state)
+    data = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume")
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
+    fname = (resume.original_filename or "resume").rsplit(".", 1)[0] + ".docx"
+    return Response(
+        content=data, media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @router.get("/resumes", response_model=list[Resume])
@@ -502,6 +520,22 @@ def ensure_cover_letter_grade(state: StateDep, cl: CoverLetter) -> CoverLetter:
     cl.quality_grade = r.grade
     state.cover_letters.add(cl)
     return cl
+
+
+@router.get("/cover-letters/{cover_letter_id}/export.docx")
+def export_cover_letter_docx(
+    cover_letter_id: str, user: CurrentUser, state: StateDep
+) -> Response:
+    """Download the cover letter (active version) as a formatted Word (.docx) file."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    data = build_docx(cl.content or "", title="Cover letter")
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
+    fname = (cl.original_filename or "cover-letter").rsplit(".", 1)[0] + ".docx"
+    return Response(
+        content=data, media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @router.get("/cover-letters", response_model=list[CoverLetter])
