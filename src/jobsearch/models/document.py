@@ -74,6 +74,8 @@ class Resume(DomainModel):
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (rendered_text is the doc)
     approved: bool = False  # human-in-the-loop gate
+    archived: bool = False  # hidden from the main list, kept on the Archived shelf
+    flagged: bool = False  # marked "needs attention" by the user
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -165,6 +167,8 @@ class CoverLetter(DomainModel):
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (content is the doc)
     approved: bool = False  # human-in-the-loop gate
+    archived: bool = False  # hidden from the main list, kept on the Archived shelf
+    flagged: bool = False  # marked "needs attention" by the user
     generated_at: datetime = Field(default_factory=utcnow)
 
 

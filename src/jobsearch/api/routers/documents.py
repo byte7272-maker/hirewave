@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse
 
@@ -347,11 +349,17 @@ def export_resume_pdf(resume_id: str, user: CurrentUser, state: StateDep) -> Res
 
 
 @router.get("/resumes", response_model=list[Resume])
-def list_resumes(user: CurrentUser, state: StateDep) -> list[Resume]:
-    return [
-        ensure_resume_grade(state, ensure_rendered_text(state, r))
-        for r in state.resumes.find(user_id=user.id)
-    ]
+def list_resumes(
+    user: CurrentUser, state: StateDep,
+    archived: Optional[bool] = Query(None, description="true=Archived shelf, false=main list, omit=all"),
+    flagged: Optional[bool] = Query(None, description="true=only flagged (needs attention)"),
+) -> list[Resume]:
+    resumes = state.resumes.find(user_id=user.id)
+    if archived is not None:
+        resumes = [r for r in resumes if r.archived == archived]
+    if flagged is not None:
+        resumes = [r for r in resumes if r.flagged == flagged]
+    return [ensure_resume_grade(state, ensure_rendered_text(state, r)) for r in resumes]
 
 
 def ensure_rendered_text(state: StateDep, resume: Resume) -> Resume:
@@ -620,8 +628,17 @@ def export_cover_letter_pdf(
 
 
 @router.get("/cover-letters", response_model=list[CoverLetter])
-def list_cover_letters(user: CurrentUser, state: StateDep) -> list[CoverLetter]:
-    return [ensure_cover_letter_grade(state, cl) for cl in state.cover_letters.find(user_id=user.id)]
+def list_cover_letters(
+    user: CurrentUser, state: StateDep,
+    archived: Optional[bool] = Query(None, description="true=Archived shelf, false=main list, omit=all"),
+    flagged: Optional[bool] = Query(None, description="true=only flagged (needs attention)"),
+) -> list[CoverLetter]:
+    cls = state.cover_letters.find(user_id=user.id)
+    if archived is not None:
+        cls = [c for c in cls if c.archived == archived]
+    if flagged is not None:
+        cls = [c for c in cls if c.flagged == flagged]
+    return [ensure_cover_letter_grade(state, cl) for cl in cls]
 
 
 @router.get("/cover-letters/{cover_letter_id}/file")

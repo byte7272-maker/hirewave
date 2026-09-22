@@ -182,6 +182,8 @@ class ResumeUpdate(BaseModel):
     rendered_text: Optional[str] = None
     target_role: Optional[str] = None
     approved: Optional[bool] = None
+    archived: Optional[bool] = None
+    flagged: Optional[bool] = None
 
 
 class ResumeReviewRequest(BaseModel):
@@ -211,6 +213,8 @@ class CoverLetterGenerateRequest(BaseModel):
 class CoverLetterUpdate(BaseModel):
     content: Optional[str] = None
     approved: Optional[bool] = None
+    archived: Optional[bool] = None
+    flagged: Optional[bool] = None
 
 
 # --- work-experience highlights ---------------------------------------------

@@ -346,6 +346,34 @@ def test_revise_accepts_multiple_instructions():
     assert bare.status_code == 200 and bare.json()["preview"]
 
 
+def test_resume_archive_and_flag_states():
+    # Documents get archived/flagged states + list filters.
+    client, _ = _client()
+    h = _auth(client)
+    a = client.post("/api/v1/resumes/upload", headers=h, files={"file": ("a.txt", b"Resume A. Python.", "text/plain")}).json()["id"]
+    b = client.post("/api/v1/resumes/upload", headers=h, files={"file": ("b.txt", b"Resume B. SQL.", "text/plain")}).json()["id"]
+    assert client.put(f"/api/v1/resumes/{a}", headers=h, json={"archived": True}).json()["archived"] is True
+    assert client.put(f"/api/v1/resumes/{b}", headers=h, json={"flagged": True}).json()["flagged"] is True
+
+    def ids(q=""):
+        return {x["id"] for x in client.get(f"/api/v1/resumes{q}", headers=h).json()}
+
+    assert ids() == {a, b}  # omitting filters returns all (back-compat)
+    assert ids("?archived=false") == {b}  # main list hides archived
+    assert ids("?archived=true") == {a}  # archived shelf
+    assert ids("?flagged=true") == {b}  # needs-attention
+
+
+def test_cover_letter_archive_and_flag_states():
+    client = _client()[0]
+    h = _auth(client)
+    cid = client.post("/api/v1/cover-letters/upload", headers=h,
+                      files={"file": ("c.txt", b"Dear team, hi. Sincerely, Sam.", "text/plain")}).json()["id"]
+    assert client.put(f"/api/v1/cover-letters/{cid}", headers=h, json={"archived": True}).json()["archived"] is True
+    assert not any(x["id"] == cid for x in client.get("/api/v1/cover-letters?archived=false", headers=h).json())
+    assert any(x["id"] == cid for x in client.get("/api/v1/cover-letters?archived=true", headers=h).json())
+
+
 def test_empty_upload_rejected():
     client, _ = _client()
     h = _auth(client)
