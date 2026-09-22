@@ -16,6 +16,7 @@ from jobsearch.api.schemas import (
     ResumeGenerateRequest,
     ResumeReviewRequest,
     ResumeReviseRequest,
+    RenderedResume,
     ResumeTailoring,
     ResumeUpdate,
     StructuredImprovement,
@@ -281,6 +282,28 @@ def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> Res
     the frontend renders into templates/themes and that AI improvements target."""
     resume = get_resume(resume_id, user, state)
     return state.resume_assistant.structure(resume)
+
+
+@router.get("/resumes/{resume_id}/render", response_model=RenderedResume)
+def render_resume_with_template(
+    resume_id: str, user: CurrentUser, state: StateDep,
+    template_id: str = Query(..., description="the template to place the résumé onto"),
+) -> RenderedResume:
+    """The finished project: the résumé's structured content placed onto a chosen
+    template. The frontend renders ``data`` with ``template.style``; the user then
+    tweaks. Bumps the template's use count (popularity)."""
+    from jobsearch.models import BUILTIN_TEMPLATES
+
+    resume = get_resume(resume_id, user, state)
+    template = next((t for t in BUILTIN_TEMPLATES if t.id == template_id), None) \
+        or state.resume_templates.get(template_id)
+    if template is None or not template.shared:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
+    if template.created_by:  # a stored (non-builtin) template — track usage
+        template.uses += 1
+        state.resume_templates.add(template)
+    data = state.resume_assistant.structure(resume)
+    return RenderedResume(template=template, data=data)
 
 
 @router.post("/resumes/{resume_id}/improve-structured", response_model=StructuredImprovement)

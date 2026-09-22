@@ -15,6 +15,7 @@ from jobsearch.models import (
     ResumeData,
     ResumeFormat,
     ResumeSuggestion,
+    ResumeTemplate,
 )
 from jobsearch.models.user import (
     Education,
@@ -330,6 +331,15 @@ class FlaggedMetric(BaseModel):
     value: str  # e.g. "30%", "$2M"
     field: str  # where it appears, e.g. "work[0].highlights[1]" or "summary"
     text: str  # the containing line
+
+
+class RenderedResume(BaseModel):
+    """The 'finished project': the user's résumé content (JSON Resume) placed onto a
+    chosen template's style. The frontend renders ``data`` with ``template.style``;
+    users then tweak the content (versions) or the style."""
+
+    template: ResumeTemplate
+    data: ResumeData
 
 
 class StructuredImprovement(BaseModel):

@@ -1,8 +1,9 @@
-"""User résumé templates — a saved *style config* the frontend renders JSON Resume
-data into. AI can generate one from a description; users save and reuse them.
+"""Résumé templates — a SHARED library of style configs available to all users.
 
-Config (not raw HTML) so a single renderer applies any template safely, it stays
-ATS-friendly, and the backend can render the same config to PDF/HTML later.
+A template captures a résumé's basic structure, fonts, and style as a config (not
+raw HTML), tracked by ``category`` (type). The 8 built-in defaults ship for everyone;
+templates users save join the shared library too. A single renderer applies any
+template to a user's JSON Resume data to produce the finished résumé.
 """
 
 from __future__ import annotations
@@ -14,6 +15,12 @@ from pydantic import Field
 from jobsearch.models.common import DomainModel, new_id, utcnow
 
 _SECTIONS = ["summary", "work", "skills", "education", "projects", "certificates"]
+
+#: Template categories (the "type" the library is tracked by).
+TEMPLATE_CATEGORIES = [
+    "modern", "classic", "minimal", "executive",
+    "creative", "technical", "academic", "elegant",
+]
 
 
 class ResumeTemplateStyle(DomainModel):
@@ -27,39 +34,60 @@ class ResumeTemplateStyle(DomainModel):
     name_size: str = "large"  # small | medium | large
     uppercase_headings: bool = True
     show_divider: bool = True
+    align_header: str = "left"  # left | center
     section_order: list[str] = Field(default_factory=lambda: list(_SECTIONS))
 
 
 class ResumeTemplate(DomainModel):
     id: str = Field(default_factory=lambda: new_id("tpl_"))
-    user_id: str = ""  # empty = built-in preset (shared)
     name: str = ""
+    category: str = "custom"  # the type; one of TEMPLATE_CATEGORIES (or "custom")
     description: str = ""
     source: str = "custom"  # preset | generated | custom
+    created_by: str = ""  # user id of the contributor ("" = built-in)
+    shared: bool = True  # in the shared library available to all users
+    uses: int = 0  # how many times it's been applied (popularity)
     style: ResumeTemplateStyle = Field(default_factory=ResumeTemplateStyle)
     created_at: datetime = Field(default_factory=utcnow)
 
 
-#: Built-in starting points, returned to every user alongside their own templates.
+def _preset(id_, name, category, description, **style) -> ResumeTemplate:
+    return ResumeTemplate(id=id_, name=name, category=category, description=description,
+                          source="preset", created_by="", shared=True,
+                          style=ResumeTemplateStyle(**style))
+
+
+#: The 8 default styles every user can pick from.
 BUILTIN_TEMPLATES: list[ResumeTemplate] = [
-    ResumeTemplate(
-        id="tpl_modern", name="Modern", source="preset",
-        description="Single column, blue accent, uppercase section headers with a rule.",
-        style=ResumeTemplateStyle(accent_color="#2563eb", font_family="sans",
-                                  heading_style="underline", uppercase_headings=True),
-    ),
-    ResumeTemplate(
-        id="tpl_classic", name="Classic", source="preset",
-        description="Traditional serif, centered header, horizontal-rule dividers.",
-        style=ResumeTemplateStyle(accent_color="#111111", font_family="serif",
-                                  heading_style="plain", uppercase_headings=False,
-                                  name_size="medium"),
-    ),
-    ResumeTemplate(
-        id="tpl_minimal", name="Minimal", source="preset",
-        description="Lots of whitespace, sans-serif, thin gray labels, no dividers.",
-        style=ResumeTemplateStyle(accent_color="#374151", font_family="sans",
-                                  heading_style="plain", density="spacious",
-                                  show_divider=False),
-    ),
+    _preset("tpl_modern", "Modern", "modern",
+            "Single column, blue accent, uppercase section headers with a rule.",
+            accent_color="#2563eb", font_family="sans", heading_style="underline"),
+    _preset("tpl_classic", "Classic", "classic",
+            "Traditional serif, centered header, clean rule dividers.",
+            accent_color="#111111", font_family="serif", heading_style="plain",
+            uppercase_headings=False, name_size="medium", align_header="center"),
+    _preset("tpl_minimal", "Minimal", "minimal",
+            "Lots of whitespace, sans-serif, thin gray labels, no dividers.",
+            accent_color="#374151", font_family="sans", heading_style="plain",
+            density="spacious", show_divider=False),
+    _preset("tpl_executive", "Executive", "executive",
+            "Two-column, navy accent, bold bar section headers for senior roles.",
+            accent_color="#1e3a8a", font_family="serif", heading_style="bar",
+            layout="two-column"),
+    _preset("tpl_creative", "Creative", "creative",
+            "Two-column, purple accent, bold headers for design/marketing.",
+            accent_color="#7c3aed", font_family="sans", heading_style="bar",
+            layout="two-column"),
+    _preset("tpl_technical", "Technical", "technical",
+            "Compact two-column, teal accent, monospace, caps headers for engineers.",
+            accent_color="#0d9488", font_family="mono", heading_style="caps",
+            layout="two-column", density="compact"),
+    _preset("tpl_academic", "Academic", "academic",
+            "Serif, single column, plain headers, generous spacing for CVs.",
+            accent_color="#374151", font_family="serif", heading_style="plain",
+            uppercase_headings=False, density="spacious"),
+    _preset("tpl_elegant", "Elegant", "elegant",
+            "Serif, indigo accent, centered name, refined and spacious.",
+            accent_color="#5D3FD3", font_family="serif", heading_style="underline",
+            density="spacious", align_header="center"),
 ]

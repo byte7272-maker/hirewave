@@ -77,6 +77,7 @@ from jobsearch.models.onboarding import OnboardingProgress
 from jobsearch.models.cover_letter_schema import CoverLetterData
 from jobsearch.models.resume_template import (
     BUILTIN_TEMPLATES,
+    TEMPLATE_CATEGORIES,
     ResumeTemplate,
     ResumeTemplateStyle,
 )
@@ -184,6 +185,7 @@ __all__ = [
     "ResumeTemplate",
     "ResumeTemplateStyle",
     "BUILTIN_TEMPLATES",
+    "TEMPLATE_CATEGORIES",
     "StoredDocument",
     "ScreenerAnswer",
     "SignupInvite",
