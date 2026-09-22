@@ -163,6 +163,26 @@ def test_resume_structured_json_resume():
     assert any(sk["name"] in ("ITIL", "VMware", "Active Directory") for sk in d["skills"])
 
 
+def test_resume_improve_structured():
+    # Phase 3: AI improvement returns structured JSON Resume + markdown; accepting
+    # saves the markdown as a normal version (so template formatting stays intact).
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.txt", b"Bayete Williams\nIT Director\n- Directed IT operations\nSkills: ITIL, VMware", "text/plain")},
+    ).json()["id"]
+    r = client.post(f"/api/v1/resumes/{rid}/improve-structured", headers=h, json={"instructions": ["quantify impact"]})
+    assert r.status_code == 200
+    d = r.json()
+    assert set(["structured", "markdown"]) <= set(d.keys())
+    assert d["structured"]["basics"]["name"] == "Bayete Williams"
+    assert d["markdown"]  # serialized text to save
+    # accept -> save as a version
+    v = client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": d["markdown"]})
+    assert v.status_code == 200 and v.json()["active_version"] == 2
+
+
 def test_resume_export_pdf():
     client, _ = _client()
     h = _auth(client)

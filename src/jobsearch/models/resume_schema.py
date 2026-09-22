@@ -90,3 +90,58 @@ class ResumeData(DomainModel):
     certificates: list[ResumeCertificate] = Field(default_factory=list)
     awards: list[dict] = Field(default_factory=list)
     languages: list[dict] = Field(default_factory=list)
+
+
+def _dates(start: str, end: str) -> str:
+    if start and end:
+        return f" ({start} - {end})"
+    return f" ({start or end})" if (start or end) else ""
+
+
+def resume_data_to_markdown(data: ResumeData) -> str:
+    """Serialize a JSON Resume object back to the canonical Markdown the app stores
+    (so a structured AI improvement can be saved as a normal résumé version)."""
+    lines: list[str] = []
+    b = data.basics
+    if b.name:
+        lines.append(f"**{b.name}**")
+    loc = b.location.city + (f", {b.location.region}" if b.location.region else "") if b.location.city else ""
+    contact = " | ".join(x for x in [b.label, b.email, b.phone, loc] if x)
+    if contact:
+        lines.append(contact)
+    if b.summary:
+        lines += ["", "## Summary", b.summary]
+
+    if data.work:
+        lines += ["", "## Experience"]
+        for w in data.work:
+            head = " ".join(p for p in [f"**{w.position}**" if w.position else "",
+                                        f"at {w.name}" if w.name else ""] if p) + _dates(w.startDate, w.endDate)
+            if head.strip():
+                lines.append(head.strip())
+            if w.summary:
+                lines.append(w.summary)
+            lines += [f"- {h}" for h in w.highlights if h]
+
+    if data.education:
+        lines += ["", "## Education"]
+        for e in data.education:
+            deg = " ".join(p for p in [f"**{e.studyType}**" if e.studyType else "", e.area,
+                                       f"- {e.institution}" if e.institution else ""] if p)
+            lines.append((deg + _dates(e.startDate, e.endDate)).strip())
+
+    if data.projects:
+        lines += ["", "## Projects"]
+        for p in data.projects:
+            if p.name:
+                lines.append(f"**{p.name}**" + (f" - {p.description}" if p.description else ""))
+            lines += [f"- {h}" for h in p.highlights if h]
+
+    if data.skills:
+        lines += ["", "## Skills"]
+        parts = [s.name for s in data.skills if s.name]
+        parts += [k for s in data.skills for k in s.keywords]
+        if parts:
+            lines.append(", ".join(dict.fromkeys(parts)))
+
+    return "\n".join(lines).strip()

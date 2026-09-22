@@ -17,6 +17,7 @@ from jobsearch.api.schemas import (
     ResumeReviseRequest,
     ResumeTailoring,
     ResumeUpdate,
+    StructuredImprovement,
     TailorRequest,
     VersionReuseSuggestion,
 )
@@ -278,6 +279,23 @@ def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> Res
     the frontend renders into templates/themes and that AI improvements target."""
     resume = get_resume(resume_id, user, state)
     return state.resume_assistant.structure(resume)
+
+
+@router.post("/resumes/{resume_id}/improve-structured", response_model=StructuredImprovement)
+def improve_resume_structured(
+    resume_id: str, body: ResumeReviseRequest, user: CurrentUser, state: StateDep
+) -> StructuredImprovement:
+    """AI-improve the résumé and return it as structured JSON Resume (so improvements
+    apply per-field and the chosen template's formatting stays intact), plus the
+    ``markdown`` to save. Read-only preview — accept by POSTing the markdown to
+    ``/resumes/{id}/versions``."""
+    from jobsearch.models.resume_schema import resume_data_to_markdown
+
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    focus = _combine_instructions(body.instruction, body.instructions)
+    improved = state.resume_assistant.improve_structured(resume, instruction=focus, job=job)
+    return StructuredImprovement(structured=improved, markdown=resume_data_to_markdown(improved))
 
 
 @router.get("/resumes/{resume_id}/export.docx")

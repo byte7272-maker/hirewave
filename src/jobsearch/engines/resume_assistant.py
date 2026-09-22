@@ -518,6 +518,41 @@ class ResumeAssistant:
             skills=[ResumeSkill(name=s) for s in skills],
         )
 
+    def improve_structured(
+        self, resume: Resume, *, instruction: str = "", job: Optional[JobPosting] = None
+    ) -> ResumeData:
+        """Improve a résumé and return it as structured JSON Resume (so improvements
+        apply per-field and a template's formatting stays intact). Rewrites highlights
+        with the XYZ formula, tightens the summary, quantifies impact -- using ONLY
+        facts present. LLM with a deterministic fallback (returns the parsed structure)."""
+        text = (resume.rendered_text or "").strip()
+        if not text:
+            return ResumeData()
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nTarget role requirements (surface where truthful): " + ", ".join(job.requirements[:12])
+        focus = f" Focus improvements toward: {instruction}." if instruction else ""
+        try:
+            out = self.llm.complete(
+                "Improve the resume below and return ONLY JSON Resume format (keys: "
+                "basics{name,label,email,phone,url,summary,location{city,region}}, "
+                "work[{name,position,startDate,endDate,summary,highlights[]}], "
+                "education[{institution,area,studyType,startDate,endDate}], skills[{name,keywords[]}]). "
+                "Apply the XYZ formula to each highlight (did X, measured by Y, via Z), lead with strong "
+                "past-tense action verbs, quantify impact, and tighten the summary. Use ONLY facts already "
+                "present -- never invent employers, titles, dates, metrics, or skills." + focus + reqs +
+                "\n\nResume:\n" + text[:4000],
+                system="You improve resumes and output only valid JSON Resume JSON.",
+                max_tokens=2000,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = ResumeData.model_validate(data)
+            if parsed.basics.name or parsed.work or parsed.skills:
+                return parsed
+        except Exception:  # noqa: BLE001 - fall back to the plain parse
+            pass
+        return self.structure(resume)
+
     # -- version change summary --------------------------------------------
     def summarize_change(
         self, old: str, new: str, *, instruction: str = "", job: Optional[JobPosting] = None

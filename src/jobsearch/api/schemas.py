@@ -11,6 +11,7 @@ from jobsearch.models import (
     Application,
     ApplicationStatus,
     JobPosting,
+    ResumeData,
     ResumeFormat,
     ResumeSuggestion,
 )
@@ -319,6 +320,15 @@ class CoverLetterTailoring(BaseModel):
     qualifications: str = ""  # perspective on how the letter targets THIS job
     summary: str = ""  # one-line overall
     tailoring: list[ResumeSuggestion] = Field(default_factory=list)  # concrete changes to tailor it
+
+
+class StructuredImprovement(BaseModel):
+    """A field-level AI improvement of a résumé, as structured JSON Resume plus the
+    markdown to save. The frontend renders ``structured`` in the chosen template
+    (formatting intact); accepting saves ``markdown`` as a new version."""
+
+    structured: ResumeData
+    markdown: str = ""
 
 
 class CreateVersionRequest(BaseModel):
