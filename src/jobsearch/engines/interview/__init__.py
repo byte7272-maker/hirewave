@@ -13,6 +13,7 @@ from jobsearch.engines.interview.media import (
     SpeechProvider,
     build_avatar_provider,
     build_speech_provider,
+    voice_catalog,
 )
 from jobsearch.engines.interview.voice_clone import (
     ClonedVoiceResult,
@@ -50,5 +51,6 @@ __all__ = [
     "build_avatar_provider",
     "build_speech_provider",
     "build_voice_clone_provider",
+    "voice_catalog",
     "rate_answer",
 ]

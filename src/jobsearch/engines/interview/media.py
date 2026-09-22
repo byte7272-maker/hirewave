@@ -148,6 +148,44 @@ class OpenAISpeechProvider:
         return resp.content
 
 
+# Stock OpenAI TTS voices, universally available on the tts-1 / tts-1-hd models.
+# (id, display name, gender) — the label + gender let a UI show a readable picker.
+OPENAI_STOCK_VOICES = [
+    ("alloy", "Alloy", "neutral"),
+    ("echo", "Echo", "male"),
+    ("fable", "Fable", "neutral"),
+    ("onyx", "Onyx", "male"),
+    ("nova", "Nova", "female"),
+    ("shimmer", "Shimmer", "female"),
+]
+# Extra expressive voices exposed by the gpt-4o-mini-tts model.
+OPENAI_EXTRA_VOICES = [
+    ("ash", "Ash", "male"),
+    ("ballad", "Ballad", "male"),
+    ("coral", "Coral", "female"),
+    ("sage", "Sage", "female"),
+    ("verse", "Verse", "neutral"),
+]
+
+
+def voice_catalog(settings: Optional[Settings] = None) -> list[dict]:
+    """The server-side neural voices available for the active TTS provider, so a
+    UI can offer a voice switch. Empty when no server TTS is configured (the
+    client then speaks with the browser's own Web Speech voices)."""
+    s = settings or get_settings()
+    if s.tts_provider == "openai" and s.tts_api_key:
+        voices = list(OPENAI_STOCK_VOICES)
+        if "gpt-4o-mini-tts" in (s.tts_model or ""):
+            voices += OPENAI_EXTRA_VOICES
+        return [{"id": v, "name": n, "gender": g, "kind": "server"} for v, n, g in voices]
+    if s.tts_provider == "elevenlabs" and s.tts_api_key:
+        vid = s.tts_voice or "21m00Tcm4TlvDq8ikWAM"  # "Rachel" — a stock voice
+        return [{"id": vid, "name": "Default voice", "gender": "neutral", "kind": "server"}]
+    if s.tts_provider == "http" and s.tts_url and s.tts_voice:
+        return [{"id": s.tts_voice, "name": "Default voice", "gender": "neutral", "kind": "server"}]
+    return []
+
+
 def build_speech_provider(settings: Optional[Settings] = None) -> SpeechProvider:
     s = settings or get_settings()
     if s.tts_provider == "elevenlabs" and s.tts_api_key:
