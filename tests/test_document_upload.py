@@ -146,6 +146,36 @@ def test_resume_preview_html_reflows_and_escapes():
     assert client.get(f"/api/v1/resumes/{rid}/preview.html", headers=other).status_code == 404
 
 
+def test_resume_structured_json_resume():
+    # Phase 1: the résumé parses into the JSON Resume schema (structured fields) for
+    # template rendering + field-level AI edits.
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.txt", b"Bayete Williams\nIT Director\n- Directed IT operations\nSkills: ITIL, VMware, Active Directory", "text/plain")},
+    ).json()["id"]
+    s = client.get(f"/api/v1/resumes/{rid}/structured", headers=h)
+    assert s.status_code == 200
+    d = s.json()
+    assert set(["basics", "work", "education", "skills"]) <= set(d.keys())  # JSON Resume shape
+    assert d["basics"]["name"] == "Bayete Williams"
+    assert any(sk["name"] in ("ITIL", "VMware", "Active Directory") for sk in d["skills"])
+
+
+def test_resume_export_pdf():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam Rivera**\n## Experience\n- Led a team\n## Skills\nPython", "text/markdown")},
+    ).json()["id"]
+    r = client.get(f"/api/v1/resumes/{rid}/export.pdf", headers=h)
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content[:4] == b"%PDF"
+
+
 def test_resume_export_docx():
     # A professionally-formatted Word (.docx) export of the résumé.
     client, _ = _client()

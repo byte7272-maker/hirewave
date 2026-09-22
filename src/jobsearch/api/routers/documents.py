@@ -27,15 +27,34 @@ from jobsearch.models import (
     CoverLetterRevision,
     CoverLetterSource,
     Resume,
+    ResumeData,
     ResumeFormat,
     ResumeReview,
     ResumeRevision,
     ResumeSource,
     UserProfile,
 )
-from jobsearch.docpreview import build_docx, render_text_html, render_text_preview
+from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render_text_preview
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _docx_response(data, base_name: str):
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
+    return Response(
+        content=data, media_type=_DOCX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{base_name}.docx"'},
+    )
+
+
+def _pdf_response(data, base_name: str):
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{base_name}.pdf"'},
+    )
 from jobsearch.textextract import extract_text
 
 _EXT_FORMAT = {
@@ -253,20 +272,30 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
 
 
+@router.get("/resumes/{resume_id}/structured", response_model=ResumeData)
+def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> ResumeData:
+    """The résumé parsed into the JSON Resume schema (structured fields) — the model
+    the frontend renders into templates/themes and that AI improvements target."""
+    resume = get_resume(resume_id, user, state)
+    return state.resume_assistant.structure(resume)
+
+
 @router.get("/resumes/{resume_id}/export.docx")
 def export_resume_docx(resume_id: str, user: CurrentUser, state: StateDep) -> Response:
     """Download the résumé (active version) as a professionally-formatted Word (.docx)
     document — real font, section headings, and bullet lists. A fresh formatted file,
     not the original upload. 404s when there's no readable text."""
     resume = get_resume(resume_id, user, state)
-    data = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume")
-    if data is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
-    fname = (resume.original_filename or "resume").rsplit(".", 1)[0] + ".docx"
-    return Response(
-        content=data, media_type=_DOCX_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    base = (resume.original_filename or "resume").rsplit(".", 1)[0]
+    return _docx_response(build_docx(resume.rendered_text or "", title=resume.target_role or "Resume"), base)
+
+
+@router.get("/resumes/{resume_id}/export.pdf")
+def export_resume_pdf(resume_id: str, user: CurrentUser, state: StateDep) -> Response:
+    """Download the résumé (active version) as a clean, formatted PDF."""
+    resume = get_resume(resume_id, user, state)
+    base = (resume.original_filename or "resume").rsplit(".", 1)[0]
+    return _pdf_response(build_pdf(resume.rendered_text or "", title=resume.target_role or "Resume"), base)
 
 
 @router.get("/resumes", response_model=list[Resume])
@@ -528,14 +557,18 @@ def export_cover_letter_docx(
 ) -> Response:
     """Download the cover letter (active version) as a formatted Word (.docx) file."""
     cl = get_cover_letter(cover_letter_id, user, state)
-    data = build_docx(cl.content or "", title="Cover letter")
-    if data is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
-    fname = (cl.original_filename or "cover-letter").rsplit(".", 1)[0] + ".docx"
-    return Response(
-        content=data, media_type=_DOCX_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
-    )
+    base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
+    return _docx_response(build_docx(cl.content or "", title="Cover letter"), base)
+
+
+@router.get("/cover-letters/{cover_letter_id}/export.pdf")
+def export_cover_letter_pdf(
+    cover_letter_id: str, user: CurrentUser, state: StateDep
+) -> Response:
+    """Download the cover letter (active version) as a formatted PDF."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
+    return _pdf_response(build_pdf(cl.content or "", title="Cover letter"), base)
 
 
 @router.get("/cover-letters", response_model=list[CoverLetter])

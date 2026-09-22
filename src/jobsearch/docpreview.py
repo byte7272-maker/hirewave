@@ -274,3 +274,66 @@ def build_docx(text: str, *, title: str = "") -> Optional[bytes]:
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+def _pdf_text(s: str) -> str:
+    """Strip inline markdown markers for a plain PDF run (fpdf core fonts are latin-1)."""
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"[*_`]", "", s)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+
+def build_pdf(text: str, *, title: str = "") -> Optional[bytes]:
+    """Build a clean, professionally-formatted PDF from the markdown-ish content:
+    a title, section headings, and bullet lists in a standard font. Pure-Python
+    (fpdf2), no system dependencies. Returns PDF bytes, or None if unavailable/empty."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        from fpdf import FPDF
+    except Exception:  # noqa: BLE001 - fpdf2 not installed
+        return None
+
+    pdf = FPDF(format="letter", unit="pt")
+    pdf.set_auto_page_break(auto=True, margin=54)
+    pdf.set_margins(54, 54, 54)
+    pdf.add_page()
+    width = pdf.epw  # effective page width
+
+    if title:
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.multi_cell(width, 22, _pdf_text(title))
+        pdf.ln(2)
+        pdf.set_draw_color(37, 99, 235)
+        pdf.set_line_width(1.2)
+        y = pdf.get_y()
+        pdf.line(54, y, 54 + width, y)
+        pdf.ln(8)
+
+    for raw in text.split("\n"):
+        s = raw.strip()
+        if not s:
+            pdf.ln(4)
+            continue
+        h = re.match(r"(#{1,6})\s+(.*)", s)
+        if h:
+            pdf.ln(4)
+            pdf.set_font("Helvetica", "B", 12)
+            pdf.set_text_color(37, 99, 235)
+            pdf.multi_cell(width, 16, _pdf_text(h.group(2).upper()))
+            pdf.set_text_color(20, 20, 20)
+            pdf.ln(1)
+            continue
+        b = re.match(r"(?:[-*]|\u2022)\s+(.*)", s)
+        if b:
+            pdf.set_font("Helvetica", "", 10.5)
+            pdf.set_x(64)
+            pdf.multi_cell(width - 10, 14, "-  " + _pdf_text(b.group(1)))
+            continue
+        bold = s.startswith("**") and s.endswith("**")
+        pdf.set_font("Helvetica", "B" if bold else "", 10.5)
+        pdf.multi_cell(width, 14, _pdf_text(s))
+
+    out = pdf.output()
+    return bytes(out)

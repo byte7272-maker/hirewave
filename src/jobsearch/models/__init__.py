@@ -74,6 +74,13 @@ from jobsearch.models.board import Board, BoardMember, BoardPost, member_key
 from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.notification import Notification, NotificationType
 from jobsearch.models.onboarding import OnboardingProgress
+from jobsearch.models.resume_schema import (
+    ResumeBasics,
+    ResumeData,
+    ResumeEducation,
+    ResumeSkill,
+    ResumeWork,
+)
 from jobsearch.models.screener import ScreenerAnswer
 from jobsearch.models.signup import SignupInvite
 from jobsearch.models.practice import PracticeSession, PracticeSignal, PracticeStatus
@@ -162,6 +169,11 @@ __all__ = [
     "ResumeRevision",
     "ResumeSource",
     "ResumeSuggestion",
+    "ResumeBasics",
+    "ResumeData",
+    "ResumeEducation",
+    "ResumeSkill",
+    "ResumeWork",
     "StoredDocument",
     "ScreenerAnswer",
     "SignupInvite",

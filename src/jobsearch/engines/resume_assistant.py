@@ -14,6 +14,7 @@ Two capabilities:
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Optional
 
@@ -26,10 +27,24 @@ from jobsearch.models import (
     JobPosting,
     QualityRating,
     Resume,
+    ResumeBasics,
+    ResumeData,
     ResumeReview,
     ResumeRevision,
+    ResumeSkill,
     ResumeSuggestion,
+    ResumeWork,
 )
+
+
+def _extract_json(text: str) -> str:
+    """Pull a JSON object out of an LLM reply (strips ``` fences / prose around it)."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    start, end = text.find("{"), text.rfind("}")
+    return text[start:end + 1] if start != -1 and end != -1 else text
 
 
 def _grade(score: int) -> str:
@@ -466,6 +481,42 @@ class ResumeAssistant:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return ResumeRevision(resume_id=resume.id, instruction=instruction, preview=preview or base)
+
+    # -- structured parse (JSON Resume) ------------------------------------
+    def structure(self, resume: Resume) -> ResumeData:
+        """Parse a résumé's text into the JSON Resume schema (structured fields), so it
+        can be rendered into any template and improved field-by-field. LLM extraction
+        with a deterministic fallback; never invents facts."""
+        text = (resume.rendered_text or "").strip()
+        if not text:
+            return ResumeData()
+        try:
+            out = self.llm.complete(
+                "Extract the resume below into JSON Resume format. Return ONLY valid JSON with "
+                "keys: basics{name,label,email,phone,url,summary,location{city,region}}, "
+                "work[{name,position,startDate,endDate,summary,highlights[]}], "
+                "education[{institution,area,studyType,startDate,endDate}], "
+                "skills[{name,keywords[]}]. Use empty strings/arrays when unknown. Do NOT invent "
+                "anything not in the text.\n\nResume:\n" + text[:4000],
+                system="You extract structured data from resumes and output only JSON.",
+                max_tokens=1600,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = ResumeData.model_validate(data)
+            if parsed.basics.name or parsed.work or parsed.skills:
+                return parsed
+        except Exception:  # noqa: BLE001 - fall back to heuristics
+            pass
+        # Deterministic fallback: name from the first line, skills mined, summary.
+        lines = [ln.strip().lstrip("#* ").strip() for ln in text.splitlines() if ln.strip()]
+        name = lines[0] if lines else ""
+        if len(name) > 60 or "@" in name:  # first line wasn't a name
+            name = ""
+        skills = extract_skills(text, limit=20)
+        return ResumeData(
+            basics=ResumeBasics(name=name, label=resume.target_role, summary=text[:500]),
+            skills=[ResumeSkill(name=s) for s in skills],
+        )
 
     # -- version change summary --------------------------------------------
     def summarize_change(
