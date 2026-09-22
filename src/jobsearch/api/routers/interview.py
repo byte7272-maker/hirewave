@@ -208,9 +208,12 @@ def analyze_vocabulary(
     Returns filler words, weak/vague words with stronger alternatives, over-used
     words, a richness metric and a 0-100 strength score. Deterministic and fast
     enough to call on a live transcript as the user speaks; pass ``rewrite: true``
-    to also get an LLM-polished version of the whole answer.
+    to also get an LLM-polished version of the whole answer. Pass
+    ``elapsed_seconds`` (a live practice pause) to also get a speaking-pace read.
     """
-    return state.vocabulary.analyze(body.text, rewrite=body.rewrite)
+    return state.vocabulary.analyze(
+        body.text, rewrite=body.rewrite, elapsed_seconds=body.elapsed_seconds
+    )
 
 
 # --- user-directed media + persona sources ----------------------------------

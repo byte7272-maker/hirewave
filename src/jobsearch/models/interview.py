@@ -103,6 +103,10 @@ class VocabularyAnalysis(DomainModel):
     filler_count: int = 0
     filler_ratio: float = 0.0  # fillers / total words
     score: int = 0  # 0-100 overall vocabulary strength
+    #: Speaking pace — only set when the caller passes elapsed_seconds (a live
+    #: practice pause). words_per_minute is 0.0 otherwise; pace is "" then.
+    words_per_minute: float = 0.0
+    pace: str = ""  # "" (unknown) | "slow" | "steady" | "fast" | "rushed"
     suggestions: list[VocabSuggestion] = Field(default_factory=list)
     polished: str = ""  # optional LLM rewrite applying the suggestions
     summary: str = ""  # one-line coaching takeaway

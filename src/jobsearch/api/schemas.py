@@ -417,6 +417,9 @@ class VocabularyRequest(BaseModel):
     text: str
     #: When true (and an LLM is configured), also return a polished rewrite.
     rewrite: bool = False
+    #: Seconds spoken so far. When provided (a live practice pause), the analysis
+    #: adds words_per_minute + a pace label; omit it for a static transcript.
+    elapsed_seconds: Optional[float] = None
 
 
 class MockCoachOut(BaseModel):

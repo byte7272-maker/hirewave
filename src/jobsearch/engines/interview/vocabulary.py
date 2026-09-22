@@ -82,7 +82,9 @@ class VocabularyAnalyzer:
     def __init__(self, llm: Optional[LLMProvider] = None) -> None:
         self.llm = llm
 
-    def analyze(self, text: str, *, rewrite: bool = False) -> VocabularyAnalysis:
+    def analyze(
+        self, text: str, *, rewrite: bool = False, elapsed_seconds: Optional[float] = None
+    ) -> VocabularyAnalysis:
         raw = (text or "").strip()
         words = _WORD_RE.findall(raw)
         total = len(words)
@@ -155,11 +157,15 @@ class VocabularyAnalyzer:
             score -= min(15, round((0.55 - richness) * 60))
         score = max(0, min(100, score))
 
-        summary = self._summary(filler_count, weak_count, overused_count, richness, score)
+        # --- speaking pace (live pause only) ---------------------------------
+        wpm, pace = self._pace(total, elapsed_seconds)
+
+        summary = self._summary(filler_count, weak_count, overused_count, richness, score, pace)
 
         analysis = VocabularyAnalysis(
             word_count=total, unique_words=len(set(lwords)), vocabulary_richness=richness,
             filler_count=filler_count, filler_ratio=filler_ratio, score=score,
+            words_per_minute=wpm, pace=pace,
             suggestions=sorted(suggestions, key=lambda s: (-s.count, s.kind)),
             summary=summary,
         )
@@ -168,8 +174,35 @@ class VocabularyAnalyzer:
         return analysis
 
     @staticmethod
-    def _summary(fillers: int, weak: int, overused: int, richness: float, score: int) -> str:
-        if score >= 85:
+    def _pace(total: int, elapsed_seconds: Optional[float]) -> tuple[float, str]:
+        """Words-per-minute + a coaching label, for live practice. Needs enough
+        speech + time to be meaningful, else returns (0.0, "") = unknown.
+
+        Bands (conversational interview delivery): <110 slow, 110-160 steady,
+        160-190 fast, >190 rushed. ~130-150 wpm is the sweet spot."""
+        if not elapsed_seconds or elapsed_seconds < 3 or total < 8:
+            return 0.0, ""
+        wpm = round(total / (elapsed_seconds / 60.0), 1)
+        if wpm < 110:
+            pace = "slow"
+        elif wpm <= 160:
+            pace = "steady"
+        elif wpm <= 190:
+            pace = "fast"
+        else:
+            pace = "rushed"
+        return wpm, pace
+
+    @staticmethod
+    def _summary(
+        fillers: int, weak: int, overused: int, richness: float, score: int, pace: str = ""
+    ) -> str:
+        pace_cue = {
+            "slow": "pick up the pace a little",
+            "fast": "ease off the pace slightly",
+            "rushed": "slow down - you're rushing",
+        }.get(pace, "")
+        if score >= 85 and not pace_cue:
             return "Strong, precise vocabulary - keep it up."
         parts = []
         if fillers:
@@ -178,6 +211,8 @@ class VocabularyAnalyzer:
             parts.append("swap vague words for strong action verbs")
         if overused:
             parts.append("vary a few over-used words")
+        if pace_cue:
+            parts.append(pace_cue)
         if not parts:
             parts.append("add more specific, varied wording")
         return "To sharpen this answer: " + ", ".join(parts) + "."

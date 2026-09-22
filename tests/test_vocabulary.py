@@ -66,6 +66,42 @@ def test_filler_heavy_answer_scores_lower_than_clean():
     assert filler.score < clean.score
 
 
+# --- speaking pace (live practice pause) ------------------------------------
+def _sentence(n: int) -> str:
+    # n distinct-ish content words so pace math has enough signal.
+    return " ".join(f"point{i}" for i in range(n))
+
+
+def test_pace_unknown_without_elapsed():
+    a = VocabularyAnalyzer().analyze(_sentence(30))
+    assert a.words_per_minute == 0.0 and a.pace == ""
+
+
+def test_pace_steady_in_the_sweet_spot():
+    # 30 words in 13s -> ~138 wpm -> steady.
+    a = VocabularyAnalyzer().analyze(_sentence(30), elapsed_seconds=13)
+    assert a.pace == "steady"
+    assert 130 <= a.words_per_minute <= 145
+
+
+def test_pace_rushed_when_too_fast():
+    # 60 words in 15s -> 240 wpm -> rushed, and the summary nudges to slow down.
+    a = VocabularyAnalyzer().analyze(_sentence(60), elapsed_seconds=15)
+    assert a.pace == "rushed"
+    assert "slow down" in a.summary.lower()
+
+
+def test_pace_slow_when_dragging():
+    # 15 words in 20s -> 45 wpm -> slow.
+    a = VocabularyAnalyzer().analyze(_sentence(15), elapsed_seconds=20)
+    assert a.pace == "slow"
+
+
+def test_pace_ignored_for_tiny_or_instant_snippets():
+    assert VocabularyAnalyzer().analyze("hello there friend", elapsed_seconds=10).pace == ""  # <8 words
+    assert VocabularyAnalyzer().analyze(_sentence(20), elapsed_seconds=1).pace == ""  # <3s
+
+
 # --- API --------------------------------------------------------------------
 def _auth(client):
     client.post(
@@ -93,6 +129,19 @@ def test_api_vocabulary_endpoint():
     assert any(s["kind"] == "filler" for s in body["suggestions"])
     assert any(s["kind"] == "weak" for s in body["suggestions"])
     assert body["summary"]
+
+
+def test_api_vocabulary_pace_when_elapsed_passed():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    r = client.post(
+        "/api/v1/interview/vocabulary",
+        headers=h,
+        json={"text": " ".join(f"topic{i}" for i in range(40)), "elapsed_seconds": 12},
+    )
+    body = r.json()
+    assert body["pace"] in {"slow", "steady", "fast", "rushed"}
+    assert body["words_per_minute"] > 0
 
 
 def test_api_vocabulary_requires_auth():
