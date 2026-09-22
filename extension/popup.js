@@ -1,5 +1,5 @@
-// Hirewave Connect — reads the current job-site session (cookies) and hands it
-// to Hirewave against the pairing code. The password is never read or sent;
+// Project Harbor Connect — reads the current job-site session (cookies) and hands it
+// to Project Harbor against the pairing code. The password is never read or sent;
 // extensions read cookies via chrome.cookies, which the site set after *you*
 // logged in on the provider's own page.
 
@@ -81,7 +81,7 @@ async function connect() {
   const label = $("label").value.trim();
   const apiBase = ($("apiBase").value.trim() || API_DEFAULT).replace(/\/+$/, "");
 
-  if (!code) return setStatus("Enter the pairing code from Hirewave.", "err");
+  if (!code) return setStatus("Enter the pairing code from Project Harbor.", "err");
 
   btn.disabled = true;
   setStatus("Reading your " + provider + " session…", "muted");
@@ -92,7 +92,7 @@ async function connect() {
       btn.disabled = false;
       return;
     }
-    setStatus(`Sending ${count} cookies to Hirewave…`, "muted");
+    setStatus(`Sending ${count} cookies to Project Harbor…`, "muted");
     await chrome.storage.local.set({ apiBase });
     const res = await fetch(apiBase + "/api/v1/auto-apply/sessions/connect", {
       method: "POST",
@@ -101,7 +101,7 @@ async function connect() {
     });
     if (res.ok) {
       const data = await res.json();
-      setStatus(`✓ ${provider} connected (${data.status}). Return to Hirewave.`, "ok");
+      setStatus(`✓ ${provider} connected (${data.status}). Return to Project Harbor.`, "ok");
     } else {
       let detail = "";
       try { detail = (await res.json()).detail || ""; } catch (_) { detail = await res.text(); }
