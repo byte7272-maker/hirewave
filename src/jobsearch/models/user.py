@@ -84,6 +84,10 @@ class UserProfile(DomainModel):
     recent_searches: list[RecentSearch] = Field(default_factory=list)
     #: Read-aloud (TTS) preferences. Off by default; feeds the narration switch.
     narration: NarrationPrefs = Field(default_factory=NarrationPrefs)
+    #: Per-view UI state so a page reopens where the user left it (selected item,
+    #: active tab, filters, scroll anchor). Keyed by a short view name
+    #: ("resumes", "matches", ...). Small, client-owned blobs; never fed to the LLM.
+    view_state: dict[str, dict] = Field(default_factory=dict)
 
     def record_search(self, role: str, *, location: str = "", remote: Optional[bool] = None,
                       cap: int = 25) -> None:

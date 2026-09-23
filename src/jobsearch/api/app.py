@@ -34,6 +34,7 @@ from jobsearch.api.routers import (
     sourcing,
     templates,
     users,
+    view_state,
     webrtc,
 )
 from jobsearch.api.state import AppState
@@ -67,6 +68,7 @@ _ROUTERS = [
     reminders.router,
     admin.router,
     templates.router,
+    view_state.router,
 ]
 
 
