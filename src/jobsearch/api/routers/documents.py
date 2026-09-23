@@ -111,6 +111,12 @@ def _combine_instructions(instruction: str, instructions: list[str]) -> str:
     return "Apply ALL of these changes together in one rewrite:\n" + "\n".join(f"- {s}" for s in items)
 
 
+def _review_focus_points(review) -> list[str]:
+    """Turn a review's detected suggestions (the points the AI summary is built from)
+    into concise focus lines, so the improve flow addresses exactly those points."""
+    return [f"{s.title}: {s.detail}" for s in getattr(review, "suggestions", [])][:8]
+
+
 def _add_version(doc, *, text_attr, new_content, label, source, instruction, job, state):
     """Append a new version to a résumé/cover letter, seeding the current text as the
     'Original' first time, set it active, and point the doc's live text at it."""
@@ -322,7 +328,16 @@ def improve_resume_structured(
     resume = get_resume(resume_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     focus = _combine_instructions(body.instruction, body.instructions)
-    improved = state.resume_assistant.improve_structured(resume, instruction=focus, job=job)
+    # Link the improvement to the AI summary's points: use the ones the client sent
+    # (the user selected them), else derive them from a fresh review so the rewrite
+    # still targets exactly what the on-screen summary shows. narrative=False keeps
+    # it cheap (no LLM) -- it only needs the detected suggestions.
+    points = body.focus_points or _review_focus_points(
+        state.resume_assistant.review(resume, job=job, narrative=False)
+    )
+    improved = state.resume_assistant.improve_structured(
+        resume, instruction=focus, job=job, focus_points=points
+    )
     return StructuredImprovement(
         structured=improved,
         markdown=resume_data_to_markdown(improved),
@@ -707,7 +722,12 @@ def improve_cover_letter_structured(
     job_id = body.job_posting_id or cl.job_posting_id
     job = _require_job(state, job_id) if job_id else None
     focus = _combine_instructions(body.instruction, body.instructions)
-    improved = state.resume_assistant.improve_cover_letter_structured(cl, instruction=focus, job=job)
+    points = body.focus_points or _review_focus_points(
+        state.resume_assistant.review_cover_letter(cl, job=job, narrative=False)
+    )
+    improved = state.resume_assistant.improve_cover_letter_structured(
+        cl, instruction=focus, job=job, focus_points=points
+    )
     items = [(f"paragraphs[{i}]", p) for i, p in enumerate(improved.paragraphs)]
     return CoverLetterStructuredImprovement(
         structured=improved,

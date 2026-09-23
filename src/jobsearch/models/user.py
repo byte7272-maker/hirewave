@@ -47,6 +47,17 @@ class JobPreferences(DomainModel):
     job_categories: list[str] = Field(default_factory=list)
 
 
+class NarrationPrefs(DomainModel):
+    """Read-aloud (text-to-speech) preferences for AI summaries and answers.
+
+    Reading is OFF by default: a summary is spoken only when the user presses the
+    play button, or turns on ``auto_play``. ``voice`` remembers their chosen voice
+    (a server neural-voice id, or a browser speech-synthesis voice uri)."""
+
+    auto_play: bool = False  # auto-read a summary/answer when it appears
+    voice: str = ""  # remembered voice id/uri for the read-aloud switch
+
+
 class RecentSearch(DomainModel):
     """A job title the user searched, remembered so the app can prefill and learn
     which roles they pursue (feeds title suggestions)."""
@@ -71,6 +82,8 @@ class UserProfile(DomainModel):
     #: Recently searched roles (most-recent first, capped) — the app's memory of
     #: what the user looked for, so it can prefill and suggest adjacent titles.
     recent_searches: list[RecentSearch] = Field(default_factory=list)
+    #: Read-aloud (TTS) preferences. Off by default; feeds the narration switch.
+    narration: NarrationPrefs = Field(default_factory=NarrationPrefs)
 
     def record_search(self, role: str, *, location: str = "", remote: Optional[bool] = None,
                       cap: int = 25) -> None:

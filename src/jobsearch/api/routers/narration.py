@@ -20,14 +20,43 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.api.schemas import TtsRequest
+from jobsearch.api.schemas import NarrationPrefsUpdate, TtsRequest
 from jobsearch.engines.interview import voice_catalog
+from jobsearch.models import NarrationPrefs, UserProfile
 
 router = APIRouter(prefix="/api/v1/narration", tags=["narration"])
 
 #: Cap the text a single narration request will synthesize. Summaries are short;
 #: this stops an oversized body from running up a provider bill by accident.
 _MAX_NARRATION_CHARS = 8000
+
+
+def _profile(state: StateDep, user_id: str) -> UserProfile:
+    prof = state.profiles.get(user_id)
+    if prof is None:
+        prof = state.profiles.add(UserProfile(user_id=user_id))
+    return prof
+
+
+@router.get("/prefs", response_model=NarrationPrefs)
+def get_prefs(user: CurrentUser, state: StateDep) -> NarrationPrefs:
+    """The user's read-aloud preferences. Auto-play is OFF by default -- summaries
+    are read only on demand until the user turns the auto-play toggle on."""
+    return _profile(state, user.id).narration
+
+
+@router.put("/prefs", response_model=NarrationPrefs)
+def update_prefs(
+    body: NarrationPrefsUpdate, user: CurrentUser, state: StateDep
+) -> NarrationPrefs:
+    """Flip the auto-play toggle and/or remember the chosen voice (persists across
+    devices, so the switch stays where the user set it)."""
+    prof = _profile(state, user.id)
+    data = body.model_dump(exclude_unset=True)
+    for field, value in data.items():
+        setattr(prof.narration, field, value)
+    state.profiles.add(prof)  # persist the mutation
+    return prof.narration
 
 
 @router.get("/voices")

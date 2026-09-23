@@ -104,6 +104,37 @@ def test_revise_requires_instruction_and_text():
         pass
 
 
+# --- engine: improve targets the review's points ---------------------------
+class _RecordingLLM:
+    """Captures the last prompt and returns a minimal valid JSON Resume so the
+    LLM path (not the fallback) runs."""
+
+    name = "recording"
+
+    def __init__(self) -> None:
+        self.last_prompt = ""
+
+    def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500) -> str:
+        self.last_prompt = prompt
+        return '{"basics": {"name": "Sam Rivera"}, "work": [], "skills": []}'
+
+
+def test_improve_structured_injects_focus_points():
+    llm = _RecordingLLM()
+    r = _resume("- Responsible for the billing system\n- Worked on the API")
+    ResumeAssistant(llm=llm).improve_structured(
+        r, focus_points=["Quantify impact with the XYZ formula: add %/$ numbers"]
+    )
+    assert "Prioritize fixing these specific issues" in llm.last_prompt
+    assert "Quantify impact with the XYZ formula" in llm.last_prompt
+
+
+def test_improve_structured_without_points_has_no_review_block():
+    llm = _RecordingLLM()
+    ResumeAssistant(llm=llm).improve_structured(_resume("- Built the API and shipped it"))
+    assert "Prioritize fixing these specific issues" not in llm.last_prompt
+
+
 # --- engine: cover letters --------------------------------------------------
 def test_cover_letter_review_flags_cliches_and_generic():
     cl = _cover(
@@ -176,6 +207,37 @@ def test_api_revise_no_prompt_does_general_improve():
     res = _upload(client, h, "- Some content here to improve")
     r = client.post(f"/api/v1/resumes/{res['id']}/revise", headers=h, json={"instruction": "   "})
     assert r.status_code == 200 and r.json()["preview"]
+
+
+def test_api_improve_structured_links_the_summary_points():
+    # The improve flow should target the SAME points the AI summary/review surfaces:
+    # a metric-less resume's review flags "Quantify impact", so that must reach the
+    # improve prompt even though the client sent no explicit focus_points.
+    state = AppState(exchanger=MockTokenExchanger())
+    rec = _RecordingLLM()
+    state.resume_assistant.llm = rec  # capture the improve prompt
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    res = _upload(client, h, "- Responsible for the billing system\n- Worked on the API")
+    r = client.post(f"/api/v1/resumes/{res['id']}/improve-structured", headers=h, json={})
+    assert r.status_code == 200
+    assert "Prioritize fixing these specific issues" in rec.last_prompt
+    assert "Quantify impact" in rec.last_prompt  # a derived review point
+
+
+def test_api_improve_structured_honors_explicit_focus_points():
+    state = AppState(exchanger=MockTokenExchanger())
+    rec = _RecordingLLM()
+    state.resume_assistant.llm = rec
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    res = _upload(client, h, "- Built the API")
+    r = client.post(
+        f"/api/v1/resumes/{res['id']}/improve-structured", headers=h,
+        json={"focus_points": ["Emphasize leadership scope"]},
+    )
+    assert r.status_code == 200
+    assert "Emphasize leadership scope" in rec.last_prompt
 
 
 def test_api_review_requires_auth_and_ownership():

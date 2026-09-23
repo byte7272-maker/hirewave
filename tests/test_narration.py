@@ -104,3 +104,30 @@ def test_speak_returns_audio_in_chosen_voice():
 def test_speak_requires_auth():
     c = _client()
     assert c.post("/api/v1/narration/speak", json={"text": "hi"}).status_code == 401
+
+
+# --- read-aloud preferences (default OFF + auto-play toggle) -----------------
+def test_prefs_default_reading_off():
+    c = _client()
+    h = _auth(c)
+    p = c.get("/api/v1/narration/prefs", headers=h).json()
+    # AI reading of summaries must default to off (nothing auto-plays).
+    assert p["auto_play"] is False
+    assert p["voice"] == ""
+
+
+def test_prefs_auto_play_toggle_persists():
+    c = _client()
+    h = _auth(c)
+    p = c.put("/api/v1/narration/prefs", headers=h, json={"auto_play": True, "voice": "nova"}).json()
+    assert p["auto_play"] is True and p["voice"] == "nova"
+    # survives a fresh fetch (stored on the profile)
+    assert c.get("/api/v1/narration/prefs", headers=h).json()["auto_play"] is True
+    # patch semantics: updating one field leaves the other intact
+    p2 = c.put("/api/v1/narration/prefs", headers=h, json={"auto_play": False}).json()
+    assert p2["auto_play"] is False and p2["voice"] == "nova"
+
+
+def test_prefs_require_auth():
+    c = _client()
+    assert c.get("/api/v1/narration/prefs").status_code == 401

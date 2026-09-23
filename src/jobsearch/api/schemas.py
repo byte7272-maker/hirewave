@@ -198,6 +198,11 @@ class ResumeReviseRequest(BaseModel):
     #: with ``instruction``; at least one of the two must be non-empty.
     instructions: list[str] = Field(default_factory=list)
     job_posting_id: Optional[str] = None
+    #: Specific review/summary points the improvement should target (e.g. the user
+    #: tapped particular findings in the AI summary). When omitted, the improve
+    #: endpoints derive them from a fresh review so the rewrite still addresses the
+    #: same points the on-screen summary shows.
+    focus_points: list[str] = Field(default_factory=list)
 
 
 class TailorRequest(BaseModel):
@@ -472,6 +477,16 @@ class PersonaVoiceUpdate(BaseModel):
 class TtsRequest(BaseModel):
     text: str
     voice: str = ""  # provider voice id; blank = provider default
+
+
+class NarrationPrefsUpdate(BaseModel):
+    """Update the read-aloud preferences. Both fields optional (patch semantics)."""
+
+    #: Auto-read a summary/answer when it appears. Defaults off, so nothing speaks
+    #: unless the user turns this on or presses play.
+    auto_play: Optional[bool] = None
+    #: Remembered voice id/uri for the switch (server neural voice, or browser voice).
+    voice: Optional[str] = None
 
 
 class AvatarVideoRequest(BaseModel):

@@ -49,6 +49,19 @@ def _extract_json(text: str) -> str:
     return text[start:end + 1] if start != -1 and end != -1 else text
 
 
+def _focus_points_block(focus_points: Optional[list[str]]) -> str:
+    """Render review points into a prompt block so the improvement targets the exact
+    weaknesses the on-screen AI summary raised. Empty when there are no points."""
+    pts = [p.strip() for p in (focus_points or []) if p and p.strip()]
+    if not pts:
+        return ""
+    bullets = "\n".join(f"- {p}" for p in pts[:8])
+    return (
+        "\nPrioritize fixing these specific issues identified in the resume review "
+        "(address each one directly):\n" + bullets
+    )
+
+
 def _grade(score: int) -> str:
     """Letter grade for a 0-100 quality score (recruiter-style banding)."""
     if score >= 85:
@@ -564,12 +577,17 @@ class ResumeAssistant:
         )
 
     def improve_structured(
-        self, resume: Resume, *, instruction: str = "", job: Optional[JobPosting] = None
+        self, resume: Resume, *, instruction: str = "", job: Optional[JobPosting] = None,
+        focus_points: Optional[list[str]] = None,
     ) -> ResumeData:
         """Improve a résumé and return it as structured JSON Resume (so improvements
         apply per-field and a template's formatting stays intact). Rewrites highlights
         with the XYZ formula, tightens the summary, quantifies impact -- using ONLY
-        facts present. LLM with a deterministic fallback (returns the parsed structure)."""
+        facts present. LLM with a deterministic fallback (returns the parsed structure).
+
+        ``focus_points`` are the specific weaknesses the résumé review surfaced (the
+        same points the on-screen AI summary is built from), so the improvement
+        targets exactly what the user was shown rather than improving in the abstract."""
         text = (resume.rendered_text or "").strip()
         if not text:
             return ResumeData()
@@ -577,6 +595,7 @@ class ResumeAssistant:
         if job and job.requirements:
             reqs = "\nTarget role requirements (surface where truthful): " + ", ".join(job.requirements[:12])
         focus = f" Focus improvements toward: {instruction}." if instruction else ""
+        points = _focus_points_block(focus_points)
         try:
             out = self.llm.complete(
                 "Improve the resume below and return ONLY JSON Resume format (keys: "
@@ -585,7 +604,7 @@ class ResumeAssistant:
                 "education[{institution,area,studyType,startDate,endDate}], skills[{name,keywords[]}]). "
                 "Apply the XYZ formula to each highlight (did X, measured by Y, via Z), lead with strong "
                 "past-tense action verbs, quantify impact, and tighten the summary. Use ONLY facts already "
-                "present -- never invent employers, titles, dates, metrics, or skills." + focus + reqs +
+                "present -- never invent employers, titles, dates, metrics, or skills." + focus + points + reqs +
                 "\n\nResume:\n" + text[:4000],
                 system="You improve resumes and output only valid JSON Resume JSON.",
                 max_tokens=2000,
@@ -884,10 +903,14 @@ class ResumeAssistant:
         return CoverLetterData(salutation=salutation, paragraphs=body, closing=closing)
 
     def improve_cover_letter_structured(
-        self, cover_letter: CoverLetter, *, instruction: str = "", job: Optional[JobPosting] = None
+        self, cover_letter: CoverLetter, *, instruction: str = "", job: Optional[JobPosting] = None,
+        focus_points: Optional[list[str]] = None,
     ) -> CoverLetterData:
         """Improve a cover letter and return it as the structured template shape. Uses
-        ONLY facts present; LLM with a deterministic fallback (the parsed structure)."""
+        ONLY facts present; LLM with a deterministic fallback (the parsed structure).
+
+        ``focus_points`` are the review's specific findings (what the on-screen AI
+        summary is built from) so the improvement addresses exactly those points."""
         text = (cover_letter.content or "").strip()
         if not text:
             return CoverLetterData()
@@ -895,12 +918,13 @@ class ResumeAssistant:
         if job:
             ctx = f"\nTarget role: {job.title} at {job.company}."
         focus = f" Focus improvements toward: {instruction}." if instruction else ""
+        points = _focus_points_block(focus_points)
         try:
             out = self.llm.complete(
                 "Improve the cover letter below and return ONLY JSON with " + self._CL_KEYS + ". "
                 "Open with a specific hook (not 'I am writing to'), name the company and role, back a "
                 "claim with a concrete result, cut cliches, keep it 250-400 words. Use ONLY facts "
-                "already present -- never invent employers, achievements, or metrics." + focus + ctx +
+                "already present -- never invent employers, achievements, or metrics." + focus + points + ctx +
                 "\n\nCover letter:\n" + text[:3000],
                 system="You improve cover letters and output only valid JSON.",
                 max_tokens=1400,
