@@ -479,6 +479,25 @@ class TtsRequest(BaseModel):
     voice: str = ""  # provider voice id; blank = provider default
 
 
+class RephraseRequest(BaseModel):
+    """Ask the AI to rephrase a selected span (a word, sentence, or paragraph)."""
+
+    text: str  # the highlighted span to rephrase
+    instruction: str = ""  # optional steer ("more concise", "stronger verb", "warmer")
+    mode: str = ""  # "word" | "sentence" | "paragraph" (shapes the suggestions)
+    context: str = ""  # optional surrounding text for grounding (not rephrased)
+    tone: str = ""  # optional target tone
+    count: int = 3  # how many alternatives to return (1-6)
+
+
+class RephraseResult(BaseModel):
+    """Alternative phrasings for the selected span, best first, with any numbers not
+    present in the original flagged (possibly invented — verify before accepting)."""
+
+    options: list[str] = Field(default_factory=list)
+    flagged_metrics: list[FlaggedMetric] = Field(default_factory=list)
+
+
 class RecordViewRequest(BaseModel):
     """Record that the user opened an item, for the jump-back-in rail."""
 

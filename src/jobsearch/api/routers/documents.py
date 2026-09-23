@@ -19,6 +19,8 @@ from jobsearch.api.schemas import (
     ResumeReviewRequest,
     ResumeReviseRequest,
     RenderedResume,
+    RephraseRequest,
+    RephraseResult,
     ResumeTailoring,
     ResumeUpdate,
     StructuredImprovement,
@@ -314,6 +316,24 @@ def render_resume_with_template(
         state.resume_templates.add(template)
     data = state.resume_assistant.structure(resume)
     return RenderedResume(template=template, data=data)
+
+
+@router.post("/documents/rephrase", response_model=RephraseResult)
+def rephrase_span(body: RephraseRequest, user: CurrentUser, state: StateDep) -> RephraseResult:
+    """Rephrase a selected span -- a word, sentence, or paragraph -- and return a few
+    alternatives to pick from. Works for any document (the client sends the highlighted
+    text + optional surrounding context); rephrases only, never inventing facts. Numbers
+    that appear in an option but not in the original are flagged (possibly invented)."""
+    from jobsearch.models.resume_schema import new_number_flags
+
+    if not (body.text or "").strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "text to rephrase is empty")
+    options = state.resume_assistant.rephrase(
+        body.text, instruction=body.instruction, mode=body.mode,
+        context=body.context, tone=body.tone, count=body.count,
+    )
+    flags = new_number_flags(body.text, [(f"option[{i}]", o) for i, o in enumerate(options)])
+    return RephraseResult(options=options, flagged_metrics=flags)
 
 
 @router.post("/resumes/{resume_id}/improve-structured", response_model=StructuredImprovement)

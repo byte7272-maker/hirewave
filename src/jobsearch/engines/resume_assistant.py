@@ -111,6 +111,21 @@ _WEAK = {
     "responsible for", "worked on", "helped with", "assisted with", "duties included",
     "in charge of", "tasked with", "involved in",
 }
+# Stronger alternatives for common weak words/phrases — the deterministic fallback
+# for the span rephrase when no LLM is available.
+_WEAK_ALTS: dict[str, list[str]] = {
+    "responsible for": ["owned", "led", "drove"],
+    "worked on": ["led", "built", "delivered"],
+    "helped with": ["drove", "enabled", "supported"],
+    "helped": ["enabled", "drove", "accelerated"],
+    "made": ["built", "created", "developed"],
+    "did": ["executed", "delivered", "drove"],
+    "used": ["leveraged", "applied", "utilized"],
+    "handled": ["managed", "owned", "resolved"],
+    "improved": ["boosted", "increased", "optimized"],
+    "good": ["strong", "effective", "solid"],
+    "big": ["significant", "substantial", "major"],
+}
 _STRONG_HINT = {
     "led", "built", "drove", "launched", "delivered", "owned", "shipped", "increased",
     "reduced", "improved", "created", "designed", "scaled", "optimized", "spearheaded",
@@ -496,6 +511,66 @@ class ResumeAssistant:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return ResumeRevision(resume_id=resume.id, instruction=instruction, preview=preview or base)
+
+    # -- span-level rephrase (a word / sentence / paragraph) ---------------
+    def rephrase(
+        self, text: str, *, instruction: str = "", mode: str = "", context: str = "",
+        tone: str = "", count: int = 3,
+    ) -> list[str]:
+        """Return up to ``count`` alternative phrasings of a selected span -- a word,
+        sentence, or paragraph the user highlighted in a document.
+
+        Rephrases ONLY: preserves the original meaning and never invents facts,
+        metrics, employers, or skills. ``instruction`` steers it ("more concise",
+        "stronger verb", "warmer"); ``mode`` (word|sentence|paragraph) and
+        ``context`` (surrounding text) sharpen the result. LLM with a deterministic
+        fallback so it always returns at least the original."""
+        span = (text or "").strip()
+        if not span:
+            return []
+        count = max(1, min(int(count or 3), 6))
+        mode = (mode or "").strip().lower()
+        want = {
+            "word": f"{count} stronger or clearer single-word (or very short) alternatives",
+            "sentence": f"{count} alternative phrasings of this sentence",
+            "paragraph": f"{count} alternative phrasings of this paragraph",
+        }.get(mode, f"{count} alternative phrasings")
+        style = f" Aim for a {tone} tone." if tone.strip() else ""
+        steer = f" Follow this instruction: {instruction.strip()}." if instruction.strip() else ""
+        ctx = f"\nSurrounding text (for context, do not rephrase it):\n{context.strip()[:1200]}" if context.strip() else ""
+        try:
+            out = self.llm.complete(
+                f"Rephrase the SELECTED text below. Return ONLY a JSON array of {want} "
+                "as strings, best first. Preserve the original meaning and keep it truthful -- "
+                "never add facts, numbers, employers, titles, or skills that are not already "
+                "present." + steer + style +
+                f"\n\nSELECTED text:\n{span[:1500]}" + ctx,
+                system="You are a precise editor. You rephrase a selected span without changing "
+                       "its meaning or inventing anything, and output only a JSON array of strings.",
+                max_tokens=500,
+            )
+            data = json.loads(_extract_json(out))
+            if isinstance(data, list):
+                opts = [str(o).strip() for o in data if str(o).strip()]
+                # De-dupe (case-insensitive) and drop an option identical to the input.
+                seen, uniq = set(), []
+                for o in opts:
+                    k = o.lower()
+                    if k in seen or k == span.lower():
+                        continue
+                    seen.add(k)
+                    uniq.append(o)
+                if uniq:
+                    return uniq[:count]
+        except Exception:  # noqa: BLE001 - fall back to a deterministic suggestion
+            pass
+        # Deterministic fallback: for a known weak word, offer its stronger verbs;
+        # otherwise echo the original so the caller always has something to show.
+        low = span.lower().strip(".,;:")
+        for weak, alts in _WEAK_ALTS.items():
+            if low == weak:
+                return alts[:count]
+        return [span]
 
     # -- template style generation -----------------------------------------
     def generate_template_style(self, prompt: str) -> ResumeTemplateStyle:

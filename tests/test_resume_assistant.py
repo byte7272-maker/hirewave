@@ -135,6 +135,34 @@ def test_improve_structured_without_points_has_no_review_block():
     assert "Prioritize fixing these specific issues" not in llm.last_prompt
 
 
+# --- engine: span rephrase --------------------------------------------------
+def test_rephrase_word_fallback_gives_stronger_alternatives():
+    # No usable LLM output -> deterministic fallback maps a weak word to stronger verbs.
+    opts = ResumeAssistant().rephrase("responsible for", mode="word")
+    assert "owned" in opts or "led" in opts
+    assert "responsible for" not in [o.lower() for o in opts]
+
+
+def test_rephrase_empty_returns_nothing():
+    assert ResumeAssistant().rephrase("   ") == []
+
+
+def test_rephrase_uses_llm_options_when_available():
+    llm = _RecordingLLM()
+    llm.complete = lambda *a, **k: '["Drove the billing overhaul", "Led the billing rebuild"]'  # type: ignore
+    opts = ResumeAssistant(llm=llm).rephrase(
+        "Worked on the billing system", mode="sentence", instruction="stronger verbs"
+    )
+    assert opts[:2] == ["Drove the billing overhaul", "Led the billing rebuild"]
+
+
+def test_rephrase_dedupes_and_drops_the_original():
+    llm = _RecordingLLM()
+    llm.complete = lambda *a, **k: '["good", "Good", "strong", "solid"]'  # type: ignore
+    opts = ResumeAssistant(llm=llm).rephrase("good", mode="word", count=3)
+    assert opts == ["strong", "solid"]  # "good"/"Good" (== input) removed, deduped
+
+
 # --- engine: cover letters --------------------------------------------------
 def test_cover_letter_review_flags_cliches_and_generic():
     cl = _cover(
@@ -254,6 +282,36 @@ def test_api_review_persists_summarized_signal_for_preview_default():
     got = client.get(f"/api/v1/resumes/{rid}", headers=h).json()
     assert got["summarized_at"] is not None  # durable "already viewed + summarized"
     assert got["content_summary"]  # cached factual summary for the preview
+
+
+def test_api_rephrase_span():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    r = client.post("/api/v1/documents/rephrase", headers=h,
+                    json={"text": "responsible for", "mode": "word"})
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body["options"], list) and body["options"]
+    assert "responsible for" not in [o.lower() for o in body["options"]]
+
+
+def test_api_rephrase_flags_invented_numbers():
+    # A rephrase that introduces a number not in the original is flagged for review.
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.rephrase = lambda *a, **k: ["Cut latency by 40% across the fleet"]  # type: ignore
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    r = client.post("/api/v1/documents/rephrase", headers=h,
+                    json={"text": "Reduced latency across the fleet", "mode": "sentence"})
+    body = r.json()
+    assert any(f["value"] == "40%" for f in body["flagged_metrics"])
+
+
+def test_api_rephrase_empty_400_and_requires_auth():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    assert client.post("/api/v1/documents/rephrase", json={"text": "x"}).status_code == 401
+    h = _auth(client)
+    assert client.post("/api/v1/documents/rephrase", headers=h, json={"text": "  "}).status_code == 400
 
 
 def test_api_review_requires_auth_and_ownership():
