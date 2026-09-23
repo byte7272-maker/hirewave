@@ -240,6 +240,22 @@ def test_api_improve_structured_honors_explicit_focus_points():
     assert "Emphasize leadership scope" in rec.last_prompt
 
 
+def test_api_review_persists_summarized_signal_for_preview_default():
+    # After a résumé is reviewed once, it carries a content_summary + summarized_at,
+    # so the page can open straight to the preview (not the raw upload) next time.
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    res = _upload(client, h, "- Led the billing migration, cutting latency 40% while mentoring three engineers")
+    rid = res["id"]
+    # Freshly uploaded: not summarized yet.
+    assert client.get(f"/api/v1/resumes/{rid}", headers=h).json()["summarized_at"] is None
+
+    client.post(f"/api/v1/resumes/{rid}/review", headers=h, json={})
+    got = client.get(f"/api/v1/resumes/{rid}", headers=h).json()
+    assert got["summarized_at"] is not None  # durable "already viewed + summarized"
+    assert got["content_summary"]  # cached factual summary for the preview
+
+
 def test_api_review_requires_auth_and_ownership():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     assert client.post("/api/v1/resumes/nope/review", json={}).status_code == 401

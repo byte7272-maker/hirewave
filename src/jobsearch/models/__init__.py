@@ -100,7 +100,14 @@ from jobsearch.models.social import (
     InviteStatus,
     pair_key,
 )
-from jobsearch.models.user import JobPreferences, NarrationPrefs, RecentSearch, User, UserProfile
+from jobsearch.models.user import (
+    JobPreferences,
+    NarrationPrefs,
+    RecentSearch,
+    RecentView,
+    User,
+    UserProfile,
+)
 
 __all__ = [
     "AUTOMATION_SCOPES",
@@ -161,6 +168,7 @@ __all__ = [
     "PracticeStatus",
     "QualityRating",
     "RecentSearch",
+    "RecentView",
     "ReminderPrefs",
     "SavedSearch",
     "OAuthToken",

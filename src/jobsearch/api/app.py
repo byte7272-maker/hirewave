@@ -69,6 +69,7 @@ _ROUTERS = [
     admin.router,
     templates.router,
     view_state.router,
+    view_state.recent_router,
 ]
 
 

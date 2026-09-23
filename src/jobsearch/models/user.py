@@ -69,6 +69,21 @@ class RecentSearch(DomainModel):
     last_at: datetime = Field(default_factory=utcnow)
 
 
+class RecentView(DomainModel):
+    """One thing the user recently opened, for a global 'jump back in' rail.
+
+    ``kind`` + ``ref_id`` identify the entity (so it can be deduped and reopened);
+    ``title``/``subtitle`` are display text; ``view`` is the page name to route
+    back to (e.g. "resumes", "matches")."""
+
+    kind: str  # "resume" | "cover_letter" | "match" | "application" | ...
+    ref_id: str  # the entity id
+    title: str = ""
+    subtitle: str = ""
+    view: str = ""  # the page/view to route back to
+    viewed_at: datetime = Field(default_factory=utcnow)
+
+
 class UserProfile(DomainModel):
     """1:1 with User — the structured context feeding matching & generation."""
 
@@ -88,6 +103,9 @@ class UserProfile(DomainModel):
     #: active tab, filters, scroll anchor). Keyed by a short view name
     #: ("resumes", "matches", ...). Small, client-owned blobs; never fed to the LLM.
     view_state: dict[str, dict] = Field(default_factory=dict)
+    #: Recently opened items across pages (most-recent first, capped) — powers a
+    #: global "jump back in" rail on the dashboard.
+    recently_viewed: list[RecentView] = Field(default_factory=list)
 
     def record_search(self, role: str, *, location: str = "", remote: Optional[bool] = None,
                       cap: int = 25) -> None:
@@ -104,6 +122,21 @@ class UserProfile(DomainModel):
             count=(prior.count + 1) if prior else 1, last_at=utcnow(),
         )
         self.recent_searches = [entry, *kept][:cap]
+
+    def record_view(self, kind: str, ref_id: str, *, title: str = "", subtitle: str = "",
+                    view: str = "", cap: int = 20) -> None:
+        """Remember an opened item for the jump-back-in rail: dedupe by
+        (kind, ref_id), refresh its display text + recency, move it to the front,
+        and cap the list."""
+        kind, ref_id = (kind or "").strip(), (ref_id or "").strip()
+        if not kind or not ref_id:
+            return
+        kept = [v for v in self.recently_viewed if not (v.kind == kind and v.ref_id == ref_id)]
+        entry = RecentView(
+            kind=kind, ref_id=ref_id, title=title, subtitle=subtitle,
+            view=view, viewed_at=utcnow(),
+        )
+        self.recently_viewed = [entry, *kept][:cap]
 
     def to_context_text(self) -> str:
         """Flatten the profile into text for embedding / LLM prompts."""

@@ -17,10 +17,13 @@ from __future__ import annotations
 import json
 import re
 
-from fastapi import APIRouter, Body, HTTPException, status
+from typing import Optional
+
+from fastapi import APIRouter, Body, HTTPException, Query, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.models import UserProfile
+from jobsearch.models import RecentView, UserProfile
+from jobsearch.api.schemas import RecordViewRequest
 
 router = APIRouter(prefix="/api/v1/view-state", tags=["view-state"])
 
@@ -96,4 +99,48 @@ def clear_view_state(view: str, user: CurrentUser, state: StateDep) -> None:
         vs = dict(prof.view_state)
         vs.pop(view, None)
         prof.view_state = vs
+        state.profiles.add(prof)
+
+
+# --- recently viewed ("jump back in" rail) ----------------------------------
+recent_router = APIRouter(prefix="/api/v1/recently-viewed", tags=["recently-viewed"])
+
+
+@recent_router.get("", response_model=list[RecentView])
+def list_recently_viewed(
+    user: CurrentUser, state: StateDep,
+    kind: Optional[str] = Query(None, description="filter to one kind, e.g. 'resume'"),
+    limit: int = Query(12, ge=1, le=50),
+) -> list[RecentView]:
+    """The user's recently opened items across pages (most-recent first) for the
+    dashboard 'jump back in' rail."""
+    items = _profile(state, user.id).recently_viewed
+    if kind:
+        items = [v for v in items if v.kind == kind]
+    return items[:limit]
+
+
+@recent_router.post("", response_model=list[RecentView])
+def record_recently_viewed(
+    body: RecordViewRequest, user: CurrentUser, state: StateDep
+) -> list[RecentView]:
+    """Record that the user opened an item (call on entering a detail view). Dedupes
+    by (kind, ref_id), moves it to the front, and caps the list. Returns the updated
+    rail so the client can refresh it in one round-trip."""
+    if not body.kind.strip() or not body.ref_id.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "kind and ref_id are required")
+    prof = _profile(state, user.id)
+    prof.record_view(
+        body.kind, body.ref_id, title=body.title, subtitle=body.subtitle, view=body.view
+    )
+    state.profiles.add(prof)
+    return prof.recently_viewed[:12]
+
+
+@recent_router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def clear_recently_viewed(user: CurrentUser, state: StateDep) -> None:
+    """Clear the whole jump-back-in rail."""
+    prof = _profile(state, user.id)
+    if prof.recently_viewed:
+        prof.recently_viewed = []
         state.profiles.add(prof)

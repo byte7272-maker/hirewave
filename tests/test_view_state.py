@@ -78,3 +78,46 @@ def test_owner_scoped_and_requires_auth():
     hb = _auth(c, "b@demo.com")
     c.put("/api/v1/view-state/resumes", headers=ha, json={"selectedId": "res_a"})
     assert c.get("/api/v1/view-state/resumes", headers=hb).json() == {}  # B doesn't see A's
+
+
+# --- recently viewed (jump-back-in rail) ------------------------------------
+def test_recently_viewed_empty_then_records_most_recent_first():
+    c = _client()
+    h = _auth(c)
+    assert c.get("/api/v1/recently-viewed", headers=h).json() == []
+    c.post("/api/v1/recently-viewed", headers=h,
+           json={"kind": "resume", "ref_id": "res_1", "title": "Data Engineer CV", "view": "resumes"})
+    rail = c.post("/api/v1/recently-viewed", headers=h,
+                  json={"kind": "match", "ref_id": "job_9", "title": "Senior DE at Acme", "view": "matches"}).json()
+    assert [v["ref_id"] for v in rail] == ["job_9", "res_1"]  # newest first
+    assert rail[0]["kind"] == "match" and rail[0]["view"] == "matches"
+
+
+def test_recently_viewed_dedupes_and_promotes():
+    c = _client()
+    h = _auth(c)
+    c.post("/api/v1/recently-viewed", headers=h, json={"kind": "resume", "ref_id": "res_1"})
+    c.post("/api/v1/recently-viewed", headers=h, json={"kind": "resume", "ref_id": "res_2"})
+    rail = c.post("/api/v1/recently-viewed", headers=h,
+                  json={"kind": "resume", "ref_id": "res_1", "title": "Updated"}).json()
+    # res_1 reopened -> single entry, moved to the front with refreshed title
+    assert [v["ref_id"] for v in rail] == ["res_1", "res_2"]
+    assert rail[0]["title"] == "Updated"
+
+
+def test_recently_viewed_filter_and_clear():
+    c = _client()
+    h = _auth(c)
+    c.post("/api/v1/recently-viewed", headers=h, json={"kind": "resume", "ref_id": "res_1"})
+    c.post("/api/v1/recently-viewed", headers=h, json={"kind": "match", "ref_id": "job_9"})
+    only = c.get("/api/v1/recently-viewed?kind=resume", headers=h).json()
+    assert [v["ref_id"] for v in only] == ["res_1"]
+    assert c.delete("/api/v1/recently-viewed", headers=h).status_code == 204
+    assert c.get("/api/v1/recently-viewed", headers=h).json() == []
+
+
+def test_recently_viewed_requires_kind_and_auth():
+    c = _client()
+    assert c.get("/api/v1/recently-viewed").status_code == 401
+    h = _auth(c)
+    assert c.post("/api/v1/recently-viewed", headers=h, json={"kind": "", "ref_id": "x"}).status_code == 400

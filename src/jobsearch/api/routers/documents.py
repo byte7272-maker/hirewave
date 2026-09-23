@@ -25,6 +25,7 @@ from jobsearch.api.schemas import (
     TailorRequest,
     VersionReuseSuggestion,
 )
+from jobsearch.models.common import utcnow
 from jobsearch.models import DocumentVersion
 from jobsearch.models import (
     CoverLetter,
@@ -437,9 +438,21 @@ def review_resume(
     review = state.resume_assistant.review(resume, job=job)
     # Refresh the cached card grade from a general (no-job) review; a job-specific
     # review is contextual and must not overwrite the document-quality grade.
+    dirty = False
     if job is None and (resume.quality_grade != review.grade or resume.quality_score != review.score):
         resume.quality_score = review.score
         resume.quality_grade = review.grade
+        dirty = True
+    # Persist the factual content summary + a "has been summarized" timestamp (the
+    # summary is job-independent), so the page can open straight to the preview for
+    # a résumé the user has already reviewed instead of the raw uploaded file.
+    if review.content_summary and (
+        resume.content_summary != review.content_summary or resume.summarized_at is None
+    ):
+        resume.content_summary = review.content_summary
+        resume.summarized_at = utcnow()
+        dirty = True
+    if dirty:
         state.resumes.add(resume)
     return review
 

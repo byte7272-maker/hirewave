@@ -479,6 +479,16 @@ class TtsRequest(BaseModel):
     voice: str = ""  # provider voice id; blank = provider default
 
 
+class RecordViewRequest(BaseModel):
+    """Record that the user opened an item, for the jump-back-in rail."""
+
+    kind: str  # "resume" | "cover_letter" | "match" | "application" | ...
+    ref_id: str  # the entity id
+    title: str = ""  # display title
+    subtitle: str = ""  # secondary display line
+    view: str = ""  # the page/view name to route back to
+
+
 class NarrationPrefsUpdate(BaseModel):
     """Update the read-aloud preferences. Both fields optional (patch semantics)."""
 

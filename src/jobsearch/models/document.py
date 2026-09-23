@@ -70,6 +70,12 @@ class Resume(DomainModel):
     #: without an LLM, so the grade shows without firing a full review per item.
     quality_score: Optional[int] = None  # 0-100
     quality_grade: str = ""  # A | B | C | D
+    #: Cached factual summary (what the résumé says) and when it was last produced.
+    #: Set the first time the résumé is reviewed, so the page can open straight to
+    #: the preview/summary for a résumé the user has already viewed + summarized,
+    #: instead of the raw uploaded file. ``summarized_at is None`` => never reviewed.
+    content_summary: str = ""
+    summarized_at: Optional[datetime] = None
     #: Version history — several tailored variants the user can switch between.
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (rendered_text is the doc)
