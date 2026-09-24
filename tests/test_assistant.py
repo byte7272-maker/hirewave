@@ -21,6 +21,65 @@ def _profile() -> UserProfile:
                        preferences=JobPreferences(salary_range=SalaryRange(currency="USD", minimum=180000, maximum=220000)))
 
 
+# --- live fill from the REAL scraped form -----------------------------------
+def _replan_for(user, profile):
+    ff = FormFillEngine()
+    return lambda fields: ff.plan(user, profile, fields)
+
+
+def test_live_plan_is_rebuilt_from_scraped_form_and_blocks_real_credentials():
+    from jobsearch.engines.assistant.form_fill import FillPlan
+    from jobsearch.engines.assistant.live_fill import LiveFillEngine, MockBrowserDriver
+
+    # The page really has a password + SSN field — they must never be filled,
+    # even though the initial (template) plan didn't know about them.
+    scraped = [
+        FormField("full_name", "Full name", "text", True),
+        FormField("email", "Email", "email", True),
+        FormField("account_password", "Create a password", "password", True),
+        FormField("ssn", "Social Security Number", "text", True),
+    ]
+    driver = MockBrowserDriver(form_fields=scraped)
+    res = LiveFillEngine().execute(
+        FillPlan(), driver, url="https://jobs/1", submit=True, live=True,
+        replan=_replan_for(_user(), _profile()), allow_live_submit=True,
+    )
+    assert res.status == "submitted"
+    # credentials scraped from the real form never reached the browser
+    assert "account_password" not in driver._fields and "ssn" not in driver._fields
+    # factual fields did (canonical keys)
+    assert driver._fields.get("email") == "ada@x.com"
+    assert driver._fields.get("name") == "Ada Lovelace"
+
+
+def test_live_unknown_required_aborts_to_manual_no_submit():
+    from jobsearch.engines.assistant.form_fill import FillPlan
+    from jobsearch.engines.assistant.live_fill import LiveFillEngine, MockBrowserDriver
+
+    driver = MockBrowserDriver(
+        form_fields=[FormField("full_name", "Full name", "text", True)],
+        unknown_required=["work_authorization"],
+    )
+    res = LiveFillEngine().execute(
+        FillPlan(), driver, url="https://jobs/1", submit=True, live=True,
+        replan=_replan_for(_user(), _profile()),
+    )
+    assert res.status == "needs_input" and res.unknown_required == ["work_authorization"]
+    assert not res.confirmation  # never submitted
+
+
+def test_live_submit_gate_fills_but_holds_until_enabled():
+    from jobsearch.engines.assistant.form_fill import FillPlan
+    from jobsearch.engines.assistant.live_fill import LiveFillEngine, MockBrowserDriver
+
+    driver = MockBrowserDriver(form_fields=[FormField("email", "Email", "email", True)])
+    res = LiveFillEngine().execute(
+        FillPlan(), driver, url="https://jobs/1", submit=True, live=True,
+        replan=_replan_for(_user(), _profile()), allow_live_submit=False,
+    )
+    assert res.status == "filled_pending_submit"  # gated: filled, not auto-submitted
+
+
 # --- form-fill guardrails ---------------------------------------------------
 def test_credential_fields_are_never_filled():
     plan = FormFillEngine().plan(_user(), _profile(), [

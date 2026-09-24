@@ -341,7 +341,10 @@ class AutoApplyEngine:
             grant.submitted_today = 0
 
     def _prepare(self, user: User, profile: UserProfile, job: JobPosting):
-        """Build a fill plan + résumé bytes for a job (credentials auto-blocked)."""
+        """Build a fill plan + résumé bytes for a job (credentials auto-blocked),
+        plus a ``replan(fields)`` closure that rebuilds the plan from the REAL
+        scraped form once it's open — so credential-blocking + unknown detection
+        reflect the actual page, not the ``demo_application_form()`` template."""
         resume_name, resume_data = "", b""
         resumes = self.resumes.find(user_id=user.id)
         if resumes:
@@ -356,11 +359,15 @@ class AutoApplyEngine:
         covers = self.cover_letters.find(user_id=user.id)
         cover_text = sorted(covers, key=lambda c: c.id)[-1].content if covers else ""
         suggest = (lambda q: self.screener.suggest(user.id, q)) if self.screener else None
-        plan = self._form_fill.plan(
-            user, profile, demo_application_form(), resume_name=resume_name,
-            cover_text=cover_text, screener_suggest=suggest,
-        )
-        return plan, resume_name, resume_data
+
+        def replan(fields):
+            return self._form_fill.plan(
+                user, profile, fields, resume_name=resume_name,
+                cover_text=cover_text, screener_suggest=suggest,
+            )
+
+        plan = replan(demo_application_form())
+        return plan, resume_name, resume_data, replan
 
     def _record_application(
         self, user_id: str, job: JobPosting, confirmation: str, *, simulated: bool = False
@@ -443,11 +450,13 @@ class AutoApplyEngine:
                 outcomes.append(oc)
                 continue
 
-            plan, resume_name, resume_data = self._prepare(user, profile, job)
+            plan, resume_name, resume_data, replan = self._prepare(user, profile, job)
             driver, live = self._build_driver(self.settings, platform=platform, storage_state=storage)
             res = self.assistant.execute_fill(
                 user, plan, driver, url=job.url, submit=True, job_id=job.id,
                 resume_name=resume_name, resume_data=resume_data, live=live,
+                replan=replan,
+                allow_live_submit=getattr(self.settings, "auto_apply_live_submit", False),
             )
             attempted += 1
             oc.status = res.status
@@ -519,7 +528,7 @@ class AutoApplyEngine:
                 if not self._is_assisted(grant, job) or job.id in seen:
                     continue
                 seen.add(job.id)
-                plan, resume_name, _ = self._prepare(user, profile, job)
+                plan, resume_name, _, _ = self._prepare(user, profile, job)
                 fields = {e.field: e.value for e in plan.entries if e.status == "filled" and e.value}
                 items.append(QueueItem(
                     job_id=job.id, title=job.title, company=job.company, url=job.url,

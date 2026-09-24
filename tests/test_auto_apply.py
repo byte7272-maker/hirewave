@@ -187,6 +187,21 @@ def test_mock_run_is_labeled_simulated():
     assert "simulated" in res.outcomes[0].detail.lower()
 
 
+def test_live_run_holds_at_review_until_submit_gate_enabled():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+
+    state = _state()  # default: auto_apply_live_submit is False
+    _seed_user(state)
+    _job(state, "in1", "Python Developer", platform="indeed")
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    # Simulate a LIVE driver (a connected session) while the submit gate is OFF.
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    res = state.auto_apply.run_grant(grant)
+    assert res.submitted == 0
+    assert res.outcomes[0].status == "filled_pending_submit"  # filled, not submitted
+    assert state.applications.find(user_id="u1") == []  # nothing recorded as applied
+
+
 # ---- API ------------------------------------------------------------------
 def _client_and_token():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))

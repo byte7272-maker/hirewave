@@ -19,7 +19,7 @@ Safety, enforced here regardless of the plan:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from jobsearch.config import Settings, get_settings
 from jobsearch.engines.assistant.form_fill import FillPlan
@@ -62,12 +62,21 @@ def _canonical_key(field: str, label: str) -> str:
 
 
 class MockBrowserDriver:
-    """Offline stand-in — simulates a clean fill so the flow is demoable/testable."""
+    """Offline stand-in — simulates a clean fill so the flow is demoable/testable.
 
-    def __init__(self, *, needs_login: bool = False, captcha: bool = False, can_apply: bool = True) -> None:
+    ``form_fields`` (optional) makes it simulate a *real* scraped form: when set,
+    :meth:`scrape_fields` returns them so the plan is rebuilt from the real page.
+    ``unknown_required`` simulates required questions the plan couldn't answer."""
+
+    def __init__(
+        self, *, needs_login: bool = False, captcha: bool = False, can_apply: bool = True,
+        form_fields: Optional[list] = None, unknown_required: Optional[list] = None,
+    ) -> None:
         self._needs_login = needs_login
         self._captcha = captcha
         self._can_apply = can_apply
+        self._form_fields = form_fields or []
+        self._unknown_required = unknown_required or []
         self._fields: dict[str, str] = {}
 
     def start(self) -> None: ...
@@ -76,9 +85,12 @@ class MockBrowserDriver:
     def has_captcha(self) -> bool: return self._captcha
     def start_apply(self) -> bool: return self._can_apply
 
+    def scrape_fields(self) -> list:
+        return list(self._form_fields)
+
     def fill_application(self, fields: dict[str, str]) -> FillOutcome:
         self._fields = dict(fields)
-        return FillOutcome(filled=list(fields.keys()))
+        return FillOutcome(filled=list(fields.keys()), unknown_required=list(self._unknown_required))
 
     def upload_resume(self, filename: str, data: bytes) -> bool: return bool(filename)
     def finalize(self) -> str: return "mock-submitted"
@@ -121,6 +133,8 @@ class LiveFillEngine:
         resume_data: bytes = b"",
         live: bool = False,
         assisted: bool = False,
+        replan: Optional[Callable[[list], FillPlan]] = None,
+        allow_live_submit: bool = True,
     ) -> LiveFillResult:
         """Fill (and optionally submit) an application form.
 
@@ -128,16 +142,26 @@ class LiveFillEngine:
         Apply button, so the form is open — we skip the Apply click and go
         straight to filling. Used for ToS-sensitive providers where a human
         initiates every application (LinkedIn).
+
+        When ``replan`` is given, the form's *real* fields are scraped once it's
+        open and the plan is rebuilt from them (so credential-blocking + unknown
+        detection reflect the actual page, not a template). ``allow_live_submit``
+        gates the final Submit on a live run — when False, a live run fills and
+        stops at review instead of auto-submitting.
         """
         if not url:
             return LiveFillResult("no_url", detail="This posting has no application URL to open.", live=live)
 
-        # ONLY non-credential, actually-filled values ever reach the browser,
-        # keyed canonically so the real driver's label matching works.
-        values: dict[str, str] = {}
-        for e in plan.entries:
-            if e.status == "filled" and e.value:
-                values[_canonical_key(e.field, e.label)] = e.value
+        def _values(p: FillPlan) -> dict[str, str]:
+            # ONLY non-credential, actually-filled values ever reach the browser,
+            # keyed canonically so the real driver's label matching works.
+            out: dict[str, str] = {}
+            for e in p.entries:
+                if e.status == "filled" and e.value:
+                    out[_canonical_key(e.field, e.label)] = e.value
+            return out
+
+        values = _values(plan)
 
         try:
             driver.start()
@@ -153,6 +177,16 @@ class LiveFillEngine:
             if not assisted and not driver.start_apply():
                 return LiveFillResult("no_apply_button", live=live,
                                       detail="Couldn't find an apply button on the page — apply manually from the posting.")
+            # The form is open — rebuild the plan from the REAL scraped fields so
+            # credentials on the actual page are blocked and unknowns are caught.
+            if replan is not None and hasattr(driver, "scrape_fields"):
+                try:
+                    scraped = driver.scrape_fields()
+                except Exception:  # noqa: BLE001
+                    scraped = []
+                if scraped:
+                    plan = replan(scraped)
+                    values = _values(plan)
             outcome = driver.fill_application(values)
             if outcome.captcha:
                 return LiveFillResult("captcha", filled=outcome.filled, live=live,
@@ -165,6 +199,12 @@ class LiveFillEngine:
             if not submit:
                 return LiveFillResult("filled_pending_submit", filled=outcome.filled, live=live,
                                       detail="Form filled — review it, then submit yourself or approve submission.")
+            # Live-submit safety gate: a real run won't click the final Submit
+            # until this is explicitly enabled (selectors validated). It fills and
+            # stops at review instead — never a bad auto-submit on an unproven path.
+            if live and not allow_live_submit:
+                return LiveFillResult("filled_pending_submit", filled=outcome.filled, live=live,
+                                      detail="Form filled — live auto-submit is disabled until validated; submit it yourself.")
             confirmation = driver.finalize()
             return LiveFillResult("submitted", filled=outcome.filled, confirmation=confirmation, live=live,
                                   detail="Application submitted.")

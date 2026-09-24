@@ -242,6 +242,14 @@ class Settings(BaseSettings):
     assistant_browser: Literal["mock", "playwright"] = "mock"
     assistant_browser_storage_state: str = ""  # path to the user's pre-auth session
     assistant_browser_headless: bool = True
+    #: Safety gate for REAL submission. Even with a live browser + connected
+    #: session, the final Submit is only clicked when this is explicitly enabled
+    #: (after the selectors are validated against real accounts). Until then, a
+    #: live run fills the form and stops at review (filled_pending_submit) instead
+    #: of auto-submitting — so an unvalidated live path can't fire a bad apply.
+    auto_apply_live_submit: bool = Field(
+        default=False, validation_alias="JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT"
+    )
 
     # --- WebRTC (peer practice interviews) ---------------------------------
     # STUN is always on (public servers). Add a TURN relay for restrictive/

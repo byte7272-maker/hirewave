@@ -114,10 +114,13 @@ class AssistantEngine:
         resume_data: bytes = b"",
         live: bool = False,
         assisted: bool = False,
+        replan=None,
+        allow_live_submit: bool = True,
     ) -> LiveFillResult:
         result = self._live.execute(
             plan, driver, url=url, submit=submit,
             resume_name=resume_name, resume_data=resume_data, live=live, assisted=assisted,
+            replan=replan, allow_live_submit=allow_live_submit,
         )
         where = "live browser" if live else "simulated"
         verb = "submit" if submit else "fill"

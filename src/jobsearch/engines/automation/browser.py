@@ -50,6 +50,13 @@ class BrowserDriver(Protocol):
     def finalize(self) -> str: ...  # click final submit; return a confirmation string
     def close(self) -> None: ...
 
+    def scrape_fields(self) -> "list[FormField]":  # noqa: F821
+        """The form's actual fields (name/label/type/required), read AFTER the
+        apply form is open, so the fill plan is built from the real page rather
+        than a synthetic template. Optional — a driver may return ``[]`` to signal
+        'no scrape available', and the caller falls back to the passed-in plan."""
+        ...
+
 
 def application_fields(ctx: "ApplicationContext") -> dict[str, str]:
     """Extract only factual, known fields to fill — never invented data."""
@@ -168,6 +175,30 @@ class PlaywrightDriver:
                 return True
         return False
 
+    def scrape_fields(self) -> list:  # pragma: no cover - needs a real browser
+        """Read the visible form controls so the plan is built from the real page.
+        Best-effort; returns [] on any error (caller falls back to the plan)."""
+        from jobsearch.engines.assistant.form_fill import FormField
+
+        fields: list = []
+        try:
+            controls = self.page.locator("input, textarea, select")
+            for i in range(min(controls.count(), 40)):
+                el = controls.nth(i)
+                if not el.is_visible():
+                    continue
+                itype = (el.get_attribute("type") or el.evaluate("e => e.tagName.toLowerCase()") or "text").lower()
+                if itype in ("hidden", "submit", "button"):
+                    continue
+                name = el.get_attribute("name") or el.get_attribute("id") or el.get_attribute("aria-label") or f"field_{i}"
+                label = el.get_attribute("aria-label") or el.get_attribute("placeholder") or name
+                required = el.get_attribute("required") is not None or el.get_attribute("aria-required") == "true"
+                ftype = "file" if itype == "file" else ("password" if itype == "password" else itype)
+                fields.append(FormField(name=name, label=label, type=ftype, required=required))
+        except Exception:  # noqa: BLE001
+            return []
+        return fields
+
     def fill_application(self, fields: dict[str, str]) -> FillOutcome:  # pragma: no cover
         outcome = FillOutcome()
         for _ in range(self._max_steps):
@@ -190,6 +221,7 @@ class PlaywrightDriver:
             "name": ["name", "full name"],
             "location": ["location", "city"],
         }
+        handled: set[str] = set()
         for key, needles in label_map.items():
             value = fields.get(key)
             if not value:
@@ -200,9 +232,24 @@ class PlaywrightDriver:
                     try:
                         loc.first.fill(value)
                         outcome.filled.append(key)
+                        handled.add(key)
                         break
                     except Exception:  # noqa: BLE001
                         continue
+        # Fields scraped from the real form (keyed by their own name/label) — try
+        # to fill each by matching its name or label on the page.
+        for key, value in fields.items():
+            if key in handled or key in label_map or not value:
+                continue
+            for locator in (self.page.get_by_label(key, exact=False),
+                            self.page.locator(f"[name='{key}']")):
+                try:
+                    if locator.count():
+                        locator.first.fill(value)
+                        outcome.filled.append(key)
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
 
     def _unfilled_required(self) -> list[str]:
         unknown: list[str] = []
