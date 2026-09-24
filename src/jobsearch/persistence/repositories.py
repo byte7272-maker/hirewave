@@ -45,6 +45,7 @@ from jobsearch.models import (
     StoredDocument,
     User,
     UserProfile,
+    WorkerHeartbeat,
 )
 from jobsearch.persistence.engine import build_engine, create_schema
 from jobsearch.persistence.sql_repository import SqlRepository
@@ -95,6 +96,7 @@ class Repositories:
     token_store: TokenStore
     session_store: SessionStore
     connect_intents: Repository[ConnectIntent]
+    worker_heartbeat: Repository[WorkerHeartbeat]
     backend: str = "memory"
 
 
@@ -144,6 +146,7 @@ def build_repositories(
             token_store=TokenStore(cipher),
             session_store=SessionStore(cipher),
             connect_intents=InMemoryRepository(),
+            worker_heartbeat=InMemoryRepository(),
             backend="memory",
         )
 
@@ -193,5 +196,6 @@ def build_repositories(
         token_store=TokenStore(cipher, repo=oauth_repo),
         session_store=SessionStore(cipher, repo=repo("browser_sessions")),
         connect_intents=repo("connect_intents"),
+        worker_heartbeat=repo("worker_heartbeat"),
         backend=engine.dialect.name,
     )

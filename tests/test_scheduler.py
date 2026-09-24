@@ -52,6 +52,47 @@ def test_run_periodically_ticks_then_stops():
     assert [a.job_posting_id for a in state.applications.find(user_id="u1")] == ["in1"]
 
 
+def test_run_once_records_a_heartbeat():
+    state = _state()
+    _seed(state)
+    assert state.worker_heartbeat.get("worker") is None  # none before any tick
+    run_once(state)
+    hb = state.worker_heartbeat.get("worker")
+    assert hb is not None and hb.ticks == 1 and hb.last_tick_at is not None
+    run_once(state)
+    assert state.worker_heartbeat.get("worker").ticks == 2  # increments per tick
+
+
+def test_health_worker_never_then_ok():
+    state = _state()
+    _seed(state)
+    client = TestClient(create_app(state=state))
+    before = client.get("/health/worker").json()
+    assert before["status"] == "never" and before["ticks"] == 0
+
+    run_once(state)  # the worker ticks
+    after = client.get("/health/worker").json()
+    assert after["status"] == "ok"
+    assert after["ticks"] == 1 and after["seconds_since"] is not None
+    assert after["last_tick_at"] and "grants_run" in after["last_summary"]
+
+
+def test_health_worker_reports_stale_when_old():
+    from datetime import timedelta
+
+    from jobsearch.models import WorkerHeartbeat
+    from jobsearch.models.common import utcnow
+
+    state = _state()
+    client = TestClient(create_app(state=state))
+    # A tick that happened long ago -> stale.
+    state.worker_heartbeat.add(WorkerHeartbeat(
+        id="worker", last_tick_at=utcnow() - timedelta(hours=6), ticks=5, last_summary={},
+    ))
+    body = client.get("/health/worker").json()
+    assert body["status"] == "stale" and body["seconds_since"] > body["threshold_seconds"]
+
+
 def test_worker_entrypoint_is_wired():
     import jobsearch.worker as worker
     from jobsearch.scheduler import run_worker

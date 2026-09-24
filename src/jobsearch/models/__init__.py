@@ -42,6 +42,7 @@ from jobsearch.models.auto_apply import (
     AutoApplyGrant,
     BrowserSession,
     ConnectIntent,
+    WorkerHeartbeat,
 )
 from jobsearch.models.integration import OAuthToken, Provider
 from jobsearch.models.interview import (
@@ -116,6 +117,7 @@ __all__ = [
     "AnswerFeedback",
     "AutoApplyCriteria",
     "AutoApplyGrant",
+    "WorkerHeartbeat",
     "AutomationAction",
     "AutomationConsent",
     "BrowserSession",

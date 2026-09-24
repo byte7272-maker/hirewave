@@ -197,7 +197,12 @@ autonomous" is just widening scope, not turning on a new switch.
 
 ## Monitoring
 
-- **Worker logs** are the primary signal for scheduled runs (each tick logs a
+- **Worker heartbeat:** `GET /health/worker` (web) reports the worker's liveness
+  from the shared DB — `status` is `never` (no tick yet), `ok`, or `stale` (last
+  tick older than ~3× the tick interval, i.e. the worker may be down), plus
+  `last_tick_at`, `seconds_since`, `ticks`, and the `last_summary` counts. Wire it
+  to your uptime monitor.
+- **Worker logs** are the detailed signal for scheduled runs (each tick logs a
   summary; submissions log per grant). `/health` (web) → `encryption`,
   `scheduler`, `persistence`.
 - Run results carry `simulated` (true = mock, not sent) and per-job `outcomes`

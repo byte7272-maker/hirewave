@@ -62,6 +62,18 @@ class ConnectIntent(DomainModel):
         return self.expires_at is not None and (at or utcnow()) >= self.expires_at
 
 
+class WorkerHeartbeat(DomainModel):
+    """A single, shared record the automation worker updates every scheduler tick,
+    so the web service can report the worker's liveness (it runs in a separate
+    process with no HTTP endpoint of its own). Singleton — keyed by a constant id."""
+
+    id: str = "worker"  # singleton row
+    last_tick_at: Optional[datetime] = None
+    ticks: int = 0
+    last_summary: dict = Field(default_factory=dict)  # counts from the last run_once
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class AutoApplyCriteria(DomainModel):
     """A group rule — a job matches when it satisfies every set constraint."""
 

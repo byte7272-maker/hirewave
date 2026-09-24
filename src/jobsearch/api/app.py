@@ -152,6 +152,42 @@ def create_app(
             "scheduler": "in-process" if s.settings.scheduler_enabled else "external",
         }
 
+    @app.get("/health/worker", tags=["meta"])
+    def worker_health() -> dict:
+        """Automation-worker liveness. The worker (a separate process) writes a
+        heartbeat every scheduler tick; this reads it back from the shared DB.
+
+        status: "never" (no tick recorded yet) | "ok" (last tick recent) |
+        "stale" (last tick older than the threshold — the worker may be down)."""
+        from datetime import timezone
+
+        from jobsearch.models.common import utcnow
+
+        s: AppState = app.state.jobsearch
+        hb = None
+        try:
+            hb = s.worker_heartbeat.get("worker")
+        except Exception:  # noqa: BLE001
+            hb = None
+        # Threshold: a few missed ticks. Uses this service's configured interval as
+        # the reference (operators set web + worker similarly), with a floor.
+        threshold = max(120, 3 * s.settings.scheduler_interval_seconds)
+        if hb is None or hb.last_tick_at is None:
+            return {"status": "never", "last_tick_at": None, "seconds_since": None,
+                    "threshold_seconds": threshold, "ticks": 0, "last_summary": {}}
+        last = hb.last_tick_at
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        seconds_since = max(0, int((utcnow() - last).total_seconds()))
+        return {
+            "status": "ok" if seconds_since <= threshold else "stale",
+            "last_tick_at": hb.last_tick_at.isoformat(),
+            "seconds_since": seconds_since,
+            "threshold_seconds": threshold,
+            "ticks": hb.ticks,
+            "last_summary": hb.last_summary,
+        }
+
     @app.get("/api/v1/branding", tags=["meta"])
     def branding() -> dict:
         """Public display identity for the frontend. Returns the codename while in

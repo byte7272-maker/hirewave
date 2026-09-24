@@ -18,6 +18,7 @@ from jobsearch.models import (
     Board,
     BrowserSession,
     ConnectIntent,
+    WorkerHeartbeat,
     BoardMember,
     BoardPost,
     CommunityQuestion,
@@ -123,6 +124,7 @@ _SPECS: dict[str, TableSpec] = {
     "documents": TableSpec("documents", StoredDocument, "id", ()),
     "signup_invites": TableSpec("signup_invites", SignupInvite, "id", ("code",)),
     "resume_templates": TableSpec("resume_templates", ResumeTemplate, "id", ("user_id",)),
+    "worker_heartbeat": TableSpec("worker_heartbeat", WorkerHeartbeat, "id", ()),
 }
 
 # Build the Table objects once and attach them to their specs.

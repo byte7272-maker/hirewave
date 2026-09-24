@@ -121,6 +121,7 @@ class AppState:
         # Account-creation invites (used when signup_mode = "invite").
         self.signup = SignupInviteEngine(repo=repos.signup_invites)
         self.resume_templates = repos.resume_templates  # user's saved résumé styles
+        self.worker_heartbeat = repos.worker_heartbeat  # automation worker liveness
         # Uploaded résumé/cover-letter files. On a SQL backend, keep the bytes in
         # Postgres (durable across restarts on ephemeral-disk hosts like Railway);
         # otherwise honor document_dir / fall back to in-memory.

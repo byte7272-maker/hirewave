@@ -31,7 +31,7 @@ def run_once(state: AppState) -> dict:
     reminders_sent = len(state.reminders.run_due_reminders())
     digests_sent = len(state.reminders.run_due_digests())
 
-    return {
+    summary = {
         "grants_run": len(runs),
         "submitted": submitted,
         "queued": queued,
@@ -39,6 +39,20 @@ def run_once(state: AppState) -> dict:
         "reminders_sent": reminders_sent,
         "digests_sent": digests_sent,
     }
+    # Record a heartbeat so the web service can report the worker's liveness (the
+    # worker has no HTTP endpoint of its own). Never let this break a tick.
+    try:
+        from jobsearch.models import WorkerHeartbeat
+        from jobsearch.models.common import utcnow
+
+        prev = state.worker_heartbeat.get("worker")
+        state.worker_heartbeat.add(WorkerHeartbeat(
+            id="worker", last_tick_at=utcnow(), last_summary=summary,
+            ticks=(prev.ticks + 1) if prev else 1, updated_at=utcnow(),
+        ))
+    except Exception:  # noqa: BLE001
+        pass
+    return summary
 
 
 async def run_periodically(state: AppState, *, interval_seconds: int, stop) -> None:
