@@ -57,6 +57,7 @@ Edit `.env`, then `docker compose up -d --force-recreate api` (and `frontend` if
 | **OAuth integrations** | `JOBSEARCH_OAUTH_MODE=live` + each provider's `*_CLIENT_ID/SECRET`. Register the OAuth apps in each provider console; set the redirect URI to `http://localhost:8000/api/v1/integrations/callback/<provider>` (Google shares `GOOGLE_CLIENT_ID/SECRET` for Gmail + Drive; request the `gmail.send` scope for email submission). |
 | **Live email submission** | `JOBSEARCH_AUTOMATION_MODE=live` + a user who has connected Gmail |
 | **LinkedIn/Indeed browser apply** | `JOBSEARCH_AUTOMATION_MODE=live`; the API image does **not** include Playwright by default — add `.[automation]` to the Dockerfile install and `playwright install chromium`, and supply a per-user authenticated `storage_state`. Until then these degrade to a manual fallback. |
+| **Standing auto-apply (go-live)** | Turning autonomous submission on is a staged process with its own gates (`JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT`, `JOBSEARCH_SCHEDULER_ENABLED`). Follow **[AUTO_APPLY_GO_LIVE.md](AUTO_APPLY_GO_LIVE.md)** — do not just flip these on. |
 
 Safety note: every live channel still requires the user to **approve** their
 résumé and cover letter first; CAPTCHAs are escalated to the user (never solved),
