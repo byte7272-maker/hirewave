@@ -202,6 +202,53 @@ def test_live_run_holds_at_review_until_submit_gate_enabled():
     assert state.applications.find(user_id="u1") == []  # nothing recorded as applied
 
 
+# ---- concurrency: no double-submit ----------------------------------------
+def test_pre_submit_dedup_backstop_skips_already_applied():
+    from jobsearch.models import Application, ApplicationStatus
+
+    state = _state()
+    _seed_user(state)
+    j = _job(state, "in1", "Python Developer", platform="indeed")
+    # Simulate a cross-process run having already applied to this job...
+    state.applications.add(Application(user_id="u1", job_posting_id="in1", status=ApplicationStatus.SUBMITTED))
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    # ...but force it to appear eligible (as if the race hadn't been seen yet).
+    state.auto_apply.eligible_jobs = lambda g: [j]
+    res = state.auto_apply.run_grant(grant)
+    assert res.submitted == 0
+    assert res.outcomes[0].status == "skipped" and "deduped" in res.outcomes[0].detail.lower()
+    assert len(state.applications.find(user_id="u1")) == 1  # no duplicate created
+
+
+def test_concurrent_runs_of_a_grant_do_not_double_submit():
+    import threading
+    import time
+
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+
+    state = _state()
+    _seed_user(state)
+    _job(state, "in1", "Python Developer", platform="indeed")
+    grant = state.auto_apply.create_grant(
+        "u1", criteria=AutoApplyCriteria(title_keywords=["python"]), max_submits=5, daily_cap=5)
+
+    class _SlowDriver(MockBrowserDriver):
+        def finalize(self) -> str:
+            time.sleep(0.1)  # widen the race window so overlap is real
+            return "mock-submitted"
+
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (_SlowDriver(), False)
+    results: list = []
+    threads = [threading.Thread(target=lambda: results.append(state.auto_apply.run_grant(grant))) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    # Exactly one application for the single job, despite two overlapping runs.
+    assert [a.job_posting_id for a in state.applications.find(user_id="u1")] == ["in1"]
+    assert sum(r.submitted for r in results) == 1
+
+
 # ---- API ------------------------------------------------------------------
 def _client_and_token():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))

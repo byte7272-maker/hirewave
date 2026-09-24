@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Optional
 
 from fastapi import FastAPI
@@ -84,10 +85,34 @@ def create_app(
     # Stealth-aware title so /docs and /openapi.json don't reveal the real brand
     # before launch (neutral codename until JOBSEARCH_BRAND_MODE=public).
     brand = app_state.settings.public_brand
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # In-process scheduler: fire due auto-apply grants / saved searches /
+        # reminders on a cadence, so a single web process needs no external cron.
+        import asyncio
+
+        task = stop = None
+        if app_state.settings.scheduler_enabled:
+            from jobsearch.scheduler import run_periodically
+
+            stop = asyncio.Event()
+            task = asyncio.create_task(run_periodically(
+                app_state, interval_seconds=app_state.settings.scheduler_interval_seconds, stop=stop,
+            ))
+        try:
+            yield
+        finally:
+            if task is not None:
+                stop.set()
+                with contextlib.suppress(Exception):
+                    await task
+
     app = FastAPI(
         title=f"{brand} API",
         version="0.1.0",
         description="HTTP layer over the core engines.",
+        lifespan=lifespan,
     )
     app.state.jobsearch = app_state
 
@@ -122,6 +147,9 @@ def create_app(
             # secrets at rest (connected sessions, OAuth tokens) won't survive a
             # restart. Must be "persistent" in production.
             "encryption": "ephemeral" if s.cipher.is_ephemeral else "persistent",
+            # "in-process" => the API runs due grants/searches itself; "external"
+            # => rely on the `python -m jobsearch.scheduler` cron.
+            "scheduler": "in-process" if s.settings.scheduler_enabled else "external",
         }
 
     @app.get("/api/v1/branding", tags=["meta"])

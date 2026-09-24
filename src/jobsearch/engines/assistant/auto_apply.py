@@ -16,6 +16,7 @@ stale session degrades to "needs reconnect", never a bad submission.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Optional
@@ -142,6 +143,14 @@ class AutoApplyEngine:
         #: Optional multi-channel notifier(user_id, count, titles) for submissions.
         self.event_notifier = event_notifier
         self._form_fill: FormFillEngine = assistant.form_fill
+        #: Per-user run locks so concurrent runs for one user (an API /run racing
+        #: the in-process scheduler, or two grants) serialize and can't double-
+        #: submit the same job. Effective within a single process (the supported
+        #: deployment: the API hosts the scheduler); a separate cron process would
+        #: not share these, so the pre-submit re-check below is the cross-process
+        #: backstop.
+        self._user_locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
 
     # ---- connected sessions ----------------------------------------------
     def connect_session(self, user_id: str, provider: str, storage_state: str, *, label: str = ""):
@@ -384,7 +393,22 @@ class AutoApplyEngine:
             },
         ))
 
+    def _user_lock(self, user_id: str) -> threading.Lock:
+        with self._locks_guard:
+            lock = self._user_locks.get(user_id)
+            if lock is None:
+                lock = self._user_locks[user_id] = threading.Lock()
+            return lock
+
     def run_grant(self, grant: AutoApplyGrant, *, dry_run: bool = False, limit: Optional[int] = None) -> RunResult:
+        """Run a grant. A non-dry run holds the owner's lock for its duration so a
+        concurrent run for the same user can't submit to the same job twice."""
+        if dry_run:
+            return self._execute_run(grant, dry_run=True, limit=limit)
+        with self._user_lock(grant.user_id):
+            return self._execute_run(grant, dry_run=False, limit=limit)
+
+    def _execute_run(self, grant: AutoApplyGrant, *, dry_run: bool = False, limit: Optional[int] = None) -> RunResult:
         now = utcnow()
         # expiry check
         if grant.expires_at and grant.expires_at <= now and grant.status == GRANT_ACTIVE:
@@ -438,6 +462,16 @@ class AutoApplyEngine:
                 oc.status = "would_submit"
                 outcomes.append(oc)
                 attempted += 1
+                continue
+
+            # Idempotency backstop: re-check right before submitting, so a run in
+            # another process (a separate cron) that already applied to this job
+            # can't cause a duplicate. Within this process the user lock prevents
+            # the race; this covers the cross-process case cheaply.
+            if any(a.job_posting_id == job.id for a in self.applications.find(user_id=grant.user_id)):
+                oc.status = "skipped"
+                oc.detail = "Already applied (deduped)."
+                outcomes.append(oc)
                 continue
 
             platform = (job.source_platform or "linkedin").lower()

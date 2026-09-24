@@ -41,6 +41,29 @@ def run_once(state: AppState) -> dict:
     }
 
 
+async def run_periodically(state: AppState, *, interval_seconds: int, stop) -> None:
+    """In-process scheduler loop: run everything due every ``interval_seconds``
+    until ``stop`` is set. Each tick runs off the event loop (blocking work in a
+    thread) and never raises into the loop. Used by the API's lifespan so a
+    single web process fires scheduled grants with no external cron."""
+    import asyncio
+    import logging
+
+    log = logging.getLogger("jobsearch.scheduler")
+    interval = max(30, int(interval_seconds))
+    while not stop.is_set():
+        try:
+            summary = await asyncio.to_thread(run_once, state)
+            if summary.get("grants_run") or summary.get("searches_run"):
+                log.info("scheduler tick: %s", summary)
+        except Exception:  # noqa: BLE001 - a bad tick must not kill the loop
+            log.exception("scheduler tick failed")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
+
+
 def main() -> int:
     summary = run_once(AppState())
     print(

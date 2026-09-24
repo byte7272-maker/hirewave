@@ -111,6 +111,15 @@ class Settings(BaseSettings):
 
     # --- Automation --------------------------------------------------------
     automation_mode: AutomationMode = "simulate"
+    #: In-process scheduler: when true, the API itself runs due auto-apply grants,
+    #: saved searches, and reminders on a cadence (no external cron needed). Keep
+    #: it on exactly ONE process — either this (a single web instance) OR the
+    #: standalone `python -m jobsearch.scheduler` cron, never both, so scheduled
+    #: runs aren't doubled. Off by default (safe for tests / multi-instance).
+    scheduler_enabled: bool = Field(default=False, validation_alias="JOBSEARCH_SCHEDULER_ENABLED")
+    scheduler_interval_seconds: int = Field(
+        default=900, validation_alias="JOBSEARCH_SCHEDULER_INTERVAL_SECONDS"
+    )
 
     # --- Exposure monitoring (defensive, consent-based) --------------------
     # "mock" = offline fake breach data; "hibp" = live Have I Been Pwned API.
