@@ -52,6 +52,14 @@ def test_run_periodically_ticks_then_stops():
     assert [a.job_posting_id for a in state.applications.find(user_id="u1")] == ["in1"]
 
 
+def test_worker_entrypoint_is_wired():
+    import jobsearch.worker as worker
+    from jobsearch.scheduler import run_worker
+
+    # The worker module is the standalone entrypoint that runs the scheduler loop.
+    assert worker.run_worker is run_worker and callable(run_worker)
+
+
 def test_health_reports_scheduler_mode():
     external = TestClient(create_app(state=_state()))
     assert external.get("/health").json()["scheduler"] == "external"

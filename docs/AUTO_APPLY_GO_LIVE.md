@@ -56,6 +56,39 @@ enable it.
 `/health` surfaces the live state: `encryption`, `scheduler`, `persistence`,
 `automation_mode`.
 
+## Deployment topology (two services)
+
+Real submission runs in a **separate automation worker**, not the web dyno:
+
+| Service | Image | Role | Browser | Real submits? |
+|---|---|---|---|---|
+| **web** | `./Dockerfile` (lean) | API + UI. Handles `/grants`, dry-runs, connect, queue. | none | **No** — always simulates (no Chromium; keep the gate off). |
+| **worker** | `./Dockerfile.worker` (Playwright + Chromium) | Runs the scheduler loop (`python -m jobsearch.worker`): due grants, saved searches, reminders. | Chromium | **Yes** — the only process that can. |
+
+Both are the **same repo**, sharing `JOBSEARCH_DATABASE_URL` and
+`JOBSEARCH_ENCRYPTION_KEY`. On Railway, add a second service and set its
+Dockerfile path to `Dockerfile.worker`.
+
+Why this shape: Chromium never competes with API requests; and because only the
+worker has a browser **and** the submit gate, there's a single real-submit
+runner — so the per-user run lock is sufficient and manual `/run` calls on the
+web service can't race it into a duplicate (they can only ever simulate there).
+
+**Env split** (set per service):
+
+| Variable | web | worker |
+|---|---|---|
+| `JOBSEARCH_DATABASE_URL` | shared | shared (same DB) |
+| `JOBSEARCH_ENCRYPTION_KEY` | shared | shared (same key) |
+| `JOBSEARCH_ASSISTANT_BROWSER` | `mock` (default) | `playwright` (when validating/live) |
+| `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT` | `false` (leave off) | `false` → `true` at go-live |
+| `JOBSEARCH_SCHEDULER_ENABLED` | `false` (worker owns scheduling) | n/a — the worker process runs the loop itself |
+| `JOBSEARCH_SCHEDULER_INTERVAL_SECONDS` | — | e.g. `900` |
+| `JOBSEARCH_ASSISTANT_BROWSER_HEADLESS` | — | `false` while validating, `true` in prod |
+
+> Do **not** set `JOBSEARCH_SCHEDULER_ENABLED=true` on web while the worker runs —
+> that would double the scheduled runs. The worker is the single scheduler.
+
 ---
 
 ## Phase 1 — Dry run (no side effects)
@@ -82,19 +115,25 @@ sparse profile fails closed and nothing is eligible).
 Prove the real browser fills correctly and the guardrails hold — **without ever
 submitting**.
 
-1. Set on the web service and redeploy:
+1. Deploy the **worker** service (`Dockerfile.worker`) and set on it:
    ```
    JOBSEARCH_ASSISTANT_BROWSER=playwright
    JOBSEARCH_ASSISTANT_BROWSER_HEADLESS=false     # watch it
    JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false          # still gated
+   JOBSEARCH_SCHEDULER_INTERVAL_SECONDS=120        # tick often while validating
    ```
 2. Connect a real provider session (cookies only — never a password) via the
    connect flow (the browser extension / `python -m jobsearch.connect`).
-3. Run a grant for a single **non-LinkedIn** job (LinkedIn is always queued):
+3. Create a grant (via the web API) with a cadence so the worker picks it up, for
+   a single **non-LinkedIn** job (LinkedIn is always queued):
    ```bash
-   POST /api/v1/auto-apply/grants/{id}/run   { "dry_run": false, "limit": 1 }
+   POST /api/v1/auto-apply/grants
+     { "scope":"jobs", "job_ids":["<verified job id>"], "interval_minutes": 2,
+       "max_submits": 1, "daily_cap": 1, "require_verified": true }
    ```
-4. Expected outcome: `filled_pending_submit` (the gate held). Watch the browser:
+   The worker runs it on its next tick. (You can also dry-run from the web API to
+   preview, but web can't fill live — only the worker has a browser.)
+4. Watch the **worker logs**; expected outcome: `filled_pending_submit` (the gate held). Watch the browser:
    - factual fields are filled from the profile,
    - **credential fields stay empty**,
    - unknown required questions produce `needs_input` (not a guess).
@@ -109,11 +148,12 @@ Do not proceed until Phase 2 is clean for the providers you intend to enable.
 
 Enable the final click for a tiny, controlled grant.
 
-1. Set `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=true` (keep headless=false for the first one).
+1. On the **worker** service set `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=true` (keep
+   `HEADLESS=false` for the first one) and redeploy.
 2. Create a **scope=jobs** grant with a single, verified job you're willing to
    really apply to: `max_submits: 1`, `daily_cap: 1`, `require_verified: true`,
-   `mode: "auto"`.
-3. Run it: `POST /grants/{id}/run { "dry_run": false }`.
+   `mode: "auto"`, `interval_minutes: 2` (so the worker picks it up).
+3. Let the worker run it on its next tick (watch the worker logs).
 4. Verify:
    - outcome `submitted`, a real confirmation string,
    - a new `Application` whose `platform_response.simulated == false` (a genuine
@@ -121,31 +161,33 @@ Enable the final click for a tiny, controlled grant.
    - the grant counters advanced (`submits_used`, `submitted_today`).
 5. Confirm on the provider's site that the application actually landed.
 
-If anything looks wrong, **flip `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false`** — live
-runs immediately revert to fill-and-review.
+If anything looks wrong, **flip the worker's `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false`**
+— live runs immediately revert to fill-and-review.
 
-## Phase 4 — Enable autonomous scheduling
+## Phase 4 — Go autonomous
 
-Only after Phases 2–3 pass.
+Only after Phases 2–3 pass. The worker already runs the loop, so "going
+autonomous" is just widening scope, not turning on a new switch.
 
-1. Give grants a cadence (`interval_minutes > 0`) and conservative caps.
-2. Set on the **web** service (single instance):
+1. On the worker, set production cadence + headless:
    ```
-   JOBSEARCH_SCHEDULER_ENABLED=true
+   JOBSEARCH_ASSISTANT_BROWSER_HEADLESS=true
    JOBSEARCH_SCHEDULER_INTERVAL_SECONDS=900
    ```
-   `/health` should now read `scheduler: in-process`.
-3. **Run exactly one scheduler.** Do not also run the `python -m jobsearch.scheduler`
-   cron — pick the in-process loop **or** the cron, never both, or scheduled runs
-   double up. Per-run double-submit within one process is prevented by a per-user
-   lock; running two schedulers defeats it.
-4. Widen caps gradually as you gain confidence.
+2. Give real grants a cadence (`interval_minutes > 0`) with **conservative caps**
+   (`max_submits`, `daily_cap`) and `require_verified: true`. Widen gradually.
+3. **One scheduler only.** The worker is it. Do not set
+   `JOBSEARCH_SCHEDULER_ENABLED=true` on web, and do not also run the
+   `python -m jobsearch.scheduler` cron — any second scheduler doubles runs and
+   defeats the per-user lock.
 
 ---
 
 ## Monitoring
 
-- `/health` → `encryption`, `scheduler`, `persistence`.
+- **Worker logs** are the primary signal for scheduled runs (each tick logs a
+  summary; submissions log per grant). `/health` (web) → `encryption`,
+  `scheduler`, `persistence`.
 - Run results carry `simulated` (true = mock, not sent) and per-job `outcomes`
   with statuses: `submitted`, `filled_pending_submit`, `needs_session`,
   `needs_login`, `captcha`, `needs_input`, `no_apply_button`, `queued`, `skipped`,
@@ -160,17 +202,19 @@ Only after Phases 2–3 pass.
 | To stop… | Do this |
 |---|---|
 | One grant | `PATCH /grants/{id}` `{ "status": "paused" }` (or `"revoked"`) |
-| All real submission | `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` (live runs revert to fill-only) |
-| All autonomous runs | `JOBSEARCH_SCHEDULER_ENABLED=false` |
+| All real submission | Worker `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` (live runs revert to fill-only) |
+| All autonomous runs | Stop / scale-to-zero the **worker** service |
 | A provider entirely | `DELETE /api/v1/auto-apply/sessions/{provider}` (disconnect the session) |
-| Everything, hard | Set `JOBSEARCH_ASSISTANT_BROWSER=mock` (back to simulation) |
+| Everything, hard | Worker `JOBSEARCH_ASSISTANT_BROWSER=mock` (back to simulation) |
 
 ## Known limits (before you scale)
 
-- **Single web instance for exactly-once.** The per-user run lock is in-process.
-  Multiple API instances, or an in-process scheduler running alongside the cron,
-  can still race. Multi-instance exactly-once needs a shared lock / a DB unique
-  constraint on `(user, job)` — a follow-up before horizontal scaling.
+- **Single worker instance for exactly-once.** The per-user run lock is
+  in-process, and the worker is the only real-submit runner — so keep the worker
+  at **one replica**. Scaling the worker to >1, or adding a second scheduler
+  (web in-process loop or the cron), can race. Multi-replica exactly-once needs a
+  shared lock / a DB unique constraint on `(user, job)` — a follow-up before
+  scaling the worker horizontally.
 - **Selector drift.** Provider DOM changes degrade to `needs_input` /
   `no_apply_button` (manual fallback), not wrong submissions — but re-validate
   (Phase 2) after any provider UI change.

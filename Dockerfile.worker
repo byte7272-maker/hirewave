@@ -1,0 +1,33 @@
+# --- Automation worker (scheduler loop + Playwright/Chromium for live apply) --
+# Build this as a SEPARATE Railway service from the same repo (set the service's
+# Dockerfile path to Dockerfile.worker). It shares the web service's Postgres and
+# JOBSEARCH_ENCRYPTION_KEY, and is the only process that submits for real. The web
+# service keeps using the lean ./Dockerfile (no browser).
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+WORKDIR /app
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+
+# Install the package WITH the automation extra, then the Chromium browser plus
+# its OS dependencies (`--with-deps` runs apt as root). This is the heavy layer
+# that the lean web image deliberately omits.
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install ".[api,postgres,anthropic,openai,firebase,documents,automation]" \
+    && playwright install --with-deps chromium
+
+# Run as non-root; give it access to the shared browser cache.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /ms-playwright
+USER appuser
+
+# No port — this is a background worker, not an HTTP server. `exec` keeps the
+# worker as PID 1 so SIGTERM triggers a clean shutdown.
+CMD ["python", "-m", "jobsearch.worker"]

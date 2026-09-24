@@ -64,6 +64,38 @@ async def run_periodically(state: AppState, *, interval_seconds: int, stop) -> N
             pass
 
 
+def run_worker() -> int:  # pragma: no cover - long-running process
+    """Entrypoint for the standalone automation worker service: run the scheduler
+    loop continuously until SIGTERM/SIGINT. This is the ONE process that performs
+    real browser submissions (its image has Playwright + Chromium); the web
+    service stays lean and only ever simulates. Run it as its own Railway service
+    (`python -m jobsearch.worker`) sharing the same Postgres + encryption key."""
+    import asyncio
+    import logging
+    import signal
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    log = logging.getLogger("jobsearch.worker")
+    state = AppState()
+    interval = state.settings.scheduler_interval_seconds
+    log.info("automation worker up — ticking every %ss (browser=%s, live_submit=%s)",
+             interval, state.settings.assistant_browser, state.settings.auto_apply_live_submit)
+
+    async def _serve() -> None:
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except NotImplementedError:  # Windows
+                pass
+        await run_periodically(state, interval_seconds=interval, stop=stop)
+
+    asyncio.run(_serve())
+    log.info("automation worker stopped")
+    return 0
+
+
 def main() -> int:
     summary = run_once(AppState())
     print(
