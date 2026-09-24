@@ -80,7 +80,7 @@ def _run_out(r) -> RunResultOut:
     return RunResultOut(
         grant_id=r.grant_id, dry_run=r.dry_run, eligible=r.eligible, attempted=r.attempted,
         submitted=r.submitted, remaining_total=r.remaining_total, remaining_today=r.remaining_today,
-        grant_status=r.grant_status, detail=r.detail,
+        grant_status=r.grant_status, simulated=r.simulated, detail=r.detail,
         outcomes=[JobOutcomeOut(job_id=o.job_id, title=o.title, company=o.company, status=o.status, detail=o.detail) for o in r.outcomes],
     )
 

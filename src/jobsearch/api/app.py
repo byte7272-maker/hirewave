@@ -118,6 +118,10 @@ def create_app(
             "embedding_provider": s.matching.embedder.name,
             "automation_mode": s.settings.automation_mode,
             "persistence": s.backend,
+            # "ephemeral" => no persistent JOBSEARCH_ENCRYPTION_KEY is set, so
+            # secrets at rest (connected sessions, OAuth tokens) won't survive a
+            # restart. Must be "persistent" in production.
+            "encryption": "ephemeral" if s.cipher.is_ephemeral else "persistent",
         }
 
     @app.get("/api/v1/branding", tags=["meta"])

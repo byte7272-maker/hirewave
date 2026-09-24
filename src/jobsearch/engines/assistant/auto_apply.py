@@ -64,6 +64,10 @@ class RunResult:
     remaining_total: int
     remaining_today: int
     grant_status: str
+    #: True when submissions were SIMULATED (offline/mock driver) rather than sent
+    #: to a real employer — the app must surface this so recorded applications from
+    #: a mock run aren't mistaken for genuine submissions.
+    simulated: bool = False
     outcomes: list[JobOutcome] = field(default_factory=list)
     detail: str = ""
 
@@ -112,8 +116,13 @@ class AutoApplyEngine:
         event_notifier: Optional[Callable[[str, int, list], None]] = None,
         screener=None,
         connect_intents: Optional[Repository[ConnectIntent]] = None,
+        matching=None,
     ) -> None:
         self.assistant = assistant
+        #: Matching engine — used to score a candidate job against the GRANT OWNER
+        #: at run time (so the min_fit_score gate never trusts the shared, per-user
+        #: job.match_score field). When None, falls back to job.match_score.
+        self.matching = matching
         #: Learned screener-answer memory; auto-fills recurring form questions.
         self.screener = screener
         #: Short-lived connect-pairing codes (minimal-footprint session capture).
@@ -268,8 +277,9 @@ class AutoApplyEngine:
             return False
         if c.sources and job.source_platform not in c.sources:
             return False
-        if c.min_fit_score is not None and (job.match_score is None or job.match_score < c.min_fit_score):
-            return False
+        # NB: the min_fit_score gate is applied in eligible_jobs against the GRANT
+        # OWNER's freshly-computed fit — never job.match_score, which is a shared,
+        # last-writer-wins field and would leak another user's score.
         return True
 
     def _is_assisted(self, grant: AutoApplyGrant, job: JobPosting) -> bool:
@@ -277,9 +287,25 @@ class AutoApplyEngine:
         provider is ToS-sensitive."""
         return grant.mode == "assisted" or (job.source_platform or "").lower() in ASSISTED_PROVIDERS
 
+    def _owner_fit(self, profile: UserProfile, job: JobPosting) -> Optional[float]:
+        """The GRANT OWNER's fit for a job, computed at run time — never the shared
+        ``job.match_score`` (which reflects whoever last ranked it). Returns None
+        when it can't be computed for the owner (no matching engine, an empty
+        profile, or a scoring error), so the min_fit_score gate can fail closed."""
+        if self.matching is None:
+            return None
+        if not (profile.to_context_text() or "").strip():
+            return None
+        try:
+            return float(self.matching.score(profile, job).score)
+        except Exception:  # noqa: BLE001 - never let scoring crash a run
+            return None
+
     def eligible_jobs(self, grant: AutoApplyGrant) -> list[JobPosting]:
         applied = {a.job_posting_id for a in self.applications.find(user_id=grant.user_id)}
-        out = []
+        profile = self.profiles.get(grant.user_id) or UserProfile(user_id=grant.user_id)
+        min_fit = grant.criteria.min_fit_score if grant.scope == "criteria" else None
+        scored: list[tuple[float, JobPosting]] = []
         for job in self.jobs.all():
             if job.id in applied:
                 continue
@@ -287,10 +313,21 @@ class AutoApplyEngine:
                 continue
             if grant.require_verified and job.is_verified is not True:
                 continue
-            out.append(job)
-        # best matches first (unknown score last)
-        out.sort(key=lambda j: (j.match_score if j.match_score is not None else -1.0), reverse=True)
-        return out
+            fit = self._owner_fit(profile, job)
+            if min_fit is not None:
+                # Gate on the owner's fit. Without a matching engine, fall back to
+                # the posting's own score (legacy behavior); with one, fail closed
+                # when the owner's fit can't be computed or is below the bar.
+                gate = fit if self.matching is not None else job.match_score
+                if gate is None or gate < min_fit:
+                    continue
+            # Order by the owner's fit when we have it, else the posting's score.
+            order_key = fit if fit is not None else (
+                job.match_score if job.match_score is not None else -1.0
+            )
+            scored.append((order_key, job))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [job for _, job in scored]
 
     # ---- run --------------------------------------------------------------
     @staticmethod
@@ -325,13 +362,19 @@ class AutoApplyEngine:
         )
         return plan, resume_name, resume_data
 
-    def _record_application(self, user_id: str, job: JobPosting, confirmation: str) -> None:
+    def _record_application(
+        self, user_id: str, job: JobPosting, confirmation: str, *, simulated: bool = False
+    ) -> None:
         self.applications.add(Application(
             user_id=user_id,
             job_posting_id=job.id,
             status=ApplicationStatus.SUBMITTED,
             submitted_at=utcnow(),
-            platform_response={"confirmation": confirmation, "auto_apply": True},
+            # ``simulated`` marks a mock/offline "submission" that never reached an
+            # employer, so it's never mistaken for a real application.
+            platform_response={
+                "confirmation": confirmation, "auto_apply": True, "simulated": simulated,
+            },
         ))
 
     def run_grant(self, grant: AutoApplyGrant, *, dry_run: bool = False, limit: Optional[int] = None) -> RunResult:
@@ -345,13 +388,14 @@ class AutoApplyEngine:
         self._roll_day(grant)
         eligible = self.eligible_jobs(grant)
 
-        def result(outcomes, submitted, attempted, detail=""):
+        def result(outcomes, submitted, attempted, detail="", simulated=False):
             return RunResult(
                 grant_id=grant.id, dry_run=dry_run, eligible=len(eligible),
                 attempted=attempted, submitted=submitted,
                 remaining_total=grant.remaining_total,
                 remaining_today=max(0, grant.daily_cap - grant.submitted_today),
-                grant_status=grant.status, outcomes=outcomes, detail=detail,
+                grant_status=grant.status, simulated=simulated,
+                outcomes=outcomes, detail=detail,
             )
 
         if not dry_run and grant.status != GRANT_ACTIVE:
@@ -366,6 +410,7 @@ class AutoApplyEngine:
         outcomes: list[JobOutcome] = []
         submitted_titles: list[str] = []
         submitted = attempted = 0
+        any_simulated = False
 
         for job in eligible:
             oc = JobOutcome(job_id=job.id, title=job.title, company=job.company, status="skipped")
@@ -412,8 +457,13 @@ class AutoApplyEngine:
                 submitted_titles.append(job.title)
                 grant.submits_used += 1
                 grant.submitted_today += 1
+                # A non-live driver means this was simulated, not really sent.
+                simulated = not res.live
+                any_simulated = any_simulated or simulated
+                if simulated:
+                    oc.detail = (oc.detail + " (simulated — not sent to the employer)").strip()
                 self.sessions.mark_used(grant.user_id, platform)
-                self._record_application(grant.user_id, job, res.confirmation)
+                self._record_application(grant.user_id, job, res.confirmation, simulated=simulated)
             elif res.status in ("needs_login", "captcha"):
                 # The connected session is stale / challenged — mark it so the
                 # user reconnects; don't keep hammering the same provider.
@@ -445,7 +495,11 @@ class AutoApplyEngine:
                     except Exception:  # noqa: BLE001
                         pass
 
-        return result(outcomes, submitted, attempted)
+        detail = ""
+        if any_simulated:
+            detail = ("Submissions were SIMULATED (offline/mock mode) and not sent to any "
+                      "employer. Configure a live browser session to submit for real.")
+        return result(outcomes, submitted, attempted, detail=detail, simulated=any_simulated)
 
     # ---- assisted apply queue --------------------------------------------
     def queue(self, user_id: str) -> list[QueueItem]:

@@ -86,7 +86,19 @@ class AppState:
         exchanger: Optional[TokenExchanger] = None,
     ) -> None:
         self.settings = settings or get_settings()
-        cipher = FieldCipher(self.settings.encryption_key or None)
+        #: Field-level cipher for secrets at rest (OAuth tokens, connected sessions).
+        #: Kept on state so /health can report whether a persistent key is set — an
+        #: ephemeral key means stored sessions won't survive a restart.
+        self.cipher = cipher = FieldCipher(self.settings.encryption_key or None)
+        if cipher.is_ephemeral and self.settings.database_url:
+            # A persistent DB with a throwaway key: encrypted rows (sessions, OAuth
+            # tokens) become undecryptable after the next restart. Warn loudly.
+            import logging
+
+            logging.getLogger("jobsearch").warning(
+                "JOBSEARCH_ENCRYPTION_KEY is not set but a database is configured; "
+                "secrets at rest will not survive a restart. Set a persistent key."
+            )
 
         # Repositories — in-memory by default, SQL when JOBSEARCH_DATABASE_URL is set.
         repos = build_repositories(self.settings, cipher)
@@ -248,6 +260,9 @@ class AppState:
             notifier=self.notifications.add,
             screener=self.screener,
             connect_intents=repos.connect_intents,
+            # Score candidate jobs against the grant OWNER at run time (never the
+            # shared per-user job.match_score) for the min_fit_score gate.
+            matching=self.matching,
         )
         self.draft_prep = DraftPrepEngine(
             generation=self.generation,

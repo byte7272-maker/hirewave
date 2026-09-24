@@ -933,6 +933,9 @@ class RunResultOut(BaseModel):
     remaining_total: int
     remaining_today: int
     grant_status: str
+    #: True when submissions were simulated (offline/mock) rather than sent to a
+    #: real employer — surface this so a mock run isn't shown as genuine applies.
+    simulated: bool = False
     outcomes: list[JobOutcomeOut]
     detail: str = ""
 

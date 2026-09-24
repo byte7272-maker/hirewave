@@ -50,6 +50,9 @@ def test_eligible_respects_criteria_and_verified():
     _job(state, "j2", "Python Developer", company="Beta", score=70)
     _job(state, "j3", "Python Dev", company="Scam Co", verified=False, score=99)  # excluded (unverified)
     _job(state, "j4", "Java Engineer", score=88)  # excluded (title)
+    # Legacy fallback path: with no matching engine wired, the min_fit_score gate
+    # uses the posting's own score (owner scoring is exercised separately below).
+    state.auto_apply.matching = None
     grant = state.auto_apply.create_grant(
         "u1", scope="criteria",
         criteria=AutoApplyCriteria(title_keywords=["python"], min_fit_score=60),
@@ -57,6 +60,36 @@ def test_eligible_respects_criteria_and_verified():
     )
     titles = [j.id for j in state.auto_apply.eligible_jobs(grant)]
     assert titles == ["j1", "j2"]  # sorted by score desc, verified only, python only
+
+
+class _StubMatch:
+    """Deterministic matching stub: returns a fit score chosen per user, so we can
+    prove the gate uses the GRANT OWNER's score, not the shared job.match_score."""
+
+    def __init__(self, by_user: dict) -> None:
+        self.by_user = by_user
+
+    def score(self, profile, job):
+        from types import SimpleNamespace
+        return SimpleNamespace(score=self.by_user.get(profile.user_id, 0.0))
+
+
+def test_min_fit_score_uses_grant_owner_score_not_shared_field():
+    state = _state()
+    _seed_user(state, "u1")
+    _seed_user(state, "u2")
+    # Non-empty profiles so the owner's fit is computed (not skipped).
+    state.profiles.add(UserProfile(user_id="u1", skills=["python"]))
+    state.profiles.add(UserProfile(user_id="u2", skills=["python"]))
+    # One shared job with a HIGH shared match_score (as if user1 ranked it).
+    _job(state, "j1", "Python Engineer", score=99)
+    # Owner fits: u1 fits well, u2 does not — regardless of the shared 99.
+    state.auto_apply.matching = _StubMatch({"u1": 90.0, "u2": 10.0})
+
+    g1 = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"], min_fit_score=50))
+    g2 = state.auto_apply.create_grant("u2", criteria=AutoApplyCriteria(title_keywords=["python"], min_fit_score=50))
+    assert [j.id for j in state.auto_apply.eligible_jobs(g1)] == ["j1"]  # owner fit 90 >= 50
+    assert state.auto_apply.eligible_jobs(g2) == []  # owner fit 10 < 50 despite shared 99
 
 
 def test_scope_jobs_targets_exact_ids():
@@ -138,6 +171,20 @@ def test_expired_grant_is_marked_and_skipped():
     res = state.auto_apply.run_grant(grant)
     assert grant.status == "expired"
     assert res.submitted == 0
+
+
+# ---- honest simulation (mock mode is not a real submission) ----------------
+def test_mock_run_is_labeled_simulated():
+    state = _state()  # default: assistant_browser=mock -> offline/simulated
+    _seed_user(state)
+    _job(state, "j1", "Python Engineer", platform="indeed")
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    res = state.auto_apply.run_grant(grant)
+    assert res.submitted == 1 and res.simulated is True
+    assert "simulated" in res.detail.lower()
+    app = state.applications.find(user_id="u1")[0]
+    assert app.platform_response.get("simulated") is True  # not a real submission
+    assert "simulated" in res.outcomes[0].detail.lower()
 
 
 # ---- API ------------------------------------------------------------------

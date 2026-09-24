@@ -57,6 +57,21 @@ def test_health(client: TestClient):
     assert r.json()["status"] == "ok"
 
 
+def test_health_reports_encryption_mode():
+    from jobsearch.api.state import AppState
+    from jobsearch.config import Settings
+    from jobsearch.security.crypto import generate_key
+
+    # No key configured -> ephemeral (secrets won't survive a restart).
+    eph = TestClient(create_app(exchanger=MockTokenExchanger()))
+    assert eph.get("/health").json()["encryption"] == "ephemeral"
+
+    # A persistent key configured -> persistent.
+    state = AppState(settings=Settings(encryption_key=generate_key()), exchanger=MockTokenExchanger())
+    persistent = TestClient(create_app(state=state))
+    assert persistent.get("/health").json()["encryption"] == "persistent"
+
+
 def test_auth_required(client: TestClient):
     assert client.get("/api/v1/users/me").status_code == 401  # no bearer
 
