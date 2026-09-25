@@ -260,7 +260,8 @@ def resume_preview(
     resume = get_resume(resume_id, user, state)  # heals empty text; 404s if not owned
     png = render_text_preview(
         resume.rendered_text or "",
-        title=resume.original_filename or resume.target_role or "Resume",
+        # No injected heading — the résumé's own name + role lead (never the filename).
+        title="",
         scale=scale,
     )
     if png is None:
@@ -280,7 +281,8 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     resume = get_resume(resume_id, user, state)
     doc = render_text_html(
         resume.rendered_text or "",
-        title=resume.original_filename or resume.target_role or "Resume",
+        # No injected heading — the résumé's own name + role lead (never the filename).
+        title="",
     )
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
@@ -734,7 +736,7 @@ def cover_letter_preview(
     cl = get_cover_letter(cover_letter_id, user, state)  # 404s if not owned
     png = render_text_preview(
         cl.content or "",
-        title=cl.original_filename or "Cover letter",
+        title="",  # the letter's own header leads, not the filename
         scale=scale,
     )
     if png is None:
@@ -791,7 +793,7 @@ def cover_letter_preview_html(
 ) -> HTMLResponse:
     """A reflowable, zoomable HTML preview of the cover letter (active version)."""
     cl = get_cover_letter(cover_letter_id, user, state)
-    doc = render_text_html(cl.content or "", title=cl.original_filename or "Cover letter")
+    doc = render_text_html(cl.content or "", title="")  # letter's own header leads
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
     return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})

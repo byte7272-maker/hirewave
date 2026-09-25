@@ -139,6 +139,10 @@ def test_resume_preview_html_reflows_and_escapes():
     assert "<ul>" in r.text or "<h2>" in r.text  # markdown rendered to real formatting, not raw text
     assert "**" not in r.text  # no raw markdown asterisks leaking through
     assert "&lt;IT Director&gt;" in r.text and "&amp;" in r.text  # user text is escaped
+    # The file name must NOT be shown as the document heading — the résumé's own
+    # name/title lead instead.
+    assert "cv.md" not in r.text
+    assert "<h1" not in r.text  # no injected doc-title heading
     # owner-scoped
     client.post("/api/v1/auth/register", json={"email": "z@x.com", "password": "supersecret", "full_name": "Z"})
     tok2 = client.post("/api/v1/auth/login", json={"email": "z@x.com", "password": "supersecret"}).json()

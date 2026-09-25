@@ -178,7 +178,7 @@ def render_text_preview(
 _HTML_TEMPLATE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title>
+<title>{tab_title}</title>
 <style>
   :root {{ color-scheme: light; }}
   html, body {{ margin: 0; }}
@@ -207,7 +207,7 @@ _HTML_TEMPLATE = """<!doctype html>
     .doc-body h4 {{ color: #aab2c0; }}
   }}
 </style></head>
-<body><article class="page"><h1 class="doc-title">{title}</h1><div class="doc-body">{body}</div></article></body></html>"""
+<body><article class="page">{heading}<div class="doc-body">{body}</div></article></body></html>"""
 
 
 def render_text_html(text: str, *, title: str = "") -> Optional[str]:
@@ -218,8 +218,13 @@ def render_text_html(text: str, *, title: str = "") -> Optional[str]:
     text = (text or "").strip()
     if not text:
         return None
+    # Only draw the heading when a title is given. Blank -> no injected heading, so
+    # the document's own header (e.g. the person's name + role at the top of a
+    # résumé) leads instead of a filename.
+    heading = f'<h1 class="doc-title">{html.escape(title)}</h1>' if title else ""
     return _HTML_TEMPLATE.format(
-        title=html.escape(title or "Document"),
+        tab_title=html.escape(title or "Document"),
+        heading=heading,
         body=markdown_to_html(text),
     )
 
