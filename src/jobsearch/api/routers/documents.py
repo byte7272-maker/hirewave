@@ -384,22 +384,43 @@ def improve_resume_structured(
     )
 
 
+def _resume_style(state: StateDep, resume: Resume):
+    """The style of the résumé's saved template (builtin or the user's own/approved
+    saved one), or None for the plain default look. Exports render with this."""
+    from jobsearch.models import BUILTIN_TEMPLATES
+
+    tid = (resume.template_id or "").strip()
+    if not tid:
+        return None
+    tpl = next((t for t in BUILTIN_TEMPLATES if t.id == tid), None) or state.resume_templates.get(tid)
+    if tpl is None:
+        return None
+    if not (tpl.status == "approved" or tpl.created_by in ("", resume.user_id)):
+        return None
+    return tpl.style
+
+
 @router.get("/resumes/{resume_id}/export.docx")
 def export_resume_docx(resume_id: str, user: CurrentUser, state: StateDep) -> Response:
     """Download the résumé (active version) as a professionally-formatted Word (.docx)
-    document — real font, section headings, and bullet lists. A fresh formatted file,
-    not the original upload. 404s when there's no readable text."""
+    document, styled with the résumé's saved template (font, accent color, headings).
+    A fresh formatted file, not the original upload. 404s when there's no readable text."""
     resume = get_resume(resume_id, user, state)
     base = (resume.original_filename or "resume").rsplit(".", 1)[0]
-    return _docx_response(build_docx(resume.rendered_text or "", title=resume.target_role or "Resume"), base)
+    doc = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume",
+                     style=_resume_style(state, resume))
+    return _docx_response(doc, base)
 
 
 @router.get("/resumes/{resume_id}/export.pdf")
 def export_resume_pdf(resume_id: str, user: CurrentUser, state: StateDep) -> Response:
-    """Download the résumé (active version) as a clean, formatted PDF."""
+    """Download the résumé (active version) as a clean, formatted PDF, styled with the
+    résumé's saved template (font, accent color, headings)."""
     resume = get_resume(resume_id, user, state)
     base = (resume.original_filename or "resume").rsplit(".", 1)[0]
-    return _pdf_response(build_pdf(resume.rendered_text or "", title=resume.target_role or "Resume"), base)
+    doc = build_pdf(resume.rendered_text or "", title=resume.target_role or "Resume",
+                    style=_resume_style(state, resume))
+    return _pdf_response(doc, base)
 
 
 @router.get("/resumes", response_model=list[Resume])

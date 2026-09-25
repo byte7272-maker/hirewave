@@ -216,6 +216,36 @@ def test_resume_export_docx():
     assert ".docx" in r.headers.get("content-disposition", "")
 
 
+def test_exports_honor_the_saved_template_style():
+    # Setting a template changes the export bytes (font/accent applied), and both
+    # formats still produce valid files.
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam Rivera**\n## Experience\n- Led a team\n## Skills\nPython", "text/markdown")},
+    ).json()["id"]
+    plain_pdf = client.get(f"/api/v1/resumes/{rid}/export.pdf", headers=h).content
+    # Executive template = a serif style; applying it should change the rendered bytes.
+    client.put(f"/api/v1/resumes/{rid}", headers=h, json={"template_id": "tpl_executive"})
+    styled_pdf = client.get(f"/api/v1/resumes/{rid}/export.pdf", headers=h)
+    assert styled_pdf.status_code == 200 and styled_pdf.content[:4] == b"%PDF"
+    assert styled_pdf.content != plain_pdf  # the template style actually applied
+    styled_docx = client.get(f"/api/v1/resumes/{rid}/export.docx", headers=h)
+    assert styled_docx.status_code == 200 and styled_docx.content[:2] == b"PK"
+
+
+def test_build_pdf_style_changes_output():
+    from jobsearch.docpreview import build_pdf
+    from jobsearch.models import ResumeTemplateStyle
+
+    text = "**Sam Rivera**\n## Experience\n- Led a team\n## Skills\nPython"
+    plain = build_pdf(text)
+    styled = build_pdf(text, style=ResumeTemplateStyle(font_family="serif", accent_color="#16a34a"))
+    assert plain and styled and plain[:4] == b"%PDF" and styled[:4] == b"%PDF"
+    assert plain != styled  # a different font/accent yields different bytes
+
+
 def test_resume_review_has_content_summary_and_ratings():
     # The review surfaces an AI content summary + a per-standard quality rating
     # breakdown with an overall letter grade, alongside the existing score.

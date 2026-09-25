@@ -241,26 +241,71 @@ def _docx_runs(paragraph, text: str) -> None:
             run.bold = True
 
 
-def build_docx(text: str, *, title: str = "") -> Optional[bytes]:
+# Style tokens (ResumeTemplateStyle) -> concrete fonts, read defensively so the
+# builders accept the pydantic model, a dict-like, or None (plain default look).
+_DOCX_FONTS = {"sans": "Calibri", "serif": "Cambria", "mono": "Consolas"}
+_PDF_FONTS = {"sans": "Helvetica", "serif": "Times", "mono": "Courier"}
+_DOCX_SPACE_AFTER = {"compact": 2, "normal": 4, "spacious": 8}  # pt after body paras
+_PDF_GAP = {"compact": 2, "normal": 4, "spacious": 7}  # pt between blocks
+
+
+def _rgb(hex_str: str, default=(37, 99, 235)) -> tuple:
+    """#rrggbb -> (r,g,b); the default (accent blue) on anything malformed."""
+    m = re.match(r"^#?([0-9a-fA-F]{6})$", (hex_str or "").strip())
+    if not m:
+        return default
+    h = m.group(1)
+    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+
+
+def _style_tokens(style) -> dict:
+    def g(key, default):
+        if style is None:
+            return default
+        if isinstance(style, dict):
+            return style.get(key, default)
+        return getattr(style, key, default)
+
+    return {
+        "font_family": g("font_family", "sans"),
+        "accent": _rgb(g("accent_color", "#2563eb")),
+        "uppercase": bool(g("uppercase_headings", True)),
+        "density": g("density", "normal"),
+        "divider": bool(g("show_divider", True)),
+    }
+
+
+def build_docx(text: str, *, title: str = "", style=None) -> Optional[bytes]:
     """Build a clean, professionally-formatted Word (.docx) document from the
-    markdown-ish content: a title, section headings, bullet lists, and bold text in a
-    standard font. Returns the .docx bytes, or None if python-docx is unavailable /
-    there's no text. This is a fresh formatted document, not the original file."""
+    markdown-ish content: a title, section headings, bullet lists, and bold text.
+    ``style`` (a ResumeTemplateStyle) applies the template's font, accent color,
+    uppercase headings, and spacing. Returns the .docx bytes, or None if
+    python-docx is unavailable / there's no text. A fresh formatted document."""
     text = (text or "").strip()
     if not text:
         return None
     try:
         from docx import Document
-        from docx.shared import Pt
+        from docx.shared import Pt, RGBColor
     except Exception:  # noqa: BLE001 - python-docx not installed
         return None
 
+    tok = _style_tokens(style)
+    font_name = _DOCX_FONTS.get(tok["font_family"], "Calibri")
+    accent = RGBColor(*tok["accent"])
+    space_after = _DOCX_SPACE_AFTER.get(tok["density"], 4)
+
+    def _style_heading(par) -> None:
+        for run in par.runs:
+            run.font.name = font_name
+            run.font.color.rgb = accent
+
     doc = Document()
     normal = doc.styles["Normal"]
-    normal.font.name = "Calibri"
+    normal.font.name = font_name
     normal.font.size = Pt(10.5)
     if title:
-        doc.add_heading(title, level=0)
+        _style_heading(doc.add_heading(title.upper() if tok["uppercase"] else title, level=0))
 
     for raw in text.split("\n"):
         s = raw.strip()
@@ -268,13 +313,20 @@ def build_docx(text: str, *, title: str = "") -> Optional[bytes]:
             continue
         h = re.match(r"(#{1,6})\s+(.*)", s)
         if h:
-            doc.add_heading(re.sub(r"\*\*", "", h.group(2)), level=min(len(h.group(1)), 4))
+            htext = re.sub(r"\*\*", "", h.group(2))
+            if tok["uppercase"]:
+                htext = htext.upper()
+            _style_heading(doc.add_heading(htext, level=min(len(h.group(1)), 4)))
             continue
         b = re.match(r"(?:[-*]|•)\s+(.*)", s)
         if b:
-            _docx_runs(doc.add_paragraph(style="List Bullet"), b.group(1))
+            par = doc.add_paragraph(style="List Bullet")
+            par.paragraph_format.space_after = Pt(space_after)
+            _docx_runs(par, b.group(1))
             continue
-        _docx_runs(doc.add_paragraph(), s)
+        par = doc.add_paragraph()
+        par.paragraph_format.space_after = Pt(space_after)
+        _docx_runs(par, s)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -288,10 +340,11 @@ def _pdf_text(s: str) -> str:
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
-def build_pdf(text: str, *, title: str = "") -> Optional[bytes]:
+def build_pdf(text: str, *, title: str = "", style=None) -> Optional[bytes]:
     """Build a clean, professionally-formatted PDF from the markdown-ish content:
-    a title, section headings, and bullet lists in a standard font. Pure-Python
-    (fpdf2), no system dependencies. Returns PDF bytes, or None if unavailable/empty."""
+    a title, section headings, and bullet lists. ``style`` (a ResumeTemplateStyle)
+    applies the template's font, accent color, uppercase headings, spacing, and
+    divider. Pure-Python (fpdf2). Returns PDF bytes, or None if unavailable/empty."""
     text = (text or "").strip()
     if not text:
         return None
@@ -300,6 +353,11 @@ def build_pdf(text: str, *, title: str = "") -> Optional[bytes]:
     except Exception:  # noqa: BLE001 - fpdf2 not installed
         return None
 
+    tok = _style_tokens(style)
+    font = _PDF_FONTS.get(tok["font_family"], "Helvetica")
+    accent = tok["accent"]
+    gap = _PDF_GAP.get(tok["density"], 4)
+
     pdf = FPDF(format="letter", unit="pt")
     pdf.set_auto_page_break(auto=True, margin=54)
     pdf.set_margins(54, 54, 54)
@@ -307,37 +365,47 @@ def build_pdf(text: str, *, title: str = "") -> Optional[bytes]:
     width = pdf.epw  # effective page width
 
     if title:
-        pdf.set_font("Helvetica", "B", 18)
-        pdf.multi_cell(width, 22, _pdf_text(title))
-        pdf.ln(2)
-        pdf.set_draw_color(37, 99, 235)
-        pdf.set_line_width(1.2)
-        y = pdf.get_y()
-        pdf.line(54, y, 54 + width, y)
+        pdf.set_font(font, "B", 18)
+        pdf.set_text_color(*accent)
+        pdf.multi_cell(width, 22, _pdf_text(title.upper() if tok["uppercase"] else title))
+        pdf.set_text_color(20, 20, 20)
+        if tok["divider"]:
+            pdf.ln(2)
+            pdf.set_draw_color(*accent)
+            pdf.set_line_width(1.2)
+            y = pdf.get_y()
+            pdf.line(54, y, 54 + width, y)
         pdf.ln(8)
 
     for raw in text.split("\n"):
         s = raw.strip()
         if not s:
-            pdf.ln(4)
+            pdf.ln(gap)
             continue
         h = re.match(r"(#{1,6})\s+(.*)", s)
         if h:
-            pdf.ln(4)
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.set_text_color(37, 99, 235)
-            pdf.multi_cell(width, 16, _pdf_text(h.group(2).upper()))
+            pdf.ln(gap)
+            pdf.set_font(font, "B", 12)
+            pdf.set_text_color(*accent)
+            htext = h.group(2)
+            pdf.multi_cell(width, 16, _pdf_text(htext.upper() if tok["uppercase"] else htext))
+            if tok["divider"]:
+                pdf.set_draw_color(*accent)
+                pdf.set_line_width(0.6)
+                y = pdf.get_y()
+                pdf.line(54, y, 54 + width, y)
+                pdf.ln(2)
             pdf.set_text_color(20, 20, 20)
             pdf.ln(1)
             continue
         b = re.match(r"(?:[-*]|\u2022)\s+(.*)", s)
         if b:
-            pdf.set_font("Helvetica", "", 10.5)
+            pdf.set_font(font, "", 10.5)
             pdf.set_x(64)
             pdf.multi_cell(width - 10, 14, "-  " + _pdf_text(b.group(1)))
             continue
         bold = s.startswith("**") and s.endswith("**")
-        pdf.set_font("Helvetica", "B" if bold else "", 10.5)
+        pdf.set_font(font, "B" if bold else "", 10.5)
         pdf.multi_cell(width, 14, _pdf_text(s))
 
     out = pdf.output()
