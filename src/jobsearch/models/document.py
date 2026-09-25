@@ -76,6 +76,11 @@ class Resume(DomainModel):
     #: instead of the raw uploaded file. ``summarized_at is None`` => never reviewed.
     content_summary: str = ""
     summarized_at: Optional[datetime] = None
+    #: The template the user chose to render this résumé with (a builtin id like
+    #: "tpl_modern" or a saved template's id). Blank = the app's default. Persisted
+    #: so the choice follows the résumé across sessions/devices; the render
+    #: endpoint falls back to it when no explicit template is requested.
+    template_id: str = ""
     #: Version history — several tailored variants the user can switch between.
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (rendered_text is the doc)

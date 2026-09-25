@@ -56,6 +56,30 @@ def test_render_places_resume_on_template():
     assert "basics" in d["data"] and "work" in d["data"]  # user info transposed onto the template
 
 
+def test_saved_template_id_persists_and_render_defaults_to_it():
+    c = _client(); h = _auth(c)
+    rid = c.post("/api/v1/resumes/upload", headers=h,
+                 files={"file": ("cv.txt", b"Sam Rivera\nIT Director\nSkills: Python", "text/plain")}).json()["id"]
+    # "Use this template" persists the choice on the résumé.
+    upd = c.put(f"/api/v1/resumes/{rid}", headers=h, json={"template_id": "tpl_executive"})
+    assert upd.status_code == 200 and upd.json()["template_id"] == "tpl_executive"
+    # A render with no template_id now uses the saved one.
+    r = c.get(f"/api/v1/resumes/{rid}/render", headers=h)
+    assert r.status_code == 200 and r.json()["template"]["name"] == "Executive"
+
+
+def test_render_falls_back_to_default_when_saved_template_is_gone():
+    c = _client(); h = _auth(c)
+    rid = c.post("/api/v1/resumes/upload", headers=h,
+                 files={"file": ("cv.txt", b"Sam Rivera\nEngineer\nSkills: Python", "text/plain")}).json()["id"]
+    # A stale/invalid saved template id must not break the default render.
+    c.put(f"/api/v1/resumes/{rid}", headers=h, json={"template_id": "tpl_does_not_exist"})
+    r = c.get(f"/api/v1/resumes/{rid}/render", headers=h)
+    assert r.status_code == 200 and r.json()["template"]["id"]  # rendered on the default
+    # But an EXPLICIT bad template id still 404s.
+    assert c.get(f"/api/v1/resumes/{rid}/render?template_id=tpl_nope", headers=h).status_code == 404
+
+
 def test_generate_reflects_the_prompt():
     c = _client(); h = _auth(c)
     gen = c.post("/api/v1/resume-templates/generate", headers=h,

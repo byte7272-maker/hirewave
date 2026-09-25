@@ -184,6 +184,9 @@ class ResumeUpdate(BaseModel):
     approved: Optional[bool] = None
     archived: Optional[bool] = None
     flagged: Optional[bool] = None
+    #: The chosen render template (builtin id or a saved template's id); "" resets
+    #: to the app default. Set by the templates page's "Use this template".
+    template_id: Optional[str] = None
 
 
 class ResumeReviewRequest(BaseModel):

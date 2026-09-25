@@ -298,20 +298,36 @@ def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> Res
 @router.get("/resumes/{resume_id}/render", response_model=RenderedResume)
 def render_resume_with_template(
     resume_id: str, user: CurrentUser, state: StateDep,
-    template_id: str = Query(..., description="the template to place the résumé onto"),
+    template_id: Optional[str] = Query(
+        None, description="template to render onto; omit to use the résumé's saved template (else the default)"
+    ),
 ) -> RenderedResume:
-    """The finished project: the résumé's structured content placed onto a chosen
-    template. The frontend renders ``data`` with ``template.style``; the user then
-    tweaks. Bumps the template's use count (popularity)."""
+    """The finished project: the résumé's structured content placed onto a template.
+    With no ``template_id`` it uses the résumé's saved ``template_id`` (what the user
+    chose with "Use this template"), then the app default. The frontend renders
+    ``data`` with ``template.style``; the user then tweaks."""
     from jobsearch.models import BUILTIN_TEMPLATES
 
     resume = get_resume(resume_id, user, state)
-    template = next((t for t in BUILTIN_TEMPLATES if t.id == template_id), None) \
-        or state.resume_templates.get(template_id)
+    default_id = BUILTIN_TEMPLATES[0].id if BUILTIN_TEMPLATES else ""
+    explicit = bool(template_id)
+
+    def _lookup(tid: str):
+        return next((t for t in BUILTIN_TEMPLATES if t.id == tid), None) \
+            or state.resume_templates.get(tid)
+
+    tid = template_id or resume.template_id or default_id
+    template = _lookup(tid)
+    # A saved template that vanished/was rejected shouldn't break the default
+    # render — fall back to the app default (only when not explicitly requested).
+    if template is None and not explicit and tid != default_id:
+        template = _lookup(default_id)
     # Only an approved/public template or the user's own may be applied.
     if template is None or not (template.status == "approved" or template.created_by == user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
-    if template.created_by:  # a stored (non-builtin) template — track usage
+    # Bump popularity only when the user explicitly picked a stored template (not
+    # on every default/preview render, which would inflate the count).
+    if explicit and template.created_by:
         template.uses += 1
         state.resume_templates.add(template)
     data = state.resume_assistant.structure(resume)
