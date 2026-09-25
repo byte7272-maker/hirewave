@@ -163,6 +163,26 @@ def test_rephrase_dedupes_and_drops_the_original():
     assert opts == ["strong", "solid"]  # "good"/"Good" (== input) removed, deduped
 
 
+# --- engine: incorporate user ideas -----------------------------------------
+def test_incorporate_fallback_includes_the_points():
+    # With no usable LLM output, the deterministic merge still adds the candidate's
+    # points (as work highlights when there's an experience section).
+    r = _resume("## Experience\n**Acme** — Engineer\n- Built the API")
+    data = ResumeAssistant().incorporate(
+        r, ["Led the billing migration", "Mentored 3 junior engineers"]
+    )
+    blob = " ".join(data.work[0].highlights) if data.work else data.basics.summary
+    assert "billing migration" in blob and "Mentored 3" in blob
+
+
+def test_incorporate_uses_llm_and_weaves_points():
+    llm = _RecordingLLM()
+    r = _resume("## Experience\n- Built the API")
+    ResumeAssistant(llm=llm).incorporate(r, ["Cut cloud spend 20%"], instruction="emphasise impact")
+    assert "Additional points the candidate wants incorporated" in llm.last_prompt
+    assert "Cut cloud spend 20%" in llm.last_prompt
+
+
 # --- engine: cover letters --------------------------------------------------
 def test_cover_letter_review_flags_cliches_and_generic():
     cl = _cover(
@@ -312,6 +332,41 @@ def test_api_rephrase_empty_400_and_requires_auth():
     assert client.post("/api/v1/documents/rephrase", json={"text": "x"}).status_code == 401
     h = _auth(client)
     assert client.post("/api/v1/documents/rephrase", headers=h, json={"text": "  "}).status_code == 400
+
+
+def test_api_incorporate_adds_ideas_and_notes():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    res = _upload(client, h, "## Experience\n**Acme** — Engineer\n- Built the API")
+    r = client.post(
+        f"/api/v1/resumes/{res['id']}/incorporate", headers=h,
+        json={"ideas": ["Led the billing migration"], "notes": "- Mentored 3 juniors\n- Cut cloud spend 20%"},
+    )
+    assert r.status_code == 200
+    md = r.json()["markdown"]
+    assert "billing migration" in md and "Mentored 3 juniors" in md and "Cut cloud spend 20%" in md
+
+
+def test_api_incorporate_does_not_flag_user_supplied_numbers():
+    # A number the CANDIDATE provided is legit and must not be flagged as invented.
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    res = _upload(client, h, "## Experience\n- Built the API")
+    r = client.post(
+        f"/api/v1/resumes/{res['id']}/incorporate", headers=h,
+        json={"ideas": ["Cut cloud spend 20%"]},
+    )
+    assert r.status_code == 200
+    assert not any(f["value"] == "20%" for f in r.json()["flagged_metrics"])
+
+
+def test_api_incorporate_requires_a_point():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    res = _upload(client, h, "## Experience\n- Built the API")
+    assert client.post(f"/api/v1/resumes/{res['id']}/incorporate", headers=h,
+                       json={"ideas": [], "notes": "  "}).status_code == 400
 
 
 def test_api_review_requires_auth_and_ownership():

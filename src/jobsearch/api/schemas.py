@@ -482,6 +482,19 @@ class TtsRequest(BaseModel):
     voice: str = ""  # provider voice id; blank = provider default
 
 
+class IncorporateRequest(BaseModel):
+    """Add the candidate's own topics/ideas into a document and polish them in."""
+
+    #: Discrete points/topics to weave in (e.g. ["led the billing migration",
+    #: "mentored 3 juniors", "cut cloud spend 20%"]).
+    ideas: list[str] = Field(default_factory=list)
+    #: Free-text notes; split into points (by newline / bullet) and merged with `ideas`.
+    notes: str = ""
+    #: Optional extra steer ("emphasise leadership", "keep it concise").
+    instruction: str = ""
+    job_posting_id: Optional[str] = None
+
+
 class RephraseRequest(BaseModel):
     """Ask the AI to rephrase a selected span (a word, sentence, or paragraph)."""
 

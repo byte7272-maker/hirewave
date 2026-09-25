@@ -14,6 +14,7 @@ from jobsearch.api.schemas import (
     CoverLetterTailoring,
     CoverLetterUpdate,
     CreateVersionRequest,
+    IncorporateRequest,
     JobCard,
     ResumeGenerateRequest,
     ResumeReviewRequest,
@@ -112,6 +113,24 @@ def _combine_instructions(instruction: str, instructions: list[str]) -> str:
     if len(items) == 1:
         return items[0]
     return "Apply ALL of these changes together in one rewrite:\n" + "\n".join(f"- {s}" for s in items)
+
+
+def _points_from_ideas(ideas: list[str], notes: str) -> list[str]:
+    """Merge discrete ideas + free-text notes into a deduped list of points. Notes
+    are split on newlines/bullets so a pasted list becomes individual points."""
+    pts: list[str] = [i.strip() for i in (ideas or []) if i and i.strip()]
+    for line in (notes or "").replace("\r", "").split("\n"):
+        s = line.strip().lstrip("-*•").strip()
+        if s:
+            pts.append(s)
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in pts:
+        k = p.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(p)
+    return out
 
 
 def _review_focus_points(review) -> list[str]:
@@ -334,6 +353,58 @@ def render_resume_with_template(
         state.resume_templates.add(template)
     data = state.resume_assistant.structure(resume)
     return RenderedResume(template=template, data=data)
+
+
+@router.post("/resumes/{resume_id}/incorporate", response_model=StructuredImprovement)
+def incorporate_resume_ideas(
+    resume_id: str, body: IncorporateRequest, user: CurrentUser, state: StateDep
+) -> StructuredImprovement:
+    """Add the candidate's own topics/ideas into the résumé and polish them into
+    professional bullets — returns the structured JSON Resume + markdown to save,
+    same shape as improve-structured. Read-only preview (accept via .../versions).
+    Numbers not present in the résumé OR the supplied points are flagged."""
+    from jobsearch.models.resume_schema import find_new_metrics, resume_data_to_markdown
+
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    points = _points_from_ideas(body.ideas, body.notes)
+    if not points:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide at least one idea/topic to incorporate")
+    improved = state.resume_assistant.incorporate(resume, points, instruction=body.instruction, job=job)
+    # The user's own points are legitimate facts, so include them in the baseline —
+    # only numbers the AI invented beyond them get flagged.
+    baseline = (resume.rendered_text or "") + "\n" + "\n".join(points)
+    return StructuredImprovement(
+        structured=improved,
+        markdown=resume_data_to_markdown(improved),
+        flagged_metrics=find_new_metrics(baseline, improved),
+    )
+
+
+@router.post("/cover-letters/{cover_letter_id}/incorporate",
+             response_model=CoverLetterStructuredImprovement)
+def incorporate_cover_letter_ideas(
+    cover_letter_id: str, body: IncorporateRequest, user: CurrentUser, state: StateDep
+) -> CoverLetterStructuredImprovement:
+    """Add the candidate's own topics/ideas into the cover letter, polished into the
+    structured letter shape. Same contract as the cover-letter improve-structured."""
+    from jobsearch.models.cover_letter_schema import cover_letter_data_to_markdown
+    from jobsearch.models.resume_schema import new_number_flags
+
+    cl = get_cover_letter(cover_letter_id, user, state)
+    job_id = body.job_posting_id or cl.job_posting_id
+    job = _require_job(state, job_id) if job_id else None
+    points = _points_from_ideas(body.ideas, body.notes)
+    if not points:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide at least one idea/topic to incorporate")
+    improved = state.resume_assistant.incorporate_cover_letter(cl, points, instruction=body.instruction, job=job)
+    items = [(f"paragraphs[{i}]", p) for i, p in enumerate(improved.paragraphs)]
+    baseline = (cl.content or "") + "\n" + "\n".join(points)
+    return CoverLetterStructuredImprovement(
+        structured=improved,
+        markdown=cover_letter_data_to_markdown(improved),
+        flagged_metrics=new_number_flags(baseline, items),
+    )
 
 
 @router.post("/documents/rephrase", response_model=RephraseResult)

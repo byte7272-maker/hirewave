@@ -62,6 +62,19 @@ def _focus_points_block(focus_points: Optional[list[str]]) -> str:
     )
 
 
+def _ideas_block(points: Optional[list[str]]) -> str:
+    """Render the candidate's own topics/ideas into a prompt block so each is
+    integrated into the document (not dropped). Empty when there are none."""
+    pts = [p.strip() for p in (points or []) if p and p.strip()]
+    if not pts:
+        return ""
+    bullets = "\n".join(f"- {p}" for p in pts[:20])
+    return (
+        "\nAdditional points the candidate wants incorporated (integrate EACH into the "
+        "most relevant section, polished into a strong bullet; do not drop any):\n" + bullets
+    )
+
+
 def _grade(score: int) -> str:
     """Letter grade for a 0-100 quality score (recruiter-style banding)."""
     if score >= 85:
@@ -691,6 +704,93 @@ class ResumeAssistant:
         except Exception:  # noqa: BLE001 - fall back to the plain parse
             pass
         return self.structure(resume)
+
+    # -- incorporate user-supplied topics/ideas ----------------------------
+    def incorporate(
+        self, resume: Resume, points: list[str], *, instruction: str = "",
+        job: Optional[JobPosting] = None,
+    ) -> ResumeData:
+        """Weave the candidate's own rough topics/ideas into the résumé and polish
+        them into professional bullets (XYZ formula, strong verbs), returning
+        structured JSON Resume. The ``points`` are facts the CANDIDATE supplied, so
+        they may be added — but nothing beyond them (or the existing résumé) is
+        invented. LLM with a deterministic fallback that still includes the points."""
+        text = (resume.rendered_text or "").strip()
+        pts = [p.strip() for p in (points or []) if p and p.strip()]
+        if not text and not pts:
+            return ResumeData()
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nTarget role requirements (surface where truthful): " + ", ".join(job.requirements[:12])
+        focus = f" Also focus on: {instruction.strip()}." if instruction.strip() else ""
+        ideas = _ideas_block(pts)
+        try:
+            out = self.llm.complete(
+                "Rewrite the resume below and INCORPORATE the candidate's additional points, then "
+                "return ONLY JSON Resume format (keys: basics{name,label,email,phone,url,summary,"
+                "location{city,region}}, work[{name,position,startDate,endDate,summary,highlights[]}], "
+                "education[{institution,area,studyType,startDate,endDate}], skills[{name,keywords[]}]). "
+                "Integrate each additional point into the most relevant section (add a section if needed), "
+                "written as a strong resume bullet with the XYZ formula and past-tense action verbs. Use "
+                "ONLY facts already in the resume PLUS the candidate's additional points -- never invent "
+                "employers, titles, dates, metrics, or skills beyond what is stated." + focus + ideas + reqs +
+                "\n\nResume:\n" + text[:4000],
+                system="You improve resumes, incorporate the candidate's own notes, and output only valid JSON Resume JSON.",
+                max_tokens=2000,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = ResumeData.model_validate(data)
+            if parsed.basics.name or parsed.work or parsed.skills:
+                return parsed
+        except Exception:  # noqa: BLE001 - fall back to a deterministic merge
+            pass
+        # Deterministic fallback: parse the résumé and append the points so they're
+        # never lost (as work highlights, else into the summary).
+        data = self.structure(resume)
+        if pts:
+            if data.work:
+                data.work[0].highlights = list(data.work[0].highlights) + pts
+            else:
+                extra = " ".join(pts)
+                data.basics.summary = (f"{data.basics.summary} {extra}".strip()
+                                       if data.basics.summary else extra)
+        return data
+
+    def incorporate_cover_letter(
+        self, cover_letter: CoverLetter, points: list[str], *, instruction: str = "",
+        job: Optional[JobPosting] = None,
+    ) -> CoverLetterData:
+        """Weave the candidate's own topics/ideas into the cover letter and polish
+        them into the structured letter shape. Uses only the letter's facts plus the
+        supplied points; LLM with a deterministic fallback that appends the points."""
+        text = (cover_letter.content or "").strip()
+        pts = [p.strip() for p in (points or []) if p and p.strip()]
+        if not text and not pts:
+            return CoverLetterData()
+        ctx = f"\nTarget role: {job.title} at {job.company}." if job else ""
+        focus = f" Also focus on: {instruction.strip()}." if instruction.strip() else ""
+        ideas = _ideas_block(pts)
+        try:
+            out = self.llm.complete(
+                "Rewrite the cover letter below and INCORPORATE the candidate's additional points, then "
+                "return ONLY JSON with " + self._CL_KEYS + ". Work each point naturally into the body, "
+                "backing a claim with a concrete result where the candidate gave one, cut cliches, keep it "
+                "250-400 words. Use ONLY facts already present PLUS the candidate's additional points -- "
+                "never invent employers, achievements, or metrics beyond what is stated." + focus + ideas + ctx +
+                "\n\nCover letter:\n" + text[:3000],
+                system="You improve cover letters, incorporate the candidate's own notes, and output only valid JSON.",
+                max_tokens=1400,
+            )
+            data = json.loads(_extract_json(out))
+            parsed = CoverLetterData.model_validate(data)
+            if parsed.paragraphs or parsed.salutation:
+                return parsed
+        except Exception:  # noqa: BLE001
+            pass
+        data = self.structure_cover_letter(cover_letter)
+        if pts:
+            data.paragraphs = list(data.paragraphs) + [" ".join(pts)]
+        return data
 
     # -- version change summary --------------------------------------------
     def summarize_change(
