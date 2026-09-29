@@ -68,15 +68,17 @@ Real submission runs in a **separate automation worker**, not the web dyno:
 Both are the **same repo**, sharing `JOBSEARCH_DATABASE_URL` and
 `JOBSEARCH_ENCRYPTION_KEY`.
 
-**Railway setup (config-as-code, committed):**
-- **web** — uses the root `railway.json` automatically (builds `./Dockerfile`,
-  health-checks `/health`). This just codifies the current web build; no change
-  to how web already deploys.
-- **worker** — add a second service from the same repo, then in its settings set
-  the **Config-as-code file** to `railway.worker.json` (builds `Dockerfile.worker`,
-  runs `python -m jobsearch.worker`, `numReplicas: 1`). The worker Dockerfile uses
-  Microsoft's prebuilt Playwright image, so Chromium is already baked in — no
-  browser-install step to fail at build time.
+**Railway setup (dashboard UI — Config as Code is deprecated for new services):**
+- **web** — the existing service builds `./Dockerfile` (auto-detected); unchanged.
+- **worker** — add a second service from the same repo, then in **Settings** set:
+  - **Build →** Builder **Dockerfile**, Dockerfile Path **`Dockerfile.worker`**.
+  - **Deploy →** Start Command `python -m jobsearch.worker`, **Replicas 1**.
+  - **Networking →** no public domain (it serves no HTTP).
+  - **Variables →** the same `JOBSEARCH_DATABASE_URL` and `JOBSEARCH_ENCRYPTION_KEY`
+    as web (the encryption key MUST match, or the worker can't decrypt sessions the
+    web stored).
+  The worker Dockerfile uses Microsoft's prebuilt Playwright image, so Chromium is
+  already baked in — no browser-install step to fail at build time.
 
 Keep the worker at **one replica** — it's the single real-submit runner, and the
 per-user lock that prevents double-submits is in-process.
