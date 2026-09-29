@@ -299,6 +299,54 @@ class AppState:
             notifier=self.notifications.add,
             settings=self.settings,
         )
+        # Boot-time guard: catch an encryption-key mismatch across services early.
+        self._verify_cipher_canary()
+
+    def _verify_cipher_canary(self) -> None:
+        """Detect an encryption-key mismatch between services sharing this database.
+
+        The first process to boot writes a known value encrypted with its key; every
+        other process decrypts it with its own key. A decrypt failure means
+        ``JOBSEARCH_ENCRYPTION_KEY`` differs across services, so secrets written
+        elsewhere (connected browser sessions, OAuth tokens) are unreadable here —
+        e.g. the worker couldn't use a session the web stored. Logged loudly so it's
+        caught at boot, not at first real use. No-op with no DB (nothing shared) or an
+        ephemeral key (the separate ephemeral warning already covers that)."""
+        if self.backend == "memory" or self.cipher.is_ephemeral:
+            return
+        import logging
+
+        from jobsearch.models import WorkerHeartbeat
+        from jobsearch.models.common import utcnow
+
+        PLAIN, AAD = "ph-cipher-canary-v1", "cipher-canary"
+        log = logging.getLogger("jobsearch")
+        try:
+            row = self.worker_heartbeat.get("cipher_canary")
+        except Exception:  # noqa: BLE001 - never let the guard break startup
+            return
+        token = (row.last_summary or {}).get("token") if row else None
+        if not token:
+            try:  # first boot: write the canary with our key
+                self.worker_heartbeat.add(WorkerHeartbeat(
+                    id="cipher_canary",
+                    last_summary={"token": self.cipher.encrypt(PLAIN, aad=AAD)},
+                    updated_at=utcnow(),
+                ))
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        try:
+            ok = self.cipher.decrypt(token, aad=AAD) == PLAIN
+        except Exception:  # noqa: BLE001 - wrong key => AES-GCM raises
+            ok = False
+        if not ok:
+            log.error(
+                "ENCRYPTION KEY MISMATCH: this service cannot decrypt the shared cipher "
+                "canary. Connected sessions / OAuth tokens written by other services will "
+                "be unreadable here. Set an identical JOBSEARCH_ENCRYPTION_KEY across all "
+                "services (web + worker)."
+            )
 
     def _build_digest_summary(self, user_id: str) -> dict:
         """Data for a user's daily digest — recent auto-applies, the apply queue,

@@ -93,6 +93,25 @@ def test_health_worker_reports_stale_when_old():
     assert body["status"] == "stale" and body["seconds_since"] > body["threshold_seconds"]
 
 
+def test_cipher_canary_flags_key_mismatch(tmp_path, caplog):
+    import logging
+    from jobsearch.security.crypto import generate_key
+
+    db = "sqlite:///" + str(tmp_path / "canary.db").replace("\\", "/")
+    k1, k2 = generate_key(), generate_key()
+    # First boot writes the canary with k1.
+    AppState(settings=Settings(database_url=db, encryption_key=k1), exchanger=MockTokenExchanger())
+    # Same key -> decrypts fine -> no mismatch error.
+    with caplog.at_level(logging.ERROR, logger="jobsearch"):
+        AppState(settings=Settings(database_url=db, encryption_key=k1), exchanger=MockTokenExchanger())
+    assert not any("KEY MISMATCH" in r.message for r in caplog.records)
+    caplog.clear()
+    # Different key -> can't decrypt the shared canary -> loud error.
+    with caplog.at_level(logging.ERROR, logger="jobsearch"):
+        AppState(settings=Settings(database_url=db, encryption_key=k2), exchanger=MockTokenExchanger())
+    assert any("KEY MISMATCH" in r.message for r in caplog.records)
+
+
 def test_worker_entrypoint_is_wired():
     import jobsearch.worker as worker
     from jobsearch.scheduler import run_worker
