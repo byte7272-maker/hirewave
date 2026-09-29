@@ -29,7 +29,7 @@ These live with the extension and are already Project Harbor-branded:
 | Store icon (128x128) | `extension/icons/icon128.png` | Comes from the packaged manifest icon; now the anchor mark (no more "H"). |
 | Screenshot (1280x800, >=1 required) | `extension/store-assets/screenshot-1280x800.png` | Project Harbor, code-free connect flow. |
 | Small promo tile (440x280, optional) | `extension/store-assets/promo-440x280.png` | "Project Harbor Connect". |
-| Marquee promo tile (1400x560, optional) | _(none)_ | Not required; generate later if desired. |
+| Marquee promo tile (1400x560, optional) | `extension/store-assets/marquee-1400x560.png` | "Project Harbor Connect" with anchor watermark. |
 
 The packaged extension icons (`extension/icons/icon{16,32,48,128}.png`) are the
 anchor mark and ship inside `extension/dist/project-harbor-connect-1.1.0.zip`.
