@@ -26,11 +26,12 @@ response to your action, only for the job site you select.
 
 For a smoother flow, the Project Harbor web app can start the connect for you: from
 the app's "Connect a site" screen, the app asks this extension to attach the
-selected site. Only the Project Harbor app's own web address is allowed to make this
-request (declared in `externally_connectable`). To perform that one request, the app
-hands the extension **your own current, short-lived session token** — used a single
-time for that call and **not stored** by the extension. This replaces the manual
-pairing code; nothing else about what is read or sent changes.
+selected site. This request is relayed only by the extension's content script,
+which runs solely on the Project Harbor app's own web address (declared in the
+manifest). To perform that one request, the app hands the extension **your own
+current, short-lived session token** — used a single time for that call and **not
+stored** by the extension. This replaces the manual pairing code; nothing else
+about what is read or sent changes.
 
 ## What it accesses and why
 

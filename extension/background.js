@@ -1,13 +1,14 @@
 // Project Harbor Connect — background service worker.
 //
-// Code-free connect: the Hirewave web app (allowed via externally_connectable)
-// sends one message with the provider + the user's own short-lived access token.
-// We read that job site's session cookies and post them to Project Harbor
-// authenticated as the user — so the user NEVER copies a pairing code.
+// Code-free connect: the Hirewave web app sends one message (relayed by our
+// content script, which runs only on the app origin) with the provider + the
+// user's own short-lived access token. We read that job site's session cookies
+// and post them to Project Harbor authenticated as the user — so the user NEVER
+// copies a pairing code.
 //
 // The password is never read (cookies only). The token is the user's own session,
-// used once for this call and not stored. Only the app origin declared in
-// externally_connectable can message this extension.
+// used once for this call and not stored. Messages arrive only via the content
+// script, which is injected only on the Project Harbor app origin.
 
 const API_DEFAULT = "https://hirewave-production-3db3.up.railway.app";
 
@@ -43,10 +44,9 @@ async function buildStorageState(provider) {
   return { count: mapped.length, storage_state: JSON.stringify({ cookies: mapped, origins: [] }) };
 }
 
-// The web app calls chrome.runtime.sendMessage(<extensionId>, {...}) — allowed only
-// from the origin(s) in externally_connectable. A "ping" lets the app feature-detect
-// the direct (code-free) capability before offering it.
-chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+// The content script (running only on the app origin) relays the app's request
+// here. A "ping" lets the app feature-detect the direct (code-free) capability.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
       if (!msg || typeof msg !== "object") {

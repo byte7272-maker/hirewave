@@ -33,9 +33,6 @@
     }
   },
   "background": { "service_worker": "background.js" },
-  "externally_connectable": {
-    "matches": ["https://hlrtlg.readdy.co/*"]
-  },
   "content_scripts": [
     {
       "matches": [
