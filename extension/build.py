@@ -18,7 +18,7 @@ HERE = Path(__file__).resolve().parent
 DIST = HERE / "dist"
 
 # Exactly what ships in the package (everything else is dev/store paperwork).
-INCLUDE_FILES = ["manifest.json", "popup.html", "popup.js", "content.js"]
+INCLUDE_FILES = ["manifest.json", "popup.html", "popup.js", "content.js", "background.js"]
 INCLUDE_DIRS = ["icons"]
 
 

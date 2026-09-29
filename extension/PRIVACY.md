@@ -1,6 +1,6 @@
 # Project Harbor Connect — Privacy Policy
 
-_Last updated: 2026-09-16_
+_Last updated: 2026-09-28_
 
 Project Harbor Connect is a browser extension that lets you connect a job site (such as
 LinkedIn or Indeed) to your Project Harbor account so Project Harbor's assistant can act on
@@ -9,17 +9,28 @@ what it sends, and what it never touches.
 
 ## What the extension does
 
-When **you** click **Connect this site** in the extension popup, it:
+When **you** start a connect (either by clicking **Connect this site** in the
+extension popup, or by clicking **Connect** in the Project Harbor web app), it:
 
 1. Reads the **session cookies** the job site already set in this browser after
    *you* logged in on that site's own page.
 2. Packages those cookies into a session bundle (a Playwright `storage_state`).
-3. Sends that bundle over HTTPS to the Project Harbor API, matched to a short-lived,
-   single-use **pairing code** you copied from the Project Harbor app.
+3. Sends that bundle over HTTPS to the Project Harbor API, authorized either by a
+   short-lived, single-use **pairing code** you copied from the app, **or** by your
+   own current app sign-in when you start the connect from the app itself (below).
 
 The extension takes **no action on its own**. It reads cookies only in direct
-response to your click, only for the job site you select, and only when you have
-supplied a valid pairing code.
+response to your action, only for the job site you select.
+
+### Connecting from the app (no pairing code)
+
+For a smoother flow, the Project Harbor web app can start the connect for you: from
+the app's "Connect a site" screen, the app asks this extension to attach the
+selected site. Only the Project Harbor app's own web address is allowed to make this
+request (declared in `externally_connectable`). To perform that one request, the app
+hands the extension **your own current, short-lived session token** — used a single
+time for that call and **not stored** by the extension. This replaces the manual
+pairing code; nothing else about what is read or sent changes.
 
 ## What it accesses and why
 
@@ -36,8 +47,10 @@ supplied a valid pairing code.
 - **Your passwords.** The extension never reads, stores, or transmits any password
   or login credential. You authenticate directly with the job site; the extension
   only reads the resulting session cookies.
-- **Your Project Harbor login token.** The pairing code — not your Project Harbor credentials —
-  authorizes attaching the session.
+- **Your Project Harbor password.** Attaching a session is authorized by a pairing
+  code, or (when you start from the app) by your own short-lived session token that
+  the app passes for that single call and the extension does not store — never your
+  password.
 - Cookies or data from any site other than the supported job sites you explicitly
   connect.
 
