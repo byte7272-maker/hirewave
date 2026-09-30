@@ -9,7 +9,7 @@ purpose statement, per-permission justifications, and data-use disclosures).
 ## Listing basics
 
 - **Name:** Project Harbor Connect
-- **Summary (<=132 chars):** Connect a job site to Project Harbor to help you apply and keep your resume updated there -- captures your session, never your password.
+- **Summary (<=132 chars):** Companion for Project Harbor -- connect a job board you already use so the assistant can help you apply. Session only, never your password.
 - **Category:** Productivity
 - **Language:** English
 - **Homepage / support URL:** https://hlrtlg.readdy.co
@@ -17,31 +17,30 @@ purpose statement, per-permission justifications, and data-use disclosures).
 
 ## Detailed description
 
-> Project Harbor Connect is the companion extension for Project Harbor, the AI
-> job-search assistant. It links a job site you're already logged into -- LinkedIn,
-> Indeed, Glassdoor, Greenhouse, Workday, ZipRecruiter, or Dice -- to your Project
-> Harbor account so the assistant can help you apply and keep your resume updated on
-> that site.
+_(Rejected v1.1.0 for "excessive keywords" -- the old copy listed every supported
+site by name. This version drops that list and frames the extension as a helper
+that works alongside the job boards you already use, not an alternative to them.)_
+
+> Project Harbor Connect is the companion browser extension for Project Harbor, your
+> AI application assistant.
 >
-> When you choose to connect a site, the extension reads only that site's existing
-> session (its cookies) and hands it to your Project Harbor account over a secure
-> connection. You stay logged in on the job site's own page -- the extension never
-> sees, stores, or transmits your password.
+> Keep the job boards you already use. When you choose to connect a site you're
+> signed in to, the extension reads only that site's existing session (its cookies)
+> and hands it to your Project Harbor account over a secure connection, so the
+> assistant can help you tailor your resume and apply -- with you approving every
+> step. You stay logged in on the site's own page; the extension never sees, stores,
+> or transmits your password.
+>
+> It works alongside the sites you already use -- it is not a replacement for them.
+> You keep signing in to and using each site directly, and every listing and its
+> content belong to that site.
 >
 > Why install it:
-> - Assist with applications: let Project Harbor help fill, submit, and update your
->   resume on connected sites instead of doing each one by hand.
-> - One-click, no setup: pick the site in Project Harbor and connect -- no codes, no
->   configuration.
-> - Private by design: cookies only, never your password; it acts only when you ask,
->   and you can disconnect any site at any time.
->
-> Source sites keep full credit and direct access: LinkedIn, Indeed, Glassdoor,
-> Greenhouse, Workday, ZipRecruiter, and Dice are trademarks of their respective
-> owners, and Project Harbor Connect is not affiliated with or endorsed by them. All
-> job listings and content belong to the source site, and you continue to sign in to
-> and use each site directly -- the extension simply works alongside your existing
-> account.
+> - A helper, not autopilot: Project Harbor prepares applications; you approve every
+>   apply.
+> - One connection: sign in on the site once, then connect it in a click.
+> - Private by design: your session only, never your password; it acts only when you
+>   ask, and you can disconnect any site at any time.
 >
 > You'll need a Project Harbor account to use this extension.
 
@@ -63,9 +62,11 @@ purpose statement, per-permission justifications, and data-use disclosures).
 
 ## Permission justifications (required -- one per permission)
 
-- **cookies** -- Reads the session cookies of the job site the user chooses to
-  connect, so the authenticated session can be handed to Project Harbor. This is the
-  core function; without it the extension cannot connect a site.
+- **cookies** -- Reads the session cookies of the single job site the user chooses
+  to connect, so that authenticated session can be handed to the user's Project
+  Harbor account. This is the core function; without it the extension cannot connect
+  a site. (The specific host domains are listed under the host-permission
+  justification below.)
 - **tabs** -- Reads only the active tab's URL to auto-detect which supported job site
   the user is on and pre-select the correct provider. No browsing history is
   collected.
