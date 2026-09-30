@@ -288,6 +288,26 @@ def test_api_improve_structured_honors_explicit_focus_points():
     assert "Emphasize leadership scope" in rec.last_prompt
 
 
+def test_api_improve_structured_uses_live_editor_content():
+    # Points the user just typed in the editor (sent as `content`) must be what the
+    # AI improves -- not the last-saved résumé -- and the improve must not persist them.
+    state = AppState(exchanger=MockTokenExchanger())
+    rec = _RecordingLLM()
+    state.resume_assistant.llm = rec
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    res = _upload(client, h, "- Built the API")
+    rid = res["id"]
+    live = "- Built the API\n- Led migration of the payments platform for 2M users"
+    r = client.post(
+        f"/api/v1/resumes/{rid}/improve-structured", headers=h, json={"content": live},
+    )
+    assert r.status_code == 200
+    assert "payments platform for 2M users" in rec.last_prompt  # improved the live text
+    # The stored résumé is untouched (preview only).
+    assert client.get(f"/api/v1/resumes/{rid}", headers=h).json()["rendered_text"] == "- Built the API"
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

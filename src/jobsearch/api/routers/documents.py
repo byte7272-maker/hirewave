@@ -436,6 +436,11 @@ def improve_resume_structured(
     from jobsearch.models.resume_schema import find_new_metrics, resume_data_to_markdown
 
     resume = get_resume(resume_id, user, state)
+    # Improve exactly what's on screen: if the editor sent its live content (with any
+    # points the user just typed), improve that instead of the last-saved résumé. Use
+    # a copy so the stored résumé isn't mutated (this endpoint is a preview).
+    if body.content and body.content.strip():
+        resume = resume.model_copy(update={"rendered_text": body.content})
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     focus = _combine_instructions(body.instruction, body.instructions)
     # Link the improvement to the AI summary's points: use the ones the client sent

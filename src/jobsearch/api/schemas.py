@@ -194,6 +194,12 @@ class ResumeReviewRequest(BaseModel):
 
 
 class ResumeReviseRequest(BaseModel):
+    #: The live editor content to improve (the résumé text as it is on screen right
+    #: now, including points the user just typed). When provided, the AI improves
+    #: THIS instead of the last-saved résumé, so manual edits are never ignored. When
+    #: omitted, the saved ``rendered_text`` is used. Not persisted by the improve
+    #: call — accept the result by POSTing its markdown to ``/resumes/{id}/versions``.
+    content: Optional[str] = None
     #: What to change, in plain language ("make it more concise", "emphasise
     #: leadership", "tailor to a product manager role"). Single instruction.
     instruction: str = ""
