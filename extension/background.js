@@ -1,6 +1,6 @@
 // Project Harbor Connect — background service worker.
 //
-// Code-free connect: the Hirewave web app sends one message (relayed by our
+// Code-free connect: the Project Harbor web app sends one message (relayed by our
 // content script, which runs only on the app origin) with the provider + the
 // user's own short-lived access token. We read that job site's session cookies
 // and post them to Project Harbor authenticated as the user — so the user NEVER

@@ -32,4 +32,4 @@ These live with the extension and are already Project Harbor-branded:
 | Marquee promo tile (1400x560, optional) | `extension/store-assets/marquee-1400x560.png` | "Project Harbor Connect" with anchor watermark. |
 
 The packaged extension icons (`extension/icons/icon{16,32,48,128}.png`) are the
-anchor mark and ship inside `extension/dist/project-harbor-connect-1.1.0.zip`.
+anchor mark and ship inside `extension/dist/project-harbor-connect-1.1.1.zip`.
