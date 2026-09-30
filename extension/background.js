@@ -1,14 +1,14 @@
-// Project Harbor Connect — background service worker.
+// Hirewave Connect — background service worker.
 //
 // Code-free connect: the Hirewave web app sends one message (relayed by our
 // content script, which runs only on the app origin) with the provider + the
 // user's own short-lived access token. We read that job site's session cookies
-// and post them to Project Harbor authenticated as the user — so the user NEVER
+// and post them to Hirewave authenticated as the user — so the user NEVER
 // copies a pairing code.
 //
 // The password is never read (cookies only). The token is the user's own session,
 // used once for this call and not stored. Messages arrive only via the content
-// script, which is injected only on the Project Harbor app origin.
+// script, which is injected only on the Hirewave app origin.
 
 const API_DEFAULT = "https://hirewave-production-3db3.up.railway.app";
 

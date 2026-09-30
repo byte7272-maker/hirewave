@@ -1,4 +1,4 @@
-# Project Harbor Connect — Store Submission Kit
+# Hirewave Connect — Store Submission Kit
 
 Copy-paste content for the Chrome Web Store and Microsoft Edge Add-ons listing +
 review forms. Both stores ask for the same substance (listing copy, a single-
@@ -8,8 +8,8 @@ purpose statement, per-permission justifications, and data-use disclosures).
 
 ## Listing basics
 
-- **Name:** Project Harbor Connect
-- **Summary (<=132 chars):** Companion for Project Harbor -- connect a job board you already use so the assistant can help you apply. Session only, never your password.
+- **Name:** Hirewave Connect
+- **Summary (<=132 chars):** Companion for Hirewave -- connect a job board you already use so the assistant can help you apply. Session only, never your password.
 - **Category:** Productivity
 - **Language:** English
 - **Homepage / support URL:** https://hlrtlg.readdy.co
@@ -21,12 +21,12 @@ _(Rejected v1.1.0 for "excessive keywords" -- the old copy listed every supporte
 site by name. This version drops that list and frames the extension as a helper
 that works alongside the job boards you already use, not an alternative to them.)_
 
-> Project Harbor Connect is the companion browser extension for Project Harbor, your
+> Hirewave Connect is the companion browser extension for Hirewave, your
 > AI application assistant.
 >
 > Keep the job boards you already use. When you choose to connect a site you're
 > signed in to, the extension reads only that site's existing session (its cookies)
-> and hands it to your Project Harbor account over a secure connection, so the
+> and hands it to your Hirewave account over a secure connection, so the
 > assistant can help you tailor your resume and apply -- with you approving every
 > step. You stay logged in on the site's own page; the extension never sees, stores,
 > or transmits your password.
@@ -36,17 +36,17 @@ that works alongside the job boards you already use, not an alternative to them.
 > content belong to that site.
 >
 > Why install it:
-> - A helper, not autopilot: Project Harbor prepares applications; you approve every
+> - A helper, not autopilot: Hirewave prepares applications; you approve every
 >   apply.
 > - One connection: sign in on the site once, then connect it in a click.
 > - Private by design: your session only, never your password; it acts only when you
 >   ask, and you can disconnect any site at any time.
 >
-> You'll need a Project Harbor account to use this extension.
+> You'll need a Hirewave account to use this extension.
 
 ## How it works
 
-1. In Project Harbor, open **Connect a site** and choose a job site.
+1. In Hirewave, open **Connect a site** and choose a job site.
 2. Make sure you're logged into that site in this browser.
 3. The extension attaches your existing session automatically -- no code to copy.
    (If prompted, you can also open the extension popup and paste a one-time pairing
@@ -54,33 +54,43 @@ that works alongside the job boards you already use, not an alternative to them.
 
 ## Single-purpose statement (required)
 
-> The single purpose of this extension is to capture the user's existing job-site
-> login session (cookies) and hand it to the user's own Project Harbor account, so
-> Project Harbor can help the user apply for jobs and keep their resume updated on
-> that site. It is authorized either by the user's current app sign-in (when started
-> from the Project Harbor web app) or by a one-time pairing code.
+_(Paste verbatim into the dashboard's "Single purpose description" field.)_
+
+> Hirewave Connect connects a job site the user is already logged into (e.g.,
+> LinkedIn, Indeed) to the user's own Hirewave account, so Hirewave's assistant can
+> help the user apply for jobs and keep their resume updated on that site. When the
+> user chooses to connect a site, the extension reads only that site's existing
+> session cookies and sends them to the user's Hirewave account over HTTPS. It never
+> reads or transmits passwords — the user authenticates directly on the job site.
+> Capturing an existing job-site session on request and handing it to the user's own
+> Hirewave account is the extension's only function.
 
 ## Permission justifications (required -- one per permission)
 
-- **cookies** -- Reads the session cookies of the single job site the user chooses
-  to connect, so that authenticated session can be handed to the user's Project
-  Harbor account. This is the core function; without it the extension cannot connect
-  a site. (The specific host domains are listed under the host-permission
-  justification below.)
-- **tabs** -- Reads only the active tab's URL to auto-detect which supported job site
-  the user is on and pre-select the correct provider. No browsing history is
-  collected.
-- **storage** -- Persists the Project Harbor API base URL the user configures
-  (defaults to the production Project Harbor API). Local to the browser.
-- **host_permissions (the job-site domains + the Project Harbor API host)** -- The
-  job-site domains are the sites whose sessions the user can connect; the Project
-  Harbor API host is where the captured session is sent. Each host is required for
-  that site's connect flow.
-- **content script + background service worker (on the Project Harbor app origins
-  only)** -- The content script runs only on the Project Harbor web app: it marks the
-  app so it knows the extension is installed, and relays the user's connect request
-  (chosen provider) to the background worker, which reads the cookies and sends them.
-  It reads nothing else from the page and transmits nothing on its own.
+_(Paste each into the matching dashboard field.)_
+
+- **cookies** -- The extension reads the session cookies of the specific job site the
+  user chooses to connect so the authenticated session can be sent to the user's own
+  Hirewave account. This is the core and only function; without the cookies permission
+  the extension cannot capture the session and connect the site. Cookies are read only
+  in direct response to the user's action, only for the single site they select, and
+  are sent over HTTPS to the user's account. Passwords are never read.
+- **tabs** -- The tabs permission is used only to read the active tab's URL to
+  auto-detect which supported job site the user is currently on, so the correct site
+  is pre-selected in the connect UI. No browsing history is collected, stored, or
+  transmitted, and no other tab data is accessed. The URL is used ephemerally on the
+  client for provider detection only.
+- **storage** -- The storage permission persists one local setting — the Hirewave API
+  base URL the extension talks to (defaulting to the production API). It is stored only
+  in the user's browser via chrome.storage.local, is never synced or transmitted, and
+  contains no personal data. It exists so the user does not have to re-enter the endpoint.
+- **host permission** -- Two kinds of hosts are requested. (1) The supported job-site
+  domains (LinkedIn, Indeed, Glassdoor, Greenhouse, Workday, ZipRecruiter, Dice) —
+  required to read the session cookies of the specific site the user chooses to connect.
+  (2) The Hirewave API host and app origin — the API host is where the captured session
+  is sent over HTTPS to the user's account; the app origin is where a content script sets
+  a marker so the app knows the extension is installed and relays the user's connect
+  request. Each host is necessary for the connect flow; no other sites are accessed.
 
 ## Data-use disclosures (Chrome "Privacy practices" / Edge data collection)
 
@@ -108,7 +118,7 @@ Answer the store forms as follows:
 
 **Chrome Web Store** (developer.chrome.com/docs/webstore) -- one-time $5 developer
 registration if you've never published.
-1. Run `python extension/build.py` to produce `extension/dist/project-harbor-connect-<version>.zip`.
+1. Run `python extension/build.py` to produce `extension/dist/hirewave-connect-<version>.zip`.
 2. Chrome Web Store Developer Dashboard -> **New item** -> upload the zip (this
    creates the item and assigns the extension ID).
 3. Fill in the listing copy, single-purpose statement, permission justifications, and
@@ -124,6 +134,6 @@ registration if you've never published.
 ## After it's published
 
 - Grab the item's public URL/ID from the dashboard and put the store URL into the
-  Project Harbor "Connect a site" install button (see `docs/READDY_CONNECT_EXTENSION.md`).
+  Hirewave "Connect a site" install button (see `docs/READDY_CONNECT_EXTENSION.md`).
 - On each new release, bump `manifest.json` `version`, re-run `build.py`, and upload
   the new zip; the stores push auto-updates to installed users.
