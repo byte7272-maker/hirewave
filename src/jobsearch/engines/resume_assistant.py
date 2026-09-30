@@ -150,7 +150,8 @@ _EXPERT_REVIEWER = (
     "You are a senior executive resume writer and former technical recruiter who has "
     "screened thousands of resumes. Judge by concrete standards: the XYZ formula "
     "(every accomplishment states what was done, the measurable result, and how), "
-    "quantified impact, strong past-tense action verbs (never 'responsible for'), ATS "
+    "quantified impact, strong action verbs in the correct tense (present tense for the "
+    "candidate's current role, past tense for previous roles), never 'responsible for', ATS "
     "parseability (single column, standard section headings, no tables or graphics), "
     "tight keyword alignment to the target role, no first-person pronouns, and 1-2 "
     "page length. Be specific and candid -- name the actual weakness and cite the "
@@ -160,8 +161,10 @@ _REVISE_SYSTEM = (
     "You are an expert resume editor. Rewrite the candidate's resume to satisfy the "
     "user's instruction, using ONLY facts already present -- never invent employers, "
     "titles, dates, metrics, or skills. Apply the XYZ formula to each bullet "
-    "(accomplishment + measurable result + method), lead with strong past-tense action "
-    "verbs, cut first-person pronouns and filler, keep it ATS-friendly (single column, "
+    "(accomplishment + measurable result + method), lead with strong action verbs in the "
+    "correct tense (present tense for the candidate's current role, i.e. one with no end "
+    "date or 'Present'; past tense for previous roles), cut first-person pronouns and "
+    "filler, keep it ATS-friendly (single column, "
     "standard headings), and tighten toward 1-2 pages. "
     "Format the output as clean, consistent Markdown: the candidate name in **bold** at "
     "the top, section headings as '## SECTION' (e.g. Summary, Experience, Skills, "
@@ -691,7 +694,9 @@ class ResumeAssistant:
                 "work[{name,position,startDate,endDate,summary,highlights[]}], "
                 "education[{institution,area,studyType,startDate,endDate}], skills[{name,keywords[]}]). "
                 "Apply the XYZ formula to each highlight (did X, measured by Y, via Z), lead with strong "
-                "past-tense action verbs, quantify impact, and tighten the summary. Use ONLY facts already "
+                "action verbs in the correct tense (present tense for the current role when it has no end "
+                "date or 'Present', past tense for previous roles), quantify impact, and tighten the summary. "
+                "Use ONLY facts already "
                 "present -- never invent employers, titles, dates, metrics, or skills." + focus + points + reqs +
                 "\n\nResume:\n" + text[:4000],
                 system="You improve resumes and output only valid JSON Resume JSON.",
@@ -731,7 +736,8 @@ class ResumeAssistant:
                 "location{city,region}}, work[{name,position,startDate,endDate,summary,highlights[]}], "
                 "education[{institution,area,studyType,startDate,endDate}], skills[{name,keywords[]}]). "
                 "Integrate each additional point into the most relevant section (add a section if needed), "
-                "written as a strong resume bullet with the XYZ formula and past-tense action verbs. Use "
+                "written as a strong resume bullet with the XYZ formula and action verbs in the correct "
+                "tense (present tense for the current role, past tense for previous roles). Use "
                 "ONLY facts already in the resume PLUS the candidate's additional points -- never invent "
                 "employers, titles, dates, metrics, or skills beyond what is stated." + focus + ideas + reqs +
                 "\n\nResume:\n" + text[:4000],

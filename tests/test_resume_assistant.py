@@ -308,6 +308,20 @@ def test_api_improve_structured_uses_live_editor_content():
     assert client.get(f"/api/v1/resumes/{rid}", headers=h).json()["rendered_text"] == "- Built the API"
 
 
+def test_improve_prompt_uses_present_tense_for_current_role():
+    # A current role should read in present tense; the improve prompt must instruct
+    # correct tense (present for current, past for previous) rather than forcing past.
+    state = AppState(exchanger=MockTokenExchanger())
+    rec = _RecordingLLM()
+    state.resume_assistant.llm = rec
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    res = _upload(client, h, "## Experience\n**Acme (Present)**\n- Managed the billing system")
+    client.post(f"/api/v1/resumes/{res['id']}/improve-structured", headers=h, json={})
+    assert "present tense for the current role" in rec.last_prompt.lower()
+    assert "past tense for previous roles" in rec.last_prompt.lower()
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.
