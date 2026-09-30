@@ -531,6 +531,21 @@ class EvidenceExtractRequest(BaseModel):
     job_posting_id: Optional[str] = None
 
 
+class ReplaceRequest(BaseModel):
+    """A deterministic find-and-replace on the résumé text (no AI) — for exact edits
+    like 'replace X with Y' that must apply literally and visibly every time."""
+
+    find: str
+    replace: str = ""
+    all: bool = True             # replace every occurrence (False = first only)
+    case_sensitive: bool = False
+
+
+class ReplaceResult(BaseModel):
+    rendered_text: str           # the full updated résumé text (render this)
+    count: int                   # replacements made; 0 means the text wasn't found
+
+
 class EvidenceExtractResponse(BaseModel):
     #: Clean, discrete résumé-worthy data points extracted from the pasted text. The
     #: user reviews/selects these, then sends the chosen ones to /resumes/{id}/incorporate.

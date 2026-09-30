@@ -382,6 +382,34 @@ def test_api_evidence_prompts_and_extract_flow():
     assert client.post(f"/api/v1/resumes/{rid}/evidence/extract", headers=h, json={"text": "  "}).status_code == 400
 
 
+def test_api_replace_is_deterministic_and_reports_count():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    res = _upload(client, h, "- Managed the billing system\n- Managed the API team")
+    rid = res["id"]
+
+    # Exact replace, all occurrences, case-insensitive by default.
+    r = client.post(f"/api/v1/resumes/{rid}/replace", headers=h,
+                    json={"find": "Managed", "replace": "Led"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 2
+    assert "Led the billing system" in body["rendered_text"]
+    assert "Managed" not in body["rendered_text"]
+
+    # No match -> count 0, text unchanged (this is why "nothing changed").
+    r0 = client.post(f"/api/v1/resumes/{rid}/replace", headers=h,
+                     json={"find": "nonexistent phrase", "replace": "X"}).json()
+    assert r0["count"] == 0 and r0["rendered_text"] == "- Managed the billing system\n- Managed the API team"
+
+    # first-only + empty find guard.
+    one = client.post(f"/api/v1/resumes/{rid}/replace", headers=h,
+                      json={"find": "Managed", "replace": "Led", "all": False}).json()
+    assert one["count"] == 1 and one["rendered_text"].count("Led") == 1
+    assert client.post(f"/api/v1/resumes/{rid}/replace", headers=h,
+                       json={"find": "", "replace": "x"}).status_code == 400
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

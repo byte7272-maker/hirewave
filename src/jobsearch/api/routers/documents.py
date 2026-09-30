@@ -21,6 +21,8 @@ from jobsearch.api.schemas import (
     EvidencePromptsResponse,
     IncorporateRequest,
     JobCard,
+    ReplaceRequest,
+    ReplaceResult,
     ResumeGenerateRequest,
     ResumeReviewRequest,
     ResumeReviseRequest,
@@ -384,6 +386,32 @@ def incorporate_resume_ideas(
         markdown=resume_data_to_markdown(improved),
         flagged_metrics=find_new_metrics(baseline, improved),
     )
+
+
+@router.post("/resumes/{resume_id}/replace", response_model=ReplaceResult)
+def replace_in_resume(
+    resume_id: str, body: ReplaceRequest, user: CurrentUser, state: StateDep
+) -> ReplaceResult:
+    """Deterministic find-and-replace on the résumé text — no AI, so an exact edit
+    ('replace X with Y') always applies and you can see precisely what changed.
+    Returns the full updated text and how many replacements were made (``count`` 0
+    means the text you searched for wasn't found — the reason nothing changed).
+    Preview only: persist by PUT /resumes/{id} or POST /resumes/{id}/versions with
+    the returned text."""
+    import re
+
+    resume = get_resume(resume_id, user, state)
+    if not body.find:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide text to find")
+    text = resume.rendered_text or ""
+    flags = 0 if body.case_sensitive else re.IGNORECASE
+    pattern = re.compile(re.escape(body.find), flags)
+    limit = 0 if body.all else 1
+    count = len(pattern.findall(text)) if body.all else (1 if pattern.search(text) else 0)
+    # Replace with a function so the replacement text is treated literally (no
+    # regex backreference surprises from characters like \1 or $).
+    new_text = pattern.sub(lambda _m: body.replace, text, count=limit)
+    return ReplaceResult(rendered_text=new_text, count=count)
 
 
 _EVIDENCE_GUIDANCE = (
