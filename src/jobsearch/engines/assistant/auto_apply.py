@@ -464,6 +464,26 @@ class AutoApplyEngine:
         self.applications.add(app)
         return {"status": res.status, "simulated": None, "detail": res.detail}
 
+    def approve_all(self, user_id: str) -> dict:
+        """The user's explicit bulk OK: approve every one of their pending
+        applications. Each still goes through :meth:`approve_application` (the sole
+        real-submit path, still bound by the live-submit gate), so this is a
+        convenience over the same per-application decision — never an autonomous
+        submit. Owner-scoped; the owner lock serializes it against a grant run so the
+        same job can't be double-submitted. Returns a per-application summary."""
+        with self._user_lock(user_id):
+            results: list[dict] = []
+            submitted = 0
+            # Snapshot first: approve_application mutates each app's status.
+            for app in self.pending_approvals(user_id):
+                res = self.approve_application(user_id, app.id)
+                if res is None:  # raced away / no longer pending
+                    continue
+                results.append({"application_id": app.id, **res})
+                if res.get("status") == "submitted":
+                    submitted += 1
+            return {"approved": submitted, "total": len(results), "results": results}
+
     def run_grant(self, grant: AutoApplyGrant, *, dry_run: bool = False, limit: Optional[int] = None) -> RunResult:
         """Run a grant. A non-dry run holds the owner's lock for its duration so a
         concurrent run for the same user can't submit to the same job twice."""

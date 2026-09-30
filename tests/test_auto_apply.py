@@ -264,6 +264,56 @@ def test_approve_reject_are_owner_scoped():
     assert state.auto_apply.reject_application("u2", aid) is None
 
 
+def test_approve_all_submits_every_pending_owner_scoped():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+    from jobsearch.models import ApplicationStatus
+
+    state = _state(auto_apply_live_submit=True)
+    _seed_user(state, "u1")
+    _seed_user(state, "u2")
+    _job(state, "in1", "Python Developer", platform="indeed")
+    _job(state, "in2", "Python Engineer", platform="indeed")
+    _job(state, "in3", "Senior Pythonista", platform="indeed")
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    # u1 queues three; u2 queues one — approve_all for u1 must not touch u2's.
+    g1 = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]), max_submits=5, daily_cap=5)
+    state.auto_apply.run_grant(g1)
+    g2 = state.auto_apply.create_grant("u2", criteria=AutoApplyCriteria(title_keywords=["python"]), max_submits=5, daily_cap=5)
+    state.auto_apply.run_grant(g2)
+
+    assert len(state.auto_apply.pending_approvals("u1")) == 3
+    out = state.auto_apply.approve_all("u1")
+    assert out["approved"] == 3 and out["total"] == 3
+    assert all(r["status"] == "submitted" for r in out["results"])
+    assert not state.auto_apply.pending_approvals("u1")  # all cleared
+    assert all(a.status == ApplicationStatus.SUBMITTED for a in state.applications.find(user_id="u1"))
+    # u2's pending application is untouched.
+    assert len(state.auto_apply.pending_approvals("u2")) == 3
+
+
+def test_api_approve_all_endpoint():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+
+    state = AppState(settings=Settings(auto_apply_live_submit=True), exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    client.post("/api/v1/auth/register", json={"email": "a@b.com", "password": "supersecret", "full_name": "A"})
+    tok = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": "supersecret"}).json()["access_token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    _job(state, "in1", "Python Developer", platform="indeed")
+    _job(state, "in2", "Python Engineer", platform="indeed")
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    gid = client.post("/api/v1/auto-apply/grants", json={
+        "name": "Python", "scope": "criteria", "criteria": {"title_keywords": ["python"]},
+        "max_submits": 5, "daily_cap": 5,
+    }, headers=h).json()["id"]
+    client.post(f"/api/v1/auto-apply/grants/{gid}/run", json={}, headers=h)
+    assert len(client.get("/api/v1/auto-apply/approvals", headers=h).json()) == 2
+
+    out = client.post("/api/v1/auto-apply/approvals/approve-all", headers=h).json()
+    assert out["approved"] == 2 and out["total"] == 2
+    assert client.get("/api/v1/auto-apply/approvals", headers=h).json() == []
+
+
 # ---- concurrency: no double-submit ----------------------------------------
 def test_pre_submit_dedup_backstop_skips_already_applied():
     from jobsearch.models import Application, ApplicationStatus

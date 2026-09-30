@@ -235,6 +235,15 @@ def list_approvals(user: CurrentUser, state: StateDep) -> list[dict]:
     return out
 
 
+@router.post("/approvals/approve-all")
+def approve_all(user: CurrentUser, state: StateDep) -> dict:
+    """Your explicit bulk OK -> submit every pending application now. A convenience
+    over approving each one; it runs the same real-submit path per application (still
+    bound by the live-submit gate) and only touches your own pending applications.
+    Returns {approved, total, results:[{application_id, status, simulated, detail}]}."""
+    return state.auto_apply.approve_all(user.id)
+
+
 @router.post("/approvals/{application_id}/approve")
 def approve_application(application_id: str, user: CurrentUser, state: StateDep) -> dict:
     """Your explicit OK for one application -> submit it now. This is the only path
