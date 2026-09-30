@@ -54,33 +54,44 @@ that works alongside the job boards you already use, not an alternative to them.
 
 ## Single-purpose statement (required)
 
-> The single purpose of this extension is to capture the user's existing job-site
-> login session (cookies) and hand it to the user's own Project Harbor account, so
-> Project Harbor can help the user apply for jobs and keep their resume updated on
-> that site. It is authorized either by the user's current app sign-in (when started
-> from the Project Harbor web app) or by a one-time pairing code.
+_(Paste verbatim into the dashboard's "Single purpose description" field.)_
+
+> Project Harbor Connect connects a job site the user is already logged into (e.g.,
+> LinkedIn, Indeed) to the user's own Project Harbor account, so Project Harbor's
+> assistant can help the user apply for jobs and keep their resume updated on that
+> site. When the user chooses to connect a site, the extension reads only that site's
+> existing session cookies and sends them to the user's Project Harbor account over
+> HTTPS. It never reads or transmits passwords — the user authenticates directly on
+> the job site. Capturing an existing job-site session on request and handing it to
+> the user's own Project Harbor account is the extension's only function.
 
 ## Permission justifications (required -- one per permission)
 
-- **cookies** -- Reads the session cookies of the single job site the user chooses
-  to connect, so that authenticated session can be handed to the user's Project
-  Harbor account. This is the core function; without it the extension cannot connect
-  a site. (The specific host domains are listed under the host-permission
-  justification below.)
-- **tabs** -- Reads only the active tab's URL to auto-detect which supported job site
-  the user is on and pre-select the correct provider. No browsing history is
-  collected.
-- **storage** -- Persists the Project Harbor API base URL the user configures
-  (defaults to the production Project Harbor API). Local to the browser.
-- **host_permissions (the job-site domains + the Project Harbor API host)** -- The
-  job-site domains are the sites whose sessions the user can connect; the Project
-  Harbor API host is where the captured session is sent. Each host is required for
-  that site's connect flow.
-- **content script + background service worker (on the Project Harbor app origins
-  only)** -- The content script runs only on the Project Harbor web app: it marks the
-  app so it knows the extension is installed, and relays the user's connect request
-  (chosen provider) to the background worker, which reads the cookies and sends them.
-  It reads nothing else from the page and transmits nothing on its own.
+_(Paste each into the matching dashboard field.)_
+
+- **cookies** -- The extension reads the session cookies of the specific job site the
+  user chooses to connect so the authenticated session can be sent to the user's own
+  Project Harbor account. This is the core and only function; without the cookies
+  permission the extension cannot capture the session and connect the site. Cookies
+  are read only in direct response to the user's action, only for the single site they
+  select, and are sent over HTTPS to the user's account. Passwords are never read.
+- **tabs** -- The tabs permission is used only to read the active tab's URL to
+  auto-detect which supported job site the user is currently on, so the correct site
+  is pre-selected in the connect UI. No browsing history is collected, stored, or
+  transmitted, and no other tab data is accessed. The URL is used ephemerally on the
+  client for provider detection only.
+- **storage** -- The storage permission persists one local setting — the Project
+  Harbor API base URL the extension talks to (defaulting to the production API). It is
+  stored only in the user's browser via chrome.storage.local, is never synced or
+  transmitted, and contains no personal data. It exists so the user does not have to
+  re-enter the endpoint.
+- **host permission** -- Two kinds of hosts are requested. (1) The supported job-site
+  domains (LinkedIn, Indeed, Glassdoor, Greenhouse, Workday, ZipRecruiter, Dice) —
+  required to read the session cookies of the specific site the user chooses to connect.
+  (2) The Project Harbor API host and app origin — the API host is where the captured
+  session is sent over HTTPS to the user's account; the app origin is where a content
+  script sets a marker so the app knows the extension is installed and relays the user's
+  connect request. Each host is necessary for the connect flow; no other sites are accessed.
 
 ## Data-use disclosures (Chrome "Privacy practices" / Edge data collection)
 
