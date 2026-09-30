@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from jobsearch.engines.generation import Tone
 from jobsearch.models import (
@@ -250,7 +250,9 @@ class ExperienceUpdate(BaseModel):
 
 # --- applications -----------------------------------------------------------
 class ApplicationCreate(BaseModel):
-    job_posting_id: str
+    # Accept ``job_id`` too: the matches feed (MatchOut) exposes the posting id as
+    # ``job_id``, so quick-apply from a match card can post either key.
+    job_posting_id: str = Field(validation_alias=AliasChoices("job_posting_id", "job_id"))
     resume_id: Optional[str] = None
     cover_letter_id: Optional[str] = None
 

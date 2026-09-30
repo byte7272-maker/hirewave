@@ -270,6 +270,11 @@ def test_saved_jobs_and_applications_carry_company_logo():
     listed = client.get("/api/v1/applications", headers=h).json()
     assert listed[0]["job"]["company_logo"] == logo
 
+    # Quick-apply from a match card posts the match's own `job_id` key (MatchOut
+    # exposes it as job_id, not job_posting_id) -> the alias accepts it.
+    quick = client.post("/api/v1/applications", headers=h, json={"job_id": job_id})
+    assert quick.status_code == 201 and quick.json()["job_posting_id"] == job_id
+
 
 def test_api_saved_search_crud_and_run():
     client = _client()
