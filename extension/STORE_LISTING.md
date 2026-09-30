@@ -9,7 +9,7 @@ purpose statement, per-permission justifications, and data-use disclosures).
 ## Listing basics
 
 - **Name:** Project Harbor Connect
-- **Summary (<=132 chars):** Companion for Project Harbor -- connect a job board you already use so the assistant can help you apply. Session only, never your password.
+- **Summary (<=132 chars):** Connect a job board you already use so Project Harbor's assistant can help you apply. Session only, never your password. _(120 chars)_
 - **Category:** Productivity
 - **Language:** English
 - **Homepage / support URL:** https://hlrtlg.readdy.co
