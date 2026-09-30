@@ -136,9 +136,14 @@ registration if you've never published.
 2. Provide the same listing copy + permission justifications + privacy-policy URL.
 3. Submit for certification.
 
-## After it's published
+## Published (Chrome Web Store)
 
-- Grab the item's public URL/ID from the dashboard and put the store URL into the
-  Project Harbor "Connect a site" install button (see `docs/READDY_CONNECT_EXTENSION.md`).
+- **Item ID:** `apojagpcjhjfplfjfpcmlplhmokoandj`
+- **Public URL:** https://chromewebstore.google.com/detail/project-harbor-connect/apojagpcjhjfplfjfpcmlplhmokoandj
+  (canonical — omit any `?authuser=`/`?hl=` query params from links.)
+- **Status:** published for **testers** — only Google accounts on the dashboard's
+  Testers allowlist can install. Add each tester's email there.
+- Wire this URL into the "Connect a site" / "Add to Chrome" install button
+  (see `docs/READDY_CONNECT_EXTENSION.md`).
 - On each new release, bump `manifest.json` `version`, re-run `build.py`, and upload
-  the new zip; the stores push auto-updates to installed users.
+  the new zip; the store pushes auto-updates to installed users.
