@@ -49,6 +49,28 @@ def _extract_json(text: str) -> str:
     return text[start:end + 1] if start != -1 and end != -1 else text
 
 
+def _extract_json_array(text: str) -> str:
+    """Pull a JSON array out of an LLM reply (strips ``` fences / prose around it)."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    start, end = text.find("["), text.rfind("]")
+    return text[start:end + 1] if start != -1 and end != -1 else text
+
+
+def _dedupe_points(points: list[str]) -> list[str]:
+    """De-duplicate points case-insensitively while preserving order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in points:
+        key = " ".join(p.lower().split())
+        if key and key not in seen:
+            seen.add(key)
+            out.append(p.strip())
+    return out
+
+
 def _focus_points_block(focus_points: Optional[list[str]]) -> str:
     """Render review points into a prompt block so the improvement targets the exact
     weaknesses the on-screen AI summary raised. Empty when there are no points."""
@@ -761,6 +783,99 @@ class ResumeAssistant:
                 data.basics.summary = (f"{data.basics.summary} {extra}".strip()
                                        if data.basics.summary else extra)
         return data
+
+    # -- evidence mining: prompts for the user's company AI, then extract ---
+    def evidence_prompts(
+        self, resume: Optional[Resume] = None, *, role: str = "", job: Optional[JobPosting] = None
+    ) -> list[dict]:
+        """Prompts the user pastes into their COMPANY AI assistant — one with access to
+        their work email, chat/Teams, calendar and docs — to surface concrete,
+        résumé-worthy evidence of their work (accomplishments, projects, metrics,
+        recognition). They run these there and bring the output back for us to polish
+        into bullets. Deterministic and privacy-preserving: we never touch the company
+        data; the user copies the prompt out and pastes results back. No LLM needed.
+
+        ``role`` personalises the wording; if omitted it's derived from the résumé.
+        When a target ``job`` is given, a role-alignment prompt is appended."""
+        role = (role or "").strip()
+        if not role and resume is not None:
+            try:
+                basics = self.structure(resume).basics
+                role = (basics.label or "").strip()
+                if not role:
+                    struct = self.structure(resume)
+                    role = (struct.work[0].position or "").strip() if struct.work else ""
+            except Exception:  # noqa: BLE001
+                role = ""
+        role_phrase = f"my role as {role}" if role else "my role"
+        window = "the last 12 months"
+        prompts = [
+            {"category": "Accomplishments & impact", "title": "Top accomplishments with metrics",
+             "prompt": f"Search my sent emails, chat/Teams messages and calendar from {window}. List my "
+                       f"top 10 accomplishments in {role_phrase}. For each, write one sentence with the "
+                       "specific result and any numbers (%, $, time saved, users, revenue, scale), and note "
+                       "the project and exactly what I did. Only include work clearly attributable to me."},
+            {"category": "Projects & ownership", "title": "Projects I led or owned",
+             "prompt": f"From my email, Teams and calendar over {window}, list the projects I led or owned. "
+                       "For each: the goal, my responsibilities, the outcome, the timeline, and any "
+                       "measurable results. Mark which ones I drove end-to-end."},
+            {"category": "Metrics & results", "title": "Quantified results",
+             "prompt": "Find every concrete metric tied to my work in my emails and Teams messages — "
+                       "percentages, dollar amounts, time saved, performance gains, adoption, headcount, "
+                       "SLAs. For each, give the before/after and the initiative it came from."},
+            {"category": "Leadership & collaboration", "title": "Leadership and mentoring",
+             "prompt": "From my messages and meetings, summarise where I showed leadership: people I "
+                       "mentored or managed, cross-team initiatives I coordinated, decisions I drove, and "
+                       "blockers or conflicts I resolved. Include specifics and outcomes."},
+            {"category": "Recognition & feedback", "title": "Praise and recognition",
+             "prompt": "Search my email and Teams for praise, thank-yous, positive feedback, awards or "
+                       "recognition I received. Quote the source and date, and summarise what it was for."},
+            {"category": "Skills & tools", "title": "Skills and tools I actually used",
+             "prompt": "From my work over the last year, list the technologies, tools, methods and domains I "
+                       "actually used, each with a concrete example of how I used it. Rank by how central "
+                       "each was to my work."},
+            {"category": "Scope & scale", "title": "The scope I operated at",
+             "prompt": "Summarise the scope I worked at: team/org size, budget or systems I was responsible "
+                       "for, number of stakeholders or customers, and product or geographic breadth. Use "
+                       "concrete numbers where available."},
+        ]
+        if job is not None:
+            reqs = ", ".join((job.requirements or [])[:10]) or f"the {job.title} role"
+            prompts.append({
+                "category": "Target-role alignment", "title": f"Evidence for {job.title}",
+                "prompt": f"I'm targeting a {job.title} role. From my email, Teams and calendar, find "
+                          f"concrete evidence that I've done work relevant to: {reqs}. For each, give a "
+                          "specific example with the result and any metrics — or say I have no clear "
+                          "evidence for it."})
+        return prompts
+
+    def extract_evidence(self, text: str) -> list[str]:
+        """Turn the raw output a user pasted from their company AI into clean, discrete,
+        résumé-worthy data points (one accomplishment/fact each, metrics preserved).
+        Extract-only — never invents; the points then feed :meth:`incorporate`. LLM
+        with a deterministic fallback that splits bullet/line structure."""
+        text = (text or "").strip()
+        if not text:
+            return []
+        try:
+            out = self.llm.complete(
+                "From the notes below (a person's own work history pulled from their company tools), "
+                "extract the discrete, résumé-worthy accomplishments as a JSON array of short strings — "
+                "one clear fact per string, each stating what was done and the measurable result if given. "
+                "Preserve numbers exactly. Merge duplicates. Drop greetings, headers, and anything not "
+                "about this person's own work. Never invent anything. Return ONLY a JSON array of strings."
+                "\n\nNotes:\n" + text[:6000],
+                system="You extract concise resume accomplishment points and output only a JSON array of strings.",
+                max_tokens=900,
+            )
+            data = json.loads(_extract_json_array(out))
+            pts = [str(p).strip() for p in data if str(p).strip()]
+            if pts:
+                return _dedupe_points(pts)[:40]
+        except Exception:  # noqa: BLE001 - fall back to a structural split
+            pass
+        lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in text.splitlines()]
+        return _dedupe_points([ln for ln in lines if len(ln) > 8])[:40]
 
     def incorporate_cover_letter(
         self, cover_letter: CoverLetter, points: list[str], *, instruction: str = "",

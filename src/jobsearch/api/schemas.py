@@ -503,6 +503,40 @@ class IncorporateRequest(BaseModel):
     job_posting_id: Optional[str] = None
 
 
+class EvidencePromptsRequest(BaseModel):
+    """Generate prompts the user runs in their company AI to mine accomplishments."""
+
+    #: Optional target job — adds a role-alignment prompt tailored to its requirements.
+    job_posting_id: Optional[str] = None
+    #: Optional role override; when omitted it's derived from the résumé.
+    role: str = ""
+
+
+class EvidencePrompt(BaseModel):
+    category: str
+    title: str
+    prompt: str
+
+
+class EvidencePromptsResponse(BaseModel):
+    prompts: list[EvidencePrompt] = Field(default_factory=list)
+    #: How to use these + a privacy reminder, for the on-screen helper text.
+    guidance: str = ""
+
+
+class EvidenceExtractRequest(BaseModel):
+    """Raw output the user pasted back from their company AI assistant."""
+
+    text: str
+    job_posting_id: Optional[str] = None
+
+
+class EvidenceExtractResponse(BaseModel):
+    #: Clean, discrete résumé-worthy data points extracted from the pasted text. The
+    #: user reviews/selects these, then sends the chosen ones to /resumes/{id}/incorporate.
+    data_points: list[str] = Field(default_factory=list)
+
+
 class RephraseRequest(BaseModel):
     """Ask the AI to rephrase a selected span (a word, sentence, or paragraph)."""
 

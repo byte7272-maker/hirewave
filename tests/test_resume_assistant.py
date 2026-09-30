@@ -322,6 +322,66 @@ def test_improve_prompt_uses_present_tense_for_current_role():
     assert "past tense for previous roles" in rec.last_prompt.lower()
 
 
+# --- evidence mining (prompts for company AI -> extract -> incorporate) ------
+def test_evidence_prompts_are_actionable_and_target_role_aware():
+    a = ResumeAssistant()
+    r = _resume("## Experience\n**Acme (Present)** — Staff Engineer\n- Built the billing platform")
+    prompts = a.evidence_prompts(r, role="Staff Engineer")
+    assert len(prompts) >= 7
+    assert all({"category", "title", "prompt"} <= set(p) for p in prompts)
+    blob = " ".join(p["prompt"] for p in prompts).lower()
+    assert "email" in blob and "teams" in blob  # points users at their company tools
+    assert any("staff engineer" in p["prompt"].lower() for p in prompts)
+    # With a target job, a role-alignment prompt is appended citing its requirements.
+    job = JobPosting(title="Engineering Manager", company="Globex", requirements=["team leadership", "roadmap"])
+    tp = a.evidence_prompts(r, job=job)
+    align = [p for p in tp if p["category"] == "Target-role alignment"]
+    assert align and "Engineering Manager" in align[0]["prompt"] and "team leadership" in align[0]["prompt"]
+
+
+def test_extract_evidence_uses_llm_array_then_falls_back():
+    class _ArrayLLM:
+        name = "arr"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return '```json\n["Led billing migration cutting latency 40%", "Mentored 3 engineers"]\n```'
+
+    a = ResumeAssistant(llm=_ArrayLLM())
+    pts = a.extract_evidence("blah blah (assistant output)")
+    assert pts == ["Led billing migration cutting latency 40%", "Mentored 3 engineers"]
+
+    class _BrokenLLM:
+        name = "broken"
+        def complete(self, *args, **kwargs):
+            raise RuntimeError("no llm")
+
+    a2 = ResumeAssistant(llm=_BrokenLLM())
+    fb = a2.extract_evidence("- Led billing migration cutting latency 40%\n* Mentored 3 engineers\n\nRegards,")
+    assert "Led billing migration cutting latency 40%" in fb
+    assert "Mentored 3 engineers" in fb
+    assert a2.extract_evidence("   ") == []  # empty -> nothing
+
+
+def test_api_evidence_prompts_and_extract_flow():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    res = _upload(client, h, "## Experience\n**Acme (Present)** — Data Scientist\n- Built churn models")
+    rid = res["id"]
+    pr = client.post(f"/api/v1/resumes/{rid}/evidence-prompts", headers=h, json={})
+    assert pr.status_code == 200
+    body = pr.json()
+    assert body["prompts"] and body["guidance"]
+    assert all(p["prompt"] for p in body["prompts"])
+
+    # Extract data points from pasted company-AI output.
+    ex = client.post(
+        f"/api/v1/resumes/{rid}/evidence/extract", headers=h,
+        json={"text": "- Shipped a fraud model that cut chargebacks 30%\n- Led a team of 4 on the data platform"},
+    )
+    assert ex.status_code == 200 and ex.json()["data_points"]
+    # Empty paste -> 400.
+    assert client.post(f"/api/v1/resumes/{rid}/evidence/extract", headers=h, json={"text": "  "}).status_code == 400
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

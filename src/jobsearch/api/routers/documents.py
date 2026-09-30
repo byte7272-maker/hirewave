@@ -14,6 +14,11 @@ from jobsearch.api.schemas import (
     CoverLetterTailoring,
     CoverLetterUpdate,
     CreateVersionRequest,
+    EvidenceExtractRequest,
+    EvidenceExtractResponse,
+    EvidencePrompt,
+    EvidencePromptsRequest,
+    EvidencePromptsResponse,
     IncorporateRequest,
     JobCard,
     ResumeGenerateRequest,
@@ -379,6 +384,47 @@ def incorporate_resume_ideas(
         markdown=resume_data_to_markdown(improved),
         flagged_metrics=find_new_metrics(baseline, improved),
     )
+
+
+_EVIDENCE_GUIDANCE = (
+    "Copy a prompt into your company's AI assistant (e.g. one connected to your work "
+    "email, Teams/chat, calendar and documents). Run it, then paste the answer back "
+    "here — Project Harbor pulls out the résumé-worthy points and polishes them into "
+    "bullets you can add. Only run prompts you're allowed to under your company's data "
+    "policies; nothing is sent anywhere by this app until you paste it back yourself."
+)
+
+
+@router.post("/resumes/{resume_id}/evidence-prompts", response_model=EvidencePromptsResponse)
+def evidence_prompts(
+    resume_id: str, body: EvidencePromptsRequest, user: CurrentUser, state: StateDep
+) -> EvidencePromptsResponse:
+    """Prompts the user runs in their OWN company AI assistant (which has access to
+    their work email, Teams, calendar, docs) to surface concrete evidence of their
+    performance — accomplishments, projects, metrics, recognition. The user pastes the
+    output back into ``/resumes/{id}/evidence/extract``. This app never touches the
+    company data; it only produces the prompts and processes what the user pastes."""
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    prompts = state.resume_assistant.evidence_prompts(resume, role=body.role, job=job)
+    return EvidencePromptsResponse(
+        prompts=[EvidencePrompt(**p) for p in prompts], guidance=_EVIDENCE_GUIDANCE
+    )
+
+
+@router.post("/resumes/{resume_id}/evidence/extract", response_model=EvidenceExtractResponse)
+def extract_evidence(
+    resume_id: str, body: EvidenceExtractRequest, user: CurrentUser, state: StateDep
+) -> EvidenceExtractResponse:
+    """Turn the raw text the user pasted from their company AI into clean, discrete
+    résumé-worthy data points. The user reviews/selects these, then sends the chosen
+    ones to ``/resumes/{id}/incorporate`` to get polished bullets. Extract-only —
+    never invents; the points are the user's own supplied facts."""
+    get_resume(resume_id, user, state)  # 404 if not owned
+    if not body.text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the assistant's output to extract from")
+    points = state.resume_assistant.extract_evidence(body.text)
+    return EvidenceExtractResponse(data_points=points)
 
 
 @router.post("/cover-letters/{cover_letter_id}/incorporate",
