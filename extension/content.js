@@ -1,4 +1,4 @@
-// Hirewave Connect — content script (runs only on the app origins in the
+// Project Harbor Connect — content script (runs only on the app origins in the
 // manifest). Two jobs:
 //   1) Announce the extension to the app so it can skip the install step.
 //   2) Bridge: relay the app's connect request (a window message) to the

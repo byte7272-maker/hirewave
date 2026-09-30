@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Package the extension into a store-ready zip.
 
-Produces ``extension/dist/hirewave-connect-<version>.zip`` containing only the
+Produces ``extension/dist/project-harbor-connect-<version>.zip`` containing only the
 files the store needs (manifest, popup, icons) -- README/PRIVACY/STORE_LISTING and
 this script are excluded. Run from anywhere:
 
@@ -35,7 +35,7 @@ def main() -> None:
         raise SystemExit("Missing files, cannot package: " + ", ".join(missing))
 
     DIST.mkdir(exist_ok=True)
-    out = DIST / f"hirewave-connect-{version}.zip"
+    out = DIST / f"project-harbor-connect-{version}.zip"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
         for m in members:
             if m.is_file():

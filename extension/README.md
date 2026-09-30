@@ -46,6 +46,6 @@ package a store-ready zip.
 - To point at a non-production Hirewave, set the API base under **Advanced** in the
   popup (persisted per browser).
 - Branded icons (16/32/48/128) are in `icons/` and declared in the manifest.
-- Packaging: `python extension/build.py` -> `extension/dist/hirewave-connect-<version>.zip`.
+- Packaging: `python extension/build.py` -> `extension/dist/project-harbor-connect-<version>.zip`.
 - Store submission: `STORE_LISTING.md` (copy + permission justifications); privacy
   policy in `PRIVACY.md` (host it publicly and put the URL in both listings).
