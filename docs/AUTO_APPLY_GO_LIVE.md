@@ -1,15 +1,24 @@
 # Auto-Apply Go-Live Runbook
 
-How to move standing auto-apply from **safe simulation** to **real autonomous
+How to move standing auto-apply from **safe simulation** to **real assisted
 submission**, without firing a bad application on the way. Follow the phases in
 order — each one is gated so nothing submits for real until you deliberately
 enable it.
 
+> **Hard rule (enforced in code, not by a toggle): an autonomous run NEVER
+> submits a real application.** When a scheduled/standing run reaches a live form
+> it stops and **queues the application for the user's explicit per-application
+> approval** (`pending_approval`). The application is sent only when the user
+> approves that specific one via `POST /auto-apply/approvals/{id}/approve` — the
+> single real-submit path. There is no setting that makes a run submit on its own.
+
 > TL;DR of the gates (all default to the safe value):
 > - `JOBSEARCH_ASSISTANT_BROWSER=mock` → no real browser (simulated).
-> - `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` → a live run fills but never clicks Submit.
+> - `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` → even an **approved** application
+>   stops at review instead of clicking Submit. `true` lets an approval submit.
 > - `JOBSEARCH_SCHEDULER_ENABLED=false` → nothing runs on its own.
-> You turn these on one at a time, validating between each.
+> You turn these on one at a time, validating between each. Note the live-submit
+> gate only affects the **approval** step — a run itself never submits regardless.
 
 ## Safety model (what protects you)
 
@@ -26,6 +35,11 @@ enable it.
   verified-only default. Runs are deduped and audited.
 - **LinkedIn is always assisted** (queued for the user to click Apply) — never
   auto-submitted server-side, regardless of settings.
+- **Mandatory per-application approval.** No run — dry, live, or scheduled —
+  submits a real application. A live run prepares it and parks it in
+  `pending_approval`; only the user's explicit approval of that individual
+  application submits it. This is enforced in `auto_apply.py`, not by a config
+  flag, so it holds even with every gate turned on.
 
 ## 0. Preconditions
 
@@ -49,7 +63,7 @@ enable it.
 | `JOBSEARCH_ASSISTANT_BROWSER` | `mock` | `playwright` = drive a real browser. `mock` = simulate. |
 | `JOBSEARCH_ASSISTANT_BROWSER_HEADLESS` | `true` | Set `false` during validation so you can watch the fill. |
 | `JOBSEARCH_ASSISTANT_BROWSER_STORAGE_STATE` | _(empty)_ | Optional path to a single pre-auth session (for a smoke test). Normally each user connects their own. |
-| `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT` | `false` | **The final-submit gate.** `false` = fill and stop at review; `true` = click Submit. |
+| `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT` | `false` | **The final-submit gate, applied at the approval step only.** `false` = an approved application fills and stops at review; `true` = an approved application clicks Submit. Never lets a *run* submit — a run always queues for approval first. |
 | `JOBSEARCH_SCHEDULER_ENABLED` | `false` | `true` = the API runs due grants/searches/reminders on a cadence (no cron). |
 | `JOBSEARCH_SCHEDULER_INTERVAL_SECONDS` | `900` | How often the in-process scheduler ticks. |
 
@@ -124,16 +138,16 @@ and **nothing** recorded in applications. If the wrong jobs match, fix the
 criteria (note: `min_fit_score` is scored against **this user's** profile — a
 sparse profile fails closed and nothing is eligible).
 
-## Phase 2 — Live-fill validation, submit gate OFF
+## Phase 2 — Live-fill validation (a run only ever queues for approval)
 
 Prove the real browser fills correctly and the guardrails hold — **without ever
-submitting**.
+submitting**. A live run never submits; it parks each job in `pending_approval`.
 
 1. Deploy the **worker** service (`Dockerfile.worker`) and set on it:
    ```
    JOBSEARCH_ASSISTANT_BROWSER=playwright
    JOBSEARCH_ASSISTANT_BROWSER_HEADLESS=false     # watch it
-   JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false          # still gated
+   JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false          # approval-step gate, still off
    JOBSEARCH_SCHEDULER_INTERVAL_SECONDS=120        # tick often while validating
    ```
 2. Connect a real provider session (cookies only — never a password) via the
@@ -147,49 +161,73 @@ submitting**.
    ```
    The worker runs it on its next tick. (You can also dry-run from the web API to
    preview, but web can't fill live — only the worker has a browser.)
-4. Watch the **worker logs**; expected outcome: `filled_pending_submit` (the gate held). Watch the browser:
+4. Watch the **worker logs**; expected run outcome: `pending_approval` — the run
+   prepared the application and stopped, submitting nothing. A `pending_approval`
+   `Application` now exists (`submitted_at` null).
+5. Then exercise the **approval preview** from the web API (the gate is still off,
+   so this fills-and-holds without submitting):
+   ```bash
+   GET  /api/v1/auto-apply/approvals                 # the parked application(s)
+   POST /api/v1/auto-apply/approvals/{id}/approve     # gate OFF -> filled_pending_submit
+   ```
+   Watch the browser during the approve:
    - factual fields are filled from the profile,
    - **credential fields stay empty**,
-   - unknown required questions produce `needs_input` (not a guess).
-5. Repeat **per provider** (Indeed, then any others) and per a few real postings
+   - unknown required questions produce `needs_input` (not a guess),
+   - with the gate off the approve returns `filled_pending_submit` (nothing sent).
+6. Repeat **per provider** (Indeed, then any others) and per a few real postings
    until the fill is correct and the selectors don't drift. Selector drift shows
    up as `no_apply_button` or `needs_input`, which are safe (manual fallback),
    not bad submissions.
 
 Do not proceed until Phase 2 is clean for the providers you intend to enable.
 
-## Phase 3 — Canary real submission
+## Phase 3 — Canary real submission (approve one, gate on)
 
-Enable the final click for a tiny, controlled grant.
+Enable the final click **for the approval step**, then approve a single parked
+application yourself. The run still only queues — you are the one who submits.
 
 1. On the **worker** service set `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=true` (keep
-   `HEADLESS=false` for the first one) and redeploy.
+   `HEADLESS=false` for the first one) and redeploy. (This gate governs the
+   approve endpoint; it does **not** make any run submit.)
 2. Create a **scope=jobs** grant with a single, verified job you're willing to
    really apply to: `max_submits: 1`, `daily_cap: 1`, `require_verified: true`,
-   `mode: "auto"`, `interval_minutes: 2` (so the worker picks it up).
-3. Let the worker run it on its next tick (watch the worker logs).
+   `mode: "auto"`, `interval_minutes: 2`. Let the worker run it — it parks a
+   `pending_approval` application (outcome `pending_approval`, nothing sent).
+3. Review it, then give your explicit OK for that one application:
+   ```bash
+   GET  /api/v1/auto-apply/approvals
+   POST /api/v1/auto-apply/approvals/{id}/approve      # the sole real-submit path
+   ```
 4. Verify:
-   - outcome `submitted`, a real confirmation string,
-   - a new `Application` whose `platform_response.simulated == false` (a genuine
-     submission — a simulated one would be `true`),
+   - the approve returns `{"status":"submitted","simulated":false}` with a real
+     confirmation string,
+   - the `Application` flips to `submitted`, `platform_response.simulated == false`
+     (a genuine submission — a simulated one would be `true`), `submitted_at` set,
    - the grant counters advanced (`submits_used`, `submitted_today`).
 5. Confirm on the provider's site that the application actually landed.
 
 If anything looks wrong, **flip the worker's `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false`**
-— live runs immediately revert to fill-and-review.
+— approvals immediately revert to fill-and-review, and runs were never submitting
+anyway. Reject a parked application with
+`POST /api/v1/auto-apply/approvals/{id}/reject`.
 
-## Phase 4 — Go autonomous
+## Phase 4 — Go autonomous (runs queue; you approve)
 
-Only after Phases 2–3 pass. The worker already runs the loop, so "going
-autonomous" is just widening scope, not turning on a new switch.
+Only after Phases 2–3 pass. "Autonomous" here means the worker autonomously
+**prepares and queues** applications on a cadence — it never submits on its own.
+Every real send still requires the user to approve that specific application.
 
 1. On the worker, set production cadence + headless:
    ```
    JOBSEARCH_ASSISTANT_BROWSER_HEADLESS=true
    JOBSEARCH_SCHEDULER_INTERVAL_SECONDS=900
+   JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=true          # so approvals can submit
    ```
 2. Give real grants a cadence (`interval_minutes > 0`) with **conservative caps**
-   (`max_submits`, `daily_cap`) and `require_verified: true`. Widen gradually.
+   (`max_submits`, `daily_cap`) and `require_verified: true`. Widen gradually. As
+   they run, applications pile up in `pending_approval` for the user to review and
+   approve (or reject) in the app — nothing is ever sent without that approval.
 3. **One scheduler only.** The worker is it. Do not set
    `JOBSEARCH_SCHEDULER_ENABLED=true` on web, and do not also run the
    `python -m jobsearch.scheduler` cron — any second scheduler doubles runs and
@@ -208,9 +246,14 @@ autonomous" is just widening scope, not turning on a new switch.
   summary; submissions log per grant). `/health` (web) → `encryption`,
   `scheduler`, `persistence`.
 - Run results carry `simulated` (true = mock, not sent) and per-job `outcomes`
-  with statuses: `submitted`, `filled_pending_submit`, `needs_session`,
-  `needs_login`, `captcha`, `needs_input`, `no_apply_button`, `queued`, `skipped`,
-  `error`.
+  with statuses: `pending_approval` (live run parked it for your OK — the normal
+  live outcome), `submitted` (mock/simulated inside a run, or a real send from an
+  approval), `needs_session`, `needs_login`, `captcha`, `needs_input`,
+  `no_apply_button`, `queued`, `skipped`, `error`. `filled_pending_submit` appears
+  from the **approve** endpoint when the live-submit gate is off.
+- **Approvals:** `GET /api/v1/auto-apply/approvals` lists applications parked by a
+  run awaiting the user's OK; `POST .../approvals/{id}/approve` is the only path
+  that submits a real application; `.../reject` declines one (never sent).
 - Every fill/submit is written to the automation **audit** trail; submissions
   also fire the user's notifications (in-app + any configured SMS/push/email).
 - The apply **queue** (`GET /api/v1/auto-apply/queue`) holds assisted/LinkedIn
@@ -221,8 +264,9 @@ autonomous" is just widening scope, not turning on a new switch.
 | To stop… | Do this |
 |---|---|
 | One grant | `PATCH /grants/{id}` `{ "status": "paused" }` (or `"revoked"`) |
-| All real submission | Worker `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` (live runs revert to fill-only) |
-| All autonomous runs | Stop / scale-to-zero the **worker** service |
+| All real submission | Worker `JOBSEARCH_AUTO_APPLY_LIVE_SUBMIT=false` (approvals revert to fill-only; runs never submitted) — or simply stop approving |
+| All autonomous runs (queuing) | Stop / scale-to-zero the **worker** service |
+| A single parked application | `POST /api/v1/auto-apply/approvals/{id}/reject` |
 | A provider entirely | `DELETE /api/v1/auto-apply/sessions/{provider}` (disconnect the session) |
 | Everything, hard | Worker `JOBSEARCH_ASSISTANT_BROWSER=mock` (back to simulation) |
 

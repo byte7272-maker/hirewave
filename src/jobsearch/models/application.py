@@ -13,6 +13,10 @@ from jobsearch.models.common import DomainModel, new_id, utcnow
 
 class ApplicationStatus(str, Enum):
     DRAFT = "draft"
+    #: Auto-apply prepared this application but it is NOT sent — it waits for the
+    #: user's explicit per-application approval. A real submission never happens
+    #: from an autonomous run; only an approval turns this into ``submitted``.
+    PENDING_APPROVAL = "pending_approval"
     SUBMITTED = "submitted"
     INTERVIEWING = "interviewing"
     REJECTED = "rejected"

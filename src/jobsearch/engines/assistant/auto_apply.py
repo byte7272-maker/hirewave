@@ -400,6 +400,70 @@ class AutoApplyEngine:
                 lock = self._user_locks[user_id] = threading.Lock()
             return lock
 
+    def _queue_for_approval(self, grant: AutoApplyGrant, job: JobPosting, provider: str) -> Application:
+        """Record a job as awaiting the user's explicit approval — prepared, but NOT
+        sent. Only :meth:`approve_application` turns this into a real submission."""
+        return self.applications.add(Application(
+            user_id=grant.user_id,
+            job_posting_id=job.id,
+            status=ApplicationStatus.PENDING_APPROVAL,
+            platform_response={"auto_apply": True, "pending": True,
+                               "grant_id": grant.id, "provider": provider},
+        ))
+
+    def pending_approvals(self, user_id: str) -> list[Application]:
+        """Applications auto-apply prepared that await the user's per-application OK."""
+        return [a for a in self.applications.find(user_id=user_id)
+                if a.status == ApplicationStatus.PENDING_APPROVAL]
+
+    def reject_application(self, user_id: str, application_id: str) -> Optional[Application]:
+        """Decline a pending application (the user's 'no'). It is never submitted."""
+        app = self.applications.get(application_id)
+        if app is None or app.user_id != user_id or app.status != ApplicationStatus.PENDING_APPROVAL:
+            return None
+        app.status = ApplicationStatus.REJECTED
+        app.updated_at = utcnow()
+        app.record_event("approval_rejected")
+        return self.applications.add(app)
+
+    def approve_application(self, user_id: str, application_id: str) -> Optional[dict]:
+        """The user's explicit per-application approval -> perform the actual submit
+        for this one job. This is the ONLY path that can submit a real application;
+        an autonomous run can never reach it. Still respects the live-submit config
+        gate, so a real send also needs the environment to be enabled (double lock)."""
+        app = self.applications.get(application_id)
+        if app is None or app.user_id != user_id or app.status != ApplicationStatus.PENDING_APPROVAL:
+            return None
+        user = self.users.get(user_id)
+        profile = self.profiles.get(user_id) or UserProfile(user_id=user_id)
+        job = self.jobs.get(app.job_posting_id)
+        if user is None or job is None:
+            return {"status": "error", "detail": "job or user no longer available"}
+        provider = (app.platform_response.get("provider") or job.source_platform or "linkedin").lower()
+        storage = self.sessions.reveal(user_id, provider) or ""
+        plan, resume_name, resume_data, replan = self._prepare(user, profile, job)
+        driver, live = self._build_driver(self.settings, platform=provider, storage_state=storage)
+        res = self.assistant.execute_fill(
+            user, plan, driver, url=job.url, submit=True, job_id=job.id,
+            resume_name=resume_name, resume_data=resume_data, live=live, replan=replan,
+            allow_live_submit=getattr(self.settings, "auto_apply_live_submit", False),
+        )
+        if res.status == "submitted":
+            simulated = not res.live
+            app.status = ApplicationStatus.SUBMITTED
+            app.submitted_at = utcnow()
+            app.platform_response = {**app.platform_response, "confirmation": res.confirmation,
+                                     "simulated": simulated, "pending": False}
+            app.record_event("approved_submitted", simulated=simulated)
+            self.applications.add(app)
+            self.sessions.mark_used(user_id, provider)
+            return {"status": "submitted", "simulated": simulated, "detail": res.detail}
+        # Not submitted (gate off -> filled_pending_submit, stale session, etc.):
+        # the application stays pending for the user to retry.
+        app.record_event("approve_attempt", status=res.status)
+        self.applications.add(app)
+        return {"status": res.status, "simulated": None, "detail": res.detail}
+
     def run_grant(self, grant: AutoApplyGrant, *, dry_run: bool = False, limit: Optional[int] = None) -> RunResult:
         """Run a grant. A non-dry run holds the owner's lock for its duration so a
         concurrent run for the same user can't submit to the same job twice."""
@@ -440,7 +504,7 @@ class AutoApplyEngine:
         profile = self.profiles.get(grant.user_id) or UserProfile(user_id=grant.user_id)
         outcomes: list[JobOutcome] = []
         submitted_titles: list[str] = []
-        submitted = attempted = 0
+        submitted = attempted = budget_used = 0
         any_simulated = False
 
         for job in eligible:
@@ -455,7 +519,7 @@ class AutoApplyEngine:
                 outcomes.append(oc)
                 continue
 
-            if submitted >= budget:
+            if budget_used >= budget:
                 break
 
             if dry_run:
@@ -484,8 +548,23 @@ class AutoApplyEngine:
                 outcomes.append(oc)
                 continue
 
-            plan, resume_name, resume_data, replan = self._prepare(user, profile, job)
             driver, live = self._build_driver(self.settings, platform=platform, storage_state=storage)
+            if live:
+                # HARD RULE: an autonomous run NEVER submits a real application.
+                # It queues the job for the user's explicit per-application approval;
+                # the actual submit happens only via approve_application(). This is
+                # enforced in code, not by a config toggle.
+                self._queue_for_approval(grant, job, platform)
+                grant.submits_used += 1
+                grant.submitted_today += 1
+                budget_used += 1
+                oc.status = "pending_approval"
+                oc.detail = "Queued for your approval — nothing is submitted until you approve it."
+                outcomes.append(oc)
+                continue
+            # Offline/mock driver: simulate (never a real submission) so the pipeline
+            # is demoable/testable. The submission is recorded flagged simulated.
+            plan, resume_name, resume_data, replan = self._prepare(user, profile, job)
             res = self.assistant.execute_fill(
                 user, plan, driver, url=job.url, submit=True, job_id=job.id,
                 resume_name=resume_name, resume_data=resume_data, live=live,
@@ -497,11 +576,11 @@ class AutoApplyEngine:
             oc.detail = res.detail
             if res.status == "submitted":
                 submitted += 1
+                budget_used += 1
                 submitted_titles.append(job.title)
                 grant.submits_used += 1
                 grant.submitted_today += 1
-                # A non-live driver means this was simulated, not really sent.
-                simulated = not res.live
+                simulated = not res.live  # always True on the mock path
                 any_simulated = any_simulated or simulated
                 if simulated:
                     oc.detail = (oc.detail + " (simulated — not sent to the employer)").strip()
@@ -539,9 +618,13 @@ class AutoApplyEngine:
                         pass
 
         detail = ""
+        pending = sum(1 for o in outcomes if o.status == "pending_approval")
         if any_simulated:
             detail = ("Submissions were SIMULATED (offline/mock mode) and not sent to any "
                       "employer. Configure a live browser session to submit for real.")
+        elif pending:
+            detail = (f"{pending} application(s) queued for your approval — nothing is submitted "
+                      "until you approve each one.")
         return result(outcomes, submitted, attempted, detail=detail, simulated=any_simulated)
 
     # ---- assisted apply queue --------------------------------------------

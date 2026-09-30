@@ -213,3 +213,41 @@ def apply_queue(user: CurrentUser, state: StateDep) -> list[QueueItemOut]:
     with the field values automation will fill once you open the form. The
     local `jobsearch.assist` agent consumes this."""
     return [_queue_out(q) for q in state.auto_apply.queue(user.id)]
+
+
+# ---- per-application approval (nothing submits without your explicit OK) ----
+@router.get("/approvals")
+def list_approvals(user: CurrentUser, state: StateDep) -> list[dict]:
+    """Applications an auto-apply run PREPARED but did NOT send — each awaits your
+    explicit approval. An autonomous run never submits a real application; it only
+    queues here. Approve or reject each below."""
+    out: list[dict] = []
+    for a in state.auto_apply.pending_approvals(user.id):
+        job = state.jobs.get(a.job_posting_id)
+        out.append({
+            "application_id": a.id,
+            "job_posting_id": a.job_posting_id,
+            "title": job.title if job else "",
+            "company": job.company if job else "",
+            "provider": a.platform_response.get("provider", ""),
+            "created_at": a.created_at.isoformat(),
+        })
+    return out
+
+
+@router.post("/approvals/{application_id}/approve")
+def approve_application(application_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """Your explicit OK for one application -> submit it now. This is the only path
+    that can send a real application. A real send also needs the environment's
+    live-submit gate on (otherwise it fills and holds for retry)."""
+    res = state.auto_apply.approve_application(user.id, application_id)
+    if res is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no pending application with that id")
+    return res
+
+
+@router.post("/approvals/{application_id}/reject", status_code=status.HTTP_204_NO_CONTENT)
+def reject_application(application_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Decline a prepared application — it is never submitted."""
+    if state.auto_apply.reject_application(user.id, application_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no pending application with that id")

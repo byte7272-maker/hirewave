@@ -9,13 +9,14 @@ from fastapi.testclient import TestClient
 
 from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
+from jobsearch.config import Settings
 from jobsearch.engines.integration import MockTokenExchanger
 from jobsearch.models import AutoApplyCriteria, JobPosting, User, UserProfile
 from jobsearch.models.common import utcnow
 
 
-def _state() -> AppState:
-    return AppState(exchanger=MockTokenExchanger())
+def _state(**settings) -> AppState:
+    return AppState(settings=Settings(**settings), exchanger=MockTokenExchanger())
 
 
 def _seed_user(state: AppState, uid="u1") -> User:
@@ -187,19 +188,80 @@ def test_mock_run_is_labeled_simulated():
     assert "simulated" in res.outcomes[0].detail.lower()
 
 
-def test_live_run_holds_at_review_until_submit_gate_enabled():
+def test_live_run_queues_for_approval_and_never_submits():
+    """HARD RULE: an autonomous run never submits a real application, even with a
+    live session AND the submit gate on. It only queues for the user's approval."""
     from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+    from jobsearch.models import ApplicationStatus
 
-    state = _state()  # default: auto_apply_live_submit is False
+    state = _state(auto_apply_live_submit=True)  # gate ON — still must not auto-submit
     _seed_user(state)
     _job(state, "in1", "Python Developer", platform="indeed")
     grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
-    # Simulate a LIVE driver (a connected session) while the submit gate is OFF.
+    # Simulate a LIVE driver (a connected session).
     state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
     res = state.auto_apply.run_grant(grant)
     assert res.submitted == 0
-    assert res.outcomes[0].status == "filled_pending_submit"  # filled, not submitted
-    assert state.applications.find(user_id="u1") == []  # nothing recorded as applied
+    assert res.outcomes[0].status == "pending_approval"
+    apps = state.applications.find(user_id="u1")
+    assert len(apps) == 1 and apps[0].status == ApplicationStatus.PENDING_APPROVAL
+    assert apps[0].submitted_at is None  # nothing was sent
+    assert "approve" in res.detail.lower()
+
+
+def test_approve_application_is_the_only_real_submit_path():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+    from jobsearch.models import ApplicationStatus
+
+    state = _state(auto_apply_live_submit=True)
+    _seed_user(state)
+    _job(state, "in1", "Python Developer", platform="indeed")
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    state.auto_apply.run_grant(grant)
+
+    pending = state.auto_apply.pending_approvals("u1")
+    assert len(pending) == 1
+    # The user approves this one application -> it now submits.
+    out = state.auto_apply.approve_application("u1", pending[0].id)
+    assert out["status"] == "submitted"
+    app = state.applications.get(pending[0].id)
+    assert app.status == ApplicationStatus.SUBMITTED and app.submitted_at is not None
+    assert not state.auto_apply.pending_approvals("u1")  # cleared
+
+
+def test_reject_application_never_submits():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+    from jobsearch.models import ApplicationStatus
+
+    state = _state(auto_apply_live_submit=True)
+    _seed_user(state)
+    _job(state, "in1", "Python Developer", platform="indeed")
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    state.auto_apply.run_grant(grant)
+
+    pending = state.auto_apply.pending_approvals("u1")
+    assert state.auto_apply.reject_application("u1", pending[0].id) is not None
+    app = state.applications.get(pending[0].id)
+    assert app.status == ApplicationStatus.REJECTED and app.submitted_at is None
+    assert not state.auto_apply.pending_approvals("u1")
+
+
+def test_approve_reject_are_owner_scoped():
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+
+    state = _state(auto_apply_live_submit=True)
+    _seed_user(state, "u1")
+    _seed_user(state, "u2")
+    _job(state, "in1", "Python Developer", platform="indeed")
+    grant = state.auto_apply.create_grant("u1", criteria=AutoApplyCriteria(title_keywords=["python"]))
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+    state.auto_apply.run_grant(grant)
+    aid = state.auto_apply.pending_approvals("u1")[0].id
+    # A different user can neither approve nor reject someone else's application.
+    assert state.auto_apply.approve_application("u2", aid) is None
+    assert state.auto_apply.reject_application("u2", aid) is None
 
 
 # ---- concurrency: no double-submit ----------------------------------------
@@ -297,6 +359,37 @@ def test_api_scope_jobs_requires_ids():
     client, h = _client_and_token()
     r = client.post("/api/v1/auto-apply/grants", json={"scope": "jobs", "job_ids": []}, headers=h)
     assert r.status_code == 422
+
+
+def test_api_approval_endpoints_gate_the_real_submit():
+    """A run over the API queues for approval; approve is the only submit path."""
+    from jobsearch.engines.assistant.live_fill import MockBrowserDriver
+
+    state = AppState(settings=Settings(auto_apply_live_submit=True), exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    client.post("/api/v1/auth/register", json={"email": "a@b.com", "password": "supersecret", "full_name": "A"})
+    tok = client.post("/api/v1/auth/login", json={"email": "a@b.com", "password": "supersecret"}).json()["access_token"]
+    h = {"Authorization": f"Bearer {tok}"}
+    _job(state, "in1", "Python Developer", platform="indeed")
+    state.auto_apply._build_driver = lambda settings, platform="", storage_state="": (MockBrowserDriver(), True)
+
+    gid = client.post("/api/v1/auto-apply/grants", json={
+        "name": "Python", "scope": "criteria", "criteria": {"title_keywords": ["python"]},
+    }, headers=h).json()["id"]
+    run = client.post(f"/api/v1/auto-apply/grants/{gid}/run", json={}, headers=h).json()
+    assert run["submitted"] == 0
+    assert run["outcomes"][0]["status"] == "pending_approval"
+
+    approvals = client.get("/api/v1/auto-apply/approvals", headers=h).json()
+    assert len(approvals) == 1 and approvals[0]["title"] == "Python Developer"
+    aid = approvals[0]["application_id"]
+    # Approve -> the one and only real-submit path.
+    out = client.post(f"/api/v1/auto-apply/approvals/{aid}/approve", headers=h).json()
+    assert out["status"] == "submitted"
+    assert client.get("/api/v1/auto-apply/approvals", headers=h).json() == []
+    # Unknown id -> 404 on both approve and reject.
+    assert client.post("/api/v1/auto-apply/approvals/app_missing/approve", headers=h).status_code == 404
+    assert client.post("/api/v1/auto-apply/approvals/app_missing/reject", headers=h).status_code == 404
 
 
 # ---- assisted mode (manual Apply → automation fills) ----------------------
