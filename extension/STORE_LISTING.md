@@ -17,9 +17,13 @@ purpose statement, per-permission justifications, and data-use disclosures).
 
 ## Detailed description
 
-_(Rejected v1.1.0 for "excessive keywords" -- the old copy listed every supported
-site by name. This version drops that list and frames the extension as a helper
-that works alongside the job boards you already use, not an alternative to them.)_
+_(Rejected v1.1.0 AND v1.1.1 for "excessive keywords" -- a free-text field still
+listed every supported site by name. Fix: NO provider is named in ANY free-text
+listing field (description, single-purpose, or permission justifications). The
+provider domains appear ONLY in the manifest's `host_permissions` declaration,
+which reviewers expect and which does not count as description keywords. This copy
+frames the extension as a helper that works alongside the job boards you already
+use, not an alternative to them.)_
 
 > Project Harbor Connect is the companion browser extension for Project Harbor, your
 > AI application assistant.
@@ -56,8 +60,8 @@ that works alongside the job boards you already use, not an alternative to them.
 
 _(Paste verbatim into the dashboard's "Single purpose description" field.)_
 
-> Project Harbor Connect connects a job site the user is already logged into (e.g.,
-> LinkedIn, Indeed) to the user's own Project Harbor account, so Project Harbor's
+> Project Harbor Connect connects a job site the user is already logged into to the
+> user's own Project Harbor account, so Project Harbor's
 > assistant can help the user apply for jobs and keep their resume updated on that
 > site. When the user chooses to connect a site, the extension reads only that site's
 > existing session cookies and sends them to the user's Project Harbor account over
@@ -86,12 +90,12 @@ _(Paste each into the matching dashboard field.)_
   transmitted, and contains no personal data. It exists so the user does not have to
   re-enter the endpoint.
 - **host permission** -- Two kinds of hosts are requested. (1) The supported job-site
-  domains (LinkedIn, Indeed, Glassdoor, Greenhouse, Workday, ZipRecruiter, Dice) —
-  required to read the session cookies of the specific site the user chooses to connect.
-  (2) The Project Harbor API host and app origin — the API host is where the captured
-  session is sent over HTTPS to the user's account; the app origin is where a content
-  script sets a marker so the app knows the extension is installed and relays the user's
-  connect request. Each host is necessary for the connect flow; no other sites are accessed.
+  domains declared in the manifest's host_permissions — required to read the session
+  cookies of the specific site the user chooses to connect. (2) The Project Harbor API
+  host and app origin — the API host is where the captured session is sent over HTTPS to
+  the user's account; the app origin is where a content script sets a marker so the app
+  knows the extension is installed and relays the user's connect request. Each host is
+  necessary for the connect flow; no other sites are accessed.
 
 ## Data-use disclosures (Chrome "Privacy practices" / Edge data collection)
 

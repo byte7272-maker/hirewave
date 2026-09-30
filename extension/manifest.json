@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Connect a job site to Project Harbor: captures your session (cookies only, never your password) so the assistant can apply for you.",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
