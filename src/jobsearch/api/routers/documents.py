@@ -735,6 +735,32 @@ def activate_resume_version(
     return ensure_resume_grade(state, resume)
 
 
+@router.delete("/resumes/{resume_id}/versions/{version}", response_model=Resume)
+def delete_resume_version(
+    resume_id: str, version: int, user: CurrentUser, state: StateDep
+) -> Resume:
+    """Delete one saved version (including the Original). Keeps at least one version.
+    If the deleted version was active, the newest remaining version becomes active and
+    the document's live text follows it. Returns the résumé with its updated history."""
+    resume = get_resume(resume_id, user, state)
+    ver = next((v for v in resume.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    if len(resume.versions) <= 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "can't delete the only version")
+    resume.versions = [v for v in resume.versions if v.version != version]
+    # If we removed the active version, fall back to the newest remaining one and
+    # point the document's live text at it.
+    if resume.active_version == version:
+        newest = max(resume.versions, key=lambda v: v.version)
+        resume.active_version = newest.version
+        resume.rendered_text = newest.content
+        resume.quality_score = None
+        resume.quality_grade = ""
+    state.resumes.add(resume)
+    return ensure_resume_grade(state, resume)
+
+
 @router.get("/resumes/{resume_id}/reuse", response_model=VersionReuseSuggestion)
 def suggest_resume_reuse(
     resume_id: str, user: CurrentUser, state: StateDep,

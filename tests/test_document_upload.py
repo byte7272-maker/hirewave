@@ -188,6 +188,34 @@ def test_resume_improve_structured():
     assert v.status_code == 200 and v.json()["active_version"] == 2
 
 
+def test_delete_resume_version():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam**\n## Experience\n- Led a team", "text/markdown")},
+    ).json()["id"]
+    # Build history: v1 "Original" is auto-seeded on the first save -> v2, v3.
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "v2 body"})
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "v3 body"})
+    r = client.get(f"/api/v1/resumes/{rid}", headers=h).json()
+    assert [v["version"] for v in r["versions"]] == [1, 2, 3] and r["active_version"] == 3
+
+    # Delete a non-active version -> it's gone, active unchanged.
+    d = client.delete(f"/api/v1/resumes/{rid}/versions/2", headers=h)
+    assert d.status_code == 200
+    body = d.json()
+    assert [v["version"] for v in body["versions"]] == [1, 3] and body["active_version"] == 3
+
+    # Delete the ACTIVE version -> active falls back to newest remaining, text follows.
+    d2 = client.delete(f"/api/v1/resumes/{rid}/versions/3", headers=h).json()
+    assert [v["version"] for v in d2["versions"]] == [1] and d2["active_version"] == 1
+
+    # Can't delete the last remaining version; unknown version -> 404.
+    assert client.delete(f"/api/v1/resumes/{rid}/versions/1", headers=h).status_code == 400
+    assert client.delete(f"/api/v1/resumes/{rid}/versions/99", headers=h).status_code == 404
+
+
 def test_resume_export_pdf():
     client, _ = _client()
     h = _auth(client)
