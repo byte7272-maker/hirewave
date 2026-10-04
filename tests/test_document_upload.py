@@ -216,6 +216,23 @@ def test_delete_resume_version():
     assert client.delete(f"/api/v1/resumes/{rid}/versions/99", headers=h).status_code == 404
 
 
+def test_rename_resume_version_nickname():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam**\n- Led a team", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "v2 body"})
+    # Nickname an existing version -> stored in its label, visible in the résumé.
+    r = client.patch(f"/api/v1/resumes/{rid}/versions/2", headers=h, json={"label": "FAANG punchy"})
+    assert r.status_code == 200
+    v2 = next(v for v in r.json()["versions"] if v["version"] == 2)
+    assert v2["label"] == "FAANG punchy"
+    # Unknown version -> 404.
+    assert client.patch(f"/api/v1/resumes/{rid}/versions/99", headers=h, json={"label": "x"}).status_code == 404
+
+
 def test_resume_export_pdf():
     client, _ = _client()
     h = _auth(client)

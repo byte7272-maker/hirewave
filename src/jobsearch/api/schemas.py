@@ -531,6 +531,12 @@ class EvidenceExtractRequest(BaseModel):
     job_posting_id: Optional[str] = None
 
 
+class VersionLabelUpdate(BaseModel):
+    """Set a user nickname on a saved version (stored in the version's label)."""
+
+    label: str = ""
+
+
 class ReplaceRequest(BaseModel):
     """A deterministic find-and-replace on the résumé text (no AI) — for exact edits
     like 'replace X with Y' that must apply literally and visibly every time."""

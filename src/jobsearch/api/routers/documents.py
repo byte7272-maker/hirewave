@@ -23,6 +23,7 @@ from jobsearch.api.schemas import (
     JobCard,
     ReplaceRequest,
     ReplaceResult,
+    VersionLabelUpdate,
     ResumeGenerateRequest,
     ResumeReviewRequest,
     ResumeReviseRequest,
@@ -733,6 +734,21 @@ def activate_resume_version(
     resume.quality_grade = ""
     state.resumes.add(resume)
     return ensure_resume_grade(state, resume)
+
+
+@router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)
+def rename_resume_version(
+    resume_id: str, version: int, body: VersionLabelUpdate, user: CurrentUser, state: StateDep
+) -> Resume:
+    """Set a user nickname on a saved version (stored in its ``label``), so the
+    versions strip shows names the user chose. Returns the résumé with updated history."""
+    resume = get_resume(resume_id, user, state)
+    ver = next((v for v in resume.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    ver.label = body.label.strip()[:80]
+    state.resumes.add(resume)
+    return resume
 
 
 @router.delete("/resumes/{resume_id}/versions/{version}", response_model=Resume)
