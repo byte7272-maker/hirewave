@@ -127,6 +127,24 @@ and suggest-edits.
   overlay to close; keyboard-accessible). In it, **"Open in full editor"** → activate that version
   (`POST …/versions/{version}/activate`) and navigate to the editor on that version.
 
+**Document viewer — version sync + scroll/layout (required):**
+- **Single source of truth:** one `selectedVersion` drives the viewer, the marquee "Current"
+  highlight, AND the lightbox. Render the preview from **that version's own `content`** (from
+  `versions[]`) — NOT the résumé's `rendered_text` (which can lag). Selecting a version shows
+  exactly that version. After activate, set `selectedVersion` from the response's `active_version`
+  and re-render from the returned résumé so all three stay in sync.
+- **Two explicit scroll regions:** the page scrolls normally; the document preview is in a
+  bounded-height container with `overflow:auto` + a visible scrollbar + `overscroll-behavior:
+  contain` (so it scrolls independently and doesn't hijack page scroll).
+- **Lightbox fits the viewport:** `max-height: calc(100vh - margins)`, internal `overflow:auto`
+  (document scrolls inside the modal); lock the background (`body{overflow:hidden}`) while open;
+  the modal header/toolbar (title + "Open in full editor" + close) is **sticky and always visible**;
+  the modal's top is always on-screen (never clipped above the fold).
+- **Nothing stuck above the fold:** no off-screen/negative-offset controls; sticky section
+  toolbars inside their scroll container; main content starts below any fixed app header (top
+  padding = header height) so the first controls aren't hidden behind it. Mobile: single column,
+  bounded viewer height, near-fullscreen lightbox with internal scroll.
+
 **Zone A — Generate prompts for your work AI (on this page):**
 - `POST /resumes/{id}/evidence-prompts` `{ job_posting_id? }` → `{ prompts:[{category,title,
   prompt}], guidance }`. Show `guidance`; list prompts by category with Copy buttons. These are
