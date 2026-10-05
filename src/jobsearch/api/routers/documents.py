@@ -418,7 +418,7 @@ def replace_in_resume(
 _EVIDENCE_GUIDANCE = (
     "Copy a prompt into your company's AI assistant (e.g. one connected to your work "
     "email, Teams/chat, calendar and documents). Run it, then paste the answer back "
-    "here — Project Harbor pulls out the résumé-worthy points and polishes them into "
+    "here — Project Harbor pulls out your work highlights and polishes them into résumé "
     "bullets you can add. Only run prompts you're allowed to under your company's data "
     "policies; nothing is sent anywhere by this app until you paste it back yourself."
 )
