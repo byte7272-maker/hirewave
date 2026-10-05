@@ -330,6 +330,31 @@ def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> Res
     return state.resume_assistant.structure(resume)
 
 
+def _pick_render_template(state: StateDep, user: CurrentUser, template_id: Optional[str], saved_template_id: str):
+    """Resolve the template to render onto: an explicit ``template_id``, else the
+    résumé's saved one, else the app default. Only an approved/public template or the
+    user's own is allowed. Bumps popularity when a stored template is explicitly picked."""
+    from jobsearch.models import BUILTIN_TEMPLATES
+
+    default_id = BUILTIN_TEMPLATES[0].id if BUILTIN_TEMPLATES else ""
+    explicit = bool(template_id)
+
+    def _lookup(tid: str):
+        return next((t for t in BUILTIN_TEMPLATES if t.id == tid), None) \
+            or state.resume_templates.get(tid)
+
+    tid = template_id or saved_template_id or default_id
+    template = _lookup(tid)
+    if template is None and not explicit and tid != default_id:
+        template = _lookup(default_id)
+    if template is None or not (template.status == "approved" or template.created_by == user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
+    if explicit and template.created_by:
+        template.uses += 1
+        state.resume_templates.add(template)
+    return template
+
+
 @router.get("/resumes/{resume_id}/render", response_model=RenderedResume)
 def render_resume_with_template(
     resume_id: str, user: CurrentUser, state: StateDep,
@@ -341,30 +366,8 @@ def render_resume_with_template(
     With no ``template_id`` it uses the résumé's saved ``template_id`` (what the user
     chose with "Use this template"), then the app default. The frontend renders
     ``data`` with ``template.style``; the user then tweaks."""
-    from jobsearch.models import BUILTIN_TEMPLATES
-
     resume = get_resume(resume_id, user, state)
-    default_id = BUILTIN_TEMPLATES[0].id if BUILTIN_TEMPLATES else ""
-    explicit = bool(template_id)
-
-    def _lookup(tid: str):
-        return next((t for t in BUILTIN_TEMPLATES if t.id == tid), None) \
-            or state.resume_templates.get(tid)
-
-    tid = template_id or resume.template_id or default_id
-    template = _lookup(tid)
-    # A saved template that vanished/was rejected shouldn't break the default
-    # render — fall back to the app default (only when not explicitly requested).
-    if template is None and not explicit and tid != default_id:
-        template = _lookup(default_id)
-    # Only an approved/public template or the user's own may be applied.
-    if template is None or not (template.status == "approved" or template.created_by == user.id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "template not found")
-    # Bump popularity only when the user explicitly picked a stored template (not
-    # on every default/preview render, which would inflate the count).
-    if explicit and template.created_by:
-        template.uses += 1
-        state.resume_templates.add(template)
+    template = _pick_render_template(state, user, template_id, resume.template_id)
     data = state.resume_assistant.structure(resume)
     return RenderedResume(template=template, data=data)
 
@@ -799,6 +802,36 @@ def activate_resume_version(
     resume.quality_grade = ""
     state.resumes.add(resume)
     return ensure_resume_grade(state, resume)
+
+
+@router.get("/resumes/{resume_id}/versions/{version}", response_model=DocumentVersion)
+def get_resume_version(
+    resume_id: str, version: int, user: CurrentUser, state: StateDep
+) -> DocumentVersion:
+    """Fetch one saved version in full (its own ``content``, label, source, date).
+    Lets the viewer render exactly the selected version rather than the active body."""
+    resume = get_resume(resume_id, user, state)
+    ver = next((v for v in resume.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    return ver
+
+
+@router.get("/resumes/{resume_id}/versions/{version}/render", response_model=RenderedResume)
+def render_resume_version(
+    resume_id: str, version: int, user: CurrentUser, state: StateDep,
+    template_id: Optional[str] = Query(None, description="template to render onto; omit for the résumé's saved/default"),
+) -> RenderedResume:
+    """Server-authoritative render of ONE specific version onto a template — so the
+    viewer/marquee preview always matches the selected version (it renders that
+    version's own content, not the active body)."""
+    resume = get_resume(resume_id, user, state)
+    ver = next((v for v in resume.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    template = _pick_render_template(state, user, template_id, resume.template_id)
+    data = state.resume_assistant.structure(resume.model_copy(update={"rendered_text": ver.content}))
+    return RenderedResume(template=template, data=data)
 
 
 @router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)

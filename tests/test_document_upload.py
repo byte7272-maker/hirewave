@@ -233,6 +233,26 @@ def test_rename_resume_version_nickname():
     assert client.patch(f"/api/v1/resumes/{rid}/versions/99", headers=h, json={"label": "x"}).status_code == 404
 
 
+def test_get_and_render_specific_version():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam**\n## Experience\n- Led a team", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h,
+                json={"content": "## Experience\n- Tailored bullet for v2"})
+    # Fetch one version's own content (so the viewer renders exactly that version).
+    v = client.get(f"/api/v1/resumes/{rid}/versions/2", headers=h)
+    assert v.status_code == 200 and "Tailored bullet for v2" in v.json()["content"]
+    # Server-authoritative render of that specific version onto a template.
+    r = client.get(f"/api/v1/resumes/{rid}/versions/2/render", headers=h)
+    assert r.status_code == 200 and "template" in r.json() and "data" in r.json()
+    # Unknown version -> 404 on both.
+    assert client.get(f"/api/v1/resumes/{rid}/versions/99", headers=h).status_code == 404
+    assert client.get(f"/api/v1/resumes/{rid}/versions/99/render", headers=h).status_code == 404
+
+
 def test_resume_export_pdf():
     client, _ = _client()
     h = _auth(client)
