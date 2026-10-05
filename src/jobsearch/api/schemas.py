@@ -531,6 +531,38 @@ class EvidenceExtractRequest(BaseModel):
     job_posting_id: Optional[str] = None
 
 
+class SuggestEditsRequest(BaseModel):
+    """Paste arbitrary data (notes, a job description, feedback, raw work data) for the
+    AI to compare against the résumé and propose add/remove/reword edits to review."""
+
+    context: str
+    job_posting_id: Optional[str] = None
+
+
+class EditSuggestion(BaseModel):
+    action: str  # "add" | "remove" | "reword"
+    section: str = ""
+    before: str = ""   # exact existing résumé text to change (empty for add)
+    after: str = ""    # new text (empty for remove)
+    rationale: str = ""
+
+
+class SuggestEditsResponse(BaseModel):
+    suggestions: list[EditSuggestion] = Field(default_factory=list)
+
+
+class ApplyEditsRequest(BaseModel):
+    """The subset of suggestions the user approved, to apply to the résumé text."""
+
+    suggestions: list[EditSuggestion] = Field(default_factory=list)
+
+
+class ApplyEditsResult(BaseModel):
+    rendered_text: str   # the updated résumé text (preview — save via /versions)
+    applied: int         # edits applied
+    skipped: int         # edits whose `before` text wasn't found
+
+
 class VersionLabelUpdate(BaseModel):
     """Set a user nickname on a saved version (stored in the version's label)."""
 

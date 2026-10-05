@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
@@ -21,8 +22,13 @@ from jobsearch.api.schemas import (
     EvidencePromptsResponse,
     IncorporateRequest,
     JobCard,
+    ApplyEditsRequest,
+    ApplyEditsResult,
+    EditSuggestion,
     ReplaceRequest,
     ReplaceResult,
+    SuggestEditsRequest,
+    SuggestEditsResponse,
     VersionLabelUpdate,
     ResumeGenerateRequest,
     ResumeReviewRequest,
@@ -413,6 +419,65 @@ def replace_in_resume(
     # regex backreference surprises from characters like \1 or $).
     new_text = pattern.sub(lambda _m: body.replace, text, count=limit)
     return ReplaceResult(rendered_text=new_text, count=count)
+
+
+@router.post("/resumes/{resume_id}/suggest-edits", response_model=SuggestEditsResponse)
+def suggest_resume_edits(
+    resume_id: str, body: SuggestEditsRequest, user: CurrentUser, state: StateDep
+) -> SuggestEditsResponse:
+    """Paste any data (notes, a job description, feedback, raw work data) and the AI
+    compares it to the résumé and proposes specific add/remove/reword edits to review —
+    nothing is changed. Approve the ones you want, then POST them to /apply-edits."""
+    resume = get_resume(resume_id, user, state)
+    if not body.context.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste some text for the AI to work from")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    edits = state.resume_assistant.suggest_edits(resume, body.context, job=job)
+    return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
+
+
+def _apply_edit(text: str, s: EditSuggestion) -> tuple[str, bool]:
+    """Apply one approved edit to the résumé text. Returns (new_text, applied)."""
+    action = (s.action or "").lower()
+    if action == "reword" and s.before:
+        if s.before in text:
+            return text.replace(s.before, s.after, 1), True
+        return text, False
+    if action == "remove" and s.before:
+        if s.before in text:
+            out = text.replace(s.before, "", 1)
+            # tidy the blank line a full-line removal leaves behind
+            return re.sub(r"\n[ \t]*\n[ \t]*\n", "\n\n", out), True
+        return text, False
+    if action == "add" and s.after:
+        lines = text.split("\n")
+        if s.section:
+            # insert after the named section's heading (markdown "## Section")
+            for i, ln in enumerate(lines):
+                if ln.lstrip("#").strip().lower() == s.section.strip().lower():
+                    lines.insert(i + 1, f"- {s.after}" if not s.after.lstrip().startswith("-") else s.after)
+                    return "\n".join(lines), True
+        # no section match -> append at end
+        tail = s.after if s.after.lstrip().startswith("-") else f"- {s.after}"
+        return text.rstrip() + "\n" + tail + "\n", True
+    return text, False
+
+
+@router.post("/resumes/{resume_id}/apply-edits", response_model=ApplyEditsResult)
+def apply_resume_edits(
+    resume_id: str, body: ApplyEditsRequest, user: CurrentUser, state: StateDep
+) -> ApplyEditsResult:
+    """Apply the user-approved edits to the résumé text and return the updated text as a
+    PREVIEW (nothing saved). The user accepts by POSTing it to /resumes/{id}/versions.
+    `skipped` counts edits whose `before` text could no longer be found."""
+    resume = get_resume(resume_id, user, state)
+    text = resume.rendered_text or ""
+    applied = skipped = 0
+    for s in body.suggestions:
+        text, ok = _apply_edit(text, s)
+        applied += 1 if ok else 0
+        skipped += 0 if ok else 1
+    return ApplyEditsResult(rendered_text=text, applied=applied, skipped=skipped)
 
 
 _EVIDENCE_GUIDANCE = (

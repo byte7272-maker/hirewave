@@ -410,6 +410,49 @@ def test_api_replace_is_deterministic_and_reports_count():
                        json={"find": "", "replace": "x"}).status_code == 400
 
 
+def test_apply_edit_is_deterministic():
+    from jobsearch.api.routers.documents import _apply_edit
+    from jobsearch.api.schemas import EditSuggestion
+
+    text = "## Experience\n- Managed billing\n- Did stuff\n## Skills\nPython"
+    t, ok = _apply_edit(text, EditSuggestion(action="reword", before="- Managed billing",
+                                             after="- Led billing, cut latency 40%"))
+    assert ok and "Led billing, cut latency 40%" in t and "Managed billing" not in t
+    t2, ok2 = _apply_edit(text, EditSuggestion(action="remove", before="- Did stuff"))
+    assert ok2 and "Did stuff" not in t2
+    t3, ok3 = _apply_edit(text, EditSuggestion(action="add", section="Skills", after="AWS"))
+    assert ok3 and "- AWS" in t3
+    t4, ok4 = _apply_edit(text, EditSuggestion(action="reword", before="not present", after="x"))
+    assert not ok4 and t4 == text  # before not found -> skipped, text unchanged
+
+
+def test_api_suggest_and_apply_edits_flow():
+    class _EditsLLM:
+        name = "edits"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return ('[{"action":"reword","section":"Experience","before":"Managed billing",'
+                    '"after":"Led the billing platform","rationale":"stronger verb"}]')
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _EditsLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+
+    s = client.post(f"/api/v1/resumes/{rid}/suggest-edits", headers=h,
+                    json={"context": "I actually led the whole billing platform"})
+    assert s.status_code == 200
+    sug = s.json()["suggestions"]
+    assert len(sug) == 1 and sug[0]["action"] == "reword"
+    # empty context -> 400
+    assert client.post(f"/api/v1/resumes/{rid}/suggest-edits", headers=h,
+                       json={"context": "  "}).status_code == 400
+
+    a = client.post(f"/api/v1/resumes/{rid}/apply-edits", headers=h,
+                    json={"suggestions": [{"action": "add", "section": "Skills", "after": "AWS"}]})
+    assert a.status_code == 200 and a.json()["applied"] == 1 and "AWS" in a.json()["rendered_text"]
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

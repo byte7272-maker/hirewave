@@ -877,6 +877,64 @@ class ResumeAssistant:
         lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in text.splitlines()]
         return _dedupe_points([ln for ln in lines if len(ln) > 8])[:40]
 
+    def suggest_edits(
+        self, resume: Resume, context: str, *, job: Optional[JobPosting] = None
+    ) -> list[dict]:
+        """Read arbitrary pasted ``context`` (notes, a job description, feedback, raw
+        work data) against the résumé and propose specific, reviewable edits — things
+        to ADD, REMOVE, or REWORD — each with the exact existing text to change so the
+        change can be applied and approved individually. Suggest-only; nothing is
+        changed here. Uses ONLY facts in the résumé or the pasted context (never invents).
+        Returns a list of {action, section, before, after, rationale}. LLM with an empty
+        deterministic fallback (no guessing)."""
+        text = (resume.rendered_text or "").strip()
+        ctx = (context or "").strip()
+        if not text or not ctx:
+            return []
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nTarget role: " + (job.title or "") + " — requirements: " + ", ".join(job.requirements[:12])
+        try:
+            out = self.llm.complete(
+                "You are editing a résumé using the user's pasted notes. Propose specific edits as a "
+                "JSON array; each item: {\"action\":\"add\"|\"remove\"|\"reword\", \"section\":<e.g. "
+                "Summary/Experience/Skills>, \"before\":<the EXACT existing résumé text to change, "
+                "copied verbatim; empty for add>, \"after\":<the new text; empty for remove>, "
+                "\"rationale\":<one short reason>}. 'add' = a new bullet justified by the notes; 'remove' "
+                "= drop weak/irrelevant/duplicate existing text; 'reword' = tighten/quantify existing "
+                "text. For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
+                "located. Use ONLY facts present in the résumé or the notes — never invent employers, "
+                "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs +
+                "\n\nRésumé:\n" + text[:4000] + "\n\nPasted notes:\n" + ctx[:3000],
+                system="You suggest precise, verifiable résumé edits and output only a JSON array.",
+                max_tokens=1600,
+            )
+            data = json.loads(_extract_json_array(out))
+            edits: list[dict] = []
+            for d in data:
+                action = str(d.get("action", "")).lower().strip()
+                if action not in ("add", "remove", "reword"):
+                    continue
+                before = str(d.get("before", "") or "").strip()
+                after = str(d.get("after", "") or "").strip()
+                # Validity: add needs after; remove needs before; reword needs both.
+                if action == "add" and not after:
+                    continue
+                if action == "remove" and not before:
+                    continue
+                if action == "reword" and not (before and after):
+                    continue
+                edits.append({
+                    "action": action,
+                    "section": str(d.get("section", "") or "").strip()[:60],
+                    "before": before,
+                    "after": after,
+                    "rationale": str(d.get("rationale", "") or "").strip()[:200],
+                })
+            return edits[:20]
+        except Exception:  # noqa: BLE001 - no guessing on failure
+            return []
+
     def incorporate_cover_letter(
         self, cover_letter: CoverLetter, points: list[str], *, instruction: str = "",
         job: Optional[JobPosting] = None,
