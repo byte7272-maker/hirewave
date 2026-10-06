@@ -41,6 +41,7 @@ class DocumentVersion(DomainModel):
     version: int  # 1-based, monotonic
     label: str = ""  # short tag, e.g. the job type it targets ("Data Engineer")
     content: str = ""  # full text of this version
+    template_id: str = ""  # this version's own design; empty = inherit the résumé's
     change_summary: str = ""  # what changed vs the previous version
     source: str = "revision"  # "original" | "revision" | "tailored" | "reuse"
     instruction: str = ""  # the revise instruction, if any

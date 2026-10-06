@@ -567,10 +567,13 @@ class ApplyEditsResult(BaseModel):
     skipped: int         # edits whose `before` text wasn't found
 
 
-class VersionLabelUpdate(BaseModel):
-    """Set a user nickname on a saved version (stored in the version's label)."""
+class VersionUpdate(BaseModel):
+    """Update a saved version: its nickname (``label``) and/or its own design
+    (``template_id``; "" clears it so the version inherits the résumé's template).
+    Only the fields provided are changed."""
 
-    label: str = ""
+    label: Optional[str] = None
+    template_id: Optional[str] = None
 
 
 class ReplaceRequest(BaseModel):

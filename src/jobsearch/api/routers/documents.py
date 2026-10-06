@@ -29,7 +29,7 @@ from jobsearch.api.schemas import (
     ReplaceResult,
     SuggestEditsRequest,
     SuggestEditsResponse,
-    VersionLabelUpdate,
+    VersionUpdate,
     ResumeGenerateRequest,
     ResumeReviewRequest,
     ResumeReviseRequest,
@@ -377,7 +377,10 @@ def render_resume_with_template(
     from jobsearch.models.resume_schema import parse_resume_markdown
 
     resume = get_resume(resume_id, user, state)
-    template = _pick_render_template(state, user, template_id, resume.template_id)
+    # The active version's own design wins (per-version designs), else the résumé's.
+    active = next((v for v in resume.versions if v.version == resume.active_version), None)
+    saved_id = (active.template_id if active else "") or resume.template_id
+    template = _pick_render_template(state, user, template_id, saved_id)
     # Deterministic parse (no LLM) so rendering a preview is instant.
     text = resume.rendered_text or ""
     data = parse_resume_markdown(text, label=resume.target_role or "")
@@ -843,7 +846,8 @@ def render_resume_version(
     ver = next((v for v in resume.versions if v.version == version), None)
     if ver is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
-    template = _pick_render_template(state, user, template_id, resume.template_id)
+    # Prefer this version's own design, else the résumé's, else the default.
+    template = _pick_render_template(state, user, template_id, ver.template_id or resume.template_id)
     # Deterministic parse (no LLM) of THIS version's content -> instant, authoritative.
     text = ver.content or ""
     data = parse_resume_markdown(text, label=resume.target_role or "")
@@ -851,16 +855,28 @@ def render_resume_version(
 
 
 @router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)
-def rename_resume_version(
-    resume_id: str, version: int, body: VersionLabelUpdate, user: CurrentUser, state: StateDep
+def update_resume_version(
+    resume_id: str, version: int, body: VersionUpdate, user: CurrentUser, state: StateDep
 ) -> Resume:
-    """Set a user nickname on a saved version (stored in its ``label``), so the
-    versions strip shows names the user chose. Returns the résumé with updated history."""
+    """Update a saved version: its nickname (``label``) and/or its own design
+    (``template_id``). "Use this template" on a version sets its ``template_id`` so that
+    version renders in its own design; "" clears it (inherit the résumé's). Only the
+    provided fields change. Returns the résumé with updated history."""
+    from jobsearch.models import BUILTIN_TEMPLATES
+
     resume = get_resume(resume_id, user, state)
     ver = next((v for v in resume.versions if v.version == version), None)
     if ver is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
-    ver.label = body.label.strip()[:80]
+    if body.label is not None:
+        ver.label = body.label.strip()[:80]
+    if body.template_id is not None:
+        tid = body.template_id.strip()
+        if tid:  # validate a non-empty design exists and is usable
+            tpl = next((t for t in BUILTIN_TEMPLATES if t.id == tid), None) or state.resume_templates.get(tid)
+            if tpl is None or not (tpl.status == "approved" or tpl.created_by == user.id):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "unknown or unavailable template")
+        ver.template_id = tid  # "" clears -> inherit the résumé's template
     state.resumes.add(resume)
     return resume
 

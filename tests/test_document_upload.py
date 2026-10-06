@@ -275,6 +275,30 @@ def test_get_and_render_specific_version():
     assert client.get(f"/api/v1/resumes/{rid}/versions/99/render", headers=h).status_code == 404
 
 
+def test_per_version_design():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam**\n## Experience\n- Led a team", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "v2"})
+    # Give version 2 its own design.
+    r = client.patch(f"/api/v1/resumes/{rid}/versions/2", headers=h, json={"template_id": "tpl_executive"})
+    assert r.status_code == 200
+    v2 = next(v for v in r.json()["versions"] if v["version"] == 2)
+    assert v2["template_id"] == "tpl_executive"
+    # Each version renders in its own design; v1 (no own design) uses the default.
+    assert client.get(f"/api/v1/resumes/{rid}/versions/2/render", headers=h).json()["template"]["id"] == "tpl_executive"
+    assert client.get(f"/api/v1/resumes/{rid}/versions/1/render", headers=h).json()["template"]["id"] == "tpl_modern"
+    # Clearing it (empty) makes the version inherit again.
+    client.patch(f"/api/v1/resumes/{rid}/versions/2", headers=h, json={"template_id": ""})
+    assert client.get(f"/api/v1/resumes/{rid}/versions/2/render", headers=h).json()["template"]["id"] == "tpl_modern"
+    # Unknown template -> 400.
+    assert client.patch(f"/api/v1/resumes/{rid}/versions/2", headers=h,
+                        json={"template_id": "tpl_nope"}).status_code == 400
+
+
 def test_resume_export_pdf():
     client, _ = _client()
     h = _auth(client)
