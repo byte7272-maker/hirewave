@@ -34,6 +34,12 @@ when optional fields (e.g. `updated_at`) are null.
 - 401 → refresh/sign-in. 404 from a reachable server → real "not found" (never a sample under
   the real id). True network failure only → "Can't reach server — Retry" banner.
 
+**Part 4 — Timeouts (no infinite spinners):**
+- Every request has a timeout via `AbortController` (~15 s; ~45 s for known-slow AI calls:
+  improve/suggest-edits/apply-edits). On timeout/abort/network error, resolve the UI into an
+  **error + Retry** state — never leave a spinner (e.g. the viewer's "Rendering this version…",
+  marquee thumbnails, lightbox). A timeout is not a 401 — surface retry, don't refresh on it.
+
 Acceptance: signed in, `.../resumes/res_b63126de9afb421eb4a6ed60be59464d` renders ("Williams,
 Bayete, IT Director", 14 versions) and still works after 35+ min idle.
 
