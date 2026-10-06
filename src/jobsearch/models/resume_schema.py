@@ -169,30 +169,67 @@ def _split_dates(s: str) -> tuple[str, str, str]:
     return head, inner, ""
 
 
+_SECTION_KEYS = {
+    "summary", "objective", "profile", "about",
+    "experience", "work experience", "professional experience", "work history", "employment",
+    "education",
+    "skills", "technical skills", "core skills", "key skills",
+    "projects", "project",
+    "certifications", "certificates", "awards", "achievements",
+}
+
+
+def _canon_section(key: str) -> str:
+    k = re.sub(r"\s+", " ", key.strip().lower())
+    if any(w in k for w in ("summary", "objective", "profile", "about")):
+        return "summary"
+    if any(w in k for w in ("experience", "employment", "work")):
+        return "experience"
+    if "education" in k:
+        return "education"
+    if "skill" in k:
+        return "skills"
+    if "project" in k:
+        return "projects"
+    return k
+
+
+def _section_of(line: str):
+    """If ``line`` is a section header (## Heading, 'Skills:', or a short keyword line),
+    return (canonical_section, inline_rest); else (None, '')."""
+    s = line.strip()
+    if s.startswith("##"):
+        return _canon_section(s.lstrip("#").strip()), ""
+    label, sep, rest = s.partition(":")
+    key = re.sub(r"\s+", " ", _unbold(label).strip().lower())
+    if key in _SECTION_KEYS and (sep or len(s) <= 30):
+        return _canon_section(key), rest.strip()
+    return None, ""
+
+
 def parse_resume_markdown(text: str, *, label: str = "") -> ResumeData:
     """Deterministic inverse of :func:`resume_data_to_markdown` — parse the app's
-    canonical résumé Markdown (and general heading/bullet résumés) into ``ResumeData``
-    with NO LLM call, so rendering a preview is instant. Best-effort on arbitrary input;
-    round-trips Markdown this app produced. Never invents facts."""
+    canonical résumé Markdown AND general heading/bullet/"Skills:"-style résumés into
+    ``ResumeData`` with NO LLM call, so rendering a preview is instant. Best-effort on
+    arbitrary input; round-trips Markdown this app produced. Never invents facts."""
     data = ResumeData()
     data.basics.label = label
     lines = [ln.rstrip() for ln in (text or "").replace("\r\n", "\n").split("\n")]
     n = len(lines)
-    is_head = lambda ln: ln.strip().startswith("##")  # noqa: E731
 
     idx = 0
     while idx < n and not lines[idx].strip():
         idx += 1
-    # Name (first non-empty, non-heading, short line)
-    if idx < n and not is_head(lines[idx]):
+    # Name (first non-empty, non-section, short line)
+    if idx < n and _section_of(lines[idx])[0] is None:
         cand = _unbold(lines[idx])
-        if cand and len(cand) <= 80 and "@" not in cand and not cand.startswith("-"):
+        if cand and len(cand) <= 80 and "@" not in cand and not cand.lstrip().startswith(("-", "*")):
             data.basics.name = cand
             idx += 1
     while idx < n and not lines[idx].strip():
         idx += 1
     # Contact line ("Label | email | phone | City, Region")
-    if idx < n and not is_head(lines[idx]) and ("|" in lines[idx] or "@" in lines[idx]):
+    if idx < n and _section_of(lines[idx])[0] is None and ("|" in lines[idx] or "@" in lines[idx]):
         for part in (p.strip() for p in lines[idx].split("|")):
             if not part:
                 continue
@@ -221,49 +258,55 @@ def parse_resume_markdown(text: str, *, label: str = "") -> ResumeData:
             data.projects.append(cur_proj)
             cur_proj = None
 
-    while idx < n:
-        s = lines[idx].strip()
-        idx += 1
-        if not s:
-            continue
-        if s.startswith("##"):
-            flush()
-            section = s.lstrip("#").strip().lower()
-            continue
+    def ingest(s: str) -> None:
+        nonlocal cur_work, cur_proj
         bullet = bool(re.match(r"^[-*•‣]\s+", s))  # a list item, not **bold**
-        if section.startswith(("summary", "objective", "profile", "about")):
+        if section == "summary":
             data.basics.summary = (data.basics.summary + " " + s).strip() if data.basics.summary else s
-        elif section.startswith(("experience", "work", "employment")):
+        elif section == "experience":
             if bullet:
                 if cur_work is None:
                     cur_work = ResumeWork()
-                cur_work.highlights.append(s.lstrip("-*• ").strip())
+                cur_work.highlights.append(s.lstrip("-*•‣ ").strip())
             else:
                 flush()
                 head, start, end = _split_dates(s)
-                hb = _unbold(head)
-                position, _, company = hb.partition(" at ")
+                position, _, company = _unbold(head).partition(" at ")
                 cur_work = ResumeWork(position=position.strip(), name=company.strip(),
                                       startDate=start, endDate=end)
-        elif section.startswith("education"):
+        elif section == "education":
             head, start, end = _split_dates(s)
             data.education.append(ResumeEducation(area=_unbold(head), startDate=start, endDate=end))
-        elif section.startswith("project"):
+        elif section == "projects":
             if bullet:
                 if cur_proj is None:
                     cur_proj = ResumeProject()
-                cur_proj.highlights.append(s.lstrip("-*• ").strip())
+                cur_proj.highlights.append(s.lstrip("-*•‣ ").strip())
             else:
                 flush()
                 name, _, desc = _unbold(s).partition(" - ")
                 cur_proj = ResumeProject(name=name.strip(), description=desc.strip())
-        elif section.startswith("skill"):
-            for part in re.split(r"[,•|]", s.lstrip("-*• ")):
+        elif section == "skills":
+            for part in re.split(r"[,•|/]", s.lstrip("-*•‣ ")):
                 p = part.strip()
                 if p:
                     data.skills.append(ResumeSkill(name=p))
         elif not data.basics.summary:
             data.basics.summary = s
+
+    while idx < n:
+        s = lines[idx].strip()
+        idx += 1
+        if not s:
+            continue
+        sec, rest = _section_of(s)
+        if sec is not None:
+            flush()
+            section = sec
+            if rest:
+                ingest(rest)
+            continue
+        ingest(s)
     flush()
     return data
 

@@ -323,11 +323,19 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
 
 
 @router.get("/resumes/{resume_id}/structured", response_model=ResumeData)
-def resume_structured(resume_id: str, user: CurrentUser, state: StateDep) -> ResumeData:
+def resume_structured(
+    resume_id: str, user: CurrentUser, state: StateDep,
+    deep: bool = Query(False, description="true = LLM deep-parse (slower); default is the instant deterministic parse"),
+) -> ResumeData:
     """The résumé parsed into the JSON Resume schema (structured fields) — the model
-    the frontend renders into templates/themes and that AI improvements target."""
+    the frontend renders into templates/themes and that AI improvements target. Uses the
+    instant deterministic parser by default (no LLM); pass ``deep=true`` for an LLM parse."""
+    from jobsearch.models.resume_schema import parse_resume_markdown
+
     resume = get_resume(resume_id, user, state)
-    return state.resume_assistant.structure(resume)
+    if deep:
+        return state.resume_assistant.structure(resume)
+    return parse_resume_markdown(resume.rendered_text or "", label=resume.target_role or "")
 
 
 def _pick_render_template(state: StateDep, user: CurrentUser, template_id: Optional[str], saved_template_id: str):
