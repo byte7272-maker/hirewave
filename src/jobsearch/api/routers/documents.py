@@ -379,8 +379,9 @@ def render_resume_with_template(
     resume = get_resume(resume_id, user, state)
     template = _pick_render_template(state, user, template_id, resume.template_id)
     # Deterministic parse (no LLM) so rendering a preview is instant.
-    data = parse_resume_markdown(resume.rendered_text or "", label=resume.target_role or "")
-    return RenderedResume(template=template, data=data)
+    text = resume.rendered_text or ""
+    data = parse_resume_markdown(text, label=resume.target_role or "")
+    return RenderedResume(template=template, data=data, markdown=text)
 
 
 @router.post("/resumes/{resume_id}/incorporate", response_model=StructuredImprovement)
@@ -844,8 +845,9 @@ def render_resume_version(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
     template = _pick_render_template(state, user, template_id, resume.template_id)
     # Deterministic parse (no LLM) of THIS version's content -> instant, authoritative.
-    data = parse_resume_markdown(ver.content or "", label=resume.target_role or "")
-    return RenderedResume(template=template, data=data)
+    text = ver.content or ""
+    data = parse_resume_markdown(text, label=resume.target_role or "")
+    return RenderedResume(template=template, data=data, markdown=text)
 
 
 @router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)

@@ -360,6 +360,10 @@ class RenderedResume(BaseModel):
 
     template: ResumeTemplate
     data: ResumeData
+    #: The raw résumé/version text (Markdown). Always populated when the résumé has
+    #: content — render this directly for a robust preview even if ``data`` is sparse
+    #: (e.g. a plainly-formatted upload the structured parser couldn't fully split).
+    markdown: str = ""
 
 
 class StructuredImprovement(BaseModel):
