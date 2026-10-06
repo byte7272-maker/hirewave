@@ -148,6 +148,126 @@ def resume_data_to_markdown(data: ResumeData) -> str:
     return "\n".join(lines).strip()
 
 
+_BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
+_DATES_RE = re.compile(r"\(([^()]*)\)\s*$")
+
+
+def _unbold(s: str) -> str:
+    return _BOLD_RE.sub(r"\1", s).strip()
+
+
+def _split_dates(s: str) -> tuple[str, str, str]:
+    """Pull a trailing '(start - end)' / '(date)' off a line -> (head, start, end)."""
+    m = _DATES_RE.search(s)
+    if not m:
+        return s.strip(), "", ""
+    inner = m.group(1).strip()
+    head = s[: m.start()].strip()
+    if " - " in inner:
+        a, b = inner.split(" - ", 1)
+        return head, a.strip(), b.strip()
+    return head, inner, ""
+
+
+def parse_resume_markdown(text: str, *, label: str = "") -> ResumeData:
+    """Deterministic inverse of :func:`resume_data_to_markdown` — parse the app's
+    canonical résumé Markdown (and general heading/bullet résumés) into ``ResumeData``
+    with NO LLM call, so rendering a preview is instant. Best-effort on arbitrary input;
+    round-trips Markdown this app produced. Never invents facts."""
+    data = ResumeData()
+    data.basics.label = label
+    lines = [ln.rstrip() for ln in (text or "").replace("\r\n", "\n").split("\n")]
+    n = len(lines)
+    is_head = lambda ln: ln.strip().startswith("##")  # noqa: E731
+
+    idx = 0
+    while idx < n and not lines[idx].strip():
+        idx += 1
+    # Name (first non-empty, non-heading, short line)
+    if idx < n and not is_head(lines[idx]):
+        cand = _unbold(lines[idx])
+        if cand and len(cand) <= 80 and "@" not in cand and not cand.startswith("-"):
+            data.basics.name = cand
+            idx += 1
+    while idx < n and not lines[idx].strip():
+        idx += 1
+    # Contact line ("Label | email | phone | City, Region")
+    if idx < n and not is_head(lines[idx]) and ("|" in lines[idx] or "@" in lines[idx]):
+        for part in (p.strip() for p in lines[idx].split("|")):
+            if not part:
+                continue
+            if "@" in part and not data.basics.email:
+                data.basics.email = part
+            elif re.fullmatch(r"[+()\-.\s\d]{7,}", part) and not data.basics.phone:
+                data.basics.phone = part
+            elif "," in part and not data.basics.location.city:
+                city, _, region = part.partition(",")
+                data.basics.location.city = city.strip()
+                data.basics.location.region = region.strip()
+            elif not data.basics.label:
+                data.basics.label = part
+        idx += 1
+
+    section = ""
+    cur_work: Optional[ResumeWork] = None
+    cur_proj: Optional[ResumeProject] = None
+
+    def flush() -> None:
+        nonlocal cur_work, cur_proj
+        if cur_work is not None:
+            data.work.append(cur_work)
+            cur_work = None
+        if cur_proj is not None:
+            data.projects.append(cur_proj)
+            cur_proj = None
+
+    while idx < n:
+        s = lines[idx].strip()
+        idx += 1
+        if not s:
+            continue
+        if s.startswith("##"):
+            flush()
+            section = s.lstrip("#").strip().lower()
+            continue
+        bullet = bool(re.match(r"^[-*•‣]\s+", s))  # a list item, not **bold**
+        if section.startswith(("summary", "objective", "profile", "about")):
+            data.basics.summary = (data.basics.summary + " " + s).strip() if data.basics.summary else s
+        elif section.startswith(("experience", "work", "employment")):
+            if bullet:
+                if cur_work is None:
+                    cur_work = ResumeWork()
+                cur_work.highlights.append(s.lstrip("-*• ").strip())
+            else:
+                flush()
+                head, start, end = _split_dates(s)
+                hb = _unbold(head)
+                position, _, company = hb.partition(" at ")
+                cur_work = ResumeWork(position=position.strip(), name=company.strip(),
+                                      startDate=start, endDate=end)
+        elif section.startswith("education"):
+            head, start, end = _split_dates(s)
+            data.education.append(ResumeEducation(area=_unbold(head), startDate=start, endDate=end))
+        elif section.startswith("project"):
+            if bullet:
+                if cur_proj is None:
+                    cur_proj = ResumeProject()
+                cur_proj.highlights.append(s.lstrip("-*• ").strip())
+            else:
+                flush()
+                name, _, desc = _unbold(s).partition(" - ")
+                cur_proj = ResumeProject(name=name.strip(), description=desc.strip())
+        elif section.startswith("skill"):
+            for part in re.split(r"[,•|]", s.lstrip("-*• ")):
+                p = part.strip()
+                if p:
+                    data.skills.append(ResumeSkill(name=p))
+        elif not data.basics.summary:
+            data.basics.summary = s
+    flush()
+    return data
+
+
 # A number, optionally with $, %, or a k/M/million-style magnitude suffix.
 _METRIC_RE = re.compile(
     r"\$?\d[\d,]*(?:\.\d+)?\s?(?:%|k|m|bn|billion|million|thousand|hrs?|hours?|x)?",

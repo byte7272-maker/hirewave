@@ -233,6 +233,25 @@ def test_rename_resume_version_nickname():
     assert client.patch(f"/api/v1/resumes/{rid}/versions/99", headers=h, json={"label": "x"}).status_code == 404
 
 
+def test_parse_resume_markdown_roundtrip():
+    from jobsearch.models.resume_schema import (
+        ResumeBasics, ResumeData, ResumeSkill, ResumeWork,
+        parse_resume_markdown, resume_data_to_markdown,
+    )
+    d = ResumeData(
+        basics=ResumeBasics(name="Bayete Williams", label="IT Director", email="b@x.com",
+                            summary="Seasoned technology leader."),
+        work=[ResumeWork(position="IT Director", name="Acme", startDate="2020", endDate="Present",
+                         highlights=["Led migration, cut costs 30%", "Managed a team of 12"])],
+        skills=[ResumeSkill(name="Python"), ResumeSkill(name="AWS")],
+    )
+    back = parse_resume_markdown(resume_data_to_markdown(d))  # no LLM
+    assert back.basics.name == "Bayete Williams" and back.basics.email == "b@x.com"
+    assert back.work and back.work[0].position == "IT Director" and back.work[0].name == "Acme"
+    assert "Led migration, cut costs 30%" in back.work[0].highlights
+    assert {s.name for s in back.skills} >= {"Python", "AWS"}
+
+
 def test_get_and_render_specific_version():
     client, _ = _client()
     h = _auth(client)
@@ -245,9 +264,12 @@ def test_get_and_render_specific_version():
     # Fetch one version's own content (so the viewer renders exactly that version).
     v = client.get(f"/api/v1/resumes/{rid}/versions/2", headers=h)
     assert v.status_code == 200 and "Tailored bullet for v2" in v.json()["content"]
-    # Server-authoritative render of that specific version onto a template.
+    # Server-authoritative render of that specific version onto a template — the
+    # version's OWN content is parsed (no LLM), so the data reflects version 2.
     r = client.get(f"/api/v1/resumes/{rid}/versions/2/render", headers=h)
     assert r.status_code == 200 and "template" in r.json() and "data" in r.json()
+    hl = [h for w in r.json()["data"]["work"] for h in w["highlights"]]
+    assert "Tailored bullet for v2" in hl
     # Unknown version -> 404 on both.
     assert client.get(f"/api/v1/resumes/{rid}/versions/99", headers=h).status_code == 404
     assert client.get(f"/api/v1/resumes/{rid}/versions/99/render", headers=h).status_code == 404

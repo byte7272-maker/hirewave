@@ -366,9 +366,12 @@ def render_resume_with_template(
     With no ``template_id`` it uses the résumé's saved ``template_id`` (what the user
     chose with "Use this template"), then the app default. The frontend renders
     ``data`` with ``template.style``; the user then tweaks."""
+    from jobsearch.models.resume_schema import parse_resume_markdown
+
     resume = get_resume(resume_id, user, state)
     template = _pick_render_template(state, user, template_id, resume.template_id)
-    data = state.resume_assistant.structure(resume)
+    # Deterministic parse (no LLM) so rendering a preview is instant.
+    data = parse_resume_markdown(resume.rendered_text or "", label=resume.target_role or "")
     return RenderedResume(template=template, data=data)
 
 
@@ -826,11 +829,14 @@ def render_resume_version(
     viewer/marquee preview always matches the selected version (it renders that
     version's own content, not the active body)."""
     resume = get_resume(resume_id, user, state)
+    from jobsearch.models.resume_schema import parse_resume_markdown
+
     ver = next((v for v in resume.versions if v.version == version), None)
     if ver is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
     template = _pick_render_template(state, user, template_id, resume.template_id)
-    data = state.resume_assistant.structure(resume.model_copy(update={"rendered_text": ver.content}))
+    # Deterministic parse (no LLM) of THIS version's content -> instant, authoritative.
+    data = parse_resume_markdown(ver.content or "", label=resume.target_role or "")
     return RenderedResume(template=template, data=data)
 
 
