@@ -83,9 +83,10 @@ thumbnails, hover zoom, nicknames, activate, and delete. Same component on Dashb
 Data from `GET /resumes/{id}` (`versions[]` each with `label`, `content`, `source`,
 `created_at`; `active_version`) — no extra list call.
 
-- **Rendered thumbnail:** render each card from that version's `content` through the same résumé
-  renderer/template (scaled down) — a true mini-preview, not sample text. Lazy-render as cards
-  scroll into view.
+- **Rendered thumbnail:** render each card from that version's own content (scaled down) — a true
+  mini-preview, not sample text. Use `GET /resumes/{id}/versions/{version}/render?template_id=`
+  (server-authoritative) or that version's `content` from `versions[]`; never `rendered_text`.
+  Lazy-render as cards scroll into view.
 - **Hover/focus → larger preview:** a floating popover rendering that version at readable size;
   dismiss on leave/blur; keyboard-accessible.
 - **Nickname:** show the version's `label` as its title when set; otherwise `source==="original"`
@@ -129,10 +130,13 @@ and suggest-edits.
 
 **Document viewer — version sync + scroll/layout (required):**
 - **Single source of truth:** one `selectedVersion` drives the viewer, the marquee "Current"
-  highlight, AND the lightbox. Render the preview from **that version's own `content`** (from
-  `versions[]`) — NOT the résumé's `rendered_text` (which can lag). Selecting a version shows
+  highlight, AND the lightbox. Render the preview from **that version's own content** — NOT the
+  résumé's `rendered_text` (which can lag). Preferred (server-authoritative):
+  `GET /resumes/{id}/versions/{version}/render?template_id=<current>` → `{ template, data }`,
+  render `data` with `template.style`. Or fetch the version's text via
+  `GET /resumes/{id}/versions/{version}` and render its `content`. Selecting a version shows
   exactly that version. After activate, set `selectedVersion` from the response's `active_version`
-  and re-render from the returned résumé so all three stay in sync.
+  and re-render so all three stay in sync.
 - **Two explicit scroll regions:** the page scrolls normally; the document preview is in a
   bounded-height container with `overflow:auto` + a visible scrollbar + `overscroll-behavior:
   contain` (so it scrolls independently and doesn't hijack page scroll).
