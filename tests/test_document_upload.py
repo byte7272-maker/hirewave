@@ -275,6 +275,21 @@ def test_get_and_render_specific_version():
     assert client.get(f"/api/v1/resumes/{rid}/versions/99/render", headers=h).status_code == 404
 
 
+def test_per_version_preview_image():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"**Sam**\n## Experience\n- Led a team", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "## Experience\n- v2 bullet"})
+    png = client.get(f"/api/v1/resumes/{rid}/versions/2/preview.png", headers=h)
+    assert png.status_code == 200 and png.headers["content-type"] == "image/png" and png.content[:4] == b"\x89PNG"
+    html = client.get(f"/api/v1/resumes/{rid}/versions/2/preview.html", headers=h)
+    assert html.status_code == 200 and "text/html" in html.headers["content-type"]
+    assert client.get(f"/api/v1/resumes/{rid}/versions/99/preview.png", headers=h).status_code == 404
+
+
 def test_per_version_design():
     client, _ = _client()
     h = _auth(client)

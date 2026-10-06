@@ -854,6 +854,42 @@ def render_resume_version(
     return RenderedResume(template=template, data=data, markdown=text)
 
 
+def _version_or_404(resume: Resume, version: int):
+    ver = next((v for v in resume.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    return ver
+
+
+@router.get("/resumes/{resume_id}/versions/{version}/preview.png")
+def resume_version_preview_png(
+    resume_id: str, version: int, user: CurrentUser, state: StateDep,
+    scale: int = Query(1, ge=1, le=3, description="pixel scale factor (crispness)"),
+) -> Response:
+    """A page-image (PNG) of ONE version's content — a cheap, lightweight thumbnail for
+    the versions marquee (an <img>), so the UI never renders many full résumé DOMs."""
+    resume = get_resume(resume_id, user, state)
+    ver = _version_or_404(resume, version)
+    png = render_text_preview(ver.content or "", title="", scale=scale)
+    if png is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=300"})
+
+
+@router.get("/resumes/{resume_id}/versions/{version}/preview.html", response_class=HTMLResponse)
+def resume_version_preview_html(
+    resume_id: str, version: int, user: CurrentUser, state: StateDep
+) -> HTMLResponse:
+    """A reflowable HTML preview of ONE version's content (for the full-size reader)."""
+    resume = get_resume(resume_id, user, state)
+    ver = _version_or_404(resume, version)
+    doc = render_text_html(ver.content or "", title="")
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
+    return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
+
+
 @router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)
 def update_resume_version(
     resume_id: str, version: int, body: VersionUpdate, user: CurrentUser, state: StateDep
