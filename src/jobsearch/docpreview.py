@@ -98,31 +98,43 @@ def render_text_preview(
     img = Image.new("RGB", (width, height), "#ffffff")
     draw = ImageDraw.Draw(img)
 
-    def _font(size: int):
+    def _ft(names: tuple, size: int):
         size *= scale
-        try:
-            return ImageFont.truetype("DejaVuSans.ttf", size)
-        except Exception:  # noqa: BLE001 - font file not on the image
+        for nm in names:
             try:
-                return ImageFont.load_default(size=size)  # Pillow >= 10.1: scalable
-            except TypeError:
-                return ImageFont.load_default()
+                return ImageFont.truetype(nm, size)
+            except Exception:  # noqa: BLE001 - font file not on the image
+                continue
+        try:
+            return ImageFont.load_default(size=size)  # Pillow >= 10.1: scalable
+        except TypeError:
+            return ImageFont.load_default()
+
+    def _font(size: int):
+        return _ft(("DejaVuSans.ttf",), size)
+
+    def _font_bold(size: int):
+        return _ft(("DejaVuSans-Bold.ttf", "DejaVuSans.ttf"), size)
 
     body = _font(15)
-    head = _font(21)
+    head = _font_bold(21)
+    name_font = _font_bold(19)
+    h2_font = _font_bold(14)
+    bold_body = _font_bold(14)
     max_w = width - 2 * margin
+    accent = "#2563eb"
 
     def _line_height(font) -> int:
         box = draw.textbbox((0, 0), "Ag", font=font)
         return (box[3] - box[1]) + _LINE_PAD * scale
 
-    def _wrap(line: str, font) -> list[str]:
+    def _wrap(line: str, font, avail: int) -> list[str]:
         words = line.split(" ")
         out: list[str] = []
         cur = ""
         for w in words:
             trial = f"{cur} {w}".strip()
-            if not cur or draw.textlength(trial, font=font) <= max_w:
+            if not cur or draw.textlength(trial, font=font) <= avail:
                 cur = trial
             else:
                 out.append(cur)
@@ -136,27 +148,58 @@ def render_text_preview(
 
     if title:
         hh = _line_height(head)
-        for wline in _wrap(title, head):
+        for wline in _wrap(title, head, max_w):
             draw.text((x, y), wline, fill="#111111", font=head)
             y += hh
         y += _LINE_PAD * scale
         draw.line([(x, y), (width - margin, y)], fill="#dddddd", width=scale)
         y += _LINE_PAD * 2 * scale
 
-    lh = _line_height(body)
+    body_lh = _line_height(body)
+    bullet_indent = 16 * scale
     truncated = False
+    first_nonblank = True
+
+    def _emit(label: str, font, color: str, *, bullet: bool = False, gap_before: int = 0) -> bool:
+        """Draw one markdown block (markers stripped); False when the page is full."""
+        nonlocal y
+        if gap_before:
+            y += gap_before
+        lhh = _line_height(font)
+        bx = x + (bullet_indent if bullet else 0)
+        avail = max_w - (bullet_indent if bullet else 0)
+        for i, wline in enumerate(_wrap(label, font, avail)):
+            if y + lhh > height - margin:
+                return False
+            if bullet and i == 0:
+                r = max(2, int(2.2 * scale))
+                cy = y + lhh // 2
+                draw.ellipse([x + 2 * scale, cy - r, x + 2 * scale + 2 * r, cy + r], fill=accent)
+            draw.text((bx, y), wline, fill=color, font=font)
+            y += lhh
+        return True
+
+    # Markdown-aware: headings in accent caps, bullets with a dot + indent, the name/
+    # role header bold — so the preview reads as a résumé, not raw '## / ** / -' text.
     for raw in text.splitlines():
-        raw = raw.rstrip()
-        if not raw:  # blank line = paragraph gap
-            y += lh // 2
+        s = raw.strip()
+        if not s:
+            y += body_lh // 2
             continue
-        for wline in _wrap(raw, body):
-            if y + lh > height - margin:
-                truncated = True
-                break
-            draw.text((x, y), wline, fill="#1a1a1a", font=body)
-            y += lh
-        if truncated:
+        if s.startswith("#"):
+            label = s.lstrip("#").strip().replace("**", "")
+            ok = _emit(label.upper(), h2_font, accent, gap_before=body_lh // 3)
+        elif re.match(r"^[-*•‣]\s+", s):
+            label = re.sub(r"^[-*•‣]\s+", "", s).replace("**", "")
+            ok = _emit(label, body, "#1a1a1a", bullet=True)
+        elif s.startswith("**") and s.endswith("**"):
+            label = s.strip("*").strip()
+            ok = _emit(label, name_font if first_nonblank else bold_body, "#111111")
+        else:
+            ok = _emit(s.replace("**", ""), body, "#1a1a1a")
+        first_nonblank = False
+        if not ok:
+            truncated = True
             break
 
     if truncated:
