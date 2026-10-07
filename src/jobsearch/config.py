@@ -71,7 +71,7 @@ class Settings(BaseSettings):
 
     # These read from the bare (un-prefixed) vendor env vars by convention.
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field(default="claude-opus-4-8", validation_alias="ANTHROPIC_MODEL")
+    anthropic_model: str = Field(default="claude-opus-5-5", validation_alias="ANTHROPIC_MODEL")
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4o", validation_alias="OPENAI_MODEL")
     #: Model for résumé/cover-letter AI (expert review, tailoring, revise, change

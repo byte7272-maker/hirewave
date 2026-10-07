@@ -140,6 +140,11 @@ def create_app(
             "status": "ok",
             "llm_provider": s.generation.llm.name,
             "review_model": s.settings.review_model,  # model for resume/cover-letter AI
+            # The provider actually powering the résumé "Ask AI" / review / improve
+            # features (build_review_llm). "mock" here means a real key didn't resolve,
+            # so those features only run the deterministic fallback (i.e. "not working").
+            "resume_ai_provider": s.resume_assistant.llm.name,
+            "resume_ai_model": getattr(s.resume_assistant.llm, "_model", ""),
             "embedding_provider": s.matching.embedder.name,
             "automation_mode": s.settings.automation_mode,
             "persistence": s.backend,
