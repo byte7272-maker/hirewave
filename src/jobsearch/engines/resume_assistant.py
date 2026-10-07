@@ -59,6 +59,32 @@ def _extract_json_array(text: str) -> str:
     return text[start:end + 1] if start != -1 and end != -1 else text
 
 
+def _coerce_edits(data) -> list[dict]:
+    """Validate/normalize an LLM edit array into [{action, section, before, after,
+    rationale}] — drops malformed items; add needs `after`, remove needs `before`,
+    reword needs both. Capped at 20."""
+    edits: list[dict] = []
+    for d in data if isinstance(data, list) else []:
+        if not isinstance(d, dict):
+            continue
+        action = str(d.get("action", "")).lower().strip()
+        if action not in ("add", "remove", "reword"):
+            continue
+        before = str(d.get("before", "") or "").strip()
+        after = str(d.get("after", "") or "").strip()
+        if (action == "add" and not after) or (action == "remove" and not before) \
+                or (action == "reword" and not (before and after)):
+            continue
+        edits.append({
+            "action": action,
+            "section": str(d.get("section", "") or "").strip()[:60],
+            "before": before,
+            "after": after,
+            "rationale": str(d.get("rationale", "") or "").strip()[:200],
+        })
+    return edits[:20]
+
+
 def _dedupe_points(points: list[str]) -> list[str]:
     """De-duplicate points case-insensitively while preserving order."""
     seen: set[str] = set()
@@ -909,29 +935,41 @@ class ResumeAssistant:
                 system="You suggest precise, verifiable résumé edits and output only a JSON array.",
                 max_tokens=1600,
             )
-            data = json.loads(_extract_json_array(out))
-            edits: list[dict] = []
-            for d in data:
-                action = str(d.get("action", "")).lower().strip()
-                if action not in ("add", "remove", "reword"):
-                    continue
-                before = str(d.get("before", "") or "").strip()
-                after = str(d.get("after", "") or "").strip()
-                # Validity: add needs after; remove needs before; reword needs both.
-                if action == "add" and not after:
-                    continue
-                if action == "remove" and not before:
-                    continue
-                if action == "reword" and not (before and after):
-                    continue
-                edits.append({
-                    "action": action,
-                    "section": str(d.get("section", "") or "").strip()[:60],
-                    "before": before,
-                    "after": after,
-                    "rationale": str(d.get("rationale", "") or "").strip()[:200],
-                })
-            return edits[:20]
+            return _coerce_edits(json.loads(_extract_json_array(out)))
+        except Exception:  # noqa: BLE001 - no guessing on failure
+            return []
+
+    def targeted_edits(
+        self, resume: Resume, instruction: str, *, job: Optional[JobPosting] = None
+    ) -> list[dict]:
+        """The MINIMAL edits that satisfy a single user instruction — change only what's
+        asked and leave everything else untouched. Small, fast LLM output (just the
+        edits, not a full rewrite). Returns [{action, section, before, after, rationale}].
+        Uses ONLY facts present (plus wording the instruction itself supplies); empty on
+        failure (no guessing)."""
+        text = (resume.rendered_text or "").strip()
+        instruction = (instruction or "").strip()
+        if not text or not instruction:
+            return []
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nTarget role: " + (job.title or "") + " - " + ", ".join(job.requirements[:10])
+        try:
+            out = self.llm.complete(
+                "Apply ONLY this instruction to the resume, changing nothing else: \"" + instruction[:500]
+                + "\". Return the minimal set of edits as a JSON array; each item: {\"action\":\"add\"|"
+                "\"remove\"|\"reword\", \"section\":<e.g. Summary/Experience/Skills>, \"before\":<the EXACT "
+                "existing resume text to change, copied verbatim; empty for add>, \"after\":<the new text; "
+                "empty for remove>, \"rationale\":<one short reason>}. Make the fewest edits that satisfy the "
+                "instruction and leave all other content, wording, and order unchanged. For remove/reword, "
+                "'before' MUST be copied verbatim so it can be located. Use ONLY facts already present (plus "
+                "wording the instruction explicitly provides) - never invent employers, titles, dates, "
+                "metrics, or skills. Return ONLY the JSON array." + reqs +
+                "\n\nResume:\n" + text[:4000],
+                system="You make precise, minimal resume edits and output only a JSON array.",
+                max_tokens=900,
+            )
+            return _coerce_edits(json.loads(_extract_json_array(out)))
         except Exception:  # noqa: BLE001 - no guessing on failure
             return []
 

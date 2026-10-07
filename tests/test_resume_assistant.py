@@ -453,6 +453,46 @@ def test_api_suggest_and_apply_edits_flow():
     assert a.status_code == 200 and a.json()["applied"] == 1 and "AWS" in a.json()["rendered_text"]
 
 
+def test_api_ai_edit_applies_targeted_change_immediately():
+    class _EditLLM:
+        name = "edit"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return ('[{"action":"reword","section":"Experience","before":"Managed billing",'
+                    '"after":"Led the billing platform","rationale":"stronger verb"}]')
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _EditLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+
+    r = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "make it stronger"})
+    assert r.status_code == 200
+    body = r.json()
+    # Applied immediately as a new active version (undo = switch back), content changed.
+    assert body["active_version"] > before
+    assert "Led the billing platform" in body["rendered_text"] and "Managed billing" not in body["rendered_text"]
+    # Empty instruction -> 400.
+    assert client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "  "}).status_code == 400
+
+
+def test_api_ai_edit_no_match_makes_no_version():
+    class _StaleLLM:
+        name = "stale"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return '[{"action":"reword","before":"text that is not in the resume","after":"x","rationale":"y"}]'
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _StaleLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+    body = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "do X"}).json()
+    assert body["active_version"] == before  # nothing matched -> no new version
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

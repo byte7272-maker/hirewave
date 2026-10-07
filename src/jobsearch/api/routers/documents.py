@@ -22,6 +22,7 @@ from jobsearch.api.schemas import (
     EvidencePromptsResponse,
     IncorporateRequest,
     JobCard,
+    AiEditRequest,
     ApplyEditsRequest,
     ApplyEditsResult,
     EditSuggestion,
@@ -496,6 +497,40 @@ def apply_resume_edits(
         applied += 1 if ok else 0
         skipped += 0 if ok else 1
     return ApplyEditsResult(rendered_text=text, applied=applied, skipped=skipped)
+
+
+@router.post("/resumes/{resume_id}/ai-edit", response_model=Resume)
+def ai_edit_resume(
+    resume_id: str, body: AiEditRequest, user: CurrentUser, state: StateDep
+) -> Resume:
+    """Ask AI to make a TARGETED change and APPLY it immediately — no preview/approval.
+    The AI changes only what the instruction asks (minimal, fast); the result is saved
+    as a new active version, so "undo" = switch back to the previous version. If nothing
+    could be applied, the résumé is returned unchanged (no new version). 400 on an empty
+    instruction. Returns the résumé (re-render from it); a higher ``active_version`` than
+    before means the edit was applied."""
+    resume = get_resume(resume_id, user, state)
+    if not body.instruction.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    # Edit the live editor content when provided, so unsaved edits are respected.
+    base = resume
+    if body.content and body.content.strip():
+        base = resume.model_copy(update={"rendered_text": body.content})
+    edits = state.resume_assistant.targeted_edits(base, body.instruction, job=job)
+    text = base.rendered_text or ""
+    applied = 0
+    for e in edits:
+        text, ok = _apply_edit(text, EditSuggestion(**e))
+        applied += 1 if ok else 0
+    # Apply immediately: save the result as a new active version (undo via history).
+    if applied and text.strip() and text != (resume.rendered_text or ""):
+        _add_version(resume, text_attr="rendered_text", new_content=text, label="",
+                     source="revision", instruction=body.instruction.strip()[:200], job=job, state=state)
+        resume.quality_score = None
+        resume.quality_grade = ""
+        state.resumes.add(resume)
+    return ensure_resume_grade(state, resume)
 
 
 _EVIDENCE_GUIDANCE = (

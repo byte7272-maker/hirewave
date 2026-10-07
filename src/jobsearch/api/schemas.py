@@ -555,6 +555,16 @@ class SuggestEditsResponse(BaseModel):
     suggestions: list[EditSuggestion] = Field(default_factory=list)
 
 
+class AiEditRequest(BaseModel):
+    """Ask AI to make a targeted change and apply it immediately (no preview/approval;
+    undo via version history)."""
+
+    instruction: str
+    #: The live editor text to edit (so unsaved edits are respected). Omit to use saved.
+    content: Optional[str] = None
+    job_posting_id: Optional[str] = None
+
+
 class ApplyEditsRequest(BaseModel):
     """The subset of suggestions the user approved, to apply to the résumé text."""
 
