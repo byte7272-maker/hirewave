@@ -275,6 +275,59 @@ def test_get_and_render_specific_version():
     assert client.get(f"/api/v1/resumes/{rid}/versions/99/render", headers=h).status_code == 404
 
 
+def test_put_resume_syncs_active_version_no_drift():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"## Experience\n- old bullet", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": "## Experience\n- v2 bullet"})
+    new = "## Experience\n- edited in place"
+    r = client.put(f"/api/v1/resumes/{rid}", headers=h, json={"rendered_text": new})
+    assert r.status_code == 200 and r.json()["rendered_text"] == new
+    active = r.json()["active_version"]
+    # The active version's OWN text now equals the body (no drift) ...
+    assert client.get(f"/api/v1/resumes/{rid}/versions/{active}", headers=h).json()["content"] == new
+    # ... and its render reflects the edit.
+    assert client.get(f"/api/v1/resumes/{rid}/versions/{active}/render", headers=h).json()["markdown"] == new
+
+
+def test_preview_endpoints_are_no_store():
+    client, _ = _client()
+    h = _auth(client)
+    rid = client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"## Experience\n- bullet", "text/markdown")},
+    ).json()["id"]
+    for path in (f"/api/v1/resumes/{rid}/preview.png", f"/api/v1/resumes/{rid}/preview.html"):
+        r = client.get(path, headers=h)
+        assert r.status_code == 200 and r.headers.get("cache-control") == "no-store"
+
+
+def test_cover_letter_ai_edit_applies_immediately():
+    class _EditLLM:
+        name = "edit"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return '[{"action":"reword","before":"Dear Hiring Manager","after":"Dear Team","rationale":"tone"}]'
+
+    st = AppState(settings=Settings(), exchanger=MockTokenExchanger())
+    st.resume_assistant.llm = _EditLLM()
+    client = TestClient(create_app(state=st))
+    h = _auth(client)
+    clid = client.post(
+        "/api/v1/cover-letters/upload", headers=h,
+        files={"file": ("c.md", b"Dear Hiring Manager, I am excited to apply. Sincerely, Sam.", "text/markdown")},
+    ).json()["id"]
+    before = client.get(f"/api/v1/cover-letters/{clid}", headers=h).json()["active_version"] or 0
+    r = client.post(f"/api/v1/cover-letters/{clid}/ai-edit", headers=h, json={"instruction": "change the greeting"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["active_version"] > before
+    assert "Dear Team" in body["content"] and "Dear Hiring Manager" not in body["content"]
+    assert client.post(f"/api/v1/cover-letters/{clid}/ai-edit", headers=h, json={"instruction": "  "}).status_code == 400
+
+
 def test_per_version_preview_image():
     client, _ = _client()
     h = _auth(client)

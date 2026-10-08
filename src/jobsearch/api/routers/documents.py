@@ -173,6 +173,23 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     setattr(doc, text_attr, new_content)
 
 
+def _sync_active_version(doc, *, text_attr: str) -> None:
+    """Keep the active version's stored text identical to the document body after an
+    in-place edit, so a later version read/render doesn't serve the pre-edit page.
+    Seeds a first version from the current text if the document has none yet."""
+    text = getattr(doc, text_attr) or ""
+    if not doc.versions:
+        if text.strip():
+            doc.versions = [DocumentVersion(version=1, label="Original", content=text, source="original")]
+            doc.active_version = 1
+        return
+    ver = next((v for v in doc.versions if v.version == doc.active_version), None)
+    if ver is None:  # active pointer dangling -> point at the newest and sync it
+        ver = max(doc.versions, key=lambda v: v.version)
+        doc.active_version = ver.version
+    ver.content = text
+
+
 def _reuse_suggestion(versions, job) -> VersionReuseSuggestion:
     """Pick the saved version that best fits ``job`` (category match + requirement
     coverage) and say what tweaks it needs — so a past version can be reused."""
@@ -303,7 +320,7 @@ def resume_preview(
     return Response(
         content=png,
         media_type="image/png",
-        headers={"Cache-Control": "private, max-age=300"},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -320,7 +337,7 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     )
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
-    return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
+    return HTMLResponse(content=doc, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/resumes/{resume_id}/structured", response_model=ResumeData)
@@ -531,6 +548,34 @@ def ai_edit_resume(
         resume.quality_grade = ""
         state.resumes.add(resume)
     return ensure_resume_grade(state, resume)
+
+
+@router.post("/cover-letters/{cover_letter_id}/ai-edit", response_model=CoverLetter)
+def ai_edit_cover_letter(
+    cover_letter_id: str, body: AiEditRequest, user: CurrentUser, state: StateDep
+) -> CoverLetter:
+    """Ask AI to make a TARGETED change to a cover letter and APPLY it immediately — the
+    résumé ``/ai-edit`` behaviour, for cover letters. Saves the result as a new active
+    version (undo = switch back); 400 on an empty instruction; nothing matched -> no new
+    version. A higher ``active_version`` means the edit was applied."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    if not body.instruction.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    base_text = body.content if (body.content and body.content.strip()) else (cl.content or "")
+    edits = state.resume_assistant.targeted_edits_text(
+        base_text, body.instruction, job=job, kind="cover letter"
+    )
+    text = base_text or ""
+    applied = 0
+    for e in edits:
+        text, ok = _apply_edit(text, EditSuggestion(**e))
+        applied += 1 if ok else 0
+    if applied and text.strip() and text != (cl.content or ""):
+        _add_version(cl, text_attr="content", new_content=text, label="",
+                     source="revision", instruction=body.instruction.strip()[:200], job=job, state=state)
+        state.cover_letters.add(cl)
+    return cl
 
 
 _EVIDENCE_GUIDANCE = (
@@ -750,9 +795,16 @@ def update_resume(
     resume_id: str, body: ResumeUpdate, user: CurrentUser, state: StateDep
 ) -> Resume:
     resume = get_resume(resume_id, user, state)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    fields = body.model_dump(exclude_unset=True)
+    for field, value in fields.items():
         setattr(resume, field, value)
-    return state.resumes.add(resume)  # persist the mutation (no-op for in-memory)
+    # An in-place body edit must also update the active version's stored text, or a
+    # later version read/render serves the pre-edit page (the "save didn't change it" bug).
+    if "rendered_text" in fields:
+        _sync_active_version(resume, text_attr="rendered_text")
+        resume.quality_score = None
+        resume.quality_grade = ""
+    return ensure_resume_grade(state, state.resumes.add(resume))
 
 
 @router.post("/resumes/{resume_id}/review", response_model=ResumeReview)
@@ -909,7 +961,7 @@ def resume_version_preview_png(
     if png is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
     return Response(content=png, media_type="image/png",
-                    headers={"Cache-Control": "private, max-age=300"})
+                    headers={"Cache-Control": "no-store"})
 
 
 @router.get("/resumes/{resume_id}/versions/{version}/preview.html", response_class=HTMLResponse)
@@ -922,7 +974,7 @@ def resume_version_preview_html(
     doc = render_text_html(ver.content or "", title="")
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
-    return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
+    return HTMLResponse(content=doc, headers={"Cache-Control": "no-store"})
 
 
 @router.patch("/resumes/{resume_id}/versions/{version}", response_model=Resume)
@@ -1158,7 +1210,7 @@ def cover_letter_preview(
     return Response(
         content=png,
         media_type="image/png",
-        headers={"Cache-Control": "private, max-age=300"},
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -1210,7 +1262,7 @@ def cover_letter_preview_html(
     doc = render_text_html(cl.content or "", title="")  # letter's own header leads
     if doc is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
-    return HTMLResponse(content=doc, headers={"Cache-Control": "private, max-age=300"})
+    return HTMLResponse(content=doc, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/cover-letters/{cover_letter_id}", response_model=CoverLetter)
@@ -1233,8 +1285,12 @@ def update_cover_letter(
     cover_letter_id: str, body: CoverLetterUpdate, user: CurrentUser, state: StateDep
 ) -> CoverLetter:
     cl = get_cover_letter(cover_letter_id, user, state)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    fields = body.model_dump(exclude_unset=True)
+    for field, value in fields.items():
         setattr(cl, field, value)
+    # Keep the active version's text in sync with the body (see the résumé note above).
+    if "content" in fields:
+        _sync_active_version(cl, text_attr="content")
     return state.cover_letters.add(cl)  # persist the mutation
 
 

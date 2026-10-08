@@ -942,31 +942,38 @@ class ResumeAssistant:
     def targeted_edits(
         self, resume: Resume, instruction: str, *, job: Optional[JobPosting] = None
     ) -> list[dict]:
-        """The MINIMAL edits that satisfy a single user instruction — change only what's
-        asked and leave everything else untouched. Small, fast LLM output (just the
-        edits, not a full rewrite). Returns [{action, section, before, after, rationale}].
-        Uses ONLY facts present (plus wording the instruction itself supplies); empty on
-        failure (no guessing)."""
-        text = (resume.rendered_text or "").strip()
+        """The MINIMAL edits on a résumé that satisfy a single user instruction."""
+        return self.targeted_edits_text(resume.rendered_text or "", instruction, job=job)
+
+    def targeted_edits_text(
+        self, text: str, instruction: str, *, job: Optional[JobPosting] = None, kind: str = "resume"
+    ) -> list[dict]:
+        """The MINIMAL edits that satisfy a single user instruction on any document text
+        (``kind`` = "resume" | "cover letter") — change only what's asked and leave
+        everything else untouched. Small, fast LLM output (just the edits, not a full
+        rewrite). Returns [{action, section, before, after, rationale}]. Uses ONLY facts
+        present (plus wording the instruction supplies); empty on failure (no guessing)."""
+        text = (text or "").strip()
         instruction = (instruction or "").strip()
         if not text or not instruction:
             return []
         reqs = ""
         if job and job.requirements:
             reqs = "\nTarget role: " + (job.title or "") + " - " + ", ".join(job.requirements[:10])
+        doc = kind if kind in ("resume", "cover letter") else "resume"
         try:
             out = self.llm.complete(
-                "Apply ONLY this instruction to the resume, changing nothing else: \"" + instruction[:500]
+                f"Apply ONLY this instruction to the {doc}, changing nothing else: \"" + instruction[:500]
                 + "\". Return the minimal set of edits as a JSON array; each item: {\"action\":\"add\"|"
-                "\"remove\"|\"reword\", \"section\":<e.g. Summary/Experience/Skills>, \"before\":<the EXACT "
-                "existing resume text to change, copied verbatim; empty for add>, \"after\":<the new text; "
+                "\"remove\"|\"reword\", \"section\":<the section it's in>, \"before\":<the EXACT "
+                f"existing {doc} text to change, copied verbatim; empty for add>, \"after\":<the new text; "
                 "empty for remove>, \"rationale\":<one short reason>}. Make the fewest edits that satisfy the "
                 "instruction and leave all other content, wording, and order unchanged. For remove/reword, "
                 "'before' MUST be copied verbatim so it can be located. Use ONLY facts already present (plus "
-                "wording the instruction explicitly provides) - never invent employers, titles, dates, "
-                "metrics, or skills. Return ONLY the JSON array." + reqs +
-                "\n\nResume:\n" + text[:4000],
-                system="You make precise, minimal resume edits and output only a JSON array.",
+                "wording the instruction explicitly provides) - never invent facts. Return ONLY the JSON "
+                "array." + reqs +
+                f"\n\n{doc.capitalize()}:\n" + text[:4000],
+                system=f"You make precise, minimal {doc} edits and output only a JSON array.",
                 max_tokens=900,
             )
             return _coerce_edits(json.loads(_extract_json_array(out)))
