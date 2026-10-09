@@ -328,6 +328,38 @@ def test_cover_letter_ai_edit_applies_immediately():
     assert client.post(f"/api/v1/cover-letters/{clid}/ai-edit", headers=h, json={"instruction": "  "}).status_code == 400
 
 
+def test_cover_letter_per_version_marquee_endpoints():
+    # Parity with résumés: cover letters expose per-version GET/preview/structured/
+    # rename/delete so their marquee + previews show up-to-date per-version info.
+    client, _ = _client()
+    h = _auth(client)
+    clid = client.post(
+        "/api/v1/cover-letters/upload", headers=h,
+        files={"file": ("c.md", b"Dear Team, I built billing systems. Sincerely, Sam.", "text/markdown")},
+    ).json()["id"]
+    client.post(f"/api/v1/cover-letters/{clid}/versions", headers=h,
+                json={"content": "Dear Team, v2 with a stronger hook. Sincerely, Sam."})
+    # One version's own content (not the active body).
+    v = client.get(f"/api/v1/cover-letters/{clid}/versions/2", headers=h)
+    assert v.status_code == 200 and "stronger hook" in v.json()["content"]
+    # Per-version thumbnail + reader, both no-store (never stale).
+    for path in (f"/api/v1/cover-letters/{clid}/versions/1/preview.png",
+                 f"/api/v1/cover-letters/{clid}/versions/2/preview.html"):
+        r = client.get(path, headers=h)
+        assert r.status_code == 200 and r.headers.get("cache-control") == "no-store"
+    # Per-version structured reflects that version.
+    s = client.get(f"/api/v1/cover-letters/{clid}/versions/2/structured", headers=h)
+    assert s.status_code == 200 and "paragraphs" in s.json()
+    # Rename (nickname) for the marquee.
+    pr = client.patch(f"/api/v1/cover-letters/{clid}/versions/2", headers=h, json={"label": "Punchy hook"})
+    assert pr.status_code == 200
+    assert any(ver["version"] == 2 and ver["label"] == "Punchy hook" for ver in pr.json()["versions"])
+    # Delete falls back to the newest remaining version.
+    d = client.delete(f"/api/v1/cover-letters/{clid}/versions/2", headers=h)
+    assert d.status_code == 200 and d.json()["active_version"] == 1
+    assert client.get(f"/api/v1/cover-letters/{clid}/versions/2", headers=h).status_code == 404
+
+
 def test_per_version_preview_image():
     client, _ = _client()
     h = _auth(client)

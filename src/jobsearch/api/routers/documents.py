@@ -1418,6 +1418,102 @@ def activate_cover_letter_version(
     return ensure_cover_letter_grade(state, cl)
 
 
+def _cl_version_or_404(cl: CoverLetter, version: int) -> DocumentVersion:
+    ver = next((v for v in cl.versions if v.version == version), None)
+    if ver is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
+    return ver
+
+
+@router.get("/cover-letters/{cover_letter_id}/versions/{version}", response_model=DocumentVersion)
+def get_cover_letter_version(
+    cover_letter_id: str, version: int, user: CurrentUser, state: StateDep
+) -> DocumentVersion:
+    """Fetch one saved cover-letter version in full (its own ``content``, label, source,
+    date) — so the viewer/marquee can show exactly that version, not the active body."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    return _cl_version_or_404(cl, version)
+
+
+@router.get("/cover-letters/{cover_letter_id}/versions/{version}/structured",
+            response_model=CoverLetterData)
+def cover_letter_version_structured(
+    cover_letter_id: str, version: int, user: CurrentUser, state: StateDep
+) -> CoverLetterData:
+    """The structured template shape of ONE version's content (so a per-version reader
+    matches the selected version rather than the active body)."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    ver = _cl_version_or_404(cl, version)
+    return state.resume_assistant.structure_cover_letter(cl.model_copy(update={"content": ver.content}))
+
+
+@router.get("/cover-letters/{cover_letter_id}/versions/{version}/preview.png")
+def cover_letter_version_preview_png(
+    cover_letter_id: str, version: int, user: CurrentUser, state: StateDep,
+    scale: int = Query(1, ge=1, le=3, description="pixel scale factor (crispness)"),
+) -> Response:
+    """A page-image (PNG) of ONE version's content — a lightweight thumbnail for the
+    cover-letter versions marquee (parity with the résumé marquee)."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    ver = _cl_version_or_404(cl, version)
+    png = render_text_preview(ver.content or "", title="", scale=scale)
+    if png is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
+    return Response(content=png, media_type="image/png",
+                    headers={"Cache-Control": "no-store"})
+
+
+@router.get("/cover-letters/{cover_letter_id}/versions/{version}/preview.html",
+            response_class=HTMLResponse)
+def cover_letter_version_preview_html(
+    cover_letter_id: str, version: int, user: CurrentUser, state: StateDep
+) -> HTMLResponse:
+    """A reflowable HTML preview of ONE cover-letter version's content (full-size reader)."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    ver = _cl_version_or_404(cl, version)
+    doc = render_text_html(ver.content or "", title="")
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview available (no readable text)")
+    return HTMLResponse(content=doc, headers={"Cache-Control": "no-store"})
+
+
+@router.patch("/cover-letters/{cover_letter_id}/versions/{version}", response_model=CoverLetter)
+def update_cover_letter_version(
+    cover_letter_id: str, version: int, body: VersionUpdate, user: CurrentUser, state: StateDep
+) -> CoverLetter:
+    """Rename a saved cover-letter version (its ``label``/nickname) — for the marquee.
+    Only the provided fields change; returns the cover letter with updated history."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    ver = _cl_version_or_404(cl, version)
+    if body.label is not None:
+        ver.label = body.label.strip()[:80]
+    if body.template_id is not None:
+        ver.template_id = body.template_id.strip()
+    state.cover_letters.add(cl)
+    return cl
+
+
+@router.delete("/cover-letters/{cover_letter_id}/versions/{version}", response_model=CoverLetter)
+def delete_cover_letter_version(
+    cover_letter_id: str, version: int, user: CurrentUser, state: StateDep
+) -> CoverLetter:
+    """Delete one saved version. Keeps at least one; if the active version is removed,
+    the newest remaining becomes active and the letter's live text follows it."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    _cl_version_or_404(cl, version)
+    if len(cl.versions) <= 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "can't delete the only version")
+    cl.versions = [v for v in cl.versions if v.version != version]
+    if cl.active_version == version:
+        newest = max(cl.versions, key=lambda v: v.version)
+        cl.active_version = newest.version
+        cl.content = newest.content
+        cl.quality_score = None
+        cl.quality_grade = ""
+    state.cover_letters.add(cl)
+    return ensure_cover_letter_grade(state, cl)
+
+
 @router.get("/cover-letters/{cover_letter_id}/reuse", response_model=VersionReuseSuggestion)
 def suggest_cover_letter_reuse(
     cover_letter_id: str, user: CurrentUser, state: StateDep,
