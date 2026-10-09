@@ -523,6 +523,37 @@ def test_format_edits_unbolds_named_section_only():
     assert all("WILLIAMS" not in e["before"] and "IT Director" not in e["before"] for e in edits)
 
 
+def test_section_heading_detection_excludes_entry_titles():
+    from jobsearch.engines.resume_assistant import _is_section_heading
+    assert _is_section_heading("**EDUCATION**")[0] is True
+    assert _is_section_heading("## Education")[0] is True
+    assert _is_section_heading("**Technical Skills**")[0] is True
+    # Long bold lines (entry titles / degree lines) are content, not headings —
+    # even when they happen to contain a section word.
+    assert _is_section_heading("**Master of Science, Info Assurance - Mercy College**")[0] is False
+    assert _is_section_heading("**Senior Projects Lead at Acme Corp**")[0] is False
+    assert _is_section_heading("Regular text line")[0] is False
+
+
+def test_format_edits_handles_bold_standalone_section_headings():
+    # Résumé that uses **BOLD** standalone lines as headings (no '## '), like the
+    # uploaded résumé whose EDUCATION renders <h2> and degree lines render <h3>.
+    from jobsearch.engines.resume_assistant import format_edits, _doc_sections
+    text = ("**BAYETE WILLIAMS**\n**EXPERIENCE**\n**Regional IT Director - Publicis**\n"
+            "- Led a team\n**EDUCATION**\n**Master of Science - Mercy College**\n"
+            "**Bachelor of Science - Mercy College**\n**SKILLS**\nPython, AWS")
+    secs = _doc_sections(text.split("\n"))
+    assert {"experience", "education", "skills"} <= set(secs)
+    edits = format_edits(text, "In the Education section, show both degree lines without bold")
+    assert edits is not None and len(edits) == 2
+    assert {e["before"] for e in edits} == {
+        "**Master of Science - Mercy College**", "**Bachelor of Science - Mercy College**"}
+    for e in edits:
+        assert "**" not in e["after"]
+    # The **EDUCATION** heading and the other sections keep their bold.
+    assert all("EDUCATION" not in e["before"] for e in edits)
+
+
 def test_format_edits_defers_and_noops_correctly():
     from jobsearch.engines.resume_assistant import format_edits
     text = "## Education\nMaster of Science - Mercy College"

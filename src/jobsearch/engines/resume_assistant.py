@@ -278,15 +278,48 @@ def _format_intent(instruction: str) -> str:
     return ""
 
 
+# Résumé section names, to recognize a heading even when the document uses a
+# standalone **BOLD** line as the heading (no '## ') -- common in uploaded résumés,
+# where a Markdown renderer promotes a short bold line to a heading.
+_SECTION_WORDS = {
+    "summary", "profile", "objective", "about", "experience", "employment", "work",
+    "history", "education", "skills", "expertise", "competencies", "projects",
+    "certifications", "certification", "licenses", "awards", "honors", "publications",
+    "languages", "interests", "volunteer", "references", "contact",
+}
+
+
+def _is_section_heading(line: str) -> tuple[bool, str]:
+    """Whether a line is a section heading, and its display name. A heading is a
+    Markdown '#'/'##' line, OR a short standalone fully-bold line that names a known
+    résumé section (so docs using '**EDUCATION**' as a heading localize correctly).
+    A long bold line (e.g. an entry title like '**MSc ... - Mercy College**') is NOT
+    a heading, so its bold can still be stripped as content."""
+    s = line.strip()
+    if s.startswith("#"):
+        return True, s.lstrip("#").strip()
+    m = re.fullmatch(r"\*\*(.+?)\*\*", s)
+    if m:
+        name = m.group(1).strip()
+        words = [w.strip(":,.") for w in name.lower().split()]
+        if 1 <= len(words) <= 3 and any(w in _SECTION_WORDS for w in words):
+            return True, name
+    return False, ""
+
+
 def _doc_sections(lines: list[str]) -> dict[str, tuple[int, int, int]]:
     """Map a lower-cased section name -> (heading_index, content_start, content_end) for
-    each Markdown '## Heading' (or '# Heading') in the document."""
-    heads = [(i, ln.lstrip("#").strip()) for i, ln in enumerate(lines) if ln.lstrip().startswith("#")]
+    each section heading in the document (Markdown '## Heading' or a standalone
+    **BOLD** section line)."""
+    heads = []
+    for i, ln in enumerate(lines):
+        is_head, name = _is_section_heading(ln)
+        if is_head and name:
+            heads.append((i, name))
     out: dict[str, tuple[int, int, int]] = {}
     for n, (i, name) in enumerate(heads):
         end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
-        if name:
-            out[name.lower()] = (i, i + 1, end)
+        out[name.lower()] = (i, i + 1, end)
     return out
 
 
@@ -338,7 +371,9 @@ def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
     seen: set[str] = set()
     for idx in targets:
         orig = lines[idx]
-        if not orig.strip() or orig.lstrip().startswith("#") or orig in seen:
+        # Leave section-heading lines alone (both '## X' and standalone **SECTION**),
+        # so a content-formatting op never strips a heading's own styling.
+        if not orig.strip() or _is_section_heading(orig)[0] or orig in seen:
             continue
         new = _apply_format(orig, intent)
         if new != orig:
