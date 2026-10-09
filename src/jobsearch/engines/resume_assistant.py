@@ -240,6 +240,114 @@ _CL_CLICHES = [
 ]
 
 
+# --- deterministic formatting edits (bold / unbold / bullets) ----------------
+# Pure-formatting instructions ("unbold the Education lines", "remove the bullets
+# from Skills") are handled in code rather than by the LLM: the model frequently
+# leaves the Markdown markers in place or rewrites the wrong span, so a 200 "edit"
+# applies nothing visible. These helpers detect such an instruction, localize it to
+# the named section, and emit exact reword edits. ``format_edits`` returns ``None``
+# when the instruction is NOT a formatting op, so the caller falls back to the LLM.
+_FMT_OFF = re.compile(
+    r"\b(remove|removing|removed|strip|stripping|stripped|take|taking|took|drop|dropping|"
+    r"delete|deleting|without|normal|regular|plain|lighter|unbold|unbolded)\b"
+    r"|\boff\b|get\s+rid|no\s+bold|not\s+bold|non-?bold|isn'?t\s+bold|aren'?t\s+bold",
+    re.I,
+)
+_FMT_ALL = re.compile(r"\b(everything|all|entire|whole|document|r[eé]sum[eé]|resume|everywhere)\b", re.I)
+_BULLET_RE = re.compile(r"^(\s*)[-*•‣●]\s+")
+
+
+def _format_intent(instruction: str) -> str:
+    """Classify a pure-formatting instruction as 'unbold' | 'bold' | 'unbullet', or
+    '' when it is not a formatting op (the caller should then use the LLM)."""
+    low = (instruction or "").lower()
+    norm = low.replace("-", "").replace(" ", "")
+    if "bold" in low or "unbold" in norm:
+        return "unbold" if (_FMT_OFF.search(instruction or "") or "unbold" in norm) else "bold"
+    if ("weight" in low or "font" in low) and any(
+        w in low for w in ("normal", "regular", "plain", "lighter", "un-bold", "unbold")
+    ):
+        return "unbold"
+    if "bullet" in low and _FMT_OFF.search(instruction or ""):
+        return "unbullet"
+    return ""
+
+
+def _doc_sections(lines: list[str]) -> dict[str, tuple[int, int, int]]:
+    """Map a lower-cased section name -> (heading_index, content_start, content_end) for
+    each Markdown '## Heading' (or '# Heading') in the document."""
+    heads = [(i, ln.lstrip("#").strip()) for i, ln in enumerate(lines) if ln.lstrip().startswith("#")]
+    out: dict[str, tuple[int, int, int]] = {}
+    for n, (i, name) in enumerate(heads):
+        end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+        if name:
+            out[name.lower()] = (i, i + 1, end)
+    return out
+
+
+def _apply_format(line: str, intent: str) -> str:
+    """Apply a single formatting op to one Markdown line."""
+    if intent == "unbold":
+        return re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+    if intent == "unbullet":
+        return _BULLET_RE.sub(r"\1", line)
+    if intent == "bold":
+        if "**" in line:  # already contains bold -> leave as-is
+            return line
+        m = _BULLET_RE.match(line)
+        if m:
+            body = line[m.end():].strip()
+            return f"{m.group(0)}**{body}**" if body else line
+        body = line.strip()
+        return line.replace(body, f"**{body}**", 1) if body else line
+    return line
+
+
+def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
+    """Deterministic edits for a pure-formatting instruction (bold/unbold/bullets).
+
+    Returns a list of reword edits (possibly empty when there is nothing to change),
+    or ``None`` when the instruction is not a recognized formatting op — in which case
+    the caller falls back to the LLM. Only acts when it can localize the change to a
+    named section (or the instruction targets the whole document), so it never guesses
+    at which lines to touch."""
+    text = text or ""
+    intent = _format_intent(instruction or "")
+    if not intent:
+        return None
+    lines = text.split("\n")
+    low = (instruction or "").lower()
+    sections = _doc_sections(lines)
+    targets: list[int] = []
+    label = ""
+    for name, (_h, cstart, cend) in sections.items():
+        if any(w in low for w in name.split() if len(w) > 2):
+            label = name
+            targets.extend(range(cstart, cend))
+    if not targets:
+        if _FMT_ALL.search(instruction or ""):
+            targets = list(range(len(lines)))
+        else:
+            return None  # can't localize safely -> defer to the LLM
+    edits: list[dict] = []
+    seen: set[str] = set()
+    for idx in targets:
+        orig = lines[idx]
+        if not orig.strip() or orig.lstrip().startswith("#") or orig in seen:
+            continue
+        new = _apply_format(orig, intent)
+        if new != orig:
+            seen.add(orig)
+            edits.append({
+                "action": "reword",
+                "section": label.title(),
+                "before": orig,
+                "after": new,
+                "rationale": f"{intent} formatting",
+            })
+    return edits
+
+
 class ResumeAssistant:
     def __init__(self, llm: Optional[LLMProvider] = None) -> None:
         self.llm = llm or build_llm()
@@ -957,6 +1065,11 @@ class ResumeAssistant:
         instruction = (instruction or "").strip()
         if not text or not instruction:
             return []
+        # Deterministic pass for pure-formatting ops (bold/unbold/bullets) -- reliable
+        # where the LLM often leaves the markup untouched. None => not a formatting op.
+        fmt = format_edits(text, instruction)
+        if fmt is not None:
+            return fmt
         reqs = ""
         if job and job.requirements:
             reqs = "\nTarget role: " + (job.title or "") + " - " + ", ".join(job.requirements[:10])

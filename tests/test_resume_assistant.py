@@ -493,6 +493,86 @@ def test_api_ai_edit_no_match_makes_no_version():
     assert body["active_version"] == before  # nothing matched -> no new version
 
 
+# --- deterministic formatting pass (bold / unbold / bullets) ---------------
+def test_format_intent_classifies_formatting_instructions():
+    from jobsearch.engines.resume_assistant import _format_intent
+    assert _format_intent("Remove the bold formatting from the Education section") == "unbold"
+    assert _format_intent("take the bold off the two education lines") == "unbold"
+    assert _format_intent("unbold the degree lines") == "unbold"
+    assert _format_intent("use normal weight for the education lines font") == "unbold"
+    assert _format_intent("make the job titles bold") == "bold"
+    assert _format_intent("bold the section headers") == "bold"
+    assert _format_intent("remove the bullets from Skills") == "unbullet"
+    # not a formatting op -> defer to the LLM
+    assert _format_intent("make my summary punchier") == ""
+    assert _format_intent("quantify my achievements") == ""
+
+
+def test_format_edits_unbolds_named_section_only():
+    from jobsearch.engines.resume_assistant import format_edits
+    text = ("**BAYETE WILLIAMS**\n## Experience\n**IT Director** at Acme\n- Led a team\n"
+            "## Education\n**Master of Science - Mercy College**\n"
+            "**Bachelor of Science - Mercy College**")
+    edits = format_edits(text, "Remove the bold formatting from the two lines in the Education section")
+    assert edits is not None and len(edits) == 2
+    befores = {e["before"] for e in edits}
+    assert befores == {"**Master of Science - Mercy College**", "**Bachelor of Science - Mercy College**"}
+    for e in edits:
+        assert e["action"] == "reword" and "**" in e["before"] and "**" not in e["after"]
+    # change stays inside Education: the name and the Experience title are untouched
+    assert all("WILLIAMS" not in e["before"] and "IT Director" not in e["before"] for e in edits)
+
+
+def test_format_edits_defers_and_noops_correctly():
+    from jobsearch.engines.resume_assistant import format_edits
+    text = "## Education\nMaster of Science - Mercy College"
+    # not a formatting instruction -> None (caller uses the LLM)
+    assert format_edits(text, "make the education section more impressive") is None
+    # recognized op but nothing to change (already plain) -> [] (handled, no edits)
+    assert format_edits(text, "unbold the education section") == []
+    # formatting op we can't localize (no section named, not 'all') -> None
+    assert format_edits(text, "remove the bold") is None
+    # ... but 'everything' is localizable to the whole document
+    allbold = format_edits("**A**\n## Education\n**B - C**", "remove all bold")
+    assert allbold is not None and {e["before"] for e in allbold} == {"**A**", "**B - C**"}
+
+
+def test_format_edits_bold_and_unbullet():
+    from jobsearch.engines.resume_assistant import format_edits
+    text = "## Skills\n- Python\n- AWS"
+    un = format_edits(text, "remove the bullets from the Skills section")
+    assert un and all(not e["after"].lstrip().startswith("-") for e in un)
+    bd = format_edits(text, "bold the skills lines")
+    assert bd and {e["after"] for e in bd} == {"- **Python**", "- **AWS**"}
+
+
+def test_api_ai_edit_unbolds_deterministically_even_if_llm_returns_nothing():
+    # The LLM returns no edits; if /ai-edit relied on it, the bold would remain.
+    # The deterministic formatting pass must strip it regardless.
+    class _EmptyEditsLLM:
+        name = "empty"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return "[]"
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _EmptyEditsLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    text = ("**BAYETE WILLIAMS**\n## Education\n"
+            "**Master of Science - Mercy College**\n**Bachelor of Science - Mercy College**")
+    rid = _upload(client, h, text)["id"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+    r = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={
+        "instruction": "Remove the bold formatting from the two lines in the Education section."})
+    assert r.status_code == 200
+    rt = r.json()["rendered_text"]
+    assert r.json()["active_version"] > before  # applied as a new version
+    assert "Master of Science - Mercy College" in rt  # text kept
+    assert "**Master of Science - Mercy College**" not in rt  # but no longer bold
+    assert "**Bachelor of Science - Mercy College**" not in rt
+    assert "**BAYETE WILLIAMS**" in rt  # name above Education keeps its bold
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

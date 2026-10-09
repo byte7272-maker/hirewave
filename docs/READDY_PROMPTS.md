@@ -245,3 +245,40 @@ variants, ListRow, EmptyState). Re-skin every surface from them (editor, marquee
 applications/kanban, approvals, settings, forms, modals, toasts, empty/loading/error states),
 adapting (not copy-pasting). Guardrails: WCAG AA contrast; clear hover/focus/active/disabled;
 fully responsive; visual-only (no behavior/data change); support dark mode if present.
+
+---
+
+## P0b — "Ask AI to change it": dedup silently swallows repeat instructions
+
+**CORRECTION (re-verified 2026-10-08 on the published site, build with the new copy live).** The
+submit *is* wired correctly: a **new** instruction fires `POST /resumes/{id}/ai-edit` (200),
+applies immediately, bumps the version (confirmed v14→v15 "Make the Summary one sentence shorter",
+then v15→v16 for a novel unbold instruction), then re-scores via `POST /review` and re-renders via
+`/structured` + `/preview.*`. No accept step; Undo reverts. That part is **working** — the earlier
+"fires zero backend calls" note here was wrong (it came from testing with *duplicate* wording plus
+an unreliable post-navigate network capture).
+
+**Real bug #1 — dedup swallows repeated instructions.** Re-submitting an instruction whose text
+already exists in the saved history/Recent (e.g. "remove the bold font from the Education section",
+present 4× in Recent) fires **no** request at all: the box just clears, no toast, no version. This
+is why every *retry of the same wording* looked permanently broken — only the first use of a given
+string ever reaches the backend. Fix:
+- Do **not** skip a submit because the instruction matches a past/Recent entry. Each **Apply
+  change** / **Enter** must POST `/ai-edit` regardless of history. Recent is a convenience list,
+  not a guard.
+- If a submit genuinely results in no change (backend returns the doc unchanged / no new version),
+  say so explicitly inline ("No change was made — try rewording"), never clear silently.
+- Empty box → keep text + inline "Enter an instruction." (already done ✅).
+
+**Real bug #2 (backend/edit-quality) — formatting edits don't take.** The novel instruction
+"Unbold the school name and the degree line in the Education section…" returned `/ai-edit` **200**
+and created **v16**, but the two Education lines (`**Master of Science … Mercy College**`,
+`**Bachelor of Science … Mercy College**`) are **still bold** — the model (gpt-4o-mini via
+`targeted_edits_text`) didn't strip the `**…**` markers even though the HTML renderer bolds *only*
+from `**`. This is a backend prompt/targeting gap for pure-formatting instructions, not a Readdy
+issue. **(Backend TODO — see below; not a Readdy prompt.)**
+
+Subtitle copy is already updated to "Applies a targeted change right away — use Undo to revert." ✅
+
+Acceptance: submitting the *same* instruction text twice in a row issues **two** `POST …/ai-edit`
+calls (not one); a no-op edit shows an inline "no change" message instead of clearing silently.
