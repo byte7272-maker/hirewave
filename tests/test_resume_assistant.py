@@ -528,10 +528,13 @@ def test_section_heading_detection_excludes_entry_titles():
     assert _is_section_heading("**EDUCATION**")[0] is True
     assert _is_section_heading("## Education")[0] is True
     assert _is_section_heading("**Technical Skills**")[0] is True
+    assert _is_section_heading("# Bayete Williams")[0] is True
     # Long bold lines (entry titles / degree lines) are content, not headings —
     # even when they happen to contain a section word.
     assert _is_section_heading("**Master of Science, Info Assurance - Mercy College**")[0] is False
     assert _is_section_heading("**Senior Projects Lead at Acme Corp**")[0] is False
+    # A '###'+ entry sub-heading (job/degree title) is content, not a section heading.
+    assert _is_section_heading("### Master of Science - Mercy College")[0] is False
     assert _is_section_heading("Regular text line")[0] is False
 
 
@@ -552,6 +555,23 @@ def test_format_edits_handles_bold_standalone_section_headings():
         assert "**" not in e["after"]
     # The **EDUCATION** heading and the other sections keep their bold.
     assert all("EDUCATION" not in e["before"] for e in edits)
+
+
+def test_format_edits_demotes_entry_subheadings():
+    # Real-world case: degree lines are '### ' sub-headings (render bold as <h3>), with
+    # no ** to strip. 'unbold' must DEMOTE them to plain text so they render normally.
+    from jobsearch.engines.resume_assistant import format_edits
+    text = ("# Bayete Williams\n**IT Leader**\n## Experience\n### Regional IT Director\n- Led\n"
+            "## Education\n\n### Master of Science - Mercy College\n\n"
+            "### Bachelor of Science - Mercy College\n## Skills\nPython")
+    edits = format_edits(text, "Education section: make the two degree lines non-bold")
+    assert edits is not None and len(edits) == 2
+    for e in edits:
+        assert e["before"].startswith("### ") and not e["after"].lstrip().startswith("#")
+    assert {e["after"] for e in edits} == {
+        "Master of Science - Mercy College", "Bachelor of Science - Mercy College"}
+    # Localized to Education: the Experience job title keeps its heading.
+    assert all("Regional IT Director" not in e["before"] for e in edits)
 
 
 def test_format_edits_defers_and_noops_correctly():

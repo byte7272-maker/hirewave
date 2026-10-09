@@ -290,14 +290,16 @@ _SECTION_WORDS = {
 
 
 def _is_section_heading(line: str) -> tuple[bool, str]:
-    """Whether a line is a section heading, and its display name. A heading is a
-    Markdown '#'/'##' line, OR a short standalone fully-bold line that names a known
-    résumé section (so docs using '**EDUCATION**' as a heading localize correctly).
-    A long bold line (e.g. an entry title like '**MSc ... - Mercy College**') is NOT
-    a heading, so its bold can still be stripped as content."""
+    """Whether a line is a top-level SECTION heading (left untouched when editing a
+    section's content), and its name. True for Markdown '#'/'##' lines and for a short
+    standalone **BOLD** line naming a known résumé section (so docs using '**EDUCATION**'
+    localize correctly). A deeper '###'+ line is an ENTRY sub-heading (a job/degree
+    title) and a long bold line is content -- NOT section headings -- so a content
+    formatting op (e.g. unbold) can still act on them."""
     s = line.strip()
     if s.startswith("#"):
-        return True, s.lstrip("#").strip()
+        level = len(s) - len(s.lstrip("#"))
+        return level <= 2, s.lstrip("#").strip()
     m = re.fullmatch(r"\*\*(.+?)\*\*", s)
     if m:
         name = m.group(1).strip()
@@ -326,7 +328,10 @@ def _doc_sections(lines: list[str]) -> dict[str, tuple[int, int, int]]:
 def _apply_format(line: str, intent: str) -> str:
     """Apply a single formatting op to one Markdown line."""
     if intent == "unbold":
-        return re.sub(r"\*\*(.+?)\*\*", r"\1", line)
+        # Demote an entry sub-heading ('### Title' -> 'Title') so it renders at normal
+        # weight instead of a bold heading, and strip any inline **bold**.
+        s = re.sub(r"^(\s*)#{1,6}\s+", r"\1", line)
+        return re.sub(r"\*\*(.+?)\*\*", r"\1", s)
     if intent == "unbullet":
         return _BULLET_RE.sub(r"\1", line)
     if intent == "bold":
