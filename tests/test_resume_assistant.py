@@ -629,6 +629,62 @@ def test_api_ai_edit_formatting_calls_no_llm_and_uses_deterministic_changelog():
     assert "bold" in (ver.get("change_summary") or "").lower()
 
 
+# --- item 4: changelog off the edit critical path --------------------------
+def test_summarize_change_fast_is_deterministic_no_llm():
+    class _NoLLM:
+        name = "x"
+        def complete(self, *a, **k):
+            raise AssertionError("the fast changelog must not call the LLM")
+    ra = ResumeAssistant(llm=_NoLLM())
+    s = ra.summarize_change_fast("a b c", "a b c d e f g", instruction="expand it")
+    assert "words)" in s and s.startswith(("Expanded", "Tightened", "Revised"))
+
+
+# --- items 5 & 6: fast review + narrative cache ----------------------------
+def test_api_review_narrative_false_skips_llm():
+    class _NoLLM:
+        name = "forbidden"
+        def complete(self, *a, **k):
+            raise AssertionError("narrative=false must not call the LLM")
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Led billing, cut latency 40% for 2M users")["id"]
+    state.resume_assistant.llm = _NoLLM()  # from here any LLM call fails the test
+    r = client.post(f"/api/v1/resumes/{rid}/review?narrative=false", headers=h, json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert isinstance(body["score"], int) and body["grade"]  # deterministic score/grade
+    assert body["ratings"]  # deterministic ratings present
+    assert body["summary"] == ""  # narrative skipped (loaded separately by the UI)
+
+
+def test_api_review_narrative_cached_until_edit():
+    calls = {"n": 0}
+    class _CountLLM:
+        name = "count"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            calls["n"] += 1
+            return "Solid resume with quantified impact; tighten the summary."
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _CountLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Led billing, cut latency 40%")["id"]
+    base = calls["n"]  # account for any LLM use during upload
+    r1 = client.post(f"/api/v1/resumes/{rid}/review", headers=h, json={}).json()
+    after_first = calls["n"]
+    assert after_first > base and r1["summary"]  # LLM produced the first narrative
+    # Unchanged résumé -> served from cache, no new LLM calls.
+    r2 = client.post(f"/api/v1/resumes/{rid}/review", headers=h, json={}).json()
+    assert calls["n"] == after_first and r2["summary"] == r1["summary"]
+    # Edit the résumé -> cache invalidated -> narrative recomputed.
+    client.put(f"/api/v1/resumes/{rid}", headers=h,
+               json={"rendered_text": "## Experience\n- Led the billing platform, cut latency 55%"})
+    client.post(f"/api/v1/resumes/{rid}/review", headers=h, json={}).json()
+    assert calls["n"] > after_first
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

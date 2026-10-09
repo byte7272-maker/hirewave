@@ -77,6 +77,12 @@ class Resume(DomainModel):
     #: instead of the raw uploaded file. ``summarized_at is None`` => never reviewed.
     content_summary: str = ""
     summarized_at: Optional[datetime] = None
+    #: Cached LLM review narrative + the content hash it was produced from, so
+    #: re-reviewing an UNCHANGED résumé returns instantly with no LLM call. The cache
+    #: is invalidated automatically when ``review_cache_key`` no longer matches the
+    #: current text hash (i.e. the résumé was edited).
+    review_summary: str = ""
+    review_cache_key: str = ""
     #: The template the user chose to render this résumé with (a builtin id like
     #: "tpl_modern" or a saved template's id). Blank = the app's default. Persisted
     #: so the choice follows the résumé across sessions/devices; the render

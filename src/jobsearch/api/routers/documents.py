@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Optional
 
@@ -165,7 +166,9 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     if not doc.versions:
         doc.versions = [DocumentVersion(version=1, label="Original", content=old, source="original")]
     next_v = max(v.version for v in doc.versions) + 1
-    summary = change_summary or state.resume_assistant.summarize_change(
+    # Deterministic changelog (no LLM) keeps saving a version off the latency-sensitive
+    # edit path — an edit never waits on a slow LLM just to label the version.
+    summary = change_summary or state.resume_assistant.summarize_change_fast(
         old, new_content, instruction=instruction, job=job)
     default_label = (job.category if job else "") or (job.title if job else "") or f"Version {next_v}"
     doc.versions.append(DocumentVersion(
@@ -822,24 +825,50 @@ def update_resume(
 
 @router.post("/resumes/{resume_id}/review", response_model=ResumeReview)
 def review_resume(
-    resume_id: str, body: ResumeReviewRequest, user: CurrentUser, state: StateDep
+    resume_id: str, body: ResumeReviewRequest, user: CurrentUser, state: StateDep,
+    narrative: bool = Query(
+        True,
+        description="false = return the deterministic score/ratings instantly with no LLM "
+                    "(load the narrative separately); true = include the LLM assessment "
+                    "(served from cache when the résumé is unchanged)."),
 ) -> ResumeReview:
     """Analyze a résumé — score, strengths, concrete suggested changes, and (if a
-    job is given) the requirements it's missing. Read-only; changes nothing."""
+    job is given) the requirements it's missing. Read-only; changes nothing.
+
+    Fast paths: ``narrative=false`` skips the LLM entirely (instant score/ratings);
+    with ``narrative=true`` and an unchanged résumé, the cached assessment is reused
+    so no LLM call is made."""
     resume = get_resume(resume_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    review = state.resume_assistant.review(resume, job=job)
+    cache_key = hashlib.sha256((resume.rendered_text or "").encode("utf-8")).hexdigest()
+
+    # Cache hit: unchanged résumé, no target job, narrative wanted, and we have it
+    # cached -> deterministic review (no LLM) with the cached narrative injected.
+    if (narrative and job is None and cache_key and resume.review_cache_key == cache_key
+            and resume.review_summary and resume.content_summary):
+        review = state.resume_assistant.review(resume, narrative=False)
+        review.summary = resume.review_summary
+        review.content_summary = resume.content_summary
+        return review
+
+    review = state.resume_assistant.review(resume, job=job, narrative=narrative)
     # Refresh the cached card grade from a general (no-job) review; a job-specific
-    # review is contextual and must not overwrite the document-quality grade.
+    # review is contextual and must not overwrite the document-quality grade. The
+    # score is deterministic, so even the fast (narrative=false) path refreshes it.
     dirty = False
     if job is None and (resume.quality_grade != review.grade or resume.quality_score != review.score):
         resume.quality_score = review.score
         resume.quality_grade = review.grade
         dirty = True
-    # Persist the factual content summary + a "has been summarized" timestamp (the
-    # summary is job-independent), so the page can open straight to the preview for
-    # a résumé the user has already reviewed instead of the raw uploaded file.
-    if review.content_summary and (
+    # Cache the (job-independent) LLM narrative + the content hash it came from, so a
+    # later review of the unchanged résumé is served from cache with no LLM call.
+    if job is None and narrative and review.summary and review.content_summary:
+        resume.review_summary = review.summary
+        resume.content_summary = review.content_summary
+        resume.review_cache_key = cache_key
+        resume.summarized_at = utcnow()
+        dirty = True
+    elif review.content_summary and (
         resume.content_summary != review.content_summary or resume.summarized_at is None
     ):
         resume.content_summary = review.content_summary

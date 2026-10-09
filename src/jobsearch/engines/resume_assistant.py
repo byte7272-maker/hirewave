@@ -1148,15 +1148,35 @@ class ResumeAssistant:
         return data
 
     # -- version change summary --------------------------------------------
-    def summarize_change(
+    def summarize_change_fast(
         self, old: str, new: str, *, instruction: str = "", job: Optional[JobPosting] = None
     ) -> str:
-        """A 1-2 sentence summary of what changed from ``old`` to ``new`` (for a saved
-        version). LLM when available, deterministic fallback otherwise. ASCII output."""
+        """A deterministic 1-line changelog (word-count trend) — no LLM, so it never
+        adds latency to an edit's critical path. ASCII output."""
         old, new = (old or "").strip(), (new or "").strip()
         if not new:
             return ""
         ow, nw = len(_WORD_RE.findall(old)), len(_WORD_RE.findall(new))
+        delta = nw - ow
+        trend = "Expanded" if delta > 20 else ("Tightened" if delta < -20 else "Revised")
+        base = trend
+        if instruction:
+            base += f" to {instruction.strip().rstrip('.').lower()}"
+        elif job:
+            base += f" for {job.title}"
+        return f"{base} (~{ow} -> ~{nw} words)."
+
+    def summarize_change(
+        self, old: str, new: str, *, instruction: str = "", job: Optional[JobPosting] = None
+    ) -> str:
+        """A 1-2 sentence summary of what changed from ``old`` to ``new`` (for a saved
+        version). LLM when available, deterministic fallback otherwise. ASCII output.
+
+        NB: this makes a (bounded) LLM call — callers on a latency-sensitive path
+        (e.g. applying an edit) should use :meth:`summarize_change_fast` instead."""
+        old, new = (old or "").strip(), (new or "").strip()
+        if not new:
+            return ""
         try:
             prompt = (
                 f"Instruction: {instruction or 'general revision'}\n"
@@ -1170,14 +1190,7 @@ class ResumeAssistant:
                 return out
         except Exception:  # noqa: BLE001 - never break versioning on the LLM
             pass
-        delta = nw - ow
-        trend = "Expanded" if delta > 20 else ("Tightened" if delta < -20 else "Revised")
-        base = trend
-        if instruction:
-            base += f" to {instruction.strip().rstrip('.').lower()}"
-        elif job:
-            base += f" for {job.title}"
-        return f"{base} (~{ow} -> ~{nw} words)."
+        return self.summarize_change_fast(old, new, instruction=instruction, job=job)
 
     # -- cover letters ------------------------------------------------------
     def review_cover_letter(
