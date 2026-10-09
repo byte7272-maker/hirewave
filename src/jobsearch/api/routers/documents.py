@@ -154,14 +154,19 @@ def _review_focus_points(review) -> list[str]:
     return [f"{s.title}: {s.detail}" for s in getattr(review, "suggestions", [])][:8]
 
 
-def _add_version(doc, *, text_attr, new_content, label, source, instruction, job, state):
+def _add_version(doc, *, text_attr, new_content, label, source, instruction, job, state,
+                 change_summary: str = ""):
     """Append a new version to a résumé/cover letter, seeding the current text as the
-    'Original' first time, set it active, and point the doc's live text at it."""
+    'Original' first time, set it active, and point the doc's live text at it.
+
+    ``change_summary`` lets the caller supply the changelog directly (e.g. a
+    deterministic formatting edit); when empty, it's generated with the LLM."""
     old = getattr(doc, text_attr) or ""
     if not doc.versions:
         doc.versions = [DocumentVersion(version=1, label="Original", content=old, source="original")]
     next_v = max(v.version for v in doc.versions) + 1
-    summary = state.resume_assistant.summarize_change(old, new_content, instruction=instruction, job=job)
+    summary = change_summary or state.resume_assistant.summarize_change(
+        old, new_content, instruction=instruction, job=job)
     default_label = (job.category if job else "") or (job.title if job else "") or f"Version {next_v}"
     doc.versions.append(DocumentVersion(
         version=next_v, label=(label or default_label), content=new_content,
@@ -542,8 +547,13 @@ def ai_edit_resume(
         applied += 1 if ok else 0
     # Apply immediately: save the result as a new active version (undo via history).
     if applied and text.strip() and text != (resume.rendered_text or ""):
+        # A pure-formatting edit is fully deterministic -> use a deterministic
+        # changelog so no LLM is called anywhere (instant even when the LLM is slow).
+        fmt_summary = (state.resume_assistant.format_change_summary(body.instruction, applied)
+                       if state.resume_assistant.is_formatting_instruction(body.instruction) else "")
         _add_version(resume, text_attr="rendered_text", new_content=text, label="",
-                     source="revision", instruction=body.instruction.strip()[:200], job=job, state=state)
+                     source="revision", instruction=body.instruction.strip()[:200], job=job,
+                     state=state, change_summary=fmt_summary)
         resume.quality_score = None
         resume.quality_grade = ""
         state.resumes.add(resume)
@@ -572,8 +582,11 @@ def ai_edit_cover_letter(
         text, ok = _apply_edit(text, EditSuggestion(**e))
         applied += 1 if ok else 0
     if applied and text.strip() and text != (cl.content or ""):
+        fmt_summary = (state.resume_assistant.format_change_summary(body.instruction, applied)
+                       if state.resume_assistant.is_formatting_instruction(body.instruction) else "")
         _add_version(cl, text_attr="content", new_content=text, label="",
-                     source="revision", instruction=body.instruction.strip()[:200], job=job, state=state)
+                     source="revision", instruction=body.instruction.strip()[:200], job=job,
+                     state=state, change_summary=fmt_summary)
         state.cover_letters.add(cl)
     return cl
 

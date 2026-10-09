@@ -255,6 +255,11 @@ _FMT_OFF = re.compile(
 )
 _FMT_ALL = re.compile(r"\b(everything|all|entire|whole|document|r[eé]sum[eé]|resume|everywhere)\b", re.I)
 _BULLET_RE = re.compile(r"^(\s*)[-*•‣●]\s+")
+_FMT_SUMMARY = {
+    "unbold": "Removed bold formatting",
+    "bold": "Added bold formatting",
+    "unbullet": "Removed bullet points",
+}
 
 
 def _format_intent(instruction: str) -> str:
@@ -1046,6 +1051,19 @@ class ResumeAssistant:
             return _coerce_edits(json.loads(_extract_json_array(out)))
         except Exception:  # noqa: BLE001 - no guessing on failure
             return []
+
+    def is_formatting_instruction(self, instruction: str) -> bool:
+        """True when the instruction is a pure formatting op (bold/unbold/bullets),
+        so it is handled deterministically and needs no LLM anywhere in the flow."""
+        return bool(_format_intent(instruction or ""))
+
+    def format_change_summary(self, instruction: str, applied: int = 0) -> str:
+        """A deterministic changelog line for a formatting edit, so the version can be
+        saved without an LLM call (keeps /ai-edit instant even when the LLM is slow)."""
+        phrase = _FMT_SUMMARY.get(_format_intent(instruction or ""), "Formatting update")
+        if applied:
+            return f"{phrase} ({applied} line{'s' if applied != 1 else ''})"
+        return phrase
 
     def targeted_edits(
         self, resume: Resume, instruction: str, *, job: Optional[JobPosting] = None

@@ -573,6 +573,62 @@ def test_api_ai_edit_unbolds_deterministically_even_if_llm_returns_nothing():
     assert "**BAYETE WILLIAMS**" in rt  # name above Education keeps its bold
 
 
+# --- LLM timeout / fast-fallback -------------------------------------------
+def test_openai_provider_sets_request_timeout():
+    # Without an explicit timeout the SDK default is ~10 min, so a slow OpenAI hangs
+    # every résumé-AI call. The provider must carry the configured timeout.
+    from jobsearch.llm.providers import OpenAILLMProvider
+    p = OpenAILLMProvider("sk-test", "gpt-4o-mini", timeout=7.5)
+    assert p._timeout == 7.5
+
+
+def test_factory_propagates_llm_timeout_to_openai():
+    from jobsearch.config import Settings
+    from jobsearch.llm.factory import build_llm, build_review_llm
+    s = Settings(llm_provider="openai", openai_api_key="sk-test", llm_timeout_seconds=12.0)
+    assert build_llm(s)._timeout == 12.0
+    assert build_review_llm(s)._timeout == 12.0  # review LLM gets the same bound
+
+
+def test_format_change_summary_and_detection():
+    ra = ResumeAssistant()
+    assert ra.is_formatting_instruction("remove the bold from Education") is True
+    assert ra.is_formatting_instruction("make my summary punchier") is False
+    assert ra.format_change_summary("remove the bold from Education", 2) == "Removed bold formatting (2 lines)"
+    assert ra.format_change_summary("bold the titles", 1) == "Added bold formatting (1 line)"
+    assert ra.format_change_summary("remove the bullets from Skills", 3) == "Removed bullet points (3 lines)"
+
+
+def test_api_ai_edit_formatting_calls_no_llm_and_uses_deterministic_changelog():
+    # A formatting edit is fully deterministic: no LLM anywhere in /ai-edit (not for
+    # the edit, not for the changelog), so it stays instant even when the LLM is slow.
+    class _NoLLM:
+        name = "forbidden"
+        def complete(self, *a, **k):
+            raise AssertionError("no LLM call may happen for a formatting edit")
+
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    text = ("**BAYETE WILLIAMS**\n## Education\n"
+            "**Master of Science - Mercy College**\n**Bachelor of Science - Mercy College**")
+    rid = _upload(client, h, text)["id"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+    state.resume_assistant.llm = _NoLLM()  # from here any LLM call fails the test
+
+    r = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h,
+                    json={"instruction": "remove the bold formatting from the Education section"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["active_version"] > before
+    rt = body["rendered_text"]
+    assert "Master of Science - Mercy College" in rt and "**Master of Science - Mercy College**" not in rt
+    assert "**BAYETE WILLIAMS**" in rt  # localized to Education
+    # The new version carries the deterministic changelog (no LLM was consulted).
+    ver = client.get(f"/api/v1/resumes/{rid}/versions/{body['active_version']}", headers=h).json()
+    assert "bold" in (ver.get("change_summary") or "").lower()
+
+
 def test_api_review_persists_summarized_signal_for_preview_default():
     # After a résumé is reviewed once, it carries a content_summary + summarized_at,
     # so the page can open straight to the preview (not the raw upload) next time.

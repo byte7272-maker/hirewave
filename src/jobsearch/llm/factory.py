@@ -22,7 +22,7 @@ def build_llm(settings: Settings | None = None) -> LLMProvider:
     if provider == "openai" and s.openai_api_key:
         from jobsearch.llm.providers import OpenAILLMProvider
 
-        return OpenAILLMProvider(s.openai_api_key, s.openai_model)
+        return OpenAILLMProvider(s.openai_api_key, s.openai_model, timeout=s.llm_timeout_seconds)
     return MockLLMProvider()
 
 
@@ -42,7 +42,9 @@ def build_review_llm(settings: Settings | None = None) -> LLMProvider:
     if s.llm_provider == "openai" and s.openai_api_key:
         from jobsearch.llm.providers import OpenAILLMProvider
 
-        return OpenAILLMProvider(s.openai_api_key, review_model or s.openai_model)
+        return OpenAILLMProvider(
+            s.openai_api_key, review_model or s.openai_model, timeout=s.llm_timeout_seconds
+        )
     return MockLLMProvider()
 
 
@@ -59,6 +61,8 @@ def build_embedder(settings: Settings | None = None) -> EmbeddingProvider:
         from jobsearch.llm.providers import OpenAIEmbeddingProvider
 
         return CachingEmbeddingProvider(
-            OpenAIEmbeddingProvider(s.openai_api_key, s.openai_embedding_model)
+            OpenAIEmbeddingProvider(
+                s.openai_api_key, s.openai_embedding_model, timeout=s.llm_timeout_seconds
+            )
         )
     return MockEmbeddingProvider(dim=s.embedding_dim)

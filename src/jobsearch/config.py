@@ -82,6 +82,11 @@ class Settings(BaseSettings):
         default="text-embedding-3-small", validation_alias="OPENAI_EMBEDDING_MODEL"
     )
     embedding_dim: int = 512  # dimensionality used by the mock embedder
+    #: Per-request timeout (seconds) for LLM text generation + embeddings. Keeps
+    #: résumé-AI calls (review, improve, revise, change summaries, embeddings) from
+    #: hanging when the provider is slow: the call fails fast and the deterministic
+    #: fallback runs instead. Worst case per call ~= timeout x (1 + a single retry).
+    llm_timeout_seconds: float = Field(default=30.0, validation_alias="JOBSEARCH_LLM_TIMEOUT")
 
     # --- Security ----------------------------------------------------------
     encryption_key: str = ""  # base64 or hex 32-byte key; blank -> ephemeral dev key

@@ -79,15 +79,23 @@ class AnthropicLLMProvider(LLMProvider):
 class OpenAILLMProvider(LLMProvider):
     name = "openai"
 
-    def __init__(self, api_key: str, model: str = "gpt-4o") -> None:
+    def __init__(
+        self, api_key: str, model: str = "gpt-4o", *, timeout: float = 30.0, max_retries: int = 1
+    ) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - depends on extra
             raise RuntimeError(
                 "openai package not installed — run `pip install .[openai]`"
             ) from exc
-        self._client = OpenAI(api_key=api_key)
+        # A per-request timeout is essential: without it the SDK default is ~10
+        # minutes, so a slow OpenAI hangs every résumé-AI call (review, improve,
+        # change summaries) until then. With it, the call raises quickly and the
+        # caller's deterministic fallback runs. max_retries is kept low so the worst
+        # case stays ~= timeout x (1 + max_retries), not several minutes.
+        self._client = OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
         self._model = model
+        self._timeout = timeout
 
     def complete(
         self,
@@ -123,15 +131,19 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     name = "openai"
     _MAX_BATCH = 256  # inputs per request
 
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small") -> None:
+    def __init__(
+        self, api_key: str, model: str = "text-embedding-3-small", *,
+        timeout: float = 30.0, max_retries: int = 1,
+    ) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - depends on extra
             raise RuntimeError(
                 "openai package not installed — run `pip install .[openai]`"
             ) from exc
-        self._client = OpenAI(api_key=api_key)
+        self._client = OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
         self._model = model
+        self._timeout = timeout
         self.dim = 1536
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:
