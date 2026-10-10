@@ -856,19 +856,46 @@ def test_run_with_deadline_bounds_and_reraises():
 
 def test_openai_complete_is_hard_bounded_even_if_sdk_hangs():
     # The real reliability fix: a slow/hanging SDK call must NOT hang the request. With a
-    # client whose create() sleeps 30s, complete() still returns (raises) within the hard
-    # budget (~timeout + grace), not after 30s.
+    # client whose create() blocks, complete() still returns (raises) within the hard
+    # budget (~timeout + grace). The block is released after the assert so the abandoned
+    # daemon ends promptly (no leaked thread / held slot).
+    import threading
     import time
     import types
     import pytest
     from jobsearch.llm.providers import OpenAILLMProvider
     p = OpenAILLMProvider("sk-test", "gpt-4o-mini", timeout=0.2)
+    release = threading.Event()
     p._client = types.SimpleNamespace(chat=types.SimpleNamespace(
-        completions=types.SimpleNamespace(create=lambda **k: time.sleep(30))))
+        completions=types.SimpleNamespace(create=lambda **k: release.wait(20))))
     t0 = time.monotonic()
     with pytest.raises(Exception):
         p.complete("hi")
-    assert time.monotonic() - t0 < 8  # bounded by the hard timeout, not the 30s hang
+    assert time.monotonic() - t0 < 8  # bounded by the hard timeout, not the block
+    release.set()
+    time.sleep(0.05)  # let the abandoned call finish and free its slot
+
+
+def test_llm_concurrency_cap_fails_fast():
+    # When all in-flight slots are taken (a slow provider), a new call must fail fast to
+    # the deterministic fallback rather than stacking more abandoned work.
+    import threading
+    import time
+    import jobsearch.llm.providers as pr
+    orig_sema, orig_max, orig_wait = pr._INFLIGHT, pr._MAX_INFLIGHT, pr._INFLIGHT_WAIT
+    pr._INFLIGHT, pr._MAX_INFLIGHT, pr._INFLIGHT_WAIT = threading.BoundedSemaphore(1), 1, 0.1
+    try:
+        assert pr._INFLIGHT.acquire()  # occupy the only slot directly (no leaked daemon)
+        t0 = time.monotonic()
+        try:
+            pr._run_with_deadline(lambda: "x", timeout=5)
+            assert False, "should have hit the concurrency cap"
+        except RuntimeError as e:
+            assert "cap" in str(e).lower()
+        assert time.monotonic() - t0 < 1.0  # failed fast, didn't block for the whole call
+        pr._INFLIGHT.release()
+    finally:
+        pr._INFLIGHT, pr._MAX_INFLIGHT, pr._INFLIGHT_WAIT = orig_sema, orig_max, orig_wait
 
 
 def test_factory_propagates_llm_timeout_and_retries_to_openai():

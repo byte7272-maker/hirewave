@@ -9,6 +9,7 @@ package. Install the matching extra to use them::
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Callable, Sequence, TypeVar
 
@@ -22,13 +23,29 @@ _T = TypeVar("_T")
 # ~600s default), so this guarantees the CALLER returns within ~timeout + grace.
 _HARD_TIMEOUT_GRACE = 5.0
 
+# Process-wide cap on concurrent LLM calls. On a slow provider a hard-timed-out call is
+# abandoned but its thread keeps running until the socket read times out; without a cap
+# those could pile up under load. Excess calls fail fast (-> deterministic fallback)
+# instead of spawning unbounded work. Tunable via JOBSEARCH_LLM_MAX_INFLIGHT.
+_MAX_INFLIGHT = max(1, int(os.getenv("JOBSEARCH_LLM_MAX_INFLIGHT", "8")))
+_INFLIGHT = threading.BoundedSemaphore(_MAX_INFLIGHT)
+_INFLIGHT_WAIT = 2.0  # brief wait for a free slot before giving up
+
 
 def _run_with_deadline(fn: Callable[[], _T], timeout: float) -> _T:
     """Run ``fn()`` in a daemon thread and return its result, or raise ``TimeoutError``
     if it doesn't finish within ``timeout`` seconds. On timeout the thread is ABANDONED
     (it finishes on its own later, or dies with the process) -- the point is that the
     caller returns within ~timeout no matter what fn does internally (SDK/network hangs
-    included), so a slow provider can never hang a request toward the SDK default."""
+    included), so a slow provider can never hang a request toward the SDK default.
+
+    A process-wide semaphore caps concurrent in-flight calls: if no slot is free within
+    a brief wait, raise immediately so the caller falls back deterministically rather than
+    stacking more abandoned work. The slot is held until the real call finishes (even past
+    a hard timeout), so sustained provider slowness degrades gracefully instead of
+    exhausting threads/connections."""
+    if not _INFLIGHT.acquire(timeout=_INFLIGHT_WAIT):
+        raise RuntimeError(f"LLM concurrency cap ({_MAX_INFLIGHT}) reached; using fallback")
     box: dict[str, object] = {}
     done = threading.Event()
 
@@ -38,6 +55,7 @@ def _run_with_deadline(fn: Callable[[], _T], timeout: float) -> _T:
         except BaseException as exc:  # noqa: BLE001 - re-raised in the caller thread
             box["error"] = exc
         finally:
+            _INFLIGHT.release()  # free the slot only when the real call actually ends
             done.set()
 
     threading.Thread(target=runner, daemon=True).start()
@@ -118,17 +136,23 @@ class OpenAILLMProvider(LLMProvider):
         self, api_key: str, model: str = "gpt-4o", *, timeout: float = 30.0, max_retries: int = 0
     ) -> None:
         try:
+            import httpx
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - depends on extra
             raise RuntimeError(
                 "openai package not installed — run `pip install .[openai]`"
             ) from exc
         # A per-request timeout is essential: without it the SDK default is ~10 minutes,
-        # so a slow OpenAI hangs every résumé-AI call until then. With it, the call raises
-        # at the timeout and the caller's deterministic fallback runs. max_retries defaults
-        # to 0: the SDK retries on timeout, so a retry just doubles the wait on an already-
-        # slow provider -- each call is bounded to ~timeout, not timeout x (1 + retries).
-        self._client = OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
+        # so a slow OpenAI hangs every résumé-AI call until then. The SDK's own `timeout`
+        # proved unreliable in production (calls ran toward the default), so we ALSO pass
+        # an explicit httpx client with GRANULAR timeouts (connect/read/write/pool) to
+        # enforce the bound at the socket level -- a hung read now trips at ~timeout.
+        # max_retries defaults to 0 so a retry can't double the wait on a slow provider.
+        http_timeout = httpx.Timeout(timeout, connect=min(10.0, timeout), pool=5.0)
+        self._client = OpenAI(
+            api_key=api_key, timeout=timeout, max_retries=max_retries,
+            http_client=httpx.Client(timeout=http_timeout),
+        )
         self._model = model
         self._timeout = timeout
         self._max_retries = max_retries
