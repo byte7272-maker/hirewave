@@ -181,12 +181,20 @@ def _cluster_points_fallback(points: list[str], *, min_overlap: int = 2, max_gro
             best["words"] |= w
         else:
             groups.append({"words": set(w), "points": [p]})
-    out: list[dict] = []
-    for g in sorted(groups, key=lambda g: -len(g["points"]))[:max_groups]:
-        pts = _dedupe_points(g["points"])
-        summary = max(pts, key=lambda p: (len(_METRIC_RE.findall(p)), len(p)))
-        theme = ", ".join(sorted(g["words"])[:3]).title() or "Highlights"
-        out.append({"theme": theme, "summary": summary, "points": pts})
+
+    def _mk(pts: list[str], theme: str) -> dict:
+        pts = _dedupe_points(pts)
+        return {"theme": theme, "points": pts,
+                "summary": max(pts, key=lambda p: (len(_METRIC_RE.findall(p)), len(p)))}
+
+    ranked = sorted(groups, key=lambda g: -len(g["points"]))
+    # Keep the largest groups within the cap; never DROP points -- fold any overflow
+    # groups into one "Additional highlights" group so nothing is silently lost.
+    kept = ranked if len(ranked) <= max_groups else ranked[:max_groups - 1]
+    out = [_mk(g["points"], ", ".join(sorted(g["words"])[:3]).title() or "Highlights") for g in kept]
+    overflow = ranked[max_groups - 1:] if len(ranked) > max_groups else []
+    if overflow:
+        out.append(_mk([p for g in overflow for p in g["points"]], "Additional highlights"))
     return out
 
 

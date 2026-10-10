@@ -456,6 +456,18 @@ def test_cluster_evidence_fallback_groups_related_points():
     assert "40%" in groups[0]["summary"]  # representative = the quantified point
 
 
+def test_cluster_fallback_keeps_all_points_within_group_cap():
+    # Many unrelated points -> many small clusters. The group cap must not DROP points;
+    # overflow folds into an "Additional highlights" group so everything is retained.
+    from jobsearch.engines.resume_assistant import _cluster_points_fallback
+    pts = [f"{chr(97 + i) * 4} {chr(97 + i) * 5}" for i in range(20)]  # distinct, non-overlapping
+    groups = _cluster_points_fallback(pts, max_groups=8)
+    assert len(groups) <= 8
+    kept = [p for g in groups for p in g["points"]]
+    assert set(kept) == set(pts)  # nothing lost
+    assert any(g["theme"] == "Additional highlights" for g in groups)
+
+
 def test_api_evidence_synthesize_returns_groups():
     class _SynthLLM:
         name = "s"
