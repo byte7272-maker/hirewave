@@ -382,6 +382,47 @@ def test_api_evidence_prompts_and_extract_flow():
     assert client.post(f"/api/v1/resumes/{rid}/evidence/extract", headers=h, json={"text": "  "}).status_code == 400
 
 
+def test_chunk_text_splits_on_boundaries():
+    from jobsearch.engines.resume_assistant import _chunk_text
+    assert _chunk_text("", 100) == []
+    assert _chunk_text("short", 100) == ["short"]
+    text = "\n\n".join(["x" * 90] * 5)  # 5 paragraphs
+    chunks = _chunk_text(text, 200)
+    assert len(chunks) > 1 and all(0 < len(c) <= 200 for c in chunks)
+    # A single line longer than the chunk size is hard-sliced.
+    cs = _chunk_text("y" * 500, 200)
+    assert len(cs) == 3 and all(len(c) <= 200 for c in cs)
+
+
+def test_extract_evidence_chunks_large_input_without_truncation():
+    import json as _json
+    import re as _re
+
+    class _EchoFactsLLM:
+        name = "echo"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            # Echo back only the FACT: lines present in THIS chunk's prompt.
+            return _json.dumps(_re.findall(r"FACT:[^\n]+", prompt))
+
+    a = ResumeAssistant(llm=_EchoFactsLLM())
+    filler = "\n".join(f"filler detail about routine work number {i}" for i in range(300))
+    text = "FACT: alpha early win\n" + filler + "\nFACT: omega tail win"
+    assert len(text) > 6000  # far past the old single-call truncation point
+    pts = a.extract_evidence(text)
+    assert any("alpha early win" in p for p in pts)   # first chunk
+    assert any("omega tail win" in p for p in pts)    # tail is processed, not dropped
+    # A fact repeated in different chunks is merged to one.
+    pts2 = a.extract_evidence("FACT: shared win\n" + filler + "\nFACT: shared win")
+    assert sum("shared win" in p for p in pts2) == 1
+
+
+def test_evidence_prompts_ask_external_ai_to_limit_length():
+    prompts = ResumeAssistant().evidence_prompts(_resume("## Experience\n- Built things"))
+    # Every prompt tells the user's external AI to keep the answer concise + paste-ready.
+    assert prompts and all("under ~400 words" in p["prompt"] for p in prompts)
+    assert all("one short line per item" in p["prompt"] for p in prompts)
+
+
 def test_api_replace_is_deterministic_and_reports_count():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)

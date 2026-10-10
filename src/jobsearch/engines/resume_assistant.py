@@ -97,6 +97,58 @@ def _dedupe_points(points: list[str]) -> list[str]:
     return out
 
 
+# Evidence extraction is CHUNKED so a large paste is processed in full instead of being
+# silently truncated. Each chunk stays well under the model's input budget, and chunks
+# split on paragraph/line boundaries so a point is never cut in half.
+_EVIDENCE_CHUNK = 5000       # chars of pasted notes per extraction call
+_EVIDENCE_MAX_CHUNKS = 16    # safety cap (~80k chars) against pathological input
+# Appended to every evidence prompt so the user's external AI returns concise,
+# paste-ready output that imports cleanly (short lines, no markdown, bounded length).
+_EVIDENCE_FORMAT = (
+    "Format the answer to paste back cleanly: one short line per item, no preamble, "
+    "headings, tables, or markdown; strongest items first; and keep the whole response "
+    "under ~400 words so it imports without being cut off."
+)
+
+
+def _chunk_text(text: str, size: int) -> list[str]:
+    """Split ``text`` into ``<=size`` chunks on paragraph/line boundaries, hard-slicing
+    only a single line longer than ``size``. Never returns empty chunks."""
+    text = (text or "").strip()
+    if len(text) <= size:
+        return [text] if text else []
+    chunks: list[str] = []
+    buf = ""
+
+    def flush() -> None:
+        nonlocal buf
+        if buf.strip():
+            chunks.append(buf.strip())
+        buf = ""
+
+    def add(piece: str, sep: str) -> None:
+        nonlocal buf
+        if buf and len(buf) + len(sep) + len(piece) > size:
+            flush()
+        buf = f"{buf}{sep}{piece}" if buf else piece
+
+    for block in re.split(r"\n\s*\n", text):
+        block = block.strip()
+        if not block:
+            continue
+        if len(block) <= size:
+            add(block, "\n\n")
+            continue
+        for line in block.splitlines():  # a too-long block -> split by lines
+            if len(line) <= size:
+                add(line, "\n")
+            else:  # a single line longer than a chunk -> hard-slice it
+                for i in range(0, len(line), size):
+                    add(line[i:i + size], "\n")
+    flush()
+    return chunks
+
+
 def _focus_points_block(focus_points: Optional[list[str]]) -> str:
     """Render review points into a prompt block so the improvement targets the exact
     weaknesses the on-screen AI summary raised. Empty when there are no points."""
@@ -1026,13 +1078,31 @@ class ResumeAssistant:
                           f"concrete evidence that I've done work relevant to: {reqs}. For each, give a "
                           "specific example with the result and any metrics — or say I have no clear "
                           "evidence for it."})
+        # Ask the user's external AI to keep each answer concise + paste-ready, so the
+        # result imports cleanly and isn't cut off by input limits on the way back in.
+        for p in prompts:
+            p["prompt"] = p["prompt"].rstrip() + " " + _EVIDENCE_FORMAT
         return prompts
 
     def extract_evidence(self, text: str) -> list[str]:
         """Turn the raw output a user pasted from their company AI into clean, discrete,
         résumé-worthy data points (one accomplishment/fact each, metrics preserved).
-        Extract-only — never invents; the points then feed :meth:`incorporate`. LLM
-        with a deterministic fallback that splits bullet/line structure."""
+        Extract-only — never invents; the points then feed :meth:`incorporate`.
+
+        Large pastes are CHUNKED and each chunk extracted in full (no silent truncation),
+        then merged + de-duplicated. LLM per chunk with a deterministic bullet/line split
+        fallback. Capped at 40 points."""
+        text = (text or "").strip()
+        if not text:
+            return []
+        points: list[str] = []
+        for chunk in _chunk_text(text, _EVIDENCE_CHUNK)[:_EVIDENCE_MAX_CHUNKS]:
+            points.extend(self._extract_evidence_chunk(chunk))
+        return _dedupe_points(points)[:40]
+
+    def _extract_evidence_chunk(self, text: str) -> list[str]:
+        """Extract résumé-worthy points from ONE bounded chunk (already within the input
+        budget): LLM with a deterministic bullet/line-split fallback."""
         text = (text or "").strip()
         if not text:
             return []
@@ -1043,18 +1113,17 @@ class ResumeAssistant:
                 "one clear fact per string, each stating what was done and the measurable result if given. "
                 "Preserve numbers exactly. Merge duplicates. Drop greetings, headers, and anything not "
                 "about this person's own work. Never invent anything. Return ONLY a JSON array of strings."
-                "\n\nNotes:\n" + text[:6000],
+                "\n\nNotes:\n" + text,
                 system="You extract concise resume accomplishment points and output only a JSON array of strings.",
                 max_tokens=900,
             )
             data = json.loads(_extract_json_array(out))
-            pts = [str(p).strip() for p in data if str(p).strip()]
-            if pts:
-                return _dedupe_points(pts)[:40]
-        except Exception:  # noqa: BLE001 - fall back to a structural split
+            if isinstance(data, list):  # a valid array -> trust it, even when empty
+                return _dedupe_points([str(p).strip() for p in data if str(p).strip()])
+        except Exception:  # noqa: BLE001 - fall back only on error / non-array output
             pass
         lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in text.splitlines()]
-        return _dedupe_points([ln for ln in lines if len(ln) > 8])[:40]
+        return _dedupe_points([ln for ln in lines if len(ln) > 8])
 
     def suggest_edits(
         self, resume: Resume, context: str, *, job: Optional[JobPosting] = None
