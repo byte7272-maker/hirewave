@@ -144,14 +144,21 @@ class OpenAILLMProvider(LLMProvider):
             ) from exc
         # A per-request timeout is essential: without it the SDK default is ~10 minutes,
         # so a slow OpenAI hangs every résumé-AI call until then. The SDK's own `timeout`
-        # proved unreliable in production (calls ran toward the default), so we ALSO pass
-        # an explicit httpx client with GRANULAR timeouts (connect/read/write/pool) to
-        # enforce the bound at the socket level -- a hung read now trips at ~timeout.
+        # proved unreliable in production (calls ran toward the default), so we ALSO try an
+        # explicit httpx client with GRANULAR timeouts (connect/read/write/pool) to enforce
+        # the bound at the socket level -- a hung read then trips at ~timeout. This is
+        # best-effort and wrapped in try/except so a differing httpx version can never crash
+        # startup; the hard wall-clock wrapper + SDK timeout remain the guarantees.
         # max_retries defaults to 0 so a retry can't double the wait on a slow provider.
-        http_timeout = httpx.Timeout(timeout, connect=min(10.0, timeout), pool=5.0)
+        client_kw: dict = {}
+        try:
+            client_kw["http_client"] = httpx.Client(
+                timeout=httpx.Timeout(timeout, connect=min(10.0, timeout), pool=5.0)
+            )
+        except Exception:  # noqa: BLE001 - never let transport tuning break boot
+            pass
         self._client = OpenAI(
-            api_key=api_key, timeout=timeout, max_retries=max_retries,
-            http_client=httpx.Client(timeout=http_timeout),
+            api_key=api_key, timeout=timeout, max_retries=max_retries, **client_kw
         )
         self._model = model
         self._timeout = timeout
