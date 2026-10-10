@@ -85,8 +85,12 @@ class Settings(BaseSettings):
     #: Per-request timeout (seconds) for LLM text generation + embeddings. Keeps
     #: résumé-AI calls (review, improve, revise, change summaries, embeddings) from
     #: hanging when the provider is slow: the call fails fast and the deterministic
-    #: fallback runs instead. Worst case per call ~= timeout x (1 + a single retry).
+    #: fallback runs instead.
     llm_timeout_seconds: float = Field(default=30.0, validation_alias="JOBSEARCH_LLM_TIMEOUT")
+    #: Retries per LLM call. Default 0: on a slow/degraded provider a retry just doubles
+    #: the wait (the SDK retries on timeout too), and the deterministic fallback is our
+    #: resilience — so each call is bounded to ~llm_timeout_seconds, not a multiple of it.
+    llm_max_retries: int = Field(default=0, validation_alias="JOBSEARCH_LLM_MAX_RETRIES")
 
     # --- Security ----------------------------------------------------------
     encryption_key: str = ""  # base64 or hex 32-byte key; blank -> ephemeral dev key

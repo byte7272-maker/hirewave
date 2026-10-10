@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Optional
 
 from jobsearch.llm import LLMProvider, build_llm
@@ -102,6 +103,10 @@ def _dedupe_points(points: list[str]) -> list[str]:
 # split on paragraph/line boundaries so a point is never cut in half.
 _EVIDENCE_CHUNK = 5000       # chars of pasted notes per extraction call
 _EVIDENCE_MAX_CHUNKS = 16    # safety cap (~80k chars) against pathological input
+# Total wall-clock budget (seconds) for LLM extraction across chunks. Once exceeded,
+# remaining chunks are split deterministically (no LLM) so a big paste on a slow provider
+# can't stack many per-call timeouts into minutes of waiting.
+_EVIDENCE_LLM_BUDGET_S = 45.0
 # Appended to every evidence prompt so the user's external AI returns concise,
 # paste-ready output that imports cleanly (short lines, no markdown, bounded length).
 _EVIDENCE_FORMAT = (
@@ -109,6 +114,13 @@ _EVIDENCE_FORMAT = (
     "headings, tables, or markdown; strongest items first; and keep the whole response "
     "under ~400 words so it imports without being cut off."
 )
+
+
+def _evidence_split(text: str) -> list[str]:
+    """Deterministic (no-LLM) extraction: one point per non-trivial line, bullet markers
+    stripped, de-duplicated. The fallback for a failed/slow LLM extraction."""
+    lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in (text or "").splitlines()]
+    return _dedupe_points([ln for ln in lines if len(ln) > 8])
 
 
 def _chunk_text(text: str, size: int) -> list[str]:
@@ -1164,13 +1176,19 @@ class ResumeAssistant:
 
         Large pastes are CHUNKED and each chunk extracted in full (no silent truncation),
         then merged + de-duplicated. LLM per chunk with a deterministic bullet/line split
-        fallback. Capped at 40 points."""
+        fallback. A wall-clock budget bounds the total LLM time: once it's spent, remaining
+        chunks are split deterministically (no LLM) so a big paste on a slow provider can't
+        stack many per-call timeouts. Capped at 40 points."""
         text = (text or "").strip()
         if not text:
             return []
         points: list[str] = []
+        deadline = time.monotonic() + _EVIDENCE_LLM_BUDGET_S
         for chunk in _chunk_text(text, _EVIDENCE_CHUNK)[:_EVIDENCE_MAX_CHUNKS]:
-            points.extend(self._extract_evidence_chunk(chunk))
+            if time.monotonic() < deadline:
+                points.extend(self._extract_evidence_chunk(chunk))
+            else:  # budget spent -> deterministic only, no more LLM calls
+                points.extend(_evidence_split(chunk))
         return _dedupe_points(points)[:40]
 
     def _extract_evidence_chunk(self, text: str) -> list[str]:
@@ -1195,8 +1213,7 @@ class ResumeAssistant:
                 return _dedupe_points([str(p).strip() for p in data if str(p).strip()])
         except Exception:  # noqa: BLE001 - fall back only on error / non-array output
             pass
-        lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in text.splitlines()]
-        return _dedupe_points([ln for ln in lines if len(ln) > 8])
+        return _evidence_split(text)
 
     def cluster_evidence(
         self, points: list[str], *, job: Optional[JobPosting] = None

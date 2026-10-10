@@ -827,20 +827,40 @@ def test_api_ai_edit_unbolds_deterministically_even_if_llm_returns_nothing():
 
 
 # --- LLM timeout / fast-fallback -------------------------------------------
-def test_openai_provider_sets_request_timeout():
-    # Without an explicit timeout the SDK default is ~10 min, so a slow OpenAI hangs
-    # every résumé-AI call. The provider must carry the configured timeout.
+def test_openai_provider_sets_request_timeout_and_no_retries_by_default():
+    # Without an explicit timeout the SDK default is ~10 min; and the SDK retries on
+    # timeout, which just doubles the wait on a slow provider. Default = tight timeout,
+    # 0 retries, so each call is bounded to ~timeout (not timeout x retries).
     from jobsearch.llm.providers import OpenAILLMProvider
     p = OpenAILLMProvider("sk-test", "gpt-4o-mini", timeout=7.5)
-    assert p._timeout == 7.5
+    assert p._timeout == 7.5 and p._max_retries == 0
 
 
-def test_factory_propagates_llm_timeout_to_openai():
+def test_factory_propagates_llm_timeout_and_retries_to_openai():
     from jobsearch.config import Settings
     from jobsearch.llm.factory import build_llm, build_review_llm
-    s = Settings(llm_provider="openai", openai_api_key="sk-test", llm_timeout_seconds=12.0)
-    assert build_llm(s)._timeout == 12.0
-    assert build_review_llm(s)._timeout == 12.0  # review LLM gets the same bound
+    s = Settings(llm_provider="openai", openai_api_key="sk-test",
+                 llm_timeout_seconds=12.0, llm_max_retries=0)
+    for p in (build_llm(s), build_review_llm(s)):
+        assert p._timeout == 12.0 and p._max_retries == 0
+
+
+def test_extract_evidence_respects_llm_time_budget(monkeypatch):
+    # Once the wall-clock budget is spent, remaining chunks are split deterministically
+    # with NO further LLM calls -- so a big paste on a slow provider can't stack timeouts.
+    import jobsearch.engines.resume_assistant as ra
+    monkeypatch.setattr(ra, "_EVIDENCE_LLM_BUDGET_S", 0.0)  # budget already spent
+
+    calls = {"n": 0}
+    class _CountLLM:
+        name = "c"
+        def complete(self, *a, **k):
+            calls["n"] += 1
+            return "[]"
+    a = ra.ResumeAssistant(llm=_CountLLM())
+    pts = a.extract_evidence("- did a substantial thing worth noting\n- did another notable thing here")
+    assert calls["n"] == 0  # budget spent -> no LLM calls at all
+    assert pts  # deterministic split still returns points
 
 
 def test_format_change_summary_and_detection():

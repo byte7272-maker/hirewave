@@ -80,7 +80,7 @@ class OpenAILLMProvider(LLMProvider):
     name = "openai"
 
     def __init__(
-        self, api_key: str, model: str = "gpt-4o", *, timeout: float = 30.0, max_retries: int = 1
+        self, api_key: str, model: str = "gpt-4o", *, timeout: float = 30.0, max_retries: int = 0
     ) -> None:
         try:
             from openai import OpenAI
@@ -88,14 +88,15 @@ class OpenAILLMProvider(LLMProvider):
             raise RuntimeError(
                 "openai package not installed — run `pip install .[openai]`"
             ) from exc
-        # A per-request timeout is essential: without it the SDK default is ~10
-        # minutes, so a slow OpenAI hangs every résumé-AI call (review, improve,
-        # change summaries) until then. With it, the call raises quickly and the
-        # caller's deterministic fallback runs. max_retries is kept low so the worst
-        # case stays ~= timeout x (1 + max_retries), not several minutes.
+        # A per-request timeout is essential: without it the SDK default is ~10 minutes,
+        # so a slow OpenAI hangs every résumé-AI call until then. With it, the call raises
+        # at the timeout and the caller's deterministic fallback runs. max_retries defaults
+        # to 0: the SDK retries on timeout, so a retry just doubles the wait on an already-
+        # slow provider -- each call is bounded to ~timeout, not timeout x (1 + retries).
         self._client = OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
         self._model = model
         self._timeout = timeout
+        self._max_retries = max_retries
 
     def complete(
         self,
@@ -133,7 +134,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
 
     def __init__(
         self, api_key: str, model: str = "text-embedding-3-small", *,
-        timeout: float = 30.0, max_retries: int = 1,
+        timeout: float = 30.0, max_retries: int = 0,
     ) -> None:
         try:
             from openai import OpenAI
