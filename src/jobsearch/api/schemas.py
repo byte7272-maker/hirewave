@@ -559,7 +559,11 @@ class AiEditRequest(BaseModel):
     """Ask AI to make a targeted change and apply it immediately (no preview/approval;
     undo via version history)."""
 
-    instruction: str
+    #: The workspace "Ask AI to change it" instruction — a short, targeted command,
+    #: capped at 500 characters (matches the editor's X/500 counter). This is the AI
+    #: PROMPT box and is intentionally limited; large pasted work data goes to My Work
+    #: Highlights (``/evidence/extract`` + ``/highlights/suggest``), which is uncapped.
+    instruction: str = Field(max_length=500)
     #: The live editor text to edit (so unsaved edits are respected). Omit to use saved.
     content: Optional[str] = None
     job_posting_id: Optional[str] = None

@@ -471,6 +471,24 @@ def test_highlights_suggest_then_accept_and_save_flow():
                        json={"text": "  "}).status_code == 400
 
 
+def test_ai_edit_prompt_capped_500_but_highlights_uncapped():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+    # The workspace "Ask AI to change it" prompt is limited to 500 chars (schema-enforced).
+    assert client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h,
+                       json={"instruction": "x" * 501}).status_code == 422
+    assert client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h,
+                       json={"instruction": "x" * 500}).status_code != 422  # at the cap is fine
+    # My Work Highlights accepts a much larger paste (uncapped, processed in full).
+    big = "\n".join(f"- did useful work item number {i}" for i in range(200))
+    assert len(big) > 500
+    assert client.post(f"/api/v1/resumes/{rid}/evidence/extract", headers=h,
+                       json={"text": big}).status_code == 200
+    assert client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h,
+                       json={"text": big}).status_code == 200
+
+
 def test_api_replace_is_deterministic_and_reports_count():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)
