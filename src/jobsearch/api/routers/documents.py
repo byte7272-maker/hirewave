@@ -18,6 +18,8 @@ from jobsearch.api.schemas import (
     CreateVersionRequest,
     EvidenceExtractRequest,
     EvidenceExtractResponse,
+    EvidenceGroup,
+    EvidenceSynthesisResponse,
     EvidencePrompt,
     EvidencePromptsRequest,
     EvidencePromptsResponse,
@@ -635,6 +637,24 @@ def extract_evidence(
     return EvidenceExtractResponse(data_points=points)
 
 
+@router.post("/resumes/{resume_id}/evidence/synthesize", response_model=EvidenceSynthesisResponse)
+def synthesize_evidence(
+    resume_id: str, body: EvidenceExtractRequest, user: CurrentUser, state: StateDep
+) -> EvidenceSynthesisResponse:
+    """Analyze the pasted work-AI output into GROUPS of related ideas, each with one
+    overarching, résumé-worthy statement synthesized from its supporting points — so the
+    user works with a few strong concepts instead of many line-by-line facts. The paste is
+    extracted in full (chunked) into clean points, then clustered. Extract/synthesize-only
+    (never invents); review the groups, then suggest/apply edits + save."""
+    resume = get_resume(resume_id, user, state)
+    if not body.text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the output from your work AI first")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    points = state.resume_assistant.extract_evidence(body.text)
+    groups = state.resume_assistant.cluster_evidence(points, job=job)
+    return EvidenceSynthesisResponse(groups=[EvidenceGroup(**g) for g in groups])
+
+
 @router.post("/resumes/{resume_id}/highlights/suggest", response_model=SuggestEditsResponse)
 def suggest_from_highlights(
     resume_id: str, body: EvidenceExtractRequest, user: CurrentUser, state: StateDep
@@ -646,8 +666,9 @@ def suggest_from_highlights(
     POST them to ``/resumes/{id}/apply-edits`` for a preview, then save the preview via
     ``/resumes/{id}/versions`` (so you always accept + save explicitly).
 
-    The paste is extracted into clean, de-duplicated data points first (processed in full,
-    not truncated), and those points drive the suggestions."""
+    The paste is extracted in full into clean points, then CLUSTERED into overarching
+    concept-level statements — the edits are driven by those synthesized ideas rather than
+    each granular line, so the résumé gains a few strong points, not a long list."""
     resume = get_resume(resume_id, user, state)
     if not body.text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the output from your work AI first")
@@ -655,7 +676,11 @@ def suggest_from_highlights(
     points = state.resume_assistant.extract_evidence(body.text)
     if not points:
         return SuggestEditsResponse(suggestions=[])
-    context = "\n".join(f"- {p}" for p in points)
+    groups = state.resume_assistant.cluster_evidence(points, job=job)
+    # Drive the edits from the overarching statements (concept-level), falling back to the
+    # raw points only if clustering produced nothing.
+    basis = [g["summary"] for g in groups] or points
+    context = "\n".join(f"- {c}" for c in basis)
     edits = state.resume_assistant.suggest_edits(resume, context, job=job)
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
 

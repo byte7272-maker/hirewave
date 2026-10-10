@@ -149,6 +149,71 @@ def _chunk_text(text: str, size: int) -> list[str]:
     return chunks
 
 
+# Evidence clustering: group related points into themes so the user works with a few
+# overarching concepts instead of many line-by-line facts.
+_CLUSTER_STOP = set(
+    "the a an and or of to in for with on at by from as is are was were be been being this "
+    "that these those my our your their his her its it i we you they them he she have has had "
+    "will would can could do did done made make work worked using used into over under across "
+    "team teams role roles".split()
+)
+
+
+def _sig_words(s: str) -> set[str]:
+    """Significant (4+ letter, non-stopword) tokens of a point, for overlap clustering."""
+    return {w for w in re.findall(r"[a-z]{4,}", (s or "").lower()) if w not in _CLUSTER_STOP}
+
+
+def _cluster_points_fallback(points: list[str], *, min_overlap: int = 2, max_groups: int = 8) -> list[dict]:
+    """Deterministic grouping (no LLM): greedily merge points that share significant
+    words; the group's statement is its most-quantified/longest point (a representative,
+    not a true synthesis — the LLM path does the real synthesis)."""
+    groups: list[dict] = []
+    for p in points:
+        w = _sig_words(p)
+        best, best_ov = None, 0
+        for g in groups:
+            ov = len(w & g["words"])
+            if ov > best_ov:
+                best, best_ov = g, ov
+        if best is not None and best_ov >= min_overlap:
+            best["points"].append(p)
+            best["words"] |= w
+        else:
+            groups.append({"words": set(w), "points": [p]})
+    out: list[dict] = []
+    for g in sorted(groups, key=lambda g: -len(g["points"]))[:max_groups]:
+        pts = _dedupe_points(g["points"])
+        summary = max(pts, key=lambda p: (len(_METRIC_RE.findall(p)), len(p)))
+        theme = ", ".join(sorted(g["words"])[:3]).title() or "Highlights"
+        out.append({"theme": theme, "summary": summary, "points": pts})
+    return out
+
+
+def _coerce_groups(data, source_points: list[str]) -> list[dict]:
+    """Validate an LLM cluster array into [{theme, summary, points}] — drops items with no
+    summary, prefers verbatim source wording for the supporting points, caps at 8 groups."""
+    src = {p.lower(): p for p in source_points}
+    groups: list[dict] = []
+    for d in data if isinstance(data, list) else []:
+        if not isinstance(d, dict):
+            continue
+        summary = str(d.get("summary", "") or "").strip()
+        if not summary:
+            continue
+        raw = d.get("points") or []
+        pts = [src.get(str(p).strip().lower(), str(p).strip())
+               for p in (raw if isinstance(raw, list) else []) if str(p).strip()]
+        groups.append({
+            "theme": (str(d.get("theme", "") or "").strip()[:80] or "Highlights"),
+            "summary": summary,
+            "points": _dedupe_points(pts),
+        })
+        if len(groups) >= 8:
+            break
+    return groups
+
+
 def _focus_points_block(focus_points: Optional[list[str]]) -> str:
     """Render review points into a prompt block so the improvement targets the exact
     weaknesses the on-screen AI summary raised. Empty when there are no points."""
@@ -1124,6 +1189,43 @@ class ResumeAssistant:
             pass
         lines = [re.sub(r"^[\-\*•‣●\d\.\)\(\s]+", "", ln).strip() for ln in text.splitlines()]
         return _dedupe_points([ln for ln in lines if len(ln) > 8])
+
+    def cluster_evidence(
+        self, points: list[str], *, job: Optional[JobPosting] = None
+    ) -> list[dict]:
+        """Group related evidence points into themes and synthesize ONE overarching,
+        résumé-worthy statement per group — so the user works with a few strong concepts
+        instead of many line-by-line facts. The overarching statement is INFERRED from the
+        group's points (synthesis, not a list), using ONLY the supplied facts (never
+        invents), preserving numbers. LLM with a deterministic keyword-clustering fallback.
+        Returns [{theme, summary, points:[supporting points]}]."""
+        pts = [p.strip() for p in (points or []) if p and p.strip()][:40]
+        if not pts:
+            return []
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nFavor themes relevant to this target role: " + (job.title or "") + \
+                   " — " + ", ".join(job.requirements[:10])
+        try:
+            out = self.llm.complete(
+                "Group the résumé evidence points below into 3-8 themes of related ideas. For "
+                "each theme write ONE strong, specific résumé-worthy statement that captures the "
+                "OVERARCHING accomplishment across its points (synthesize the common idea — do not "
+                "just concatenate or list), preserving any numbers; and list the exact source "
+                "points it draws from. Use ONLY facts present in the points — never invent "
+                "employers, titles, dates, metrics, or skills. Return ONLY a JSON array: "
+                '[{"theme":<short label>,"summary":<one overarching sentence>,'
+                '"points":[<verbatim source points>]}].' + reqs +
+                "\n\nPoints:\n" + "\n".join(f"- {p}" for p in pts),
+                system="You cluster and synthesize résumé accomplishments and output only a JSON array.",
+                max_tokens=1300,
+            )
+            groups = _coerce_groups(json.loads(_extract_json_array(out)), pts)
+            if groups:
+                return groups
+        except Exception:  # noqa: BLE001 - fall back to deterministic clustering
+            pass
+        return _cluster_points_fallback(pts)
 
     def suggest_edits(
         self, resume: Resume, context: str, *, job: Optional[JobPosting] = None

@@ -611,6 +611,21 @@ class EvidenceExtractResponse(BaseModel):
     data_points: list[str] = Field(default_factory=list)
 
 
+class EvidenceGroup(BaseModel):
+    """A theme of related evidence points with one overarching, synthesized statement."""
+
+    theme: str = ""                 # short label for the concept/group
+    summary: str                    # the overarching statement inferred from the points
+    points: list[str] = Field(default_factory=list)  # supporting source points
+
+
+class EvidenceSynthesisResponse(BaseModel):
+    #: The pasted evidence analyzed into GROUPS of related ideas, each with one overarching
+    #: statement (synthesized from its points) — so the user works with a few strong
+    #: concepts instead of many line-by-line facts.
+    groups: list[EvidenceGroup] = Field(default_factory=list)
+
+
 class RephraseRequest(BaseModel):
     """Ask the AI to rephrase a selected span (a word, sentence, or paragraph)."""
 

@@ -423,6 +423,66 @@ def test_evidence_prompts_ask_external_ai_to_limit_length():
     assert all("one short line per item" in p["prompt"] for p in prompts)
 
 
+def test_cluster_evidence_synthesizes_themed_groups():
+    class _ClusterLLM:
+        name = "cl"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return ('[{"theme":"Billing platform","summary":"Owned the billing platform end to end, '
+                    'cutting latency 40%","points":["Led the billing platform migration cutting latency 40%",'
+                    '"Owned billing platform roadmap"]},'
+                    '{"theme":"Mentoring","summary":"Mentored 5 engineers across two teams",'
+                    '"points":["Mentored 3 junior engineers","Coached 2 new hires"]}]')
+    a = ResumeAssistant(llm=_ClusterLLM())
+    pts = ["Led the billing platform migration cutting latency 40%", "Owned billing platform roadmap",
+           "Mentored 3 junior engineers", "Coached 2 new hires"]
+    groups = a.cluster_evidence(pts)
+    assert len(groups) == 2 and {g["theme"] for g in groups} == {"Billing platform", "Mentoring"}
+    bp = next(g for g in groups if g["theme"] == "Billing platform")
+    assert "40%" in bp["summary"] and len(bp["points"]) == 2  # overarching statement + sources
+    assert a.cluster_evidence([]) == []
+
+
+def test_cluster_evidence_fallback_groups_related_points():
+    class _Broken:
+        name = "x"
+        def complete(self, *a, **k):
+            raise RuntimeError("no llm")
+    a = ResumeAssistant(llm=_Broken())
+    groups = a.cluster_evidence([
+        "Led the billing platform migration cutting latency 40%",
+        "Owned the billing platform roadmap and reliability",
+    ])
+    assert len(groups) == 1 and len(groups[0]["points"]) == 2  # shared words -> one group
+    assert "40%" in groups[0]["summary"]  # representative = the quantified point
+
+
+def test_api_evidence_synthesize_returns_groups():
+    class _SynthLLM:
+        name = "s"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            if "extract the discrete" in prompt:
+                return '["Led billing platform cutting latency 40%","Owned billing roadmap","Mentored 3 engineers"]'
+            if "into 3-8 themes" in prompt:
+                return ('[{"theme":"Billing","summary":"Owned the billing platform, cutting latency 40%",'
+                        '"points":["Led billing platform cutting latency 40%","Owned billing roadmap"]},'
+                        '{"theme":"Mentoring","summary":"Mentored 3 engineers","points":["Mentored 3 engineers"]}]')
+            return "[]"
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _SynthLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+    r = client.post(f"/api/v1/resumes/{rid}/evidence/synthesize", headers=h,
+                    json={"text": "owned billing platform; latency down 40%; mentored engineers"})
+    assert r.status_code == 200
+    groups = r.json()["groups"]
+    assert len(groups) == 2 and all({"theme", "summary", "points"} <= set(g) for g in groups)
+    assert any("40%" in g["summary"] for g in groups)
+    # Empty paste -> 400.
+    assert client.post(f"/api/v1/resumes/{rid}/evidence/synthesize", headers=h,
+                       json={"text": "  "}).status_code == 400
+
+
 def test_highlights_suggest_then_accept_and_save_flow():
     # Paste work-AI output -> reviewable add/replace/reword edits -> apply (preview) ->
     # save as a new version. The change is only persisted when the user saves.
