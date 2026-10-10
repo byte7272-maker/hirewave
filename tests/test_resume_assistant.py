@@ -836,6 +836,41 @@ def test_openai_provider_sets_request_timeout_and_no_retries_by_default():
     assert p._timeout == 7.5 and p._max_retries == 0
 
 
+def test_run_with_deadline_bounds_and_reraises():
+    import time
+    from jobsearch.llm.providers import _run_with_deadline
+    assert _run_with_deadline(lambda: 7, 1.0) == 7
+    t0 = time.monotonic()
+    try:
+        _run_with_deadline(lambda: time.sleep(5), 0.2)
+        assert False, "should have timed out"
+    except TimeoutError:
+        pass
+    assert time.monotonic() - t0 < 2  # returned promptly, not after the 5s sleep
+    try:
+        _run_with_deadline(lambda: (_ for _ in ()).throw(ValueError("x")), 1.0)
+        assert False, "should have re-raised"
+    except ValueError:
+        pass
+
+
+def test_openai_complete_is_hard_bounded_even_if_sdk_hangs():
+    # The real reliability fix: a slow/hanging SDK call must NOT hang the request. With a
+    # client whose create() sleeps 30s, complete() still returns (raises) within the hard
+    # budget (~timeout + grace), not after 30s.
+    import time
+    import types
+    import pytest
+    from jobsearch.llm.providers import OpenAILLMProvider
+    p = OpenAILLMProvider("sk-test", "gpt-4o-mini", timeout=0.2)
+    p._client = types.SimpleNamespace(chat=types.SimpleNamespace(
+        completions=types.SimpleNamespace(create=lambda **k: time.sleep(30))))
+    t0 = time.monotonic()
+    with pytest.raises(Exception):
+        p.complete("hi")
+    assert time.monotonic() - t0 < 8  # bounded by the hard timeout, not the 30s hang
+
+
 def test_factory_propagates_llm_timeout_and_retries_to_openai():
     from jobsearch.config import Settings
     from jobsearch.llm.factory import build_llm, build_review_llm

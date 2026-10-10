@@ -145,6 +145,10 @@ def create_app(
             # so those features only run the deterministic fallback (i.e. "not working").
             "resume_ai_provider": s.resume_assistant.llm.name,
             "resume_ai_model": getattr(s.resume_assistant.llm, "_model", ""),
+            # Effective LLM call bounds on THIS running instance — so we can confirm the
+            # timeout/retry config actually took effect (not just in the source).
+            "resume_ai_timeout_s": getattr(s.resume_assistant.llm, "_timeout", None),
+            "resume_ai_max_retries": getattr(s.resume_assistant.llm, "_max_retries", None),
             "embedding_provider": s.matching.embedder.name,
             "automation_mode": s.settings.automation_mode,
             "persistence": s.backend,

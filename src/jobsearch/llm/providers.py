@@ -9,11 +9,43 @@ package. Install the matching extra to use them::
 
 from __future__ import annotations
 
-from typing import Sequence
+import threading
+from typing import Callable, Sequence, TypeVar
 
 import numpy as np
 
 from jobsearch.llm.base import EmbeddingProvider, LLMProvider
+
+_T = TypeVar("_T")
+# Grace added to the SDK timeout for the hard wall-clock backstop: the SDK's own timeout
+# should fire first, but it has proven unreliable in production (calls ran toward the
+# ~600s default), so this guarantees the CALLER returns within ~timeout + grace.
+_HARD_TIMEOUT_GRACE = 5.0
+
+
+def _run_with_deadline(fn: Callable[[], _T], timeout: float) -> _T:
+    """Run ``fn()`` in a daemon thread and return its result, or raise ``TimeoutError``
+    if it doesn't finish within ``timeout`` seconds. On timeout the thread is ABANDONED
+    (it finishes on its own later, or dies with the process) -- the point is that the
+    caller returns within ~timeout no matter what fn does internally (SDK/network hangs
+    included), so a slow provider can never hang a request toward the SDK default."""
+    box: dict[str, object] = {}
+    done = threading.Event()
+
+    def runner() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller thread
+            box["error"] = exc
+        finally:
+            done.set()
+
+    threading.Thread(target=runner, daemon=True).start()
+    if not done.wait(timeout):
+        raise TimeoutError(f"LLM call exceeded {timeout:.0f}s (hard timeout)")
+    if "error" in box:
+        raise box["error"]  # type: ignore[misc]
+    return box["value"]  # type: ignore[return-value]
 
 
 class AnthropicLLMProvider(LLMProvider):
@@ -58,22 +90,25 @@ class AnthropicLLMProvider(LLMProvider):
         temperature: float = 0.4,  # accepted for parity, intentionally not sent
         max_tokens: int = 1500,
     ) -> str:
-        try:
-            resp = self._client.with_options(timeout=self._timeout).messages.create(
-                model=self._model,
-                max_tokens=max_tokens,
-                system=system or "",
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except self._anthropic.APIStatusError as exc:  # pragma: no cover - network
-            raise RuntimeError(
-                f"Anthropic API error ({exc.status_code}): {exc.message}"
-            ) from exc
+        def _call() -> str:
+            try:
+                resp = self._client.with_options(timeout=self._timeout).messages.create(
+                    model=self._model,
+                    max_tokens=max_tokens,
+                    system=system or "",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except self._anthropic.APIStatusError as exc:  # pragma: no cover - network
+                raise RuntimeError(
+                    f"Anthropic API error ({exc.status_code}): {exc.message}"
+                ) from exc
+            # Concatenate only text blocks (ignore any thinking/other block types).
+            return "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            ).strip()
 
-        # Concatenate only text blocks (ignore any thinking/other block types).
-        return "".join(
-            b.text for b in resp.content if getattr(b, "type", None) == "text"
-        ).strip()
+        # Hard wall-clock backstop around the SDK call (see OpenAI provider).
+        return _run_with_deadline(_call, self._timeout + _HARD_TIMEOUT_GRACE)
 
 
 class OpenAILLMProvider(LLMProvider):
@@ -110,13 +145,19 @@ class OpenAILLMProvider(LLMProvider):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        resp = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
-        return resp.choices[0].message.content or ""
+
+        def _call() -> str:
+            resp = self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content or ""
+
+        # Hard wall-clock backstop around the SDK call (the SDK timeout should fire
+        # first, but has proven unreliable in production).
+        return _run_with_deadline(_call, self._timeout + _HARD_TIMEOUT_GRACE)
 
 
 class OpenAIEmbeddingProvider(EmbeddingProvider):
