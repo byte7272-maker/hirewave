@@ -292,25 +292,39 @@ stronger, more specific wording from their real history — surfacing things the
 include — and the user must **accept and save** the result. Backend endpoints are live; wire this
 flow (replaces any auto-append behavior):
 
-1. After the user pastes the output, `POST /api/v1/resumes/{id}/highlights/suggest { text: <paste> }`
+1. After the user pastes the output, analyze it into **grouped concepts**:
+   `POST /api/v1/resumes/{id}/evidence/synthesize { text: <paste> }`
+   → `{ groups: [{ theme, summary, points: [source points] }] }` — a few overarching statements,
+   not a line-by-line list. Empty paste → **400** "paste the output from your work AI first".
+   Render each group with its `theme`, the `summary` (overarching statement), and the supporting
+   `points` collapsed under it. **The `summary` is editable** — the user can reword it, and pick
+   which groups to use. (Quick path: skip straight to step 2 with the raw paste.)
+2. Turn the chosen (edited) statements into reviewable résumé edits:
+   `POST /api/v1/resumes/{id}/suggest-edits { context: "<the edited group summaries, one per line>" }`
    → `{ suggestions: [{ action: "add"|"remove"|"reword", section, before, after, rationale }] }`.
-   The paste is extracted in full (no truncation) then turned into reviewable edits. Empty paste →
-   **400** "paste the output from your work AI first".
-2. Render each suggestion as a **review card**: an action badge (Add / Remove / Reword), the target
-   section, and the rationale. For reword/remove show `before → after` as a diff; for add show the
-   new bullet. Per-card **Accept / Reject** (default accept); allow editing `after` inline.
-3. `POST /api/v1/resumes/{id}/apply-edits { suggestions: <only the accepted ones> }` →
-   `{ rendered_text, applied, skipped }`. Show `rendered_text` as a **full-résumé preview** (still
-   nothing saved). `skipped` = edits whose `before` text was no longer found — surface those.
-4. Require an explicit **"Accept & Save"**: `POST /api/v1/resumes/{id}/versions { content: <the
+   (Or the one-shot `POST /api/v1/resumes/{id}/highlights/suggest { text: <paste> }`, which
+   synthesizes internally and returns the same shape.)
+3. Render each suggestion as an **editable review card**: action badge (Add / Remove / Reword),
+   target section, rationale. For reword/remove show `before → after` as a diff; for add show the new
+   bullet. **Every field is editable** — the user can reword `after`, adjust `before`/`section`,
+   change the action, or add their own suggestion — plus a per-card **Accept / Reject** (default
+   accept). Send the user's *edited* objects, not the originals.
+4. `POST /api/v1/resumes/{id}/apply-edits { suggestions: <only the accepted, edited ones> }` →
+   `{ rendered_text, applied, skipped }`. Apply is deterministic — it applies exactly what you send,
+   including edited wording and user-added items. Show `rendered_text` as a **full-résumé preview**
+   (still nothing saved). `skipped` = edits whose `before` text was no longer found (e.g. an edited
+   `before` that no longer matches) — surface those so the user can fix them.
+5. Require an explicit **"Accept & Save"**: `POST /api/v1/resumes/{id}/versions { content: <the
    preview rendered_text> }` → new active version. Then re-fetch the doc + previews (no-store);
    Undo = switch versions.
 
-The résumé view must stay **unchanged until step 4** — nothing is persisted before the user saves.
+The résumé view must stay **unchanged until step 5** — nothing is persisted before the user saves.
 
 Prompt generation + concise-answer guidance: `POST /api/v1/resumes/{id}/evidence-prompts` returns the
 categorized prompts to run in the work AI (each already tells that AI to keep its answer to one short
 line per item, no markdown, under ~400 words so it imports cleanly).
 
-Acceptance: pasting output yields review cards; the résumé is byte-for-byte unchanged until
-"Accept & Save"; after saving, a new version appears and Undo restores the prior one.
+Acceptance: pasting output yields grouped concepts with editable overarching statements, then
+editable Add/Remove/Reword cards; a user-edited suggestion applies with the user's exact wording;
+the résumé is byte-for-byte unchanged until "Accept & Save"; after saving, a new version appears and
+Undo restores the prior one.

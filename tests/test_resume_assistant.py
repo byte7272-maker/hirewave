@@ -531,6 +531,29 @@ def test_highlights_suggest_then_accept_and_save_flow():
                        json={"text": "  "}).status_code == 400
 
 
+def test_apply_edits_accepts_user_edited_suggestions():
+    # The suggested results are editable: the user can change the wording/section/action
+    # (or add their own) before applying. apply-edits is deterministic and applies exactly
+    # what's sent — no LLM — so edited suggestions take effect verbatim.
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing\n- Did ops")["id"]
+    edited = [
+        {"action": "reword", "section": "Experience", "before": "- Managed billing",
+         "after": "- Led the billing platform, cutting latency 55% (user-edited)"},
+        {"action": "add", "section": "Experience", "after": "Mentored 4 engineers (added by user)"},
+    ]
+    ap = client.post(f"/api/v1/resumes/{rid}/apply-edits", headers=h, json={"suggestions": edited})
+    assert ap.status_code == 200 and ap.json()["applied"] == 2
+    rt = ap.json()["rendered_text"]
+    assert "cutting latency 55% (user-edited)" in rt
+    assert "Mentored 4 engineers (added by user)" in rt and "Managed billing" not in rt
+    # An edited `before` that no longer matches is reported as skipped (not silently lost).
+    ap2 = client.post(f"/api/v1/resumes/{rid}/apply-edits", headers=h,
+                      json={"suggestions": [{"action": "reword", "before": "- not present", "after": "x"}]})
+    assert ap2.json()["skipped"] == 1 and ap2.json()["applied"] == 0
+
+
 def test_ai_edit_prompt_capped_500_but_highlights_uncapped():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)
