@@ -635,6 +635,31 @@ def extract_evidence(
     return EvidenceExtractResponse(data_points=points)
 
 
+@router.post("/resumes/{resume_id}/highlights/suggest", response_model=SuggestEditsResponse)
+def suggest_from_highlights(
+    resume_id: str, body: EvidenceExtractRequest, user: CurrentUser, state: StateDep
+) -> SuggestEditsResponse:
+    """My Work Highlights in one step: paste the output from your company AI and get
+    specific, REVIEWABLE edits to your résumé — ADD / REMOVE / REWORD — grounded in that
+    evidence, surfacing stronger, more specific wording from your real history that you
+    may not have thought to include. Nothing is changed here: approve the edits you want,
+    POST them to ``/resumes/{id}/apply-edits`` for a preview, then save the preview via
+    ``/resumes/{id}/versions`` (so you always accept + save explicitly).
+
+    The paste is extracted into clean, de-duplicated data points first (processed in full,
+    not truncated), and those points drive the suggestions."""
+    resume = get_resume(resume_id, user, state)
+    if not body.text.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the output from your work AI first")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    points = state.resume_assistant.extract_evidence(body.text)
+    if not points:
+        return SuggestEditsResponse(suggestions=[])
+    context = "\n".join(f"- {p}" for p in points)
+    edits = state.resume_assistant.suggest_edits(resume, context, job=job)
+    return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
+
+
 @router.post("/cover-letters/{cover_letter_id}/incorporate",
              response_model=CoverLetterStructuredImprovement)
 def incorporate_cover_letter_ideas(

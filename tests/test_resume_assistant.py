@@ -423,6 +423,54 @@ def test_evidence_prompts_ask_external_ai_to_limit_length():
     assert all("one short line per item" in p["prompt"] for p in prompts)
 
 
+def test_highlights_suggest_then_accept_and_save_flow():
+    # Paste work-AI output -> reviewable add/replace/reword edits -> apply (preview) ->
+    # save as a new version. The change is only persisted when the user saves.
+    class _HighlightsLLM:
+        name = "hl"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            if "extract the discrete" in prompt:  # evidence extraction
+                return '["Led the billing platform end to end, cutting latency 40%"]'
+            if "Propose specific edits" in prompt:  # suggest add/remove/reword
+                return ('[{"action":"reword","section":"Experience","before":"- Managed billing",'
+                        '"after":"- Led the billing platform, cutting latency 40%",'
+                        '"rationale":"stronger, quantified wording from the evidence"}]')
+            return "[]"
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _HighlightsLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+
+    # 1) Paste -> reviewable suggestions (nothing changed yet).
+    sg = client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h,
+                     json={"text": "From my email: owned the billing platform; latency down 40%."})
+    assert sg.status_code == 200
+    sug = sg.json()["suggestions"]
+    assert sug and sug[0]["action"] == "reword" and "40%" in sug[0]["after"]
+    # The résumé is still unchanged at this point.
+    assert client.get(f"/api/v1/resumes/{rid}", headers=h).json()["rendered_text"] == "## Experience\n- Managed billing"
+
+    # 2) Apply the approved edit -> PREVIEW only (still not saved).
+    ap = client.post(f"/api/v1/resumes/{rid}/apply-edits", headers=h, json={"suggestions": sug})
+    assert ap.status_code == 200 and "cutting latency 40%" in ap.json()["rendered_text"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+
+    # 3) User accepts + saves the preview as a new version.
+    sv = client.post(f"/api/v1/resumes/{rid}/versions", headers=h,
+                     json={"content": ap.json()["rendered_text"]})
+    assert sv.status_code == 200
+    saved = client.get(f"/api/v1/resumes/{rid}", headers=h).json()
+    assert saved["active_version"] > before
+    assert "Led the billing platform, cutting latency 40%" in saved["rendered_text"]
+    assert "Managed billing" not in saved["rendered_text"]
+
+    # Empty paste -> 400.
+    assert client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h,
+                       json={"text": "  "}).status_code == 400
+
+
 def test_api_replace_is_deterministic_and_reports_count():
     client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
     h = _auth(client)

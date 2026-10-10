@@ -1153,7 +1153,7 @@ class ResumeAssistant:
                 "text. For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
                 "located. Use ONLY facts present in the résumé or the notes — never invent employers, "
                 "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs +
-                "\n\nRésumé:\n" + text[:4000] + "\n\nPasted notes:\n" + ctx[:3000],
+                "\n\nRésumé:\n" + text[:4000] + "\n\nPasted notes:\n" + ctx[:6000],
                 system="You suggest precise, verifiable résumé edits and output only a JSON array.",
                 max_tokens=1600,
             )
