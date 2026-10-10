@@ -282,3 +282,35 @@ Subtitle copy is already updated to "Applies a targeted change right away — us
 
 Acceptance: submitting the *same* instruction text twice in a row issues **two** `POST …/ai-edit`
 calls (not one); a no-op edit shows an inline "no change" message instead of clearing silently.
+
+---
+
+## P0c — My Work Highlights: review → accept → save (not auto-append)
+
+The point of pasting the output from the user's work AI is to improve the **current** résumé with
+stronger, more specific wording from their real history — surfacing things they didn't think to
+include — and the user must **accept and save** the result. Backend endpoints are live; wire this
+flow (replaces any auto-append behavior):
+
+1. After the user pastes the output, `POST /api/v1/resumes/{id}/highlights/suggest { text: <paste> }`
+   → `{ suggestions: [{ action: "add"|"remove"|"reword", section, before, after, rationale }] }`.
+   The paste is extracted in full (no truncation) then turned into reviewable edits. Empty paste →
+   **400** "paste the output from your work AI first".
+2. Render each suggestion as a **review card**: an action badge (Add / Remove / Reword), the target
+   section, and the rationale. For reword/remove show `before → after` as a diff; for add show the
+   new bullet. Per-card **Accept / Reject** (default accept); allow editing `after` inline.
+3. `POST /api/v1/resumes/{id}/apply-edits { suggestions: <only the accepted ones> }` →
+   `{ rendered_text, applied, skipped }`. Show `rendered_text` as a **full-résumé preview** (still
+   nothing saved). `skipped` = edits whose `before` text was no longer found — surface those.
+4. Require an explicit **"Accept & Save"**: `POST /api/v1/resumes/{id}/versions { content: <the
+   preview rendered_text> }` → new active version. Then re-fetch the doc + previews (no-store);
+   Undo = switch versions.
+
+The résumé view must stay **unchanged until step 4** — nothing is persisted before the user saves.
+
+Prompt generation + concise-answer guidance: `POST /api/v1/resumes/{id}/evidence-prompts` returns the
+categorized prompts to run in the work AI (each already tells that AI to keep its answer to one short
+line per item, no markdown, under ~400 words so it imports cleanly).
+
+Acceptance: pasting output yields review cards; the résumé is byte-for-byte unchanged until
+"Accept & Save"; after saving, a new version appears and Undo restores the prior one.
