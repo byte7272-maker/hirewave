@@ -57,6 +57,21 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+/** Authenticated raw-text GET (e.g. an HTML preview) with one refresh retry. */
+export async function apiText(path: string, retry = true): Promise<string> {
+  const headers: Record<string, string> = {};
+  const token = getAccess();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { headers });
+  if (res.status === 401 && retry) {
+    if (await refreshAccess()) return apiText(path, false);
+    clearTokens();
+    throw new ApiError(401, "Session expired — please sign in again.");
+  }
+  if (!res.ok) throw new ApiError(res.status, await extractError(res));
+  return res.text();
+}
+
 /** Multipart upload with bearer + one refresh retry. */
 export async function apiUpload<T>(path: string, form: FormData, retry = true): Promise<T> {
   const headers: Record<string, string> = {};

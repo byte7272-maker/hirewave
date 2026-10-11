@@ -17,6 +17,7 @@ import Inbox from "@/pages/dashboard/inbox/page";
 import Messages from "@/pages/dashboard/messages/page";
 import Boards from "@/pages/dashboard/boards/page";
 import Assistant from "@/pages/dashboard/assistant/page";
+import Documents from "@/pages/dashboard/documents/page";
 
 const routes: RouteObject[] = [
   {
@@ -36,6 +37,8 @@ const routes: RouteObject[] = [
     ),
     children: [
       { index: true, element: <Overview /> },
+      { path: "documents", element: <Documents /> },
+      { path: "documents/:id", element: <Documents /> },
       { path: "matches", element: <Matches /> },
       { path: "applications", element: <Applications /> },
       { path: "saved", element: <Saved /> },
