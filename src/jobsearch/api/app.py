@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 from typing import Optional
 
 from fastapi import FastAPI
@@ -136,8 +137,18 @@ def create_app(
     @app.get("/health", tags=["meta"])
     def health() -> dict:
         s: AppState = app.state.jobsearch
+        # The exact deployed commit, so "is my push live?" is answerable without a
+        # login. Railway injects RAILWAY_GIT_COMMIT_SHA on each GitHub deploy; fall
+        # back to other common build vars, else "" when running outside a deploy.
+        commit = (
+            os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+            or os.environ.get("SOURCE_VERSION")
+            or os.environ.get("GIT_COMMIT")
+            or ""
+        )
         return {
             "status": "ok",
+            "commit": commit[:7],
             "llm_provider": s.generation.llm.name,
             "review_model": s.settings.review_model,  # model for resume/cover-letter AI
             # The provider actually powering the résumé "Ask AI" / review / improve
