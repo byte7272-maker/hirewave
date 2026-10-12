@@ -328,3 +328,83 @@ Acceptance: pasting output yields grouped concepts with editable overarching sta
 editable Add/Remove/Reword cards; a user-edited suggestion applies with the user's exact wording;
 the résumé is byte-for-byte unchanged until "Accept & Save"; after saving, a new version appears and
 Undo restores the prior one.
+
+---
+
+## P1b — Manual editor: hidden-by-default, deterministic formatting controls
+
+Basic formatting (bold / italic / bullets / headings) is deterministic and should never
+route through the AI's "interpretation." Add a **manual editor** to the résumé and
+cover-letter editor, **hidden/collapsed by default**, for precise edits without the AI.
+
+**Invoking it:** add a small, clearly-labeled **"Edit manually"** control next to the
+"Ask AI to change it" box (and a keyboard shortcut). It stays hidden until invoked;
+invoking it opens an editable view of the document's **current saved body**.
+
+**What it edits:** the document body is **Markdown** — the editor reads and writes that same
+Markdown (do NOT convert to HTML or any other representation). It must round-trip exactly:
+`**bold**`, `*italic*`, `<u>underline</u>`, `[text](url)` links, `- ` bullet lines, `## ` section
+headings, `### ` entry headings. **The rendered preview must honor inline `<u>…</u>` and Markdown
+links** (enable raw-HTML/link rendering in the preview renderer) — otherwise underline won't show.
+
+**Formatting toolbar** (acts on the current text selection, toggling the Markdown markers):
+- **Bold** (`**…**`) — Ctrl/Cmd+B
+- **Italic** (`*…*`) — Ctrl/Cmd+I
+- **Underline** (`<u>…</u>`) — Ctrl/Cmd+U
+- **Link** — wrap the selection as `[selection](url)`, prompting for the URL; if the selection is
+  itself a bare URL or email, auto-fill it (email → `mailto:`). A second click on an existing link
+  unlinks it (`[text](url)` → `text`).
+- **Bullet list** — prefix the selected lines with `- `, or remove the prefix if already bulleted (toggle)
+- **Heading** — toggle a line between a section heading (`## `) and plain text
+- **Clear formatting** — strip bold/italic/underline/link/heading/bullet markers from the selection
+
+**Saving:** a **Save** button writes the edited Markdown as a **new version** through the SAME
+`POST /api/v1/resumes/{id}/versions { content }` endpoint the AI edits use (so manual edits are
+versioned and undoable exactly like AI edits). **Cancel** discards without saving. On save, the
+preview, the version indicator, and any thumbnails must **visibly re-render** from the new saved
+body (reuse the same refresh the AI-edit success path triggers), and briefly flash the preview so
+the change is unmistakable.
+
+**Scope:** manual editing only — never call the AI from this editor. Keep it identical in the full
+editor and the quick preview.
+
+Acceptance: the manual editor is hidden until invoked; selecting text and clicking Bold/Italic (or
+Ctrl/Cmd+B/I) toggles the exact Markdown markers; Save creates a new version and the preview visibly
+re-renders; Cancel changes nothing; reopening shows the current saved body (round-trips cleanly).
+
+---
+
+## P1c — Replace a whole bullet / line (point or describe → paste → optionally improve)
+
+A fast, deterministic way to swap out a complete bullet or line without the AI guessing which one
+you mean. Lives in the manual editor (P1b) and the quick preview.
+
+**1. Pick the target line** two ways:
+   - **Point:** click a bullet/line in the editor to select it as the target (its full text shows
+     in a "Replacing:" field).
+   - **Describe:** type a few words into a "find a line…" box; fuzzy-match against the document's
+     bullets/lines and show the ranked candidates, each as its full text — the user picks the right
+     one. (Matching is client-side substring/keyword ranking, not the AI — no guessing applied
+     silently; the user always confirms which line.)
+
+**2. Paste the replacement.** A textarea pre-filled with the target's current text; the user
+pastes/edits the **full new line**. Show a live `before → after` diff of the single line.
+
+**3. Replace.** Swap that exact line in the Markdown body for the new text (whole-line replace,
+other lines untouched), then **Save as a new version** via `POST /api/v1/resumes/{id}/versions
+{ content }`. The preview + version indicator visibly re-render (reuse the P0/P1b refresh) and the
+changed line briefly flashes.
+
+**4. "Improve this line" (optional).** After replacing (or on the pasted text before saving), a
+one-tap **Improve this line with AI** runs `POST /api/v1/resumes/{id}/ai-edit` with an instruction
+that targets only that line's wording (e.g. "rewrite this bullet to be stronger and quantified:
+<line>") — so the pasted line is *subject to improvement* but only when the user asks. The result
+saves as its own version (undoable).
+
+**Scope:** steps 1–3 are fully deterministic (no AI); step 4 is the only AI call and is opt-in.
+Keep behavior identical in the full editor and the quick preview.
+
+Acceptance: a user can click a bullet (or describe it and pick from candidates), paste a new line,
+and Replace swaps exactly that line and saves a new version with a visible re-render; the optional
+"Improve this line" rewrites only that line and saves a separate, undoable version; no other lines
+change.

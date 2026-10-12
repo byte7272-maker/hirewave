@@ -392,26 +392,86 @@ _FMT_OFF = re.compile(
 )
 _FMT_ALL = re.compile(r"\b(everything|all|entire|whole|document|r[eé]sum[eé]|resume|everywhere)\b", re.I)
 _BULLET_RE = re.compile(r"^(\s*)[-*•‣●]\s+")
+# Leading indentation + an optional bullet marker + an optional heading marker, so a
+# formatting op styles the TEXT of a line and leaves its bullet/heading prefix intact.
+_LINE_PREFIX_RE = re.compile(r"^(\s*(?:[-*•‣●]\s+)?(?:#{1,6}\s+)?)")
 _FMT_SUMMARY = {
     "unbold": "Removed bold formatting",
     "bold": "Added bold formatting",
+    "italic": "Added italic formatting",
+    "unitalic": "Removed italic formatting",
+    "underline": "Added underline",
+    "ununderline": "Removed underline",
+    "hyperlink": "Made links clickable",
+    "unhyperlink": "Removed hyperlinks",
+    "bullet": "Converted to bullet points",
     "unbullet": "Removed bullet points",
 }
+# Bare URLs / emails, for turning them into Markdown links. Each guards against
+# re-linking something already inside a '](...)' Markdown link.
+_HTTP_RE = re.compile(r"\bhttps?://[^\s)<>\]]+", re.I)
+_WWW_RE = re.compile(r"(?<![\w@./])(www\.[^\s)<>\]]+)", re.I)
+_EMAIL_LINK_RE = re.compile(r"(?<![\w.+-])([\w.+-]+@[\w-]+\.[\w.-]+)(?![\w.-])")
+
+
+def _split_prefix(line: str) -> tuple[str, str]:
+    """Split a line into its (indent + bullet/heading marker) prefix and the trailing
+    text body, so a formatting op styles the body without disturbing the marker."""
+    m = _LINE_PREFIX_RE.match(line)
+    prefix = m.group(1) if m else ""
+    return prefix, line[len(prefix):].rstrip()
+
+
+def _auto_link(line: str) -> str:
+    """Wrap bare URLs and emails on a line as Markdown links, leaving a line that
+    already contains a Markdown link untouched (idempotent)."""
+    if "](" in line:  # already has a Markdown link -> don't double-link
+        return line
+    s = _HTTP_RE.sub(lambda m: f"[{m.group(0)}]({m.group(0)})", line)
+    s = _WWW_RE.sub(lambda m: f"[{m.group(1)}](https://{m.group(1)})", s)
+    s = _EMAIL_LINK_RE.sub(lambda m: f"[{m.group(1)}](mailto:{m.group(1)})", s)
+    return s
 
 
 def _format_intent(instruction: str) -> str:
-    """Classify a pure-formatting instruction as 'unbold' | 'bold' | 'unbullet', or
-    '' when it is not a formatting op (the caller should then use the LLM)."""
+    """Classify a pure-formatting instruction as 'bold' | 'unbold' | 'italic' |
+    'unitalic' | 'bullet' | 'unbullet', or '' when it is not a formatting op (the
+    caller should then use the LLM)."""
     low = (instruction or "").lower()
     norm = low.replace("-", "").replace(" ", "")
+    off = bool(_FMT_OFF.search(instruction or ""))
+    # Bold / weight.
     if "bold" in low or "unbold" in norm:
-        return "unbold" if (_FMT_OFF.search(instruction or "") or "unbold" in norm) else "bold"
+        return "unbold" if (off or "unbold" in norm) else "bold"
     if ("weight" in low or "font" in low) and any(
         w in low for w in ("normal", "regular", "plain", "lighter", "un-bold", "unbold")
     ):
         return "unbold"
-    if "bullet" in low and _FMT_OFF.search(instruction or ""):
-        return "unbullet"
+    # Italic / emphasis (Markdown emphasis `*…*` renders italic; "strong" is bold).
+    if any(w in low for w in (
+        "italic", "italics", "italicize", "italicise", "italicized", "italicised",
+        "emphasize", "emphasise", "emphasis", "emphasized", "emphasised",
+    )):
+        if off or "deemphasi" in norm or "unemphasi" in norm or "unitalic" in norm:
+            return "unitalic"
+        return "italic"
+    # Underline (Markdown has none -> inline <u></u>).
+    if "underline" in low or "ununderline" in norm:
+        return "ununderline" if (off or "ununderline" in norm) else "underline"
+    # Hyperlinks. Plain "link" only counts with a URL/web/email cue, so "link to the
+    # hiring manager" (content) isn't mistaken for a formatting op.
+    if ("hyperlink" in low or "clickable" in low or "linkify" in norm
+            or ("link" in low and any(k in low for k in (
+                "url", "website", "web site", "email", "e-mail", "http", "www")))):
+        return "unhyperlink" if (off or "unlink" in norm) else "hyperlink"
+    # Bullets.
+    if "bullet" in low:
+        if off:
+            return "unbullet"
+        # "add a bullet about X" introduces new CONTENT, not formatting -> defer to LLM.
+        if re.search(r"\badd\b", low):
+            return ""
+        return "bullet"
     return ""
 
 
@@ -469,17 +529,45 @@ def _apply_format(line: str, intent: str) -> str:
         # weight instead of a bold heading, and strip any inline **bold**.
         s = re.sub(r"^(\s*)#{1,6}\s+", r"\1", line)
         return re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    if intent == "bold":
+        prefix, body = _split_prefix(line)
+        if not body or "**" in body:  # empty or already bold -> leave as-is
+            return line
+        return f"{prefix}**{body}**"
+    if intent == "italic":
+        prefix, body = _split_prefix(line)
+        if not body:
+            return line
+        # Already emphasized (a single-* pair that isn't part of **bold**) -> leave as-is.
+        if "*" in re.sub(r"\*\*(.+?)\*\*", "", body):
+            return line
+        return f"{prefix}*{body}*"
+    if intent == "unitalic":
+        # Strip single-* emphasis while protecting the ** bold ** markers.
+        protected = re.sub(r"\*\*(.+?)\*\*", lambda m: "\x00" + m.group(1) + "\x00", line)
+        protected = re.sub(r"\*(.+?)\*", r"\1", protected)
+        return protected.replace("\x00", "**")
+    if intent == "underline":
+        prefix, body = _split_prefix(line)
+        if not body or "<u>" in body.lower():  # empty or already underlined
+            return line
+        return f"{prefix}<u>{body}</u>"
+    if intent == "ununderline":
+        return re.sub(r"</?u>", "", line, flags=re.I)
+    if intent == "hyperlink":
+        return _auto_link(line)
+    if intent == "unhyperlink":
+        # [text](url) -> text, and <a href=...>text</a> -> text.
+        s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", line)
+        return re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", s, flags=re.I)
+    if intent == "bullet":
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#") or _BULLET_RE.match(line):
+            return line  # blank, a heading, or already a bullet -> leave as-is
+        indent = line[: len(line) - len(stripped)]
+        return f"{indent}- {stripped.rstrip()}"
     if intent == "unbullet":
         return _BULLET_RE.sub(r"\1", line)
-    if intent == "bold":
-        if "**" in line:  # already contains bold -> leave as-is
-            return line
-        m = _BULLET_RE.match(line)
-        if m:
-            body = line[m.end():].strip()
-            return f"{m.group(0)}**{body}**" if body else line
-        body = line.strip()
-        return line.replace(body, f"**{body}**", 1) if body else line
     return line
 
 
@@ -505,7 +593,10 @@ def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
             label = name
             targets.extend(range(cstart, cend))
     if not targets:
-        if _FMT_ALL.search(instruction or ""):
+        # Hyperlinking is non-destructive (only lines that actually contain a bare
+        # URL/email change), so default it to the whole document — contact links
+        # usually sit in the header, above any section heading.
+        if _FMT_ALL.search(instruction or "") or intent in ("hyperlink", "unhyperlink"):
             targets = list(range(len(lines)))
         else:
             return None  # can't localize safely -> defer to the LLM

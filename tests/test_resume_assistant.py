@@ -799,6 +799,75 @@ def test_format_edits_bold_and_unbullet():
     assert bd and {e["after"] for e in bd} == {"- **Python**", "- **AWS**"}
 
 
+def test_format_intent_recognizes_italic_and_bullet_add():
+    from jobsearch.engines.resume_assistant import _format_intent
+    assert _format_intent("italicize the job titles") == "italic"
+    assert _format_intent("make the summary italic") == "italic"
+    assert _format_intent("emphasize the degree lines") == "italic"
+    assert _format_intent("remove the italics from Education") == "unitalic"
+    assert _format_intent("de-emphasize the skills") == "unitalic"
+    assert _format_intent("make the skills bullet points") == "bullet"
+    assert _format_intent("convert the responsibilities to bullets") == "bullet"
+    # "add a bullet about X" is new CONTENT, not a formatting op -> defer to the LLM
+    assert _format_intent("add a bullet about my AWS certification") == ""
+
+
+def test_format_edits_italicizes_and_bullets_named_section():
+    from jobsearch.engines.resume_assistant import format_edits
+    text = "## Summary\nSeasoned IT leader.\n## Skills\nPython\nAWS"
+    it = format_edits(text, "italicize the summary line")
+    assert it and {e["after"] for e in it} == {"*Seasoned IT leader.*"}
+    # idempotent: an already-italic line is left alone (no edit)
+    assert format_edits("## Summary\n*Seasoned IT leader.*", "italicize the summary") == []
+    # add bullets to a plain section
+    bl = format_edits(text, "make the skills lines bullet points")
+    assert bl and {e["after"] for e in bl} == {"- Python", "- AWS"}
+
+
+def test_apply_format_italic_preserves_bold_and_markers():
+    from jobsearch.engines.resume_assistant import _apply_format
+    # italic keeps a leading bullet marker and wraps the body text
+    assert _apply_format("- Led a team of 5", "italic") == "- *Led a team of 5*"
+    # un-italic strips single-* emphasis but leaves ** bold ** intact
+    assert _apply_format("*Lead* on the **Acme** project", "unitalic") == "Lead on the **Acme** project"
+    # italic on an entry sub-heading styles the title, not the '###' marker
+    assert _apply_format("### Master of Science", "italic") == "### *Master of Science*"
+    # bold now also keeps the '###' marker rather than wrapping it
+    assert _apply_format("### Master of Science", "bold") == "### **Master of Science**"
+
+
+def test_format_intent_recognizes_underline_and_hyperlink():
+    from jobsearch.engines.resume_assistant import _format_intent
+    assert _format_intent("underline the company names") == "underline"
+    assert _format_intent("remove the underline from the titles") == "ununderline"
+    assert _format_intent("make my email and website clickable") == "hyperlink"
+    assert _format_intent("hyperlink the urls") == "hyperlink"
+    assert _format_intent("remove the hyperlinks") == "unhyperlink"
+    # bare "link" without a url/web/email cue is content, not a formatting op
+    assert _format_intent("add a link to the hiring manager") == ""
+
+
+def test_apply_format_underline_and_autolink():
+    from jobsearch.engines.resume_assistant import _apply_format, _auto_link
+    assert _apply_format("Acme Corp", "underline") == "<u>Acme Corp</u>"
+    assert _apply_format("- <u>Acme</u> lead", "ununderline") == "- Acme lead"
+    assert _apply_format("See [me](https://jo.dev) now", "unhyperlink") == "See me now"
+    assert _auto_link("Reach me at jo@x.com or https://jo.dev") == (
+        "Reach me at [jo@x.com](mailto:jo@x.com) or [https://jo.dev](https://jo.dev)")
+    assert _auto_link("Portfolio: www.jo.dev") == "Portfolio: [www.jo.dev](https://www.jo.dev)"
+    # already-linked line is left alone (idempotent)
+    assert _auto_link("[jo@x.com](mailto:jo@x.com)") == "[jo@x.com](mailto:jo@x.com)"
+
+
+def test_format_edits_hyperlinks_whole_doc_by_default():
+    from jobsearch.engines.resume_assistant import format_edits
+    text = "# Jo Dev\njo@x.com | https://jo.dev\n## Experience\n- Built stuff"
+    edits = format_edits(text, "make my contact links clickable")
+    assert edits and any("mailto:jo@x.com" in e["after"] for e in edits)
+    # only the line that actually had links changed
+    assert all("Built stuff" not in e["before"] for e in edits)
+
+
 def test_api_ai_edit_unbolds_deterministically_even_if_llm_returns_nothing():
     # The LLM returns no edits; if /ai-edit relied on it, the bold would remain.
     # The deterministic formatting pass must strip it regardless.
