@@ -859,6 +859,36 @@ def test_apply_format_underline_and_autolink():
     assert _auto_link("[jo@x.com](mailto:jo@x.com)") == "[jo@x.com](mailto:jo@x.com)"
 
 
+def test_format_edits_targets_the_heading_word_on_explicit_command():
+    # "bold the section header word 'Education'" must act on the HEADING line, not the
+    # degree lines under it (the old behavior bolded the body because headings were
+    # always skipped). A plain "the Education section" command still hits content.
+    from jobsearch.engines.resume_assistant import format_edits
+    doc = ("# Bayete Williams\n## Education\n"
+           "### Master of Science - Mercy College\n### Bachelor of Science - Mercy College")
+    head = format_edits(doc, 'bold the section header word "Education"')
+    assert head == [{
+        "action": "reword", "section": "Education",
+        "before": "## Education", "after": "## **Education**",
+        "rationale": "bold formatting",
+    }]
+    # The degree lines are untouched by the heading command.
+    assert all("Master of Science" not in e["before"] for e in head)
+    # "unbold the Education heading" demotes the heading itself.
+    un = format_edits(doc, "unbold the Education heading")
+    assert un == [{
+        "action": "reword", "section": "Education",
+        "before": "## Education", "after": "Education",
+        "rationale": "unbold formatting",
+    }]
+    # A CONTENT command ("the Education section") still targets the body, not the heading.
+    body = format_edits(
+        "## Education\n**Master of Science - Mercy College**",
+        "remove the bold from the Education section",
+    )
+    assert body and body[0]["before"] == "**Master of Science - Mercy College**"
+
+
 def test_format_edits_hyperlinks_whole_doc_by_default():
     from jobsearch.engines.resume_assistant import format_edits
     text = "# Jo Dev\njo@x.com | https://jo.dev\n## Experience\n- Built stuff"

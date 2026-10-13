@@ -585,13 +585,26 @@ def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
         return None
     lines = text.split("\n")
     low = (instruction or "").lower()
+    # Whether the instruction targets the section HEADING itself ("bold the section
+    # header word 'Education'", "bold the Education heading/title") rather than the
+    # section's content. Without this, a formatting op localizes to the section and
+    # (because heading lines are skipped) lands on the body lines -- e.g. bolding the
+    # degree lines when the user asked to bold the "Education" heading.
+    heading_cue = any(
+        p in low for p in ("heading", "header", "title", "the word", "this word", "section name")
+    )
     sections = _doc_sections(lines)
     targets: list[int] = []
+    heading_targets: list[int] = []
     label = ""
-    for name, (_h, cstart, cend) in sections.items():
+    for name, (h, cstart, cend) in sections.items():
         if any(w in low for w in name.split() if len(w) > 2):
             label = name
+            heading_targets.append(h)
             targets.extend(range(cstart, cend))
+    # An explicit heading command acts on the heading line ONLY (never the body).
+    if heading_cue and heading_targets:
+        targets = heading_targets
     if not targets:
         # Hyperlinking is non-destructive (only lines that actually contain a bare
         # URL/email change), so default it to the whole document — contact links
@@ -605,8 +618,10 @@ def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
     for idx in targets:
         orig = lines[idx]
         # Leave section-heading lines alone (both '## X' and standalone **SECTION**),
-        # so a content-formatting op never strips a heading's own styling.
-        if not orig.strip() or _is_section_heading(orig)[0] or orig in seen:
+        # so a CONTENT-formatting op never strips a heading's own styling. An explicit
+        # heading command (heading_cue) is the exception: it is meant to act on the
+        # heading line.
+        if not orig.strip() or orig in seen or (_is_section_heading(orig)[0] and not heading_cue):
             continue
         new = _apply_format(orig, intent)
         if new != orig:
