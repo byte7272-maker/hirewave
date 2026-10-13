@@ -636,6 +636,107 @@ def format_edits(text: str, instruction: str) -> Optional[list[dict]]:
     return edits
 
 
+# -- smart bullet matching (replace vs add) ---------------------------------
+# Deterministic: decide whether a new bullet is a stronger version of an existing
+# résumé bullet (-> offer REPLACE) or genuinely new (-> ADD), by topic-term overlap.
+# No LLM, so it is instant and reliable.
+_BULLET_STOP = {
+    "the", "a", "an", "and", "or", "of", "to", "in", "for", "with", "by", "on", "at",
+    "as", "is", "are", "was", "were", "be", "been", "being", "that", "this", "these",
+    "those", "from", "into", "over", "under", "per", "up", "down", "out", "via", "plus",
+    "their", "its", "it", "i", "you", "your", "our", "we", "they", "them", "his", "her",
+    "also", "across", "while", "than", "then", "so", "including", "etc",
+}
+_TERM_RE = re.compile(r"[a-z0-9]+")
+_RES_BULLET_RE = re.compile(r"^(\s*)[-*•‣●]\s+(.*)$")
+
+
+def _strip_inline_md(s: str) -> str:
+    """Drop bullet markers and inline **bold** / *italic* / [text](url) so two bullets
+    compare (and display) as plain text."""
+    s = _RES_BULLET_RE.sub(r"\2", s or "").strip()
+    s = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", s)
+    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
+    return s.strip()
+
+
+def _bullet_terms(text: str) -> tuple[frozenset, frozenset]:
+    """A bullet's significant word terms and numeric tokens. Stopwords and very short
+    tokens are dropped; a light plural-stem folds 'users'/'user' together."""
+    words: set[str] = set()
+    nums: set[str] = set()
+    for t in _TERM_RE.findall((text or "").lower()):
+        if any(c.isdigit() for c in t):
+            nums.add(t)
+        if len(t) <= 2 or t in _BULLET_STOP:
+            continue
+        words.add(t[:-1] if len(t) > 4 and t.endswith("s") else t)
+    return frozenset(words), frozenset(nums)
+
+
+def _overlap_score(a: tuple[frozenset, frozenset], b: tuple[frozenset, frozenset]) -> float:
+    """Topic-overlap in [0,1]: the share of the SMALLER bullet's significant terms also in
+    the other (so a concise new bullet still matches a longer existing one), plus a small
+    boost for shared metrics like '287' (a strong same-accomplishment signal)."""
+    aw, an = a
+    bw, bn = b
+    if not aw or not bw:
+        return 0.0
+    coeff = len(aw & bw) / min(len(aw), len(bw))
+    boost = min(0.25, 0.12 * len(an & bn))
+    return round(min(1.0, coeff + boost), 3)
+
+
+def extract_resume_bullets(text: str) -> list[dict]:
+    """Every bullet line in the résumé markdown as {"line": exact raw line, "text": plain
+    body}. ``line`` is the verbatim document text (a reword edit's ``before``); ``text`` is
+    marker/markdown-stripped for display and matching."""
+    out: list[dict] = []
+    for ln in (text or "").split("\n"):
+        if not _RES_BULLET_RE.match(ln):
+            continue
+        plain = _strip_inline_md(ln)
+        if plain:
+            out.append({"line": ln.rstrip(), "text": plain})
+    return out
+
+
+def match_bullets(
+    candidates: list[str],
+    targets: list[dict],
+    *,
+    threshold: float = 0.5,
+    top_k: int = 3,
+) -> list[dict]:
+    """For each candidate bullet, rank ``targets`` (each {"line","text"}) by topic overlap
+    and recommend REPLACE the best-matching existing bullet when the top score clears
+    ``threshold``, else ADD (it reads as new). Returns per candidate:
+    {candidate, recommend, best_score, replace: {line,text,score}|None,
+     alternatives: [{line,text,score}, ...]}."""
+    scored = [(t, _bullet_terms(t.get("text", ""))) for t in targets if t.get("text")]
+    out: list[dict] = []
+    for c in candidates:
+        ct = _bullet_terms(_strip_inline_md(c))
+        ranked = sorted(
+            ((_overlap_score(ct, tt), t) for t, tt in scored),
+            key=lambda x: x[0], reverse=True,
+        )
+        ranked = [(s, t) for s, t in ranked if s > 0][:top_k]
+        best = ranked[0] if ranked else None
+        is_replace = bool(best) and best[0] >= threshold
+        out.append({
+            "candidate": c,
+            "recommend": "replace" if is_replace else "add",
+            "best_score": best[0] if best else 0.0,
+            "replace": ({"line": best[1]["line"], "text": best[1]["text"], "score": best[0]}
+                        if is_replace else None),
+            "alternatives": [
+                {"line": t["line"], "text": t["text"], "score": s} for s, t in ranked
+            ],
+        })
+    return out
+
+
 class ResumeAssistant:
     def __init__(self, llm: Optional[LLMProvider] = None) -> None:
         self.llm = llm or build_llm()

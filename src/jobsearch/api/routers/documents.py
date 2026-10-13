@@ -28,7 +28,10 @@ from jobsearch.api.schemas import (
     AiEditRequest,
     ApplyEditsRequest,
     ApplyEditsResult,
+    CandidateMatch,
     EditSuggestion,
+    MatchBulletsRequest,
+    MatchBulletsResponse,
     ReplaceRequest,
     ReplaceResult,
     SuggestEditsRequest,
@@ -524,6 +527,37 @@ def apply_resume_edits(
         applied += 1 if ok else 0
         skipped += 0 if ok else 1
     return ApplyEditsResult(rendered_text=text, applied=applied, skipped=skipped)
+
+
+@router.post("/resumes/{resume_id}/match-bullets", response_model=MatchBulletsResponse)
+def match_resume_bullets(
+    resume_id: str, body: MatchBulletsRequest, user: CurrentUser, state: StateDep
+) -> MatchBulletsResponse:
+    """Smart Add-vs-Replace: for each candidate bullet, find the existing résumé bullet it
+    most overlaps with and recommend REPLACE (swap that one) or ADD (it's new).
+    Deterministic topic-term overlap — no AI, instant. By default matches against the
+    résumé's own bullets; pass ``targets`` to match against a different set (e.g. saved
+    highlights, to find which one best replaces a bullet the user clicked).
+
+    A "replace" is applied as a ``reword`` edit {before: match.line, after: candidate} via
+    ``/apply-edits`` then saved to ``/versions`` — the same review→preview→save path."""
+    from jobsearch.engines.resume_assistant import extract_resume_bullets, match_bullets
+
+    resume = get_resume(resume_id, user, state)
+    candidates = [c for c in (body.candidates or []) if c and c.strip()]
+    if not candidates:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide at least one candidate bullet")
+    if body.targets is not None:
+        from jobsearch.engines.resume_assistant import _strip_inline_md
+        targets = [
+            {"line": t.rstrip(), "text": _strip_inline_md(t)}
+            for t in body.targets if t and t.strip()
+        ]
+    else:
+        targets = extract_resume_bullets(resume.rendered_text or "")
+    threshold = min(1.0, max(0.0, body.threshold))
+    results = match_bullets(candidates, targets, threshold=threshold)
+    return MatchBulletsResponse(matches=[CandidateMatch(**r) for r in results])
 
 
 @router.post("/resumes/{resume_id}/ai-edit", response_model=Resume)

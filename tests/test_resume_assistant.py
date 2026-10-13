@@ -859,6 +859,61 @@ def test_apply_format_underline_and_autolink():
     assert _auto_link("[jo@x.com](mailto:jo@x.com)") == "[jo@x.com](mailto:jo@x.com)"
 
 
+def test_extract_resume_bullets_keeps_line_and_plain_text():
+    from jobsearch.engines.resume_assistant import extract_resume_bullets
+    text = ("## Experience\n### Acme\n- Led **migration** of 40 servers to [Azure](http://a)\n"
+            "- Reduced helpdesk ticket backlog by 35%\nNot a bullet line")
+    out = extract_resume_bullets(text)
+    assert len(out) == 2
+    assert out[0]["line"] == "- Led **migration** of 40 servers to [Azure](http://a)"
+    assert out[0]["text"] == "Led migration of 40 servers to Azure"  # markers/link stripped
+    assert all("Not a bullet" not in b["text"] for b in out)
+
+
+def test_match_bullets_recommends_replace_or_add():
+    from jobsearch.engines.resume_assistant import match_bullets
+    targets = [
+        {"line": "- Led migration of 40 servers to Azure with zero downtime",
+         "text": "Led migration of 40 servers to Azure with zero downtime"},
+        {"line": "- Reduced helpdesk ticket backlog by 35 percent",
+         "text": "Reduced helpdesk ticket backlog by 35 percent"},
+    ]
+    res = match_bullets(
+        ["Directed the migration of 40 servers to Microsoft Azure over a weekend",
+         "Mentored five junior engineers in code-review practices"],
+        targets,
+    )
+    # candidate 1 overlaps the Azure bullet -> REPLACE it
+    assert res[0]["recommend"] == "replace"
+    assert res[0]["replace"]["line"] == "- Led migration of 40 servers to Azure with zero downtime"
+    assert res[0]["best_score"] >= 0.5
+    # candidate 2 is unrelated -> ADD (no replace target)
+    assert res[1]["recommend"] == "add"
+    assert res[1]["replace"] is None
+
+
+def test_api_match_bullets_endpoint():
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    text = ("## Experience\n### Acme\n- Led migration of 40 servers to Azure with zero downtime\n"
+            "- Reduced helpdesk ticket backlog by 35%")
+    rid = _upload(client, h, text)["id"]
+    r = client.post(f"/api/v1/resumes/{rid}/match-bullets", headers=h, json={
+        "candidates": [
+            "Directed the migration of 40 servers to Microsoft Azure over a weekend",
+            "Built a new onboarding program for interns",
+        ]})
+    assert r.status_code == 200
+    m = r.json()["matches"]
+    assert m[0]["recommend"] == "replace"
+    assert "40 servers to Azure" in m[0]["replace"]["line"]
+    assert m[1]["recommend"] == "add" and m[1]["replace"] is None
+    # empty candidates -> 400
+    assert client.post(f"/api/v1/resumes/{rid}/match-bullets", headers=h,
+                       json={"candidates": []}).status_code == 400
+
+
 def test_format_edits_targets_the_heading_word_on_explicit_command():
     # "bold the section header word 'Education'" must act on the HEADING line, not the
     # degree lines under it (the old behavior bolded the body because headings were

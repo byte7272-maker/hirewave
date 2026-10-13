@@ -581,6 +581,39 @@ class ApplyEditsResult(BaseModel):
     skipped: int         # edits whose `before` text wasn't found
 
 
+class MatchBulletsRequest(BaseModel):
+    """Decide, per candidate bullet, whether it REPLACES an existing résumé bullet (a
+    stronger version of one you already have) or is genuinely new (ADD). Deterministic —
+    topic-term overlap, no AI. Powers smart Add/Replace in the highlights review and
+    click-to-replace on the résumé."""
+
+    #: New bullets to classify (e.g. accepted My Work Highlights suggestions).
+    candidates: list[str] = Field(default_factory=list)
+    #: Match against these bullets instead of the résumé's own (e.g. to find which saved
+    #: highlight best replaces a bullet the user clicked). Omit to use the résumé's bullets.
+    targets: Optional[list[str]] = None
+    #: Overlap score (0–1) at/above which a candidate is recommended as a REPLACE.
+    threshold: float = 0.5
+
+
+class BulletMatch(BaseModel):
+    line: str           # the exact existing bullet LINE (a reword edit's `before`)
+    text: str           # its plain display text (markers/markdown stripped)
+    score: float        # topic-overlap score, 0–1
+
+
+class CandidateMatch(BaseModel):
+    candidate: str
+    recommend: str                           # "replace" | "add"
+    best_score: float
+    replace: Optional[BulletMatch] = None     # the bullet to swap (only when "replace")
+    alternatives: list[BulletMatch] = Field(default_factory=list)  # other close bullets
+
+
+class MatchBulletsResponse(BaseModel):
+    matches: list[CandidateMatch] = Field(default_factory=list)
+
+
 class VersionUpdate(BaseModel):
     """Update a saved version: its nickname (``label``) and/or its own design
     (``template_id``; "" clears it so the version inherits the résumé's template).

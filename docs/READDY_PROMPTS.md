@@ -408,3 +408,61 @@ Acceptance: a user can click a bullet (or describe it and pick from candidates),
 and Replace swaps exactly that line and saves a new version with a visible re-render; the optional
 "Improve this line" rewrites only that line and saves a separate, undoable version; no other lines
 change.
+
+---
+
+## P2a — Smart Add-vs-Replace in the My Work Highlights review
+
+Adding every suggested bullet creates duplicates when a suggestion is really a *stronger
+version* of a bullet already on the résumé. Use the new matcher so each suggestion knows
+whether to **Replace** an existing bullet or **Add** as new.
+
+**Backend (live):** `POST /api/v1/resumes/{id}/match-bullets { candidates: [<bullet text>...] }`
+→ `{ matches: [{ candidate, recommend: "replace"|"add", best_score,
+replace: { line, text, score } | null, alternatives: [{ line, text, score }...] }] }`.
+Deterministic (topic-term overlap), instant, no AI. `line` is the exact existing bullet to swap.
+
+**UI (Review zone / Zone C):**
+1. When suggestions load (or on first paste→edits), send all suggestion bullets as `candidates`
+   to `match-bullets` once.
+2. On each suggestion card, show a small **Add / Replace** toggle:
+   - `recommend === "replace"` → **default to Replace**, and show the matched existing bullet
+     inline: *"Replaces: '{replace.text}'"* with the new text under it (a tiny before→after).
+   - `recommend === "add"` → **default to Add as new**.
+3. Let the user flip the toggle, and when replacing, pick a **different** existing bullet from
+   `alternatives` (a dropdown of the close matches) — nothing is ever swapped blindly.
+4. On **Accept & Save**, build the edit list and apply via the existing
+   `/apply-edits` → `/versions` path:
+   - **Add** → an `add` edit (`{ action:"add", section:"Experience", after:<candidate> }`).
+   - **Replace** → a `reword` edit (`{ action:"reword", before:<chosen existing line>, after:<candidate> }`).
+   Preview the merged résumé, then save as a new version. Visible re-render as usual.
+
+Acceptance: a highlight that restates an existing bullet defaults to **Replace** and shows which
+bullet it swaps; an unrelated highlight defaults to **Add**; the user can flip either and choose a
+different target; saving produces one new version with the chosen adds + replaces and no duplicates.
+
+---
+
+## P2b — Click-to-replace a bullet on the résumé
+
+A general, always-available way to swap any bullet for a stronger one — intuitive: click the
+bullet you want to replace.
+
+**UI:**
+1. Make each résumé bullet in the preview **clickable** (hover affordance: "Replace this bullet").
+2. Clicking opens a **"Replace this bullet"** popover with three ways to supply the replacement:
+   - **Pick a match** — call `POST /api/v1/resumes/{id}/match-bullets
+     { candidates: [<the clicked bullet text>], targets: [<your saved highlight bullets>] }`;
+     the returned `alternatives` are the saved highlights that best fit this bullet — list them to pick from.
+   - **Rewrite with AI** — one tap runs `POST /api/v1/resumes/{id}/ai-edit` with an instruction that
+     targets only this line (e.g. "rewrite this bullet to be stronger and quantified: <line>").
+   - **Type / paste** your own replacement.
+3. Show a **before → after** of just that line, then **Replace** applies a `reword` edit
+   (`before:<clicked bullet's exact line>, after:<chosen text>`) via `/apply-edits` → `/versions`,
+   saving a new version. The preview + version indicator visibly re-render and the changed line flashes.
+
+**Scope:** steps are deterministic except the opt-in "Rewrite with AI". Keep it identical in the
+full editor and the quick preview.
+
+Acceptance: clicking a bullet offers pick-a-match / rewrite / type, shows a one-line before→after,
+and Replace swaps exactly that bullet into a new, undoable version; no other lines change.
