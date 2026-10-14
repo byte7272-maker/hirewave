@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi.testclient import TestClient
 
 from jobsearch.api.app import create_app
@@ -912,6 +914,54 @@ def test_api_match_bullets_endpoint():
     # empty candidates -> 400
     assert client.post(f"/api/v1/resumes/{rid}/match-bullets", headers=h,
                        json={"candidates": []}).status_code == 400
+
+
+class _HighlightsLLM:
+    """Mock LLM for the My Work Highlights flow: routes extract / cluster / suggest calls
+    by prompt content and returns one suggestion that duplicates an existing résumé bullet
+    plus one genuinely complementary suggestion."""
+    name = "mock"
+
+    def complete(self, prompt, **kw):
+        if "extract the discrete" in prompt:
+            return json.dumps([
+                "Directed the migration of 40 servers to Microsoft Azure over a weekend",
+                "Mentored five junior engineers in code-review practices",
+            ])
+        if "Group the résumé evidence" in prompt:
+            return json.dumps([
+                {"theme": "Cloud", "summary": "Directed the migration of 40 servers to Microsoft Azure over a weekend", "points": ["p"]},
+                {"theme": "Mentoring", "summary": "Mentored five junior engineers in code-review practices", "points": ["p"]},
+            ])
+        if "Propose specific edits" in prompt:
+            return json.dumps([
+                {"action": "add", "section": "Experience", "after": "Directed the migration of 40 servers to Microsoft Azure over a weekend", "rationale": "x"},
+                {"action": "add", "section": "Experience", "after": "Mentored five junior engineers in code-review practices", "rationale": "y"},
+            ])
+        return "[]"
+
+
+def test_highlights_suggest_complements_existing_and_prior():
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _HighlightsLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    text = "## Experience\n- Led migration of 40 servers to Azure with zero downtime"
+    rid = _upload(client, h, text)["id"]
+    # No `avoid`: the Azure suggestion duplicates the existing bullet -> dropped; the
+    # mentoring suggestion is new -> kept.
+    r = client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h,
+                    json={"text": "general company information ..."})
+    assert r.status_code == 200
+    afters = [s["after"] for s in r.json()["suggestions"]]
+    assert any("Mentored five junior" in a for a in afters)          # complementary kept
+    assert not any("40 servers to Microsoft Azure" in a for a in afters)  # duplicate dropped
+    # With `avoid` naming the mentoring bullet (a prior-intake suggestion), it drops too.
+    r2 = client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h, json={
+        "text": "general company information ...",
+        "avoid": ["Mentored five junior engineers in code review practices"]})
+    assert r2.status_code == 200
+    assert not any("Mentored five junior" in s["after"] for s in r2.json()["suggestions"])
 
 
 def test_format_edits_targets_the_heading_word_on_explicit_command():

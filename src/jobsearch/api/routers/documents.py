@@ -481,7 +481,7 @@ def suggest_resume_edits(
     if not body.context.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste some text for the AI to work from")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    edits = state.resume_assistant.suggest_edits(resume, body.context, job=job)
+    edits = state.resume_assistant.suggest_edits(resume, body.context, job=job, avoid=body.avoid)
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
 
 
@@ -685,7 +685,7 @@ def synthesize_evidence(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the output from your work AI first")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     points = state.resume_assistant.extract_evidence(body.text)
-    groups = state.resume_assistant.cluster_evidence(points, job=job)
+    groups = state.resume_assistant.cluster_evidence(points, job=job, avoid=body.avoid)
     return EvidenceSynthesisResponse(groups=[EvidenceGroup(**g) for g in groups])
 
 
@@ -710,12 +710,12 @@ def suggest_from_highlights(
     points = state.resume_assistant.extract_evidence(body.text)
     if not points:
         return SuggestEditsResponse(suggestions=[])
-    groups = state.resume_assistant.cluster_evidence(points, job=job)
+    groups = state.resume_assistant.cluster_evidence(points, job=job, avoid=body.avoid)
     # Drive the edits from the overarching statements (concept-level), falling back to the
     # raw points only if clustering produced nothing.
     basis = [g["summary"] for g in groups] or points
     context = "\n".join(f"- {c}" for c in basis)
-    edits = state.resume_assistant.suggest_edits(resume, context, job=job)
+    edits = state.resume_assistant.suggest_edits(resume, context, job=job, avoid=body.avoid)
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
 
 

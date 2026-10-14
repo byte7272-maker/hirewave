@@ -533,6 +533,10 @@ class EvidenceExtractRequest(BaseModel):
 
     text: str
     job_posting_id: Optional[str] = None
+    #: Bullets already on the résumé or suggested/edited in a PREVIOUS intake. The AI makes
+    #: new bullets that COMPLEMENT these (fill gaps) instead of duplicating them, and any
+    #: near-duplicate suggestion is dropped. The résumé's own bullets are added automatically.
+    avoid: Optional[list[str]] = None
 
 
 class SuggestEditsRequest(BaseModel):
@@ -541,6 +545,8 @@ class SuggestEditsRequest(BaseModel):
 
     context: str
     job_posting_id: Optional[str] = None
+    #: Bullets to complement, not duplicate (see EvidenceExtractRequest.avoid).
+    avoid: Optional[list[str]] = None
 
 
 class EditSuggestion(BaseModel):

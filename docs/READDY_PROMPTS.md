@@ -466,3 +466,61 @@ full editor and the quick preview.
 
 Acceptance: clicking a bullet offers pick-a-match / rewrite / type, shows a one-line before→after,
 and Replace swaps exactly that bullet into a new, undoable version; no other lines change.
+
+---
+
+## P3a — One consistent document preview everywhere (Highlights must mirror Documents)
+
+The résumé preview looks and behaves differently depending on where it appears. On the
+**Documents** page it's the standard "DOCUMENT" preview (Fit width + zoom, Expand, Read full
+size, Reload from source). In **My Work Highlights** ("The document you're improving") it's a
+different layout — a "Change version" selector with version **check-marks underneath**, a
+"Server render · Modern · Cobalt · Inter" badge, and no zoom/fit controls — and it doesn't
+guarantee the same version is shown. Unify them.
+
+1. **One shared preview component.** Render the résumé the same way in every location — the
+   Documents list/detail AND the My Work Highlights workspace (and anywhere else a résumé
+   preview appears). Same header ("DOCUMENT"), same controls: **Fit width + zoom %, Expand,
+   Read full size, Reload from source**. Same iframe render path, same template, same scaling.
+
+2. **Same version, everywhere.** Every preview shows the document's **current active version**
+   by default. Opening the same résumé from Documents and from My Work Highlights must show the
+   identical version rendered identically — never version N in one place and a different version
+   in another.
+
+3. **Version-switching: keep it, but as ONE standard control.** Version-switching stays — it's
+   useful while improving — but it becomes part of the shared preview component as a single,
+   consistent **Version** control: a compact dropdown/menu that shows the current version and lets
+   you switch to view another. It is the **same** control in every location (Documents and My Work
+   Highlights) and defaults to the document's current active version. Remove the Highlights-only
+   presentation: the separate "Change version / Now showing Version N" selector, the version
+   **check-mark strip underneath**, and the "Server render · <template>" badge. Their
+   version-switching is now just the standard Version control.
+
+Acceptance: open the same résumé from the Documents page and from My Work Highlights → both show
+the same version by default, the same header, the same zoom / Expand / Read-full-size / Reload
+controls, the **same single Version dropdown** (switching works identically in both), and the
+identical rendered page. No version check-mark strip or "Server render" badge unique to Highlights.
+
+---
+
+## P2c — My Work Highlights: complement existing + prior bullets (don't duplicate)
+
+When the user pastes a NEW batch of data (e.g. general company info) into My Work Highlights, the
+suggestions should COMPLEMENT what's already there — the résumé's current bullets AND the bullets
+suggested/edited in a PREVIOUS intake — rather than repeating them.
+
+**Backend (live):** `POST /resumes/{id}/evidence/synthesize`, `/highlights/suggest`, and
+`/suggest-edits` now accept an optional **`avoid: string[]`** — bullets to complement, not
+duplicate. The résumé's own bullets are added automatically server-side; you pass the PRIOR-run
+bullets. The LLM is told to fill gaps, and any suggestion that still merely restates an existing or
+prior bullet is dropped server-side (deterministic overlap check).
+
+**UI:** keep a small per-résumé memory of the bullet texts the user **kept / edited / accepted in
+previous intake runs**. When generating suggestions from a new paste (the "Turn into edits" /
+highlights-suggest call), pass that list as **`avoid`**. (You don't need to include the résumé's
+own current bullets — the backend adds those itself.)
+
+Acceptance: pasting a second batch of data produces suggestions that add NEW
+accomplishments/dimensions and never re-suggest something already on the résumé or already
+suggested/edited in a prior run; without any prior runs, behavior is unchanged.

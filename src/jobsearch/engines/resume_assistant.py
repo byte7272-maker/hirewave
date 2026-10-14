@@ -1423,14 +1423,21 @@ class ResumeAssistant:
         return _evidence_split(text)
 
     def cluster_evidence(
-        self, points: list[str], *, job: Optional[JobPosting] = None
+        self,
+        points: list[str],
+        *,
+        job: Optional[JobPosting] = None,
+        avoid: Optional[list[str]] = None,
     ) -> list[dict]:
         """Group related evidence points into themes and synthesize ONE overarching,
         résumé-worthy statement per group — so the user works with a few strong concepts
         instead of many line-by-line facts. The overarching statement is INFERRED from the
         group's points (synthesis, not a list), using ONLY the supplied facts (never
         invents), preserving numbers. LLM with a deterministic keyword-clustering fallback.
-        Returns [{theme, summary, points:[supporting points]}]."""
+        Returns [{theme, summary, points:[supporting points]}].
+
+        ``avoid`` is accomplishments already on the résumé or suggested before, so the
+        synthesized statements favor NEW, complementary ground rather than restating them."""
         pts = [p.strip() for p in (points or []) if p and p.strip()][:40]
         if not pts:
             return []
@@ -1438,6 +1445,11 @@ class ResumeAssistant:
         if job and job.requirements:
             reqs = "\nFavor themes relevant to this target role: " + (job.title or "") + \
                    " — " + ", ".join(job.requirements[:10])
+        avoid = [a.strip() for a in (avoid or []) if a and a.strip()]
+        if avoid:
+            reqs += ("\nThese accomplishments are ALREADY covered (on the résumé or suggested before) — "
+                     "favor themes that add something NEW and complementary, and don't just restate them:\n"
+                     + "\n".join(f"- {a}" for a in avoid[:30]))
         try:
             out = self.llm.complete(
                 "Group the résumé evidence points below into 3-8 themes of related ideas. For "
@@ -1460,7 +1472,12 @@ class ResumeAssistant:
         return _cluster_points_fallback(pts)
 
     def suggest_edits(
-        self, resume: Resume, context: str, *, job: Optional[JobPosting] = None
+        self,
+        resume: Resume,
+        context: str,
+        *,
+        job: Optional[JobPosting] = None,
+        avoid: Optional[list[str]] = None,
     ) -> list[dict]:
         """Read arbitrary pasted ``context`` (notes, a job description, feedback, raw
         work data) against the résumé and propose specific, reviewable edits — things
@@ -1468,32 +1485,59 @@ class ResumeAssistant:
         change can be applied and approved individually. Suggest-only; nothing is
         changed here. Uses ONLY facts in the résumé or the pasted context (never invents).
         Returns a list of {action, section, before, after, rationale}. LLM with an empty
-        deterministic fallback (no guessing)."""
+        deterministic fallback (no guessing).
+
+        ``avoid`` is bullets that already exist OR were suggested in a previous intake, so
+        the new bullets COMPLEMENT them instead of restating them: the LLM is told to fill
+        gaps, and any ``add`` that still merely duplicates an existing/prior bullet is
+        dropped deterministically (via :func:`match_bullets`)."""
         text = (resume.rendered_text or "").strip()
         ctx = (context or "").strip()
         if not text or not ctx:
             return []
+        avoid = [a.strip() for a in (avoid or []) if a and a.strip()]
         reqs = ""
         if job and job.requirements:
             reqs = "\nTarget role: " + (job.title or "") + " — requirements: " + ", ".join(job.requirements[:12])
+        avoid_block = ""
+        if avoid:
+            avoid_block = (
+                "\n\nAlready on the résumé or suggested in a PREVIOUS round — do NOT restate or "
+                "lightly reword these; only add bullets that COMPLEMENT them with a different "
+                "accomplishment, dimension, or metric:\n" + "\n".join(f"- {a}" for a in avoid[:40])
+            )
         try:
             out = self.llm.complete(
                 "You are editing a résumé using the user's pasted notes. Propose specific edits as a "
                 "JSON array; each item: {\"action\":\"add\"|\"remove\"|\"reword\", \"section\":<e.g. "
                 "Summary/Experience/Skills>, \"before\":<the EXACT existing résumé text to change, "
                 "copied verbatim; empty for add>, \"after\":<the new text; empty for remove>, "
-                "\"rationale\":<one short reason>}. 'add' = a new bullet justified by the notes; 'remove' "
-                "= drop weak/irrelevant/duplicate existing text; 'reword' = tighten/quantify existing "
-                "text. For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
+                "\"rationale\":<one short reason>}. 'add' = a new bullet justified by the notes that "
+                "COMPLEMENTS the résumé (fills a gap — a different accomplishment, scope, or metric — "
+                "never a restatement of an existing or already-suggested bullet); 'remove' = drop "
+                "weak/irrelevant/duplicate existing text; 'reword' = tighten/quantify existing text. "
+                "For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
                 "located. Use ONLY facts present in the résumé or the notes — never invent employers, "
-                "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs +
+                "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs + avoid_block +
                 "\n\nRésumé:\n" + text[:4000] + "\n\nPasted notes:\n" + ctx[:6000],
-                system="You suggest precise, verifiable résumé edits and output only a JSON array.",
+                system="You suggest precise, verifiable résumé edits that complement the résumé and output only a JSON array.",
                 max_tokens=1600,
             )
-            return _coerce_edits(json.loads(_extract_json_array(out)))
+            edits = _coerce_edits(json.loads(_extract_json_array(out)))
         except Exception:  # noqa: BLE001 - no guessing on failure
             return []
+        # Complement guard (deterministic): an 'add' that just restates a bullet already on
+        # the résumé or suggested before is not complementary -> drop it. reword/remove stay.
+        guard = [b["text"] for b in extract_resume_bullets(text)] + avoid
+        adds = [e for e in edits if (e.get("action") or "").lower() == "add" and (e.get("after") or "").strip()]
+        if guard and adds:
+            targets = [{"line": g, "text": _strip_inline_md(g)} for g in guard]
+            dup = {
+                id(e) for e, m in zip(adds, match_bullets([e["after"] for e in adds], targets, threshold=0.6))
+                if m["recommend"] == "replace"
+            }
+            edits = [e for e in edits if id(e) not in dup]
+        return edits
 
     def is_formatting_instruction(self, instruction: str) -> bool:
         """True when the instruction is a pure formatting op (bold/unbold/bullets),
