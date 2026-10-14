@@ -272,6 +272,22 @@ def test_parse_resume_markdown_linked_email_and_subtitle():
     assert d2.basics.email == "me@x.com" and d2.basics.phone == "555-123-4567"
 
 
+def test_markdown_to_html_renders_email_and_links():
+    # The résumé preview render must turn a linked email into a real clickable link, not
+    # show the raw <a> markup (or a markdown link) as plain text.
+    from jobsearch.docpreview import markdown_to_html
+    raw = markdown_to_html('<a href="mailto:byte7272@gmail.com">byte7272@gmail.com</a> · (646) 555-0100')
+    assert '<a href="mailto:byte7272@gmail.com">byte7272@gmail.com</a>' in raw
+    assert "&lt;a" not in raw  # no escaped raw tag left as text
+    md = markdown_to_html("[me@x.com](mailto:me@x.com) and [site](https://jo.dev)")
+    assert '<a href="mailto:me@x.com">me@x.com</a>' in md
+    assert '<a href="https://jo.dev">site</a>' in md
+    # Unsafe schemes must NOT become links.
+    assert "<a" not in markdown_to_html("[x](javascript:alert(1))")
+    # Bold/italic still render.
+    assert "<strong>Bold</strong>" in markdown_to_html("**Bold**")
+
+
 def test_get_and_render_specific_version():
     client, _ = _client()
     h = _auth(client)

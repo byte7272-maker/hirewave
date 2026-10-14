@@ -15,8 +15,25 @@ import re
 from typing import Optional
 
 
+# Inline links a résumé may carry: a markdown [text](url), a raw <a href="url">text</a>
+# (HTML-escaped by now), or a bare email. Only safe schemes become real anchors.
+_SAFE_URL = r"(?:mailto:[^\s)&]+|https?://[^\s)&]+|tel:[^\s)&]+)"
+_MD_LINK = re.compile(r"\[([^\]]+)\]\((" + _SAFE_URL + r")\)", re.I)
+_ESC_A = re.compile(
+    r"&lt;a\s+[^&]*?href=&quot;(" + _SAFE_URL + r")&quot;[^&]*?&gt;(.*?)&lt;/a&gt;", re.I | re.S
+)
+
+
 def _inline_md(escaped: str) -> str:
-    """Convert inline markdown in an already HTML-escaped string: **bold**, *italic*."""
+    """Convert inline markdown in an already HTML-escaped string: links, **bold**, *italic*.
+
+    A résumé's email/URL may arrive as a raw ``<a href="…">`` (which escapes to literal text)
+    or a markdown ``[text](url)`` — both render as real, clickable links (safe schemes only:
+    mailto/http(s)/tel) instead of showing the raw markup as text."""
+    # Author-embedded <a href="…">…</a> (now escaped) -> a real link.
+    escaped = _ESC_A.sub(lambda m: f'<a href="{m.group(1)}">{m.group(2)}</a>', escaped)
+    # Markdown [text](safe-url) -> a real link.
+    escaped = _MD_LINK.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', escaped)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<em>\1</em>", escaped)
     escaped = re.sub(r"(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)", r"<em>\1</em>", escaped)
