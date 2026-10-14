@@ -252,6 +252,26 @@ def test_parse_resume_markdown_roundtrip():
     assert {s.name for s in back.skills} >= {"Python", "AWS"}
 
 
+def test_parse_resume_markdown_linked_email_and_subtitle():
+    # A résumé with a subtitle line between the name and the contact line, and the email
+    # wrapped in a <a href="mailto:…"> link (and · separators) — the contact line must still
+    # parse to clean values, not render the raw <a> markup as text.
+    from jobsearch.models.resume_schema import parse_resume_markdown
+    md = ("# Bayete Williams\n**IT Leader**\n"
+          '<a href="mailto:byte7272@gmail.com">byte7272@gmail.com</a> · (646) 533-7930 · New York, NY\n'
+          "## Summary\nDynamic IT leader.")
+    d = parse_resume_markdown(md)
+    assert d.basics.name == "Bayete Williams"          # '#' stripped
+    assert d.basics.label == "IT Leader"               # subtitle captured, not swept into summary
+    assert d.basics.email == "byte7272@gmail.com"      # link wrapper stripped, clean address
+    assert "@" not in d.basics.summary and "<a" not in d.basics.summary  # contact not in summary
+    assert d.basics.phone == "(646) 533-7930"
+    assert d.basics.location.city == "New York" and d.basics.location.region == "NY"
+    # Markdown-link form + no subtitle still parses (no regression).
+    d2 = parse_resume_markdown("# X\n[me@x.com](mailto:me@x.com) | 555-123-4567 | Boston, MA")
+    assert d2.basics.email == "me@x.com" and d2.basics.phone == "555-123-4567"
+
+
 def test_get_and_render_specific_version():
     client, _ = _client()
     h = _auth(client)

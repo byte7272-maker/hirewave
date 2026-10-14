@@ -150,10 +150,23 @@ def resume_data_to_markdown(data: ResumeData) -> str:
 
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _DATES_RE = re.compile(r"\(([^()]*)\)\s*$")
+_LINK_HTML = re.compile(r"<a\b[^>]*>(.*?)</a>", re.I | re.S)
+_LINK_MD = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+_EMAIL_IN = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+# Contact-line separators a résumé may use between email / phone / location.
+_CONTACT_SPLIT = re.compile(r"\s*[|·•‣∙]\s*")
 
 
 def _unbold(s: str) -> str:
     return _BOLD_RE.sub(r"\1", s).strip()
+
+
+def _unlink(s: str) -> str:
+    """Strip an ``<a href=...>text</a>`` or ``[text](url)`` wrapper to its visible text, so
+    a linked email/phone parses to a clean value instead of rendering as raw markup."""
+    s = _LINK_HTML.sub(r"\1", s or "")
+    s = _LINK_MD.sub(r"\1", s)
+    return s.strip()
 
 
 def _split_dates(s: str) -> tuple[str, str, str]:
@@ -220,21 +233,36 @@ def parse_resume_markdown(text: str, *, label: str = "") -> ResumeData:
     idx = 0
     while idx < n and not lines[idx].strip():
         idx += 1
-    # Name (first non-empty, non-section, short line)
+    # Name (first non-empty, non-section, short line; drop any leading '#' heading marker)
     if idx < n and _section_of(lines[idx])[0] is None:
-        cand = _unbold(lines[idx])
+        cand = re.sub(r"^#{1,6}\s*", "", _unbold(lines[idx])).strip()
         if cand and len(cand) <= 80 and "@" not in cand and not cand.lstrip().startswith(("-", "*")):
             data.basics.name = cand
             idx += 1
     while idx < n and not lines[idx].strip():
         idx += 1
-    # Contact line ("Label | email | phone | City, Region")
-    if idx < n and _section_of(lines[idx])[0] is None and ("|" in lines[idx] or "@" in lines[idx]):
-        for part in (p.strip() for p in lines[idx].split("|")):
+    # Optional title/subtitle line between the name and the contact line (e.g. "**IT Leader**")
+    # -> the label. Without this it would be swept into the summary and the contact line below
+    # would never parse (so a linked email renders as raw text).
+    if idx < n and _section_of(lines[idx])[0] is None and not data.basics.label:
+        sub = _unlink(_unbold(lines[idx]))
+        is_contact = bool(_CONTACT_SPLIT.search(lines[idx])) or "@" in lines[idx]
+        if sub and len(sub) <= 60 and not is_contact and not sub.lstrip().startswith(("-", "*", "#")):
+            data.basics.label = sub
+            idx += 1
+        while idx < n and not lines[idx].strip():
+            idx += 1
+    # Contact line ("Label · email · phone · City, Region"); separators may be | · or •,
+    # and email/phone may be wrapped in a <a href=...> or [text](url) link — strip it so the
+    # value is clean (otherwise the raw markup renders as plain text).
+    if idx < n and _section_of(lines[idx])[0] is None and (_CONTACT_SPLIT.search(lines[idx]) or "@" in lines[idx]):
+        for raw in _CONTACT_SPLIT.split(lines[idx]):
+            part = _unlink(raw)
             if not part:
                 continue
             if "@" in part and not data.basics.email:
-                data.basics.email = part
+                m = _EMAIL_IN.search(part)
+                data.basics.email = m.group(0) if m else part
             elif re.fullmatch(r"[+()\-.\s\d]{7,}", part) and not data.basics.phone:
                 data.basics.phone = part
             elif "," in part and not data.basics.location.city:
