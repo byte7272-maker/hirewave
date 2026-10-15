@@ -1406,11 +1406,13 @@ class ResumeAssistant:
             return []
         try:
             out = self.llm.complete(
-                "From the notes below (a person's own work history pulled from their company tools), "
-                "extract the discrete, résumé-worthy accomplishments as a JSON array of short strings — "
-                "one clear fact per string, each stating what was done and the measurable result if given. "
-                "Preserve numbers exactly. Merge duplicates. Drop greetings, headers, and anything not "
-                "about this person's own work. Never invent anything. Return ONLY a JSON array of strings."
+                "From the notes below (a person's work history and company information pulled from their "
+                "tools), extract the discrete, résumé-worthy accomplishments, initiatives, and metrics as a "
+                "JSON array of short strings — one clear fact per string, each stating what was achieved and "
+                "the measurable result if given. Preserve numbers exactly. Merge duplicates. Drop greetings, "
+                "signatures, and boilerplate, but KEEP company-, team-, and project-level achievements too "
+                "(they will be framed as the person's contribution later). Never invent anything. Return "
+                "ONLY a JSON array of strings."
                 "\n\nNotes:\n" + text,
                 system="You extract concise resume accomplishment points and output only a JSON array of strings.",
                 max_tokens=900,
@@ -1456,7 +1458,15 @@ class ResumeAssistant:
                 "each theme write ONE strong, specific résumé-worthy statement that captures the "
                 "OVERARCHING accomplishment across its points (synthesize the common idea — do not "
                 "just concatenate or list), preserving any numbers; and list the exact source "
-                "points it draws from. Use ONLY facts present in the points — never invent "
+                "points it draws from. PERSONALIZE every statement so it reads as the USER'S own "
+                "résumé accomplishment or significant CONTRIBUTION — always connect the user to the "
+                "work. When a point is a company-, team-, or organization-level achievement rather "
+                "than clearly the user's individual work, do NOT claim they solely did it: use honest "
+                "contribution/association framing such as 'Contributed to', 'Instrumental in', "
+                "'Supported', 'Played a key role in', 'Helped drive', or 'Part of the team that'. Keep "
+                "the numbers and attribute them as context the user contributed to; never fabricate "
+                "sole personal credit for organizational results. "
+                "Use ONLY facts present in the points — never invent "
                 "employers, titles, dates, metrics, or skills. Return ONLY a JSON array: "
                 '[{"theme":<short label>,"summary":<one overarching sentence>,'
                 '"points":[<verbatim source points>]}].' + reqs +
@@ -1516,6 +1526,12 @@ class ResumeAssistant:
                 "COMPLEMENTS the résumé (fills a gap — a different accomplishment, scope, or metric — "
                 "never a restatement of an existing or already-suggested bullet); 'remove' = drop "
                 "weak/irrelevant/duplicate existing text; 'reword' = tighten/quantify existing text. "
+                "PERSONALIZE every 'add' so it reads as the USER'S own accomplishment or significant "
+                "CONTRIBUTION — always connect the user to the work. For a company-, team-, or "
+                "organization-level achievement, do NOT claim sole ownership: use honest contribution "
+                "framing ('Contributed to', 'Instrumental in', 'Supported', 'Played a key role in', "
+                "'Helped drive', 'Part of the team that'). Keep numbers but never fabricate sole "
+                "personal credit for organizational results. "
                 "For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
                 "located. Use ONLY facts present in the résumé or the notes — never invent employers, "
                 "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs + avoid_block +

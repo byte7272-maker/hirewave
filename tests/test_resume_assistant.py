@@ -964,6 +964,38 @@ def test_highlights_suggest_complements_existing_and_prior():
     assert not any("Mentored five junior" in s["after"] for s in r2.json()["suggestions"])
 
 
+def test_highlights_synthesis_prompts_personalize_contributions():
+    # Company-level info must be captured (not dropped) and the synthesis must steer the
+    # LLM to frame it as the user's CONTRIBUTION with honest verbs — never sole credit.
+    prompts: list[str] = []
+
+    class _RecordingLLM:
+        name = "mock"
+        def complete(self, prompt, **kw):
+            prompts.append(prompt)
+            if "extract the discrete" in prompt:
+                return json.dumps(["Publicis executed 13 acquisitions including the $2.2B LiveRamp deal"])
+            if "Group the résumé evidence" in prompt:
+                return json.dumps([{"theme": "M&A", "summary": "Contributed to the LiveRamp integration", "points": ["p"]}])
+            if "Propose specific edits" in prompt:
+                return json.dumps([{"action": "add", "section": "Experience", "after": "Contributed to the LiveRamp integration", "rationale": "x"}])
+            return "[]"
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _RecordingLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Led IT operations")["id"]
+    client.post(f"/api/v1/resumes/{rid}/highlights/suggest", headers=h, json={"text": "general company information ..."})
+    joined = "\n".join(prompts)
+    # the cluster + suggest prompts steer honest contribution framing
+    assert "PERSONALIZE" in joined
+    assert "Contributed to" in joined and "Instrumental in" in joined
+    assert "never fabricate sole personal credit" in joined
+    # extraction keeps company-/team-level achievements instead of dropping them
+    assert any("extract the discrete" in p and "company-, team-, and project-level" in p for p in prompts)
+
+
 def test_format_edits_targets_the_heading_word_on_explicit_command():
     # "bold the section header word 'Education'" must act on the HEADING line, not the
     # degree lines under it (the old behavior bolded the body because headings were
