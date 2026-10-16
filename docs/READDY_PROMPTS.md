@@ -765,3 +765,146 @@ behavior in normal + full-screen.
 Acceptance: in BOTH the normal and full-screen résumé, the user can click any bullet to select it
 (obvious selected state + action bar) and reorder, swap, edit, or remove it; changes are lossless,
 save, and appear immediately; a side pane (if present) stays in sync; every action is undoable.
+
+---
+
+## P5 — Scan a mailbox for job email → pull into results + auto-advance the tracker
+
+Give the user a one-click way to pull **only** job email from an authorized mailbox into Hirewave.
+It is deliberately **one-way**: retrieve → classify → categorize → ingest postings → advance the
+applications tracker. Nothing is ever sent, and no reply is composed. The whole feature is backed by
+endpoints that are already LIVE — **no new backend is needed**.
+
+**0. The privacy promise (say it in the UI).** The scanner classifies every message first and keeps
+**only job-related mail**; personal email is dropped before anything is read in. Show this plainly
+near the Scan button ("We only read job email — nothing personal is imported"). A **dedicated job
+inbox** is the best-privacy option because it holds only job mail to begin with.
+
+**1. Two sources (a small toggle).**
+- **My Gmail** — `POST /api/v1/inbox/scan?source=gmail`. Requires the user's Gmail connection
+  (reuse the existing Integrations/connect-Gmail flow; if the call returns **400 "connect Gmail
+  first"**, surface a "Connect Gmail" CTA instead of an error).
+- **Dedicated job inbox** — `POST /api/v1/inbox/scan?source=mailbox` (the default). Scans the
+  service-configured dedicated account. If it returns `fetched: 0`, show "No dedicated inbox
+  connected yet" with a short explainer (a dedicated `jobs@…` account, connected by IMAP) rather
+  than an empty table.
+- Also keep/point to the existing **forwarding address** path (`GET /api/v1/inbox/address` → the
+  user's `jobs+<token>@…` address) as a third, zero-setup way to get alerts in — it feeds the same
+  pipeline.
+
+**2. Run the scan (no infinite spinner).** POST with the Bearer token and an `AbortController`
+(~30 s). On success render the result; on timeout/network error resolve to an **error + Retry**
+state. The response shape:
+```
+{ source, fetched, job_found, ingested,
+  by_kind: { alert, application, interview, offer, rejection, recruiter },
+  tracker: { routed, created, advanced, unchanged, skipped, by_status,
+             applications: [ { application_id, job_posting_id, company, role, kind,
+                               status, action, from_status } ] },
+  emails: [ { kind, status, company, role, link, subject, from, confidence } ] }
+```
+
+**3. Results, grouped by kind.** Show the `emails[]` as cards/rows **grouped by `kind`** in this
+order: **Offer · Interview · Application · Recruiter · Alert** (most actionable first). Per row:
+- a **kind chip** (color-coded: offer=green, interview=blue, application=slate, rejection=gray,
+  recruiter=purple, alert=neutral);
+- **company** and **role** when present (fall back gracefully to the subject when both are blank —
+  do **not** invent them);
+- the **subject**, the sender domain (`from`), and a **confidence** meter (0–1);
+- if `link` is present, an **"Open posting"** external link (new tab, `rel="noopener"`).
+Summarize the counts at the top from `by_kind` ("3 applications · 1 interview · 1 rejection").
+
+**4. Tracker routing feedback (the headline).** The four **progress kinds**
+(application/interview/offer/rejection) are auto-routed into the applications tracker server-side:
+an existing application **advances** (never downgrades — a stale email can't drag an offer back), or
+a new row is **created** when the email ties to a known posting. Render a short "Applications
+updated" summary from `tracker`:
+- a line like **"Advanced 2 · Created 1 · No change 1"** from `routed/created/advanced/unchanged`;
+- per `tracker.applications[]`, a one-line receipt: **`{role} at {company}` — {from_status} →
+  {status}** for `action:"advanced"`, **"Added to tracker as {status}"** for `action:"created"`,
+  and a muted **"Already {status}"** for `action:"unchanged"`.
+- Link each receipt to its row in the applications view (`GET /api/v1/applications`; match by
+  `application_id`). After a scan, **refresh the applications list** so the board reflects it.
+- `skipped` means a progress email didn't match any tracked role and had no known posting — don't
+  show it as an error; omit or footnote it ("2 messages had no matching application").
+
+**5. Status mapping (so the UI reads right).** `application → submitted`, `interview →
+interviewing`, `offer → offered`, `rejection → rejected`. `alert`/`recruiter` are **leads, not
+applications** — they appear in the results list but are never routed to the tracker.
+
+**6. Empty / zero states.** `job_found: 0` → "No job email found in this mailbox" (not an error).
+Never substitute sample emails for a real scan. A `rejection` card should be calm and neutral, not
+alarming.
+
+**Scope.** Read-only retrieval + server-side routing; deterministic, no AI, no sending. Reuse the
+existing Gmail-connect UI; everything else is display of the `/inbox/scan` response.
+
+Acceptance: signed in, "Scan for job email" calls `/inbox/scan`, shows job email grouped by kind
+with company/role/link/confidence, and an "Applications updated" summary; the applications board
+reflects advanced/created rows immediately; a personal (non-job) message in the mailbox never
+appears; no reply or send is ever offered.
+
+---
+
+## P6 — Documents editor: show the last generated bullets + prompt by default
+
+In the Documents **editable preview** (the view with the AI-prompt box and the right-side AI
+functions), the bullets the editor generated **last session** and **the prompt that produced
+them** must appear **by default on load** — the user should not have to re-run the AI to see what
+they already made. The backend now persists every generated run; this is wiring it into the UI. All
+endpoints are **LIVE**, no new backend.
+
+**1. Load the latest on open.** When the editor/preview mounts for a résumé, call
+**`GET /api/v1/resumes/{id}/highlights/latest`**. Response:
+```
+{ latest: { id, mode, prompt, job_posting_id, items, item_states, created_at, updated_at } | null,
+  recent_prompts: [ "…", "…" ] }    // newest first, de-duplicated, up to 10
+```
+If `latest` is non-null, render its bullets in the AI-suggestions area **immediately** — the same
+component that renders a fresh generation. If `latest` is null (never generated), keep today's empty
+state. Never show a spinner-forever; this call is fast.
+
+**2. Render `items` by `mode`.**
+- `mode: "suggest"` or `"highlights"` → `items` are **edit suggestions**: `{ action
+  (add|remove|reword), section, before, after, rationale }`. Render each as a reviewable bullet
+  with its action chip (same as a live suggest-edits review).
+- `mode: "synthesize"` → `items` are **evidence groups**: `{ theme, summary, points[] }`. Render the
+  summary as the headline bullet with its supporting points.
+
+**3. Show the last prompt, and recent prompts.** Display `latest.prompt` in/above the prompt box as
+"Last prompt" (with a **Re-use** button that drops it back into the input, and a **Copy**). Offer
+`recent_prompts` as a small "Recent prompts" dropdown/list for one-click re-use. This is the
+"remember previous prompts" behavior — now backed by the server, so it survives a new session/device.
+
+**4. Truncate long bullet lists — "Show more".** Don't dump a long list on the page. Show the first
+**~3–5** bullets and a **"Show more (N)"** link that expands the rest (and "Show less" to collapse).
+Default collapsed when there are more than the cap. Keep the most actionable items first.
+
+**5. Remember accept/reject across sessions.** `latest.item_states` is a map of the item's index (as
+a string) → `"accepted"` / `"rejected"`. Apply it on load so previously-accepted/rejected bullets
+show their state. When the user accepts/rejects a bullet, persist it with **`POST
+/api/v1/resumes/{id}/highlights/runs/{run_id}/state`** with body `{ "states": { "0": "accepted", "2":
+"rejected" } }` (send `"pending"` or "" to clear one). It merges server-side and returns the updated
+run. (This does not change the résumé — applying an accepted bullet still goes through the existing
+apply-edits → save-version path.)
+
+**6. Prior runs (optional, nice).** `GET /api/v1/resumes/{id}/highlights/runs?limit=12` returns the
+recent runs (newest first) with their bullets — use it for a "Previous results" list if you want the
+user to reopen an earlier generation, not just the latest.
+
+**7. Start fresh.** A small "Clear saved suggestions" affordance calls **`DELETE
+/api/v1/resumes/{id}/highlights`** (204) and returns the area to the empty state. Confirm before
+clearing.
+
+**8. Keep generation writing-through.** No change needed to the generate calls themselves — every
+`POST /suggest-edits`, `/highlights/suggest`, and `/evidence/synthesize` now auto-saves its result
+server-side, so after any generation the "latest" is already up to date. Just make sure that after a
+fresh generation you render it (and it will also be what `latest` returns on the next load).
+
+**Scope.** Display + persistence wiring only; deterministic, no new AI calls on load. Lives in the
+Documents editable-preview and its right-side AI panel.
+
+Acceptance: open a résumé you generated bullets for in a previous session → the bullets and the last
+prompt are shown by default without re-running; a long list is collapsed behind "Show more";
+accept/reject state persists across reloads; "Re-use" refills the prompt; "Clear saved suggestions"
+empties it.

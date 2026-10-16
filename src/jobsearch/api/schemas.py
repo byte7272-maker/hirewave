@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from pydantic import AliasChoices, BaseModel, Field
@@ -663,6 +664,41 @@ class EvidenceSynthesisResponse(BaseModel):
     #: statement (synthesized from its points) — so the user works with a few strong
     #: concepts instead of many line-by-line facts.
     groups: list[EvidenceGroup] = Field(default_factory=list)
+
+
+class HighlightsRunOut(BaseModel):
+    """A saved My Work Highlights run — the bullets the editor generated and the prompt
+    behind them — so the Documents editor can show the last result (and prompt) by
+    default. ``mode`` tells the frontend how to render ``items``: ``suggest``/
+    ``highlights`` → EditSuggestion dicts; ``synthesize`` → EvidenceGroup dicts."""
+
+    id: str
+    mode: str = ""
+    prompt: str = ""
+    job_posting_id: str = ""
+    items: list[dict] = Field(default_factory=list)
+    item_states: dict[str, str] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class HighlightsLatestResponse(BaseModel):
+    """The most recent run (``null`` when the user has never generated bullets for this
+    résumé), plus a lightweight list of recent prompts for quick re-use."""
+
+    latest: Optional[HighlightsRunOut] = None
+    recent_prompts: list[str] = Field(default_factory=list)
+
+
+class HighlightsRunsResponse(BaseModel):
+    runs: list[HighlightsRunOut] = Field(default_factory=list)
+
+
+class HighlightsStateUpdate(BaseModel):
+    """Persist the user's per-item accept/reject on a saved run (keyed by item index as a
+    string → ``accepted``/``rejected``; ``pending``/"" clears an entry)."""
+
+    states: dict[str, str] = Field(default_factory=dict)
 
 
 class RephraseRequest(BaseModel):

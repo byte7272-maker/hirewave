@@ -28,6 +28,7 @@ from jobsearch.models import (
     DirectMessage,
     ExperienceHighlight,
     ExposureFinding,
+    HighlightsRun,
     InboxMessage,
     Invite,
     JobAuthenticityRecord,
@@ -96,6 +97,9 @@ _SPECS: dict[str, TableSpec] = {
     ),
     "experience_highlights": TableSpec(
         "experience_highlights", ExperienceHighlight, "id", ("user_id",)
+    ),
+    "highlights_runs": TableSpec(
+        "highlights_runs", HighlightsRun, "id", ("user_id", "resume_id")
     ),
     "persona_voices": TableSpec(
         "persona_voices", PersonaVoice, "id", ("user_id", "persona_id")

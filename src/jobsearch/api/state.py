@@ -32,12 +32,14 @@ from jobsearch.engines.integration import (
     TokenExchanger,
     build_linkedin_provider,
 )
+from jobsearch.engines.application_router import ApplicationRouter
 from jobsearch.engines.assistant import AssistantEngine, AutoApplyEngine, DraftPrepEngine
 from jobsearch.engines.authenticity import JobAuthenticityEngine, build_employer_verifier
 from jobsearch.engines.boards import BoardsEngine
 from jobsearch.engines.email_sender import build_email_sender
 from jobsearch.engines.experience import ExperienceEngine
 from jobsearch.engines.gmail_fetch import build_gmail_fetcher
+from jobsearch.engines.highlights_history import HighlightsHistory
 from jobsearch.engines.sourcing.imap_source import build_job_mail_source
 from jobsearch.engines.inbox import InboxEngine
 from jobsearch.engines.practice import PracticeEngine
@@ -175,6 +177,9 @@ class AppState:
         # User-brought work-experience highlights (self-written or produced by an
         # AI agent in the user's own work environment) → interview grounding.
         self.experience = ExperienceEngine(repo=repos.experience_highlights)
+        # Remembers the editor's last generated bullets + prompt per résumé, so the
+        # Documents editor reloads them by default (no re-running the AI each session).
+        self.highlights_history = HighlightsHistory(repo=repos.highlights_runs)
         self.community = CommunityQuestionEngine(repo=repos.community_questions)
         self.matching = MatchingEngine(embedder=embedder)
         # Suggested job titles: roles the user is qualified for (résumé + history),
@@ -210,6 +215,14 @@ class AppState:
         )
         self.gmail_fetcher = build_gmail_fetcher(self.settings)
         self.job_mail_source = build_job_mail_source(self.settings)
+        # Route scanned job email (application/interview/offer/rejection) into the
+        # applications tracker — one-way, advancing existing rows or creating a row
+        # when the email ties to a known posting.
+        self.application_router = ApplicationRouter(
+            applications=self.applications,
+            jobs=self.jobs,
+            notifier=self.notifications.add,
+        )
         self.social = SocialEngine(
             invites=repos.invites,
             connections=repos.connections,

@@ -23,6 +23,7 @@ from jobsearch.models import (
     DirectMessage,
     ExperienceHighlight,
     ExposureFinding,
+    HighlightsRun,
     InboxMessage,
     Invite,
     JobAuthenticityRecord,
@@ -70,6 +71,7 @@ class Repositories:
     exposure_findings: Repository[ExposureFinding]
     community_questions: Repository[CommunityQuestion]
     experience_highlights: Repository[ExperienceHighlight]
+    highlights_runs: Repository[HighlightsRun]
     persona_voices: Repository[PersonaVoice]
     custom_voices: Repository[CustomVoice]
     onboarding: Repository[OnboardingProgress]
@@ -120,6 +122,7 @@ def build_repositories(
             exposure_findings=InMemoryRepository(),
             community_questions=InMemoryRepository(),
             experience_highlights=InMemoryRepository(),
+            highlights_runs=InMemoryRepository(),
             persona_voices=InMemoryRepository(),
             custom_voices=InMemoryRepository(),
             onboarding=InMemoryRepository(id_attr="user_id"),
@@ -170,6 +173,7 @@ def build_repositories(
         exposure_findings=repo("exposure_findings"),
         community_questions=repo("community_questions"),
         experience_highlights=repo("experience_highlights"),
+        highlights_runs=repo("highlights_runs"),
         persona_voices=repo("persona_voices"),
         custom_voices=repo("custom_voices"),
         onboarding=repo("onboarding"),

@@ -64,6 +64,7 @@ from jobsearch.models.interview import (
     VocabularyAnalysis,
     VoiceSource,
 )
+from jobsearch.models.highlights import HighlightsRun
 from jobsearch.models.job import JobPosting, SavedJob, VerificationFlag, VerificationResult
 from jobsearch.models.monitoring import (
     ExposureFinding,
@@ -137,6 +138,7 @@ __all__ = [
     "DocumentVersion",
     "EmployerStatus",
     "ExperienceHighlight",
+    "HighlightsRun",
     "ExperienceKind",
     "ExperienceSource",
     "InboxMessage",

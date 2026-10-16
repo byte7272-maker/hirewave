@@ -23,6 +23,10 @@ from jobsearch.api.schemas import (
     EvidencePrompt,
     EvidencePromptsRequest,
     EvidencePromptsResponse,
+    HighlightsLatestResponse,
+    HighlightsRunOut,
+    HighlightsRunsResponse,
+    HighlightsStateUpdate,
     IncorporateRequest,
     JobCard,
     AiEditRequest,
@@ -482,6 +486,10 @@ def suggest_resume_edits(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste some text for the AI to work from")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     edits = state.resume_assistant.suggest_edits(resume, body.context, job=job, avoid=body.avoid)
+    state.highlights_history.record(
+        user_id=user.id, resume_id=resume.id, mode="suggest", prompt=body.context,
+        items=edits, job_posting_id=body.job_posting_id or "",
+    )
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
 
 
@@ -686,6 +694,10 @@ def synthesize_evidence(
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     points = state.resume_assistant.extract_evidence(body.text)
     groups = state.resume_assistant.cluster_evidence(points, job=job, avoid=body.avoid)
+    state.highlights_history.record(
+        user_id=user.id, resume_id=resume.id, mode="synthesize", prompt=body.text,
+        items=groups, job_posting_id=body.job_posting_id or "",
+    )
     return EvidenceSynthesisResponse(groups=[EvidenceGroup(**g) for g in groups])
 
 
@@ -716,7 +728,75 @@ def suggest_from_highlights(
     basis = [g["summary"] for g in groups] or points
     context = "\n".join(f"- {c}" for c in basis)
     edits = state.resume_assistant.suggest_edits(resume, context, job=job, avoid=body.avoid)
+    # Remember the generated bullets against the user's ORIGINAL paste (so the editor
+    # reloads this run and its prompt by default next time).
+    state.highlights_history.record(
+        user_id=user.id, resume_id=resume.id, mode="highlights", prompt=body.text,
+        items=edits, job_posting_id=body.job_posting_id or "",
+    )
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
+
+
+def _run_out(run) -> HighlightsRunOut:
+    return HighlightsRunOut(
+        id=run.id, mode=run.mode, prompt=run.prompt, job_posting_id=run.job_posting_id,
+        items=run.items, item_states=run.item_states,
+        created_at=run.created_at, updated_at=run.updated_at,
+    )
+
+
+@router.get("/resumes/{resume_id}/highlights/latest", response_model=HighlightsLatestResponse)
+def highlights_latest(
+    resume_id: str, user: CurrentUser, state: StateDep
+) -> HighlightsLatestResponse:
+    """The résumé's most recently generated bullets + the prompt behind them, so the
+    editor shows the last result by default (no re-running the AI). ``latest`` is null
+    when nothing has been generated yet. ``recent_prompts`` lists the last few prompts
+    (newest first, de-duplicated) for one-click re-use."""
+    get_resume(resume_id, user, state)  # 404 if not owned
+    runs = state.highlights_history.list(user.id, resume_id)
+    seen: set[str] = set()
+    recent_prompts: list[str] = []
+    for r in runs:
+        p = (r.prompt or "").strip()
+        if p and p not in seen:
+            seen.add(p)
+            recent_prompts.append(p)
+    return HighlightsLatestResponse(
+        latest=_run_out(runs[0]) if runs else None,
+        recent_prompts=recent_prompts[:10],
+    )
+
+
+@router.get("/resumes/{resume_id}/highlights/runs", response_model=HighlightsRunsResponse)
+def highlights_runs(
+    resume_id: str, user: CurrentUser, state: StateDep, limit: int = Query(12, ge=1, le=50)
+) -> HighlightsRunsResponse:
+    """The résumé's recent generated-bullet runs (newest first) — the prompt history
+    with its bullets, so the user can reopen an earlier result."""
+    get_resume(resume_id, user, state)
+    runs = state.highlights_history.list(user.id, resume_id, limit=limit)
+    return HighlightsRunsResponse(runs=[_run_out(r) for r in runs])
+
+
+@router.post("/resumes/{resume_id}/highlights/runs/{run_id}/state", response_model=HighlightsRunOut)
+def highlights_set_state(
+    resume_id: str, run_id: str, body: HighlightsStateUpdate, user: CurrentUser, state: StateDep
+) -> HighlightsRunOut:
+    """Persist the user's per-item accept/reject on a saved run so the review resumes
+    exactly where they left off next session."""
+    get_resume(resume_id, user, state)
+    run = state.highlights_history.set_states(run_id, user.id, body.states)
+    if run is None or run.resume_id != resume_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "highlights run not found")
+    return _run_out(run)
+
+
+@router.delete("/resumes/{resume_id}/highlights", status_code=status.HTTP_204_NO_CONTENT)
+def highlights_clear(resume_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Forget all saved generated bullets for this résumé (start fresh)."""
+    get_resume(resume_id, user, state)
+    state.highlights_history.clear(user.id, resume_id)
 
 
 @router.post("/cover-letters/{cover_letter_id}/incorporate",

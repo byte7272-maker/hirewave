@@ -90,7 +90,13 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
             job.append((c, raw))
 
     job_raws = [raw for _, raw in job]
+    # Ingest first so a posting carried by the email exists before routing can tie a
+    # new tracker row to it.
     _, ingested = state.inbox.sync(user.id, job_raws) if job_raws else ([], 0)
+    # Route progress-kind email (application/interview/offer/rejection) into the
+    # applications tracker — one-way, no reply.
+    routing = state.application_router.route(user.id, [c for c, _ in job])
+
     by_kind: dict[str, int] = {}
     for c, _ in job:
         by_kind[c.kind] = by_kind.get(c.kind, 0) + 1
@@ -100,6 +106,20 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
         "job_found": len(job),
         "ingested": ingested,
         "by_kind": by_kind,
+        "tracker": {
+            "routed": routing.routed,
+            "created": routing.created,
+            "advanced": routing.advanced,
+            "unchanged": routing.unchanged,
+            "skipped": routing.skipped,
+            "by_status": routing.by_status,
+            "applications": [
+                {"application_id": r.application_id, "job_posting_id": r.job_posting_id,
+                 "company": r.company, "role": r.role, "kind": r.kind,
+                 "status": r.status, "action": r.action, "from_status": r.from_status}
+                for r in routing.applications
+            ],
+        },
         "emails": [
             {"kind": c.kind, "status": c.status, "company": c.company, "role": c.role,
              "link": c.link, "subject": c.subject, "from": c.sender_domain,
