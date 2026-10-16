@@ -101,8 +101,9 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
         "ingested": ingested,
         "by_kind": by_kind,
         "emails": [
-            {"kind": c.kind, "company": c.company, "subject": c.subject,
-             "from": c.sender_domain, "confidence": c.confidence}
+            {"kind": c.kind, "status": c.status, "company": c.company, "role": c.role,
+             "link": c.link, "subject": c.subject, "from": c.sender_domain,
+             "confidence": c.confidence}
             for c, _ in job
         ],
     }

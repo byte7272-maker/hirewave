@@ -82,6 +82,24 @@ def test_subdomain_sender_matches_known_domain():
     assert _is_job_sender(_domain_of("x@example.com")) is False
 
 
+def test_extracts_status_role_and_link():
+    r = classify_job_email(
+        "no-reply@acme.greenhouse.io",
+        "Thank you for applying to Acme",
+        "We received your application for Senior Data Engineer. Track it at "
+        "https://acme.greenhouse.io/applications/123.",
+    )
+    assert r.status == "applied"
+    assert r.role == "Senior Data Engineer"          # from body ("for <role>"), not "to Acme"
+    assert "greenhouse.io/applications/123" in r.link
+    rej = classify_job_email("careers@workday.com", "Update",
+                             "Unfortunately we are not moving forward with other candidates.")
+    assert rej.status == "rejected"
+    rec = classify_job_email("jane@talent.com", "Opportunity",
+                             "Interested in your background for a Staff Engineer role at Globex.")
+    assert rec.status == "lead" and rec.role == "Staff Engineer"
+
+
 def test_raw_to_fields_parses_sender_subject_body():
     from jobsearch.engines.sourcing.job_email import raw_to_fields
     raw = ("From: Jane <jane@acme.greenhouse.io>\nSubject: Thank you for applying\n"

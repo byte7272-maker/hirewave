@@ -68,6 +68,29 @@ _KIND_SIGNALS: list[tuple[str, tuple[str, ...]]] = [
     )),
 ]
 _ALL_KINDS = ("alert", "application", "interview", "offer", "rejection", "recruiter")
+# A job email's KIND maps to a tracker-friendly status for one-way processing.
+_KIND_STATUS = {
+    "alert": "new", "application": "applied", "interview": "interviewing",
+    "offer": "offered", "rejection": "rejected", "recruiter": "lead",
+}
+# Pull the role/title the email is about, when stated plainly. Conservative — empty
+# rather than a wrong guess.
+# Use "for <role>" / "role of <role>" forms (not "to <company>", which names the company).
+_ROLE_RE = re.compile(
+    r"(?:application for|applied for|applying for|the role of|position of|role of|"
+    r"for the (?:position|role) of)\s+"
+    r"(?:the\s+)?([A-Z][A-Za-z0-9/&+ -]{2,44}?)"
+    r"(?=[.,;—]|\s+(?:at|role|position|opening|opportunity|with|\()|$)"
+)
+_ROLE_AT_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9/&+ -]{2,44}?)\s+(?:role|position|opportunity)\s+at\b"
+)
+# A URL that looks like a real posting/application link.
+_URL_RE = re.compile(r"https?://[^\s)>\]\"']+")
+_JOB_URLISH = re.compile(
+    r"(/jobs?/|/viewjob|/careers?/|/apply|/applications?/|greenhouse|lever|workday|icims|"
+    r"ashby|smartrecruiters|[?&]jk=|/job-listing)", re.I,
+)
 # Generic hiring words that lend weak support when the sender isn't a known job domain.
 _WEAK_JOB_HINTS = re.compile(
     r"\b(job|role|position|hiring|recruit\w*|candidate|applicant|career|interview|resume|r[eé]sum[eé])\b",
@@ -86,6 +109,9 @@ class JobEmail:
     sender_domain: str = ""
     subject: str = ""
     company: str = ""
+    role: str = ""     # the job title the email is about, when stated
+    link: str = ""     # a posting/application URL, when present
+    status: str = ""   # tracker-friendly: new|applied|interviewing|offered|rejected|lead
 
 
 def _domain_of(address: str) -> str:
@@ -119,6 +145,27 @@ def _company_from(sender_domain: str, subject: str) -> str:
     parts = (sender_domain or "").split(".")
     if len(parts) >= 3 and _is_job_sender(sender_domain) and parts[0] not in {"www", "mail", "jobs", "no-reply", "noreply", "us", "careers", "hire"}:
         return parts[0].replace("-", " ").title()
+    return ""
+
+
+def _extract_role(subject: str, body: str) -> str:
+    """The job title the email is about, when stated plainly; '' otherwise."""
+    for text in (subject or "", body or ""):
+        for rx in (_ROLE_RE, _ROLE_AT_RE):
+            m = rx.search(text)
+            if m:
+                role = m.group(1).strip().rstrip(" .,-")
+                low = role.lower()
+                if 3 <= len(role) <= 45 and not low.startswith(("your", "our", "the ", "a ", "an ")):
+                    return role
+    return ""
+
+
+def _extract_link(subject: str, body: str) -> str:
+    """The first posting/application-looking URL in the email; '' otherwise."""
+    for url in _URL_RE.findall(f"{subject or ''} {body or ''}"):
+        if _JOB_URLISH.search(url):
+            return url.rstrip(".,)")
     return ""
 
 
@@ -164,6 +211,9 @@ def classify_job_email(sender: str, subject: str, body: str = "") -> JobEmail:
         sender_domain=domain,
         subject=subject or "",
         company=_company_from(domain, subject or ""),
+        role=_extract_role(subject or "", body or ""),
+        link=_extract_link(subject or "", body or ""),
+        status=_KIND_STATUS.get(kind, ""),
     )
 
 

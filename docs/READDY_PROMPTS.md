@@ -524,3 +524,244 @@ own current bullets — the backend adds those itself.)
 Acceptance: pasting a second batch of data produces suggestions that add NEW
 accomplishments/dimensions and never re-suggest something already on the résumé or already
 suggested/edited in a prior run; without any prior runs, behavior is unchanged.
+
+---
+
+## P2d — My Work Highlights review: scrollable list, visible accept/reject, paste history
+
+Three fixes to the "Review your suggested edits" zone.
+
+**1. Make the suggestion list independently scrollable.** The list of suggestion cards has no
+scroll container, so a long list pushes the running count and "Preview changes" button off-screen.
+Put the cards in a container with a sensible `max-height` and `overflow-y: auto` so the LIST scrolls
+on its own, while the zone header (the "N of M accepted" count + Accept all / Reject all) and the
+"Preview changes (N)" footer stay visible (sticky) above/below it.
+
+**2. Make Accept / Reject give clear, immediate feedback.** The buttons already work (they toggle
+state and update the count), but the ONLY visible change on Reject is the card dimming to
+opacity 0.7 — and with the count scrolled off-screen, it reads as "nothing happened." Make each
+card's state unmistakable:
+- **Rejected:** strike through the bullet text, dim the card further, show a clear **"Rejected"**
+  label, and turn the Reject button into an active/pressed state with an **Undo** (clicking Accept
+  re-includes it).
+- **Accepted (default):** clearly the "will be added" state (a subtle check/accent), Accept active.
+- Keep the running **"N of M accepted"** count visible at all times (sticky header from #1) so every
+  click visibly changes it.
+
+**3. Remember previous pastes/prompts and let the user go back.** Keep a small per-résumé history of
+the previous pastes the user turned into bullets (the raw text + a timestamp/label). Show a
+**"Recent"** list; selecting one **restores that paste** into the box (and/or reopens its review
+set) so a prior prompt can be revisited or re-run. "Reset this run" must not erase this history.
+
+Acceptance: a long suggestion list scrolls within its own area with the count + Preview button
+always visible; clicking Accept/Reject on any card produces an obvious per-card state change
+(strikethrough / label / Undo) and visibly updates the count; the user can reopen a previous paste
+from a Recent list.
+
+---
+
+## P4a — Drag-to-reorder résumé bullets as moveable cards
+
+Let the user guide where each bullet sits by dragging it, instead of hand-editing Markdown.
+
+**1. Auto-detect the bullets as cards.** In the editor/preview, render each résumé **bullet line** as
+a distinct, draggable **card** with a drag handle. Detect them from the résumé's Markdown body
+(`rendered_text`): every line matching a bullet (`- `, `* `, `• `) is a card; headings (`#`/`##`/`###`)
+and entry titles are NOT draggable — use them to GROUP the cards visually by section/entry.
+
+**2. Drag to reorder.** Dragging a card reorders bullets WITHIN their entry/section (primary), and
+ideally moves a bullet to another entry/section (stretch). Show a clear drop indicator; add
+keyboard move-up/move-down for accessibility.
+
+**3. Apply LOSSLESSLY, then re-render.** On drop, reorder at the **Markdown line level** — move that
+exact bullet line to its new position and leave every other line byte-for-byte unchanged (do NOT
+round-trip through structured data, which can alter other content like a linked email). Save the
+reordered body as a new version (`POST /resumes/{id}/versions { content }`); the preview re-renders
+in the new order and the version indicator updates (same save/refresh path as other edits). A drag
+that doesn't change the order creates no version. Undoable via version history.
+
+**4. UX.** Deterministic, no AI. Available in both the editor and the quick preview. Cards look
+clearly draggable (handle + hover/active state); the drop target is obvious.
+
+Acceptance: each résumé bullet shows as a draggable card grouped under its section/entry; dragging
+one to a new spot reorders exactly that line, saves a new version, and the preview re-renders in the
+new order; all other content is unchanged; the reorder is undoable.
+
+---
+
+## P4b — Visible "what changed" indication on the résumé preview
+
+Small text changes are easy to miss. When the résumé preview updates (after ANY change — AI edit,
+manual editor Save, Accept & Save from Highlights, bullet reorder, or switching versions), make the
+change VISIBLE. This is purely additive: do NOT alter any existing edit/save/render behavior.
+
+**1. Clear update cue (baseline).** On every change, show an unmistakable **"Updated — N change(s)"**
+cue near the preview with the new version number (a toast or a badge that appears and auto-dismisses
+after a few seconds), plus a brief glow/outline flash on the preview frame. Not tiny inline text.
+
+**2. Highlight the changed content (better).** When the preview re-renders, compute a line-level diff
+between the previous and new document body (both available client-side) and briefly **highlight the
+added/changed lines** in the rendered preview — added lines a green highlight, changed lines a
+yellow one — **fading out after ~4–5 seconds**. This draws the eye straight to the difference even
+when it's only a few words.
+
+**3. Covers every change path.** AI "Ask AI to change it", manual editor Save, Accept & Save,
+bullet reorder, and version switches all trigger the same cue + highlight, so the user always sees
+that — and what — changed.
+
+**4. Non-intrusive.** Visual layer only: must not block interaction, change the saved document, or
+persist. A no-op change shows nothing.
+
+Acceptance: after any edit the preview shows a clear "Updated — N changes (vN)" cue and briefly
+highlights the added/changed lines (fading); a one-word change is obvious at a glance; existing
+editing behavior is unchanged.
+
+---
+
+## P4c — Résumé bullet editing board: drag cards to edit / remove / substitute (+ undo)
+
+Supersedes P4a. Turn the résumé's bullets into a drag-and-drop editing board so the user can shape
+the résumé directly — including company-CONTRIBUTION bullets (which belong on a résumé where
+applicable, to show value in the company's success, not just skills).
+
+**Layout (two zones).**
+- **The résumé** (editor/preview): every bullet line renders as a draggable **card** with a drag
+  handle (detect bullets from the Markdown body; headings/entry titles aren't draggable — use them
+  to group cards by section/entry).
+- A side **"Editing" list** (right panel): a workspace the user drags cards into.
+
+**Interactions.**
+1. **Reorder** — drag a card to a new position within its entry/section (and ideally across).
+2. **Drag a bullet to the Editing list** to work on it there: **edit** its text inline, or **remove**
+   it from the résumé. The Editing list clearly shows what's staged before it's applied.
+3. **Substitute** — drop an edited card, a different bullet (a Highlights suggestion), or a newly
+   typed bullet back onto the résumé in a removed card's place, swapping it in.
+4. **Apply & re-render** — each change edits the Markdown body at the **line level** (lossless — move
+   /edit/remove the exact line, leave everything else byte-identical; do NOT round-trip through
+   structured data) and saves a new version; the preview re-renders.
+5. **Undo / redo** — EVERY action (reorder, edit, remove, substitute) is undoable via an Undo control
+   (with redo), without needing a page reload, and is also backed by version history.
+
+**UX.** Clear drag handles + drop indicators; the Editing list shows staged edits/removals distinctly;
+keyboard-accessible (move/edit/remove/undo). Deterministic — no AI.
+
+Acceptance: a user can drag a résumé bullet into the Editing list, edit or remove it, drag in a
+substitute, and the résumé re-renders with the change saved as a new version; all other content is
+unchanged; every step is undoable (and redoable).
+
+---
+
+## P0e — CRITICAL: preview silently reverts to an old version after every save
+
+Root cause of "the résumé preview never shows my changes." The app stores the viewed version in
+localStorage (`hirewave_viewed_version_resume_<id>`) and **re-pins it on every page load**, overriding
+the document's active version. But it **never advances that key when a new version is saved** — so a
+save creates version N+1 correctly, then the next render/reload reverts the view to the old pinned
+version, and the change appears to do nothing. (Confirmed live: a saved version 29 kept rendering as
+27 until the key was set to 29.)
+
+**Fix:** whenever a new version is created — AI "Ask AI to change it", manual editor Save,
+Accept & Save from Highlights, bullet reorder, restore-as-copy, ANY path — **update
+`hirewave_viewed_version_resume_<id>` (and whatever in-memory "current version" state mirrors it) to
+the new version number**, so the preview immediately shows the save and still shows it after a reload.
+On load, prefer the document's actual active version when it's newer than the stored viewed version
+(don't downgrade a fresh save). Never pin a stale version over a newer saved one.
+
+Acceptance: make any edit and save → the preview shows it immediately AND after a hard reload; the
+version indicator matches what's rendered; no save ever "disappears" from the preview.
+
+---
+
+## P4d — Bullet editing in the FULL-SCREEN view + click-a-line selection (refines P4c/P2b)
+
+The bullet replace / swap / reorder (P2b click-to-replace, P4c editing board) must also work in the
+**full-screen "Read full size" view**, and picking a line to act on should be as simple as clicking
+it on the page. Make the whole selection flow more intuitive.
+
+1. **Works full-screen.** The "Read full size" / expanded résumé gets the same selectable, draggable
+   bullet cards as the small preview — selecting bullets to replace, swap, or reorder works there
+   too, not only in the compact view.
+
+2. **Click the line to select it (primary, easy path).** In BOTH the normal and full-screen views,
+   the main way to pick a bullet is to **click it directly in the résumé**. It highlights as
+   clearly selected, and a compact action bar appears on/near it: **Replace · Swap · Move up/down ·
+   Edit · Remove**. No hunting through a separate list to find the matching line.
+
+3. **Easy swap / reorder.** A selected line can be swapped (replace with a Highlights suggestion or
+   typed text) or reordered (drag, or Move up/down buttons for precision). Line-level + lossless;
+   saves a new version — which now shows immediately (P0e). Undo/redo every action.
+
+4. **Simpler bullet pane.** Where a separate bullet/editing pane exists, make its rows easy to pick:
+   big click targets, an obvious selected state, and **two-way sync** — selecting a line in the
+   résumé highlights its row in the pane and vice-versa, so it's always clear which line is active.
+
+Acceptance: in the full-screen résumé, the user can click any bullet to select it and immediately
+swap or reorder it with an obvious selected state; selecting from the bullet pane is easy and stays
+in sync with the résumé; changes save and show right away; everything is undoable.
+
+---
+
+## P4 — Interactive résumé bullet editor (CONSOLIDATED — supersedes P2b, P4a, P4c, P4d)
+
+Let the user shape the résumé by directly manipulating its bullets — select, reorder, swap/replace,
+edit, remove — in BOTH the normal preview and the full-screen view, intuitively and with undo.
+
+**0. Rendering note (important).** The preview renders the résumé as static HTML inside an **iframe**,
+so its `<li>` elements can't carry handlers. Render the bullets as **React bullet cards** (or an
+interactive overlay aligned to the rendered lines) in BOTH the normal preview AND the full-screen
+"Read full size" view — the same component in both. Detect bullets from the Markdown body (lines
+starting `- `/`* `/`• `); headings and entry titles are not bullets (use them to group cards).
+
+**1. Select by clicking the line (primary, easy path).** The main way to act on a bullet is to
+**click it directly in the résumé**. It highlights as clearly selected, and a compact action bar
+appears on/near it: **Replace · Swap · Move up/down · Edit · Remove**. Identical in normal and
+full-screen views. No hunting through a separate list to find the matching line.
+
+**2. Reorder.** Drag a card to a new spot within its entry/section (across sections = bonus), or use
+**Move up/down** for precision. Clear drop indicator; keyboard-accessible (select + move).
+
+**3. Swap / Replace — including drag RIGHT → LEFT.** The new/suggested bullets live in a **right-hand
+pane**; the selected résumé bullets are the **left-hand focus editor**. The user can replace a line
+two ways, both supported: (a) **drag a bullet card from the right pane onto a focused bullet on the
+left** → it **replaces that line** (drop between bullets to insert instead); and (b) with a line
+selected, pick a replacement from a Highlights suggestion (call `POST /resumes/{id}/match-bullets`
+for closest fits), a different existing bullet, or **typed/pasted** text. Show a one-line
+before→after. A dragged-in bullet lands in the left editor where it can then be **manually edited**
+before saving.
+
+**4. Edit / Remove.** Edit any left-side (focused) bullet's text inline; remove it from the résumé.
+
+**5. Optional Editing pane with two-way sync.** If a side bullet/editing pane exists, make its rows
+easy to pick (big click targets, obvious selected state) and keep it **in sync both ways** — selecting
+a line in the résumé highlights its row in the pane and vice-versa.
+
+**6. Apply losslessly + show immediately.** Every change edits the Markdown **at the line level**
+(move/edit/remove the exact line; leave all other content byte-identical; do NOT round-trip through
+structured data — that can alter things like a linked email). Save a new version via
+`POST /resumes/{id}/versions`; it shows immediately now that P0e advances the viewed-version. A no-op
+change saves nothing. No new backend is needed.
+
+**7. Undo / redo.** Every action (reorder, swap, edit, remove) is undoable via an Undo control (with
+redo), and is also backed by version history.
+
+**8. Smart scroll synchronization across panes.** Audit and fix the scrolling of ALL panes (the
+résumé/left focus editor, the right suggestions pane, the review list, and the full-screen view) so
+they feel coordinated, not independent and disorienting:
+- Each pane scrolls **within its own area** (no pane should push page-level scroll or hide the
+  header/footer actions), and long lists get their own scrollbar.
+- **Selecting a bullet scrolls it into view in every pane that shows it** — click a line on the
+  left and its matching row in the right/review pane scrolls into view (and vice-versa), so the two
+  sides never drift out of context.
+- **Auto-scroll while dragging:** dragging a card near the top/bottom edge of a pane (or across from
+  the right pane toward a left bullet that's off-screen) auto-scrolls that pane so the drop target is
+  reachable.
+- Keep the **selected line and its action bar visible** after any scroll or edit; never let a save or
+  reorder jump the user to the top.
+- Sticky headers/footers (counts, Preview/Save, Undo) stay pinned while the list scrolls under them.
+
+**Scope.** Deterministic — no AI (the only AI is an opt-in "rewrite this line," if you add it). Same
+behavior in normal + full-screen.
+
+Acceptance: in BOTH the normal and full-screen résumé, the user can click any bullet to select it
+(obvious selected state + action bar) and reorder, swap, edit, or remove it; changes are lossless,
+save, and appear immediately; a side pane (if present) stays in sync; every action is undoable.
