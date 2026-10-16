@@ -38,6 +38,7 @@ from jobsearch.engines.boards import BoardsEngine
 from jobsearch.engines.email_sender import build_email_sender
 from jobsearch.engines.experience import ExperienceEngine
 from jobsearch.engines.gmail_fetch import build_gmail_fetcher
+from jobsearch.engines.sourcing.imap_source import build_job_mail_source
 from jobsearch.engines.inbox import InboxEngine
 from jobsearch.engines.practice import PracticeEngine
 from jobsearch.engines.reminders import ReminderEngine
@@ -208,6 +209,7 @@ class AppState:
             domain=self.settings.inbox_domain,
         )
         self.gmail_fetcher = build_gmail_fetcher(self.settings)
+        self.job_mail_source = build_job_mail_source(self.settings)
         self.social = SocialEngine(
             invites=repos.invites,
             connections=repos.connections,

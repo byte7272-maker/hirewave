@@ -210,6 +210,17 @@ class Settings(BaseSettings):
     # using the user's OAuth token.
     gmail_fetch: Literal["mock", "http"] = "mock"
 
+    # --- Dedicated job mailbox (best-privacy: a mailbox that holds ONLY job mail) ---
+    # Scanned over IMAP for job email of every kind (alerts, applications, recruiters,
+    # interviews, rejections). "mock" = offline sample mail; "imap" = a real mailbox.
+    # Also works for any mailbox the user authorizes with IMAP credentials.
+    job_mailbox: Literal["mock", "imap"] = "mock"
+    job_mailbox_host: str = ""
+    job_mailbox_port: int = 993
+    job_mailbox_user: str = Field(default="", validation_alias="JOBSEARCH_JOB_MAILBOX_USER")
+    job_mailbox_password: str = Field(default="", validation_alias="JOBSEARCH_JOB_MAILBOX_PASSWORD")
+    job_mailbox_folder: str = "INBOX"
+
     # --- Outbound email (invitations) --------------------------------------
     # "mock" = record the message, don't actually send (offline default). "http"
     # = POST to your email API (SendGrid/Postmark/…). Used for invite-by-email.

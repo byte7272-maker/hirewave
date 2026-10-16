@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, Header, HTTPException, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines.integration.engine import IntegrationError
+from jobsearch.engines.sourcing.job_email import classify_job_email, raw_to_fields
 from jobsearch.models import InboxMessage, Provider
 
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
@@ -54,6 +55,57 @@ def sync_gmail(user: CurrentUser, state: StateDep) -> dict:
     raws = fetcher.fetch(access_token=token)
     msgs, ingested = state.inbox.sync(user.id, raws)
     return {"fetched": len(raws), "ingested": ingested, "message_ids": [m.id for m in msgs]}
+
+
+@router.post("/scan")
+def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -> dict:
+    """Scan a connected mailbox for ONLY job email and pull it into your results.
+
+    ``source=mailbox`` (default) scans your **dedicated / IMAP job account** — the
+    best-privacy option, since it holds only job mail. ``source=gmail`` scans your
+    connected Gmail. Every message is classified; **non-job mail is dropped before
+    anything is read in** (the privacy gate), and the job mail is categorized by kind
+    (alert / application / interview / offer / rejection / recruiter). Postings carried
+    by the job mail are ingested into your search results."""
+    if source == "gmail":
+        fetcher = state.gmail_fetcher
+        token = ""
+        if fetcher.live:
+            try:
+                token = state.integration.get_access_token(user.id, Provider.GMAIL)
+            except IntegrationError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"connect Gmail first: {exc}") from exc
+        raws = fetcher.fetch(access_token=token)
+    elif source == "mailbox":
+        raws = state.job_mail_source.fetch()
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "source must be 'mailbox' or 'gmail'")
+
+    # Privacy gate: classify first, keep ONLY job email; never read non-job mail further.
+    job: list[tuple] = []
+    for raw in raws:
+        f = raw_to_fields(raw)
+        c = classify_job_email(f["sender"], f["subject"], f["body"])
+        if c.is_job:
+            job.append((c, raw))
+
+    job_raws = [raw for _, raw in job]
+    _, ingested = state.inbox.sync(user.id, job_raws) if job_raws else ([], 0)
+    by_kind: dict[str, int] = {}
+    for c, _ in job:
+        by_kind[c.kind] = by_kind.get(c.kind, 0) + 1
+    return {
+        "source": source,
+        "fetched": len(raws),
+        "job_found": len(job),
+        "ingested": ingested,
+        "by_kind": by_kind,
+        "emails": [
+            {"kind": c.kind, "company": c.company, "subject": c.subject,
+             "from": c.sender_domain, "confidence": c.confidence}
+            for c, _ in job
+        ],
+    }
 
 
 @router.post("/inbound")
