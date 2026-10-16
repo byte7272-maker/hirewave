@@ -9,6 +9,11 @@ Backend is confirmed healthy and CORS is correct for `https://hlrtlg.readdy.co`.
 build around the backend being down, and never substitute demo/sample data for a logged-in
 user's real documents.
 
+> **Current direction — read [P7](#p7--unified-résumé--cover-letter-workspace-supersedes-the-split-documents-editor--my-work-highlights) first.** The "Documents editor" and "My Work Highlights"
+> pages are being **merged into one Workspace** (one shared preview + a tabbed side panel).
+> P7 is the consolidation spec; the earlier editor/Highlights prompts marked _(folded into
+> P7)_ remain as the detailed behavior for each tab, but their separate pages/nav go away.
+
 ---
 
 ## P0 — Unblock: keep the session alive + render on 200
@@ -47,7 +52,7 @@ Bayete, IT Director", 14 versions) and still works after 35+ min idle.
 
 ## P1 — Editor core
 
-### P1.1 — Two clear change-actions (+ Find & replace)
+### P1.1 — Two clear change-actions (+ Find & replace)  _(folded into P7)_
 Retire overlapping labels ("Notes and instructions", "Add your own improvements", "Incorporate
 ideas", "Quick refine"). Replace with:
 - **"Ask AI to change it"** (instruction box) → `POST /resumes/{id}/improve-structured`
@@ -83,7 +88,7 @@ matching storage/exports. De-dupe, preserve order. Optional "Comma list / Bullet
 
 ## P2 — Features
 
-### P2.1 — Versions marquee (Dashboard + Editor)
+### P2.1 — Versions marquee (Dashboard + Editor)  _(folded into P7)_
 A horizontal, scrollable strip of all saved versions (incl. the Original), with rendered
 thumbnails, hover zoom, nicknames, activate, and delete. Same component on Dashboard and Editor.
 Data from `GET /resumes/{id}` (`versions[]` each with `label`, `content`, `source`,
@@ -120,7 +125,7 @@ dashboard banner when count > 0.
   {approved} of {total}"; keep non-submitted with inline notes. No silent/one-click submit.
 - Empty state: "You're all caught up."
 
-### P2.3 — "My Work Highlights" (consolidated hub)
+### P2.3 — "My Work Highlights" (consolidated hub)  _(folded into P7 — becomes the "My Work Highlights" tab)_
 One self-contained workspace. (Renamed from "Find my accomplishments".) Everything on one page —
 no modal-hopping. One **"Tailor to a role"** selector at the top feeds prompts, incorporation,
 and suggest-edits.
@@ -188,7 +193,7 @@ and suggest-edits.
 **Entry points** all land here: editor's "Add my own content", the dashboard "Strengthen your
 résumé" CTA, and the review's "Add from My Work Highlights" remedy (scrolled to Zone C).
 
-### P2.4 — Design chooser (in-editor, live preview)
+### P2.4 — Design chooser (in-editor, live preview)  _(folded into P7 — the "Design" tab)_
 Persistent "Design" button opens a side panel. `GET /api/v1/resume-templates` (each includes full
 `style`: `accent_color`, `font_family` sans/serif/mono, `heading_style` underline/bar/plain/caps)
 — render the user's already-loaded résumé `data` locally in each style for instant thumbnails/
@@ -331,7 +336,7 @@ Undo restores the prior one.
 
 ---
 
-## P1b — Manual editor: hidden-by-default, deterministic formatting controls
+## P1b — Manual editor: hidden-by-default, deterministic formatting controls  _(folded into P7 — the "Manual edit" tab)_
 
 Basic formatting (bold / italic / bullets / headings) is deterministic and should never
 route through the AI's "interpretation." Add a **manual editor** to the résumé and
@@ -374,7 +379,7 @@ re-renders; Cancel changes nothing; reopening shows the current saved body (roun
 
 ---
 
-## P1c — Replace a whole bullet / line (point or describe → paste → optionally improve)
+## P1c — Replace a whole bullet / line (point or describe → paste → optionally improve)  _(folded into P7)_
 
 A fast, deterministic way to swap out a complete bullet or line without the AI guessing which one
 you mean. Lives in the manual editor (P1b) and the quick preview.
@@ -411,7 +416,7 @@ change.
 
 ---
 
-## P2a — Smart Add-vs-Replace in the My Work Highlights review
+## P2a — Smart Add-vs-Replace in the My Work Highlights review  _(folded into P7)_
 
 Adding every suggested bullet creates duplicates when a suggestion is really a *stronger
 version* of a bullet already on the résumé. Use the new matcher so each suggestion knows
@@ -469,7 +474,7 @@ and Replace swaps exactly that bullet into a new, undoable version; no other lin
 
 ---
 
-## P3a — One consistent document preview everywhere (Highlights must mirror Documents)
+## P3a — One consistent document preview everywhere (Highlights must mirror Documents)  _(folded into P7 — the shared preview; mirroring is now automatic since there is one workspace)_
 
 The résumé preview looks and behaves differently depending on where it appears. On the
 **Documents** page it's the standard "DOCUMENT" preview (Fit width + zoom, Expand, Read full
@@ -504,7 +509,7 @@ identical rendered page. No version check-mark strip or "Server render" badge un
 
 ---
 
-## P2c — My Work Highlights: complement existing + prior bullets (don't duplicate)
+## P2c — My Work Highlights: complement existing + prior bullets (don't duplicate)  _(folded into P7)_
 
 When the user pastes a NEW batch of data (e.g. general company info) into My Work Highlights, the
 suggestions should COMPLEMENT what's already there — the résumé's current bullets AND the bullets
@@ -527,7 +532,7 @@ suggested/edited in a prior run; without any prior runs, behavior is unchanged.
 
 ---
 
-## P2d — My Work Highlights review: scrollable list, visible accept/reject, paste history
+## P2d — My Work Highlights review: scrollable list, visible accept/reject, paste history  _(folded into P7)_
 
 Three fixes to the "Review your suggested edits" zone.
 
@@ -701,7 +706,7 @@ in sync with the résumé; changes save and show right away; everything is undoa
 
 ---
 
-## P4 — Interactive résumé bullet editor (CONSOLIDATED — supersedes P2b, P4a, P4c, P4d)
+## P4 — Interactive résumé bullet editor (CONSOLIDATED — supersedes P2b, P4a, P4c, P4d)  _(folded into P7 — the "Bullets" tab)_
 
 Let the user shape the résumé by directly manipulating its bullets — select, reorder, swap/replace,
 edit, remove — in BOTH the normal preview and the full-screen view, intuitively and with undo.
@@ -846,7 +851,7 @@ appears; no reply or send is ever offered.
 
 ---
 
-## P6 — Documents editor: show the last generated bullets + prompt by default
+## P6 — Documents editor: show the last generated bullets + prompt by default  _(folded into P7 — default state of the "Ask AI" tab)_
 
 In the Documents **editable preview** (the view with the AI-prompt box and the right-side AI
 functions), the bullets the editor generated **last session** and **the prompt that produced
@@ -908,3 +913,100 @@ Acceptance: open a résumé you generated bullets for in a previous session → 
 prompt are shown by default without re-running; a long list is collapsed behind "Show more";
 accept/reject state persists across reloads; "Re-use" refills the prompt; "Clear saved suggestions"
 empties it.
+
+---
+
+## P7 — Unified résumé & cover-letter workspace (SUPERSEDES the split Documents editor + My Work Highlights)
+
+**Why.** "Documents" and "My Work Highlights" have become two editors for the *same* résumé — same
+preview, same versions, same bullet editing, same save. That's redundant and confusing. Collapse
+them into **one Workspace**. The backend is already a single résumé with one save path
+(`POST /resumes/{id}/versions`), so this is a **frontend/IA change only — no new backend**. Every
+endpoint below is already LIVE. This prompt supersedes the layout/navigation of P1.1, P1b, P1c, P2.1,
+P2.3, P2.4, P2a, P2c, P2d, P3a, P4, and P6 — their bodies remain the detailed spec for each tab's
+behavior; P7 only changes where they live and how they're arranged.
+
+### A. Information architecture (what changes)
+
+- **Documents = the library (keep).** The Documents list still picks, uploads, archives/flags, and
+  deletes résumés and cover letters, and shows the versions marquee (P2.1). Opening any document
+  navigates into the **Workspace**.
+- **Workspace = the one editor (new).** Reached by opening a document. It **replaces both** the old
+  standalone "Documents editor" page and the standalone "My Work Highlights" page.
+- **Remove the top-level "My Work Highlights" nav entry.** It becomes a **tab** inside the Workspace.
+  There must be exactly one place to edit a document. Remove the duplicate editor/preview and the
+  Highlights-only preview chrome (the version check-mark strip and the "Server render · …" badge from
+  P3a) — the Workspace has one standard preview.
+- Keep the existing entry CTAs working by routing them to the Workspace (and preselecting the right
+  tab): dashboard "Strengthen your résumé" → Workspace, **My Work Highlights** tab; editor "Add my
+  own content" → **My Work Highlights** tab.
+
+### B. Layout — one shared preview + a tabbed side panel
+
+**Left — the single shared preview** (this is the P3a "one preview everywhere," now automatic because
+there is only one workspace):
+- One `selectedVersion` is the single source of truth; render the preview from **that version's own
+  content**, not the résumé's `rendered_text` (which can lag). Standard DOCUMENT chrome: fit-width /
+  zoom, Expand, **Read full size**, Reload from source.
+- The interactive **bullet overlay** (P4) renders as React cards over the preview in **both** the
+  normal and full-screen views, with the "Updated — N change(s)" cue (P4b).
+- The preview is identical whether the document was opened from the Documents list or any tab.
+
+**Right — a tabbed panel** (one tab visible at a time; nothing from either old surface is lost). For a
+**résumé**, the tabs are:
+
+1. **Ask AI** — instruction-driven, applied immediately, Undo = version switch (P1.1 "Ask AI", P0b).
+   `POST /resumes/{id}/ai-edit`, `POST /resumes/{id}/improve-structured`. **Default state shows the
+   last generated bullets + the prompt that made them** (P6): on open call
+   `GET /resumes/{id}/highlights/latest` and render `latest` (by `mode`) + `recent_prompts`
+   (Re-use/Copy), list prior runs via `GET /resumes/{id}/highlights/runs`, persist accept/reject via
+   `POST /resumes/{id}/highlights/runs/{run_id}/state`, Clear via `DELETE /resumes/{id}/highlights`.
+   Long lists collapse behind "Show more."
+2. **My Work Highlights** — the paste-driven, accept-before-save pipeline (P2.3 zones A–D, P0c):
+   generate prompts for your work AI (`POST /resumes/{id}/evidence-prompts`) → paste & extract
+   (`POST /resumes/{id}/evidence/extract`) → synthesize into concepts
+   (`POST /resumes/{id}/evidence/synthesize`) → reviewable suggestions
+   (`POST /resumes/{id}/highlights/suggest` or `/suggest-edits`) with **smart Add/Replace** (P2a,
+   `POST /resumes/{id}/match-bullets`), a **scrollable list with sticky header/footer, visible
+   accept/reject + Undo** (P2d), and **complement/avoid dedup** (P2c, the `avoid` param). Accept →
+   `POST /resumes/{id}/apply-edits` → preview → `POST /resumes/{id}/versions`. The **persistent
+   experience library** lives here (`GET/POST/PUT/DELETE /api/v1/experience`, `/experience/upload`),
+   feeding `POST /resumes/{id}/incorporate`. The résumé view stays unchanged until the user saves.
+3. **Bullets** — the interactive bullet board (P4): select, reorder (drag / Move up-down), edit,
+   remove, substitute, **drag a suggestion right→left to replace a line**, undo/redo. Lossless
+   line-level edits. `POST /resumes/{id}/match-bullets`, `POST /resumes/{id}/versions`.
+4. **Manual edit** — hidden-by-default markdown editor + toolbar (P1b: bold/italic/underline/link/
+   bullet/heading/clear; preview honors `<u>` and links), replace a whole line (P1c), and **Find &
+   replace** (P1.1, `POST /resumes/{id}/replace`). Save via `POST /resumes/{id}/versions { content }`.
+5. **Design** — template/design chooser with live preview (P2.4). `GET /api/v1/resume-templates`
+   (+ `/categories`), `POST /api/v1/resume-templates/generate`, `PUT /resumes/{id} { template_id }`,
+   optional `GET /resumes/{id}/render?template_id=`.
+6. **Versions** — the versions marquee (P2.1): list, rename, activate, delete.
+   `GET /resumes/{id}` (`versions[]`, `active_version`), `GET /resumes/{id}/versions/{v}/render`,
+   `PATCH /resumes/{id}/versions/{v}`, `POST /resumes/{id}/versions/{v}/activate`,
+   `DELETE /resumes/{id}/versions/{v}`.
+
+**Shared across tabs:** the single save path (`/versions`), Undo = switch to the previous version, the
+"what changed" cue (P4b), and the global P0 rules (token refresh, null-safe render on 200, error+Retry
+instead of infinite spinners). Switching tabs never loses the current preview, `selectedVersion`, or an
+in-progress review.
+
+### C. Cover letters (same Workspace, reduced tabs)
+
+Opening a **cover letter** opens the same Workspace shell with the shared preview pointed at the cover
+letter and a **reduced tab set**: **Ask AI** (`POST /cover-letters/{id}/ai-edit`), **Manual edit**
+(update + versions), **Design** (if templates apply), **Versions**. Hide the résumé-only tabs
+(My Work Highlights evidence pipeline, Bullets board) for cover letters. Same save/Undo model.
+
+### D. Scope
+
+IA + layout only; reuse every existing control's behavior from the prompts listed above. Deterministic
+where those prompts were deterministic; the only AI is the same AI those tabs already call. No new
+backend, no new endpoints.
+
+Acceptance: there is **one** place to edit a document. Opening a résumé from the Documents list lands
+in the Workspace showing the **same version** the list showed, with a left preview + a right tabbed
+panel (Ask AI · My Work Highlights · Bullets · Manual edit · Design · Versions). Each tab performs its
+function against its live endpoint; saving in any tab creates a new version and the preview updates
+immediately. There is **no** separate "My Work Highlights" nav entry, and the preview looks identical
+from every entry point. Opening a cover letter shows the reduced-tab Workspace.
