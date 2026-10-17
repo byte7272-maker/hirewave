@@ -1073,7 +1073,7 @@ now the primary interaction instead of buttons.
 single small affordance that appears **only on the hovered bubble** (e.g. a tiny ✕ on the bubble), not a
 permanent button row. Everything else (accept = drag it in; reject = ignore/dismiss it; reorder = drag)
 is a gesture. Remove `Add as new / Replace` toggles, the `Experience`/`Accepted` pills and `Why this was
-suggested` from the row (move "why" to a hover/长-press reveal if kept at all).
+suggested` from the row (move "why" to a hover/long-press reveal if kept at all).
 
 **e. The résumé's own bullets use the exact same list.** The P7 **Bullets** tab is this same plain
 bubble list for the lines already on the résumé — hover to zoom, drag to reorder, click a preview line
