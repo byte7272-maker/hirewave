@@ -1119,3 +1119,74 @@ opens an edit card **anchored over that exact line** that **stays open** long en
 per-bullet button is a small remove ✕ on the hovered bubble. Each control (navigation, zoom, preview,
 edit) appears **once**; the Versions carousel is not duplicated; the role picker is searchable and free
 of junk entries.
+
+---
+
+## P9 — One-accent color system + plain language (calm, non-intimidating)
+
+The brand's design system is good — **keep it**. The problem is the app (especially the editor) doesn't
+follow it: harmless controls are colored red, four or five accent colors fight on one screen, and labels
+read like engineering jargon. This makes the product feel busy and intimidating to non-technical users.
+This prompt **enforces the existing system**; it does not restyle the brand. CSS/label changes only, **no
+backend**.
+
+### Keep (do not change)
+- **Type:** `Fraunces` (serif) for headings, `Plus Jakarta Sans` for body.
+- **Canvas:** warm off-white background `oklch(0.985 0.006 85)`, near-black warm text
+  `oklch(0.1 0.006 55)`.
+- **Shape tokens:** `--radius-card: 1rem`, `--radius-tile: .75rem`, `--radius-control: .5rem`,
+  `--card-padding: 1.25rem`, `--tile-size: 2.75rem` — use them everywhere instead of ad-hoc values.
+- The **dashboard / landing** look (serif headline, generous whitespace, one clear green action) is the
+  target. Make every other screen feel like that.
+
+### 1. One accent for actions; red means only "negative"
+The palette has green `oklch(0.56 0.14 158)` and coral/red `oklch(0.68 0.185 28)`. Today red is applied
+to **benign** controls — **"Fit width"**, **"Replace weak bullets"**, **"Replace"** — so the UI looks
+full of warnings. Fix the semantics, app-wide:
+- **Green** = the single "do this / primary" action on a view (Save, Apply, Run, the main CTA). At most
+  **one** green primary per view; everything else secondary.
+- **Red/coral** = **only** destructive or negative actions: **Delete / Remove / Reject**. Nothing else.
+- **Neutral (gray / outline, the `oklch(0.895 0.012 82)` warm gray or a plain bordered button)** = every
+  neutral control: **zoom, Fit width/Fit page, Replace a line, Preview, Original file, Reload, tabs**.
+  Replacing a bullet is a normal edit → neutral, not red.
+- Coral may still appear as a **brand accent** in marketing/hero art, but **never on an app control**
+  that isn't removing/rejecting something.
+
+### 2. Cut the color/badge noise to a calm minimum
+A single editor screen currently shows green pills, red pills, a green "Adds a new bullet" dot, an amber
+"Replaces an existing bullet" dot, "N of M accepted" counters and "REVISION" tags — 4–5 accents at once.
+Reduce every screen to: **near-black text · off-white bg · one green accent · one neutral gray**
+(+ red only when a destructive control is present). Specifically:
+- Drop the amber/orange status dot and the per-row "Adds a new / Replaces" labels (P8 removes these with
+  the bubble redesign anyway).
+- Keep at most **one** small, muted status chip per card, not a row of them.
+- Status by **icon + text in a muted gray**, not by filling things with color.
+
+### 3. Carry the dashboard's calm into every screen (space + fewer frames)
+- Use `--card-padding` and `--radius-card` consistently; stop nesting boxes inside boxes (the editor has
+  cards within cards within cards). Prefer whitespace and a single hairline divider over another border.
+- Bigger hit targets (min ~40px tall controls), more line-height and gap in lists — easier for
+  non-technical and touch users.
+- One weight of shadow/elevation, used sparingly.
+
+### 4. Plain language instead of jargon
+Rename engineering-speak to friendly, human copy, e.g.:
+- "ZONE A / ZONE B / ZONE C" → **"Step 1: Get prompts · Step 2: Paste results · Step 3: Review"**.
+- "Replace weak bullets" → **"Improve weak lines"**; "REVISION" tag → **"Edited"**.
+- "Adds a new bullet / Replaces an existing bullet" → **"New line / Swaps a line"** (only if a label is
+  needed at all).
+- Prefer verbs the user understands (Save, Improve, Undo) over system terms (apply-edits, synthesize).
+
+### 5. Dark mode
+There's a light/dark toggle — apply the same restraint in dark mode: one green accent, red only for
+destructive, neutral grays for the rest; keep contrast AA or better. Don't introduce extra accent colors
+in dark mode.
+
+### Scope
+Color-role, spacing, and label changes that enforce the existing design tokens. No new components, no
+new features, no backend. Do not change the typefaces, the brand green, or the warm off-white canvas.
+
+Acceptance: on any screen, there is **one** green primary action; **red appears only on
+delete/remove/reject**; a benign control (zoom, Fit width, Replace a line, Preview) is never red; no
+screen shows more than two accent colors at once; nested card-in-card framing is gone in favor of
+whitespace; and step/label copy reads in plain language, not "ZONE A"/"REVISION"/"apply-edits".
