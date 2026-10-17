@@ -1010,3 +1010,80 @@ panel (Ask AI · My Work Highlights · Bullets · Manual edit · Design · Versi
 function against its live endpoint; saving in any tab creates a new version and the preview updates
 immediately. There is **no** separate "My Work Highlights" nav entry, and the preview looks identical
 from every entry point. Opening a cover letter shows the reduced-tab Workspace.
+
+---
+
+## P8 — Declutter the editor: fix the bullet popover + make the right side a simple bullet list
+
+Audit of the live editor (`/dashboard/documents/resumes/{id}`) found it **overloaded and confusing**:
+too many overlapping controls, a broken hover "zoom" bubble, and no simple way to just work with the
+bullets. This prompt fixes those three things. It is UI/UX cleanup only — **no new backend**, and it
+refines P7 (apply P7's tab model, then this trims it).
+
+### 1. Fix the bullet "ZOOMED LINE" popover (two concrete bugs)
+
+Hovering a bullet in the preview shows a "ZOOMED LINE" card with a "Click to edit" / "press E" action.
+Today it is broken in two ways — fix both:
+
+- **Anchor it over the line it's zooming.** The card currently renders offset and covers the *next*
+  bullets. It must appear **directly over its own source line** — same left edge and width as that
+  bullet, vertically centered on it (or immediately above with a pointer to it) — so it's obvious
+  which line it represents and it never hides the lines below it.
+- **Don't auto-tear-down before it can be used.** It's hover-only, so moving the mouse toward its
+  "Click to edit" button dismisses it — the action is unreachable. Make it **click-to-open and
+  pinned**: click a bullet → the card opens and **stays** until the user clicks elsewhere, presses
+  Esc, or picks an action. (If you keep a hover affordance, it must be hover-*intent* with a short
+  close delay and a hit-area bridge to the card, but click-to-pin is the required behavior.) The
+  card's actions (Edit, and any Replace/Remove) must be fully clickable.
+- Also fix the **detached dark tooltip** (e.g. "Source / revision") that floats mispositioned in the
+  top-left — same root cause: anchor tooltips to their trigger, or remove them.
+
+### 2. Make the right side a simple, manipulable bullet list (the primary tool)
+
+Replace the stack of panels/toggles with **one clean, scrollable list of the résumé's bullets** as the
+default view. Each row is one bullet and supports, inline and obviously:
+- **Edit** the text in place,
+- **Reorder** (drag handle, and ↑/↓ for keyboard/precision),
+- **Remove**,
+- **+ Add bullet** (type a new one), and **Add from suggestions** (accepted Highlights/AI suggestions
+  drop straight into this list).
+Group rows under their section headers. Every change is line-level lossless and saves through the one
+existing path (`POST /resumes/{id}/apply-edits` where relevant → `POST /resumes/{id}/versions`); Undo =
+version switch. This list is the same thing the P7 **Bullets** tab describes — make it the **default**
+landing view of the editor, not a buried tab. No AI is required to use it.
+
+### 3. Remove the duplicate / unnecessary controls (declutter)
+
+The editor currently shows the same actions in several places. Collapse to **one** of each:
+
+- **One navigation, not two.** There is a top button row (Browse documents · My Work Highlights ·
+  Preview · Shortcuts · Templates · Design) **and** a tab bar (Ask AI · My Work Highlights · Bullets ·
+  Manual edit · Design · Versions) — with "My Work Highlights" and "Design" duplicated across them.
+  Keep **only the tab bar** (P7): **Bullets (default) · Ask AI · Highlights · Manual edit · Design ·
+  Versions**. Move "Browse documents" to a simple back link, and put **Shortcuts** and **Templates**
+  into a single overflow/"⋯ More" menu.
+- **One preview with one set of zoom controls.** Zoom/fit controls currently appear ~3 times (a top
+  "ZOOM 43% · Fit page · Fit width · 100%", a mid "Pane · Fit · 50% · 75%", and a preview "68% · Fit
+  width · 100%"). Keep a single zoom/fit control on the preview and delete the others.
+- **One way to preview / go full-screen.** "Preview", "Read full size", "Expand", and the Edit/Preview
+  toggle overlap — keep the Edit⇄Preview toggle plus a single "Full size" affordance; drop the rest.
+- **One way to edit.** "Open editor", "Edit", "press E to edit", and "Edit manually" all open editing —
+  keep the Bullets list (inline) + the Manual edit tab; remove the redundant buttons.
+- **Tame the Versions real-estate.** The full 31-card versions marquee is shown inline **and** there's
+  a Versions tab. Keep the **Versions tab** as the home for version browsing; on the main editor show
+  only a compact "Version N · Updated …" chip with prev/next, not the whole carousel.
+- **Fix the "Tailor to a role" picker.** It lists dozens of junk entries (e.g. "Subsea Kelp Logistics
+  Lead 1788824848", "senior data engineer z1788415338"). Make it a **searchable, typeahead** selector
+  showing a few recent/relevant roles — and separately prune those test job postings from the account
+  (they are test data, not real saved jobs).
+
+### Scope
+
+Declutter + the two popover fixes + the bullet list as default. Reuse every existing endpoint and
+behavior; remove duplicate UI, don't add features. No backend changes.
+
+Acceptance: opening a résumé lands on a **simple editable bullet list**; each bullet can be edited,
+reordered, removed, and new ones added, saving to a new version. Hovering/clicking a bullet in the
+preview shows a card **anchored over that exact line** that **stays open** long enough to click its
+actions. Each control (navigation, zoom, preview, edit) appears **once**. The Versions carousel is not
+duplicated. The role picker is searchable and free of junk entries.
