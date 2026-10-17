@@ -1013,7 +1013,7 @@ from every entry point. Opening a cover letter shows the reduced-tab Workspace.
 
 ---
 
-## P8 — Declutter the editor: fix the bullet popover + make the right side a simple bullet list
+## P8 — Declutter the editor: frameless bullet bubbles (drag onto the preview) + fix the popover
 
 Audit of the live editor (`/dashboard/documents/resumes/{id}`) found it **overloaded and confusing**:
 too many overlapping controls, a broken hover "zoom" bubble, and no simple way to just work with the
@@ -1037,20 +1037,49 @@ Today it is broken in two ways — fix both:
   card's actions (Edit, and any Replace/Remove) must be fully clickable.
 - Also fix the **detached dark tooltip** (e.g. "Source / revision") that floats mispositioned in the
   top-left — same root cause: anchor tooltips to their trigger, or remove them.
+- A clicked, pinned preview line is the **"activated bubble"** — besides being editable in place, it is
+  the **drop target** for a bullet dragged from the right-side list (see §2c).
 
-### 2. Make the right side a simple, manipulable bullet list (the primary tool)
+### 2. Bullets as a plain list of bubbles — no frames, no button clusters, drag onto the preview
 
-Replace the stack of panels/toggles with **one clean, scrollable list of the résumé's bullets** as the
-default view. Each row is one bullet and supports, inline and obviously:
-- **Edit** the text in place,
-- **Reorder** (drag handle, and ↑/↓ for keyboard/precision),
-- **Remove**,
-- **+ Add bullet** (type a new one), and **Add from suggestions** (accepted Highlights/AI suggestions
-  drop straight into this list).
-Group rows under their section headers. Every change is line-level lossless and saves through the one
-existing path (`POST /resumes/{id}/apply-edits` where relevant → `POST /resumes/{id}/versions`); Undo =
-version switch. This list is the same thing the P7 **Bullets** tab describes — make it the **default**
-landing view of the editor, not a buried tab. No AI is required to use it.
+This is the core of the redesign. Today the generated bullets (Highlights "Review your suggested
+edits", ZONE C) are heavy **cards**, each wrapped in a frame and loaded with buttons — `+ Add`,
+`Accepted`, `Experience`, `Accept`, `Reject`, a trash icon, an `Add as new / Replace` toggle, and
+`Why this was suggested`. That is far too busy. Replace it with the simplest possible direct-
+manipulation model, used for **both** the generated suggestions (right) and the résumé's own bullets:
+
+**a. Right side = a plain, frameless list.** Drop the card frames and the per-item button rows. Show
+the generated bullets as a bare **list of lines** — just the text, one per row, nothing around them.
+No Accept/Reject/Add/Replace/Experience/trash buttons sitting on every row.
+
+**b. Hover zooms a line into a bubble.** Hovering a line lifts it into a readable **bubble** (the
+zoomed form) — the same bubble treatment used in the preview — so the user can read the full text
+without a cramped card. The bubble is the handle: it can be **picked up and dragged**, and **reordered**
+within the list by dragging.
+
+**c. Drag a bubble onto the left preview to assign/replace/add.** The user drags a right-side bubble
+onto the **left document preview**:
+- Drop it **onto a bullet that has been clicked "active"** (see §1 — a clicked preview line becomes an
+  editable "bubble zoom") → it **replaces** that line with the dragged bullet.
+- Drop it **between lines** (or onto a section) → it **adds** there (assign to that spot/section).
+The left active bubble remains **editable in place** after a drop, so the user can tweak the wording,
+then it saves as a new version. This is the P4 "drag a suggestion right→left to replace a line" gesture,
+now the primary interaction instead of buttons.
+
+**d. Keep only the one action that drag can't express.** A bullet the user doesn't want is removed by a
+single small affordance that appears **only on the hovered bubble** (e.g. a tiny ✕ on the bubble), not a
+permanent button row. Everything else (accept = drag it in; reject = ignore/dismiss it; reorder = drag)
+is a gesture. Remove `Add as new / Replace` toggles, the `Experience`/`Accepted` pills and `Why this was
+suggested` from the row (move "why" to a hover/长-press reveal if kept at all).
+
+**e. The résumé's own bullets use the exact same list.** The P7 **Bullets** tab is this same plain
+bubble list for the lines already on the résumé — hover to zoom, drag to reorder, click a preview line
+to edit it, drop a suggestion to replace it. Make this the **default** landing view, not a buried tab.
+
+Every change is line-level lossless and saves through the one existing path
+(`POST /resumes/{id}/apply-edits` where a suggestion is applied → `POST /resumes/{id}/versions`; smart
+replace vs add uses `POST /resumes/{id}/match-bullets`); Undo = version switch. No AI is needed to drag,
+reorder, edit or remove.
 
 ### 3. Remove the duplicate / unnecessary controls (declutter)
 
@@ -1082,8 +1111,11 @@ The editor currently shows the same actions in several places. Collapse to **one
 Declutter + the two popover fixes + the bullet list as default. Reuse every existing endpoint and
 behavior; remove duplicate UI, don't add features. No backend changes.
 
-Acceptance: opening a résumé lands on a **simple editable bullet list**; each bullet can be edited,
-reordered, removed, and new ones added, saving to a new version. Hovering/clicking a bullet in the
-preview shows a card **anchored over that exact line** that **stays open** long enough to click its
-actions. Each control (navigation, zoom, preview, edit) appears **once**. The Versions carousel is not
-duplicated. The role picker is searchable and free of junk entries.
+Acceptance: the generated bullets show as a **plain frameless list** (no per-row button clusters);
+hovering a line **zooms it into a bubble**; the bubble can be **reordered by dragging** and **dragged
+onto the left preview** — onto a clicked/active line to **replace** it, or between lines to **add** —
+and the dropped line is then **editable in place** and saves as a new version. A clicked preview line
+opens an edit card **anchored over that exact line** that **stays open** long enough to use it. The only
+per-bullet button is a small remove ✕ on the hovered bubble. Each control (navigation, zoom, preview,
+edit) appears **once**; the Versions carousel is not duplicated; the role picker is searchable and free
+of junk entries.
