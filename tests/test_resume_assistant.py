@@ -476,7 +476,7 @@ def test_api_evidence_synthesize_returns_groups():
         def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
             if "extract the discrete" in prompt:
                 return '["Led billing platform cutting latency 40%","Owned billing roadmap","Mentored 3 engineers"]'
-            if "into 3-8 themes" in prompt:
+            if "distinct themes" in prompt:
                 return ('[{"theme":"Billing","summary":"Owned the billing platform, cutting latency 40%",'
                         '"points":["Led billing platform cutting latency 40%","Owned billing roadmap"]},'
                         '{"theme":"Mentoring","summary":"Mentored 3 engineers","points":["Mentored 3 engineers"]}]')

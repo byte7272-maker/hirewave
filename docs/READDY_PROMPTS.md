@@ -1048,9 +1048,12 @@ edits", ZONE C) are heavy **cards**, each wrapped in a frame and loaded with but
 `Why this was suggested`. That is far too busy. Replace it with the simplest possible direct-
 manipulation model, used for **both** the generated suggestions (right) and the résumé's own bullets:
 
-**a. Right side = a plain, frameless list.** Drop the card frames and the per-item button rows. Show
-the generated bullets as a bare **list of lines** — just the text, one per row, nothing around them.
-No Accept/Reject/Add/Replace/Experience/trash buttons sitting on every row.
+**a. Right side = a plain, frameless list — show ALL the options.** Drop the card frames and the
+per-item button rows. Show the generated bullets as a bare **list of lines** — just the text, one per
+row, nothing around them. No Accept/Reject/Add/Replace/Experience/trash buttons sitting on every row.
+Surface the **full set** the AI produced, not a handful — a rich paste now yields many (the backend was
+raised to up to ~14–20 suggestions). The list **scrolls** to hold them all; only collapse for length
+with a "Show more", and default to showing plenty, so the user has a real pool to choose from.
 
 **b. Hover zooms a line into a bubble.** Hovering a line lifts it into a readable **bubble** (the
 zoomed form) — the same bubble treatment used in the preview — so the user can read the full text
@@ -1075,6 +1078,18 @@ suggested` from the row (move "why" to a hover/长-press reveal if kept at all).
 **e. The résumé's own bullets use the exact same list.** The P7 **Bullets** tab is this same plain
 bubble list for the lines already on the résumé — hover to zoom, drag to reorder, click a preview line
 to edit it, drop a suggestion to replace it. Make this the **default** landing view, not a buried tab.
+
+**f. Zoom the preview lines *while* dragging, so the target is easy to pick (fixes the confusing part).**
+Dragging a bubble from the right onto the left preview must make choosing the line to replace effortless:
+- As a dragged bubble **hovers over the preview, magnify the line(s) under the cursor** — the preview
+  text the bubble is over zooms up so the user can clearly read and aim at the exact line to swap. The
+  nearest drop-target line highlights (pure-swap target per the confirmed behavior).
+- Keep the **preview's own zoom reachable during the drag** — don't lock or hide the zoom/fit control
+  while a right→left drag is in progress; a user who zoomed in stays zoomed, and can still zoom while
+  the panels are in "toggle" mode. The preview should be comfortably zoomable at any point in the
+  interaction, not only before it starts.
+- Auto-scroll the preview when the dragged bubble nears its top/bottom edge, so an off-screen target
+  line can be reached without dropping the bubble.
 
 Every change is line-level lossless and saves through the one existing path
 (`POST /resumes/{id}/apply-edits` where a suggestion is applied → `POST /resumes/{id}/versions`; smart

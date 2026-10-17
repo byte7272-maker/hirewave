@@ -176,7 +176,7 @@ def _sig_words(s: str) -> set[str]:
     return {w for w in re.findall(r"[a-z]{4,}", (s or "").lower()) if w not in _CLUSTER_STOP}
 
 
-def _cluster_points_fallback(points: list[str], *, min_overlap: int = 2, max_groups: int = 8) -> list[dict]:
+def _cluster_points_fallback(points: list[str], *, min_overlap: int = 2, max_groups: int = 14) -> list[dict]:
     """Deterministic grouping (no LLM): greedily merge points that share significant
     words; the group's statement is its most-quantified/longest point (a representative,
     not a true synthesis — the LLM path does the real synthesis)."""
@@ -212,7 +212,7 @@ def _cluster_points_fallback(points: list[str], *, min_overlap: int = 2, max_gro
 
 def _coerce_groups(data, source_points: list[str]) -> list[dict]:
     """Validate an LLM cluster array into [{theme, summary, points}] — drops items with no
-    summary, prefers verbatim source wording for the supporting points, caps at 8 groups."""
+    summary, prefers verbatim source wording for the supporting points, caps at 14 groups."""
     src = {p.lower(): p for p in source_points}
     groups: list[dict] = []
     for d in data if isinstance(data, list) else []:
@@ -229,7 +229,7 @@ def _coerce_groups(data, source_points: list[str]) -> list[dict]:
             "summary": summary,
             "points": _dedupe_points(pts),
         })
-        if len(groups) >= 8:
+        if len(groups) >= 14:
             break
     return groups
 
@@ -1454,7 +1454,10 @@ class ResumeAssistant:
                      + "\n".join(f"- {a}" for a in avoid[:30]))
         try:
             out = self.llm.complete(
-                "Group the résumé evidence points below into 3-8 themes of related ideas. For "
+                "Group the résumé evidence points below into as many distinct themes as the "
+                "accomplishments genuinely warrant (up to 14) — keep separate accomplishments in "
+                "separate themes rather than over-merging them, so a rich paste yields several "
+                "strong bullets, not just a few. For "
                 "each theme write ONE strong, specific résumé-worthy statement that captures the "
                 "OVERARCHING accomplishment across its points (synthesize the common idea — do not "
                 "just concatenate or list), preserving any numbers; and list the exact source "
