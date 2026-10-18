@@ -1241,11 +1241,17 @@ it. All endpoints already exist — this is a frontend key-handling/persistence 
    let Enter just insert a newline or get swallowed. (Tie-in to P0b: the dedup guard must **not** block
    a resubmit — every Enter/Apply POSTs even if the text repeats; show "No change was made" inline
    rather than silently doing nothing.)
-2. **Inline bullet reword** (click a bullet's text to edit it, per P8). `Enter` **commits** the edited
-   text: build a `reword` edit {before: original line, after: new text} → `POST /resumes/{id}/apply-edits`
-   → `POST /resumes/{id}/versions`. Today the edit appears to change locally but **never POSTs**, so it
-   is lost on reload — that's the bug. `Esc` cancels; **blur (click away) also commits** (don't drop an
-   edit just because the user clicked elsewhere instead of pressing Enter).
+2. **Inline bullet reword** (click a bullet → it zooms to a "THIS LINE" bubble → click its text to get
+   an editable textarea). **CONFIRMED on the live site:** typing a change and pressing **Enter does
+   nothing at all** — no commit, no save; the bubble stays open and the edit is lost. And there is **no
+   visible Save/✓ control** on the edit bubble, so Enter being dead means a reword **cannot be committed
+   at all**. Fix:
+   - `Enter` **commits**: build a `reword` edit {before: original line, after: new text} →
+     `POST /resumes/{id}/apply-edits` → `POST /resumes/{id}/versions`, update the line, close the bubble.
+   - `Shift+Enter` = newline (if the field is multi-line); **blur (click away) also commits** (don't
+     drop the edit because the user clicked elsewhere); `Esc` cancels.
+   - Add a small **✓ Save** affordance on the edit bubble as a visible fallback — and make sure its ✕ is
+     clearly "remove line" vs a separate "close/cancel" (today the only ✕ deletes the bullet).
 3. **Dragging a suggestion onto the preview to replace/add** (P8) must likewise **persist** (new
    version), not only update the on-screen preview.
 
