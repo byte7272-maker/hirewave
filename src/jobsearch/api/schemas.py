@@ -138,11 +138,25 @@ class ReorderSavedRequest(BaseModel):
     ids: list[str]
 
 
+class MatchReasonOut(BaseModel):
+    """One plain-language "why this matches" line for a match card."""
+
+    label: str
+    detail: str = ""
+    sentiment: str = "positive"  # positive | neutral | caution
+
+
 class MatchOut(BaseModel):
     job_id: str
     title: str
     company: str
     score: float
+    #: Ranked, human-readable reasons this role fits the user (skill overlap, salary,
+    #: location, seniority, recency) — strongest first, with at most one caution.
+    reasons: list[MatchReasonOut] = Field(default_factory=list)
+    #: Per-component fit as 0–100 ints (semantic, skills, location, salary, seniority,
+    #: recency) for an optional score breakdown display.
+    breakdown: dict[str, int] = Field(default_factory=dict)
     matching_skills: list[str]
     gap_skills: list[str]
     authenticity_score: Optional[int] = None

@@ -9,6 +9,7 @@ from jobsearch.engines.matching.scoring import (
     MatchBreakdown,
     MatchResult,
     MatchWeights,
+    explain_match,
     location_fit,
     recency_fit,
     salary_fit,
@@ -64,13 +65,16 @@ class MatchingEngine:
         )
         weights = self.feedback.weights_for(profile.user_id)
         composite = breakdown.composite(weights)
-        return MatchResult(
+        result = MatchResult(
             job=job,
             score=composite,
             breakdown=breakdown,
             matching_skills=matching,
             gap_skills=gaps,
         )
+        # Attach the plain-language "why this matches" reasons for the UI.
+        result.reasons = explain_match(result, profile, weights)
+        return result
 
     def rank(
         self,

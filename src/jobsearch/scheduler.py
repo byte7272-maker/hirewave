@@ -16,6 +16,39 @@ import sys
 from jobsearch.api.state import AppState
 
 
+def reap_email(state: AppState) -> int:
+    """Pull fresh job alerts from each user's connected Gmail on the tick, so matches
+    stay as up to date from email as they are from the boards. Privacy-gated — only
+    job email is read in (via ``classify_job_email``) and ingested into the shared job
+    pool, where it's scored like any other posting. Live only: in mock/offline mode we
+    don't auto-reap (it would ingest the same sample for every user each tick). Best-
+    effort — a connection/network error for one user never breaks the tick."""
+    from jobsearch.engines.sourcing.job_email import classify_job_email, raw_to_fields
+    from jobsearch.models import Provider
+
+    fetcher = state.gmail_fetcher
+    if not getattr(fetcher, "live", False):
+        return 0
+    ingested_total = 0
+    for user in state.users.all():
+        try:
+            token = state.integration.get_access_token(user.id, Provider.GMAIL)
+        except Exception:  # noqa: BLE001 - Gmail not connected for this user
+            continue
+        try:
+            raws = fetcher.fetch(access_token=token)
+            job_raws = [
+                raw for raw in raws
+                if classify_job_email(**{k: raw_to_fields(raw)[k] for k in ("sender", "subject", "body")}).is_job
+            ]
+            if job_raws:
+                _, ingested = state.inbox.sync(user.id, job_raws)
+                ingested_total += ingested
+        except Exception:  # noqa: BLE001 - never let one mailbox break the tick
+            continue
+    return ingested_total
+
+
 def run_once(state: AppState) -> dict:
     # Auto-apply grants across all users (the engine spans users when user_id=None).
     runs = state.auto_apply.run_due(None)
@@ -27,6 +60,9 @@ def run_once(state: AppState) -> dict:
     for user in state.users.all():
         searches_run += len(state.saved_search.run_due(user.id))
 
+    # Reap connected email (Gmail) into the shared job pool so matches stay fresh.
+    emails_ingested = reap_email(state)
+
     # Out-of-band review reminders for users past their checkpoint + daily digests.
     reminders_sent = len(state.reminders.run_due_reminders())
     digests_sent = len(state.reminders.run_due_digests())
@@ -36,6 +72,7 @@ def run_once(state: AppState) -> dict:
         "submitted": submitted,
         "queued": queued,
         "searches_run": searches_run,
+        "emails_ingested": emails_ingested,
         "reminders_sent": reminders_sent,
         "digests_sent": digests_sent,
     }

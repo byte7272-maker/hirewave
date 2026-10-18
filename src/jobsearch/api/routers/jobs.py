@@ -10,7 +10,13 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.api.schemas import IngestRequest, MatchOut, ReorderSavedRequest, SaveJobRequest
+from jobsearch.api.schemas import (
+    IngestRequest,
+    MatchOut,
+    MatchReasonOut,
+    ReorderSavedRequest,
+    SaveJobRequest,
+)
 from jobsearch.engines.sourcing.skills import (
     CATEGORIES,
     CATEGORY_VERSION,
@@ -115,12 +121,20 @@ def matches(
     out = []
     for r in ranked:
         v = state.verifications.get(r.job.id)
+        b = r.breakdown
         out.append(
             MatchOut(
                 job_id=r.job.id,
                 title=r.job.title,
                 company=r.job.company,
                 score=r.score,
+                reasons=[MatchReasonOut(label=x.label, detail=x.detail, sentiment=x.sentiment)
+                         for x in r.reasons],
+                breakdown={
+                    "semantic": round(b.semantic * 100), "skills": round(b.skills * 100),
+                    "location": round(b.location * 100), "salary": round(b.salary * 100),
+                    "seniority": round(b.seniority * 100), "recency": round(b.recency * 100),
+                },
                 matching_skills=r.matching_skills,
                 gap_skills=r.gap_skills,
                 authenticity_score=v.authenticity_score if v else None,

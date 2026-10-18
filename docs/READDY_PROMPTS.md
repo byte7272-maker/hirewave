@@ -1271,3 +1271,51 @@ Acceptance: typing an instruction in "Ask AI to change it" and pressing **Enter*
 a new version; editing a bullet's text and pressing **Enter** (or clicking away) saves it; in both
 cases the change **survives a page reload**; `Shift+Enter` makes a newline; a repeated instruction
 still POSTs and reports "No change was made" instead of doing nothing silently.
+
+---
+
+## P11 — Fresh matches, highlighted best, with "why it matches" reasons
+
+Make the matches list feel **current and explained**: it's kept up to date from the connected job
+boards **and** the connected email (server-side, on a schedule), and each match now carries
+**plain-language reasons** so the user sees *why* it fits, not just a score. The backend changes are
+**already shipped** — this is wiring the new fields into the matches UI.
+
+### 1. What the backend now provides (already live)
+- Matches are **reaped on a schedule** from the user's **saved searches / job boards** AND their
+  **connected Gmail** (privacy-gated to job email only), ingested into the same pool, de-duplicated,
+  verified, and scored. So the list stays reasonably fresh on its own — no user action needed.
+- **`GET /api/v1/jobs/matches`** (ranked, best first; `?limit=N` for top-N) now returns, per match, in
+  addition to `score`:
+  - **`reasons`**: a ranked list of `{ label, detail, sentiment }` — the human "why this matches"
+    (e.g. `{label:"Strong skill match", detail:"You have Python, AWS, Kubernetes", sentiment:"positive"}`),
+    strongest first, with **at most one** `sentiment:"caution"` (a gap/mismatch).
+  - **`breakdown`**: the six fit components as 0–100 ints — `semantic, skills, location, salary,
+    seniority, recency` — for an optional score-detail popover.
+
+### 2. Highlight the best matches
+- The list is already sorted best-first. Give the **top few** (e.g. score ≥ 85, or the top 3) a clear
+  **"Best match" treatment** — a subtle highlight/badge — so they stand out. One accent only (green,
+  per P9); don't color every card.
+- Show the **score** as a compact 0–100 with a small label ("fit"), not a loud ring on every row.
+
+### 3. Show the reasons (the main ask)
+- Under each match, render its **`reasons`** as short chips/lines: `label` bold + `detail` muted.
+  Positives in neutral/green, the single caution in a muted amber/gray (not alarming — per P9).
+- Show the **top 2–3 reasons inline**; the rest behind a small "why" expander that also reveals the
+  **`breakdown`** bars (skills 92 · pay 80 · location 100 · level 90 …). Never invent reasons — render
+  only what the API returns; if `reasons` is empty, show nothing (don't fabricate).
+
+### 4. Freshness cue
+- Show a light **"Updated {relative time}"** on the matches view (from the newest match's `posted_ago`
+  or a header timestamp) and a manual **"Refresh"** that re-GETs `/matches`. Don't claim live/real-time
+  — it's periodic ("checked recently"). A match pulled from email reads the same as any other; no
+  separate list.
+
+### Scope
+Display of the new `reasons` / `breakdown` fields + a best-match highlight + a freshness cue. No new
+endpoints; the scheduling and email reap are server-side already.
+
+Acceptance: the matches list shows best-first with the top few highlighted; each card shows 2–3
+plain-language reasons (and a caution when present) plus an expandable score breakdown; a freshness
+"updated" cue and a Refresh are present; reasons/score come only from the API (nothing fabricated).

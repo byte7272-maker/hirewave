@@ -91,12 +91,87 @@ class MatchBreakdown:
 
 
 @dataclass
+class MatchReason:
+    """One human-readable "why this matches" line, derived from the breakdown."""
+
+    label: str              # short headline, e.g. "Strong skill match"
+    detail: str = ""        # specifics, e.g. "You have Python, AWS, Kubernetes"
+    sentiment: str = "positive"  # positive | neutral | caution
+
+
+@dataclass
 class MatchResult:
     job: JobPosting
     score: float  # 0-100
     breakdown: MatchBreakdown
     matching_skills: list[str] = field(default_factory=list)
     gap_skills: list[str] = field(default_factory=list)
+    reasons: list[MatchReason] = field(default_factory=list)  # why it matched (ranked)
+
+
+def explain_match(
+    result: "MatchResult", profile: UserProfile, weights: "MatchWeights"
+) -> list[MatchReason]:
+    """Turn a scored match into a short, ranked list of plain-language reasons —
+    "skill overlap, salary alignment, location and seniority" — so the user can see
+    WHY a role is a good fit, not just a number. Deterministic (no LLM): every reason
+    comes from a breakdown component, ranked by its weighted contribution to the score.
+    Returns the strongest positives first, plus at most one caution."""
+    job = result.job
+    b = result.breakdown
+    w = weights.normalized()
+    prefs = profile.preferences
+    pos: list[tuple[float, MatchReason]] = []
+    cautions: list[MatchReason] = []
+
+    # Skills — the most concrete signal.
+    if result.matching_skills:
+        names = ", ".join(result.matching_skills[:3])
+        more = len(result.matching_skills) - 3
+        detail = f"You have {names}" + (f" +{more} more" if more > 0 else "")
+        label = "Strong skill match" if b.skills >= 0.6 else "Skill overlap"
+        pos.append((b.skills * w.skills, MatchReason(label, detail, "positive")))
+    if result.gap_skills and b.skills < 0.8:
+        gaps = ", ".join(result.gap_skills[:3])
+        cautions.append(MatchReason("A few gaps", f"Not shown on your résumé: {gaps}", "caution"))
+
+    # Semantic — overall background fit.
+    if b.semantic >= 0.72:
+        pos.append((b.semantic * w.semantic,
+                    MatchReason("Fits your background", "Closely matches your résumé and experience", "positive")))
+
+    # Salary.
+    if job.salary_range and (job.salary_range.minimum or job.salary_range.maximum):
+        if b.salary >= 0.85:
+            pos.append((b.salary * w.salary, MatchReason("Pay in your range", job.salary_display, "positive")))
+        elif b.salary < 0.5:
+            cautions.append(MatchReason("Pay below your target", job.salary_display, "caution"))
+
+    # Location / remote.
+    if job.remote and prefs.remote_ok:
+        pos.append((b.location * w.location + 1e-3, MatchReason("Remote", "Matches your remote preference", "positive")))
+    elif b.location >= 0.9 and job.location:
+        pos.append((b.location * w.location, MatchReason("Location match", job.location, "positive")))
+    elif b.location <= 0.3 and job.location:
+        cautions.append(MatchReason("Location may not fit", job.location, "caution"))
+
+    # Seniority.
+    if prefs.seniority:
+        if b.seniority >= 0.85:
+            pos.append((b.seniority * w.seniority,
+                        MatchReason("Right level", f"Matches your {prefs.seniority} target", "positive")))
+        elif b.seniority <= 0.5:
+            cautions.append(MatchReason("Different level", "Seniority differs from your target", "caution"))
+
+    # Recency.
+    if b.recency >= 0.8 and job.posted_ago:
+        pos.append((b.recency * w.recency, MatchReason("Fresh posting", f"Posted {job.posted_ago}", "positive")))
+
+    pos.sort(key=lambda t: t[0], reverse=True)
+    reasons = [r for _, r in pos][:4]
+    if cautions:
+        reasons.append(cautions[0])  # at most one caution — keep the card digestible
+    return reasons
 
 
 # --- component scorers ------------------------------------------------------
