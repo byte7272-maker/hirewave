@@ -73,6 +73,10 @@ from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
+#: Max suggestions returned from a one-step My Work Highlights run, so a large paste
+#: yields a rich-but-manageable pool (the user picks from it) instead of being overwhelming.
+_HIGHLIGHTS_MAX_SUGGESTIONS = 15
+
 
 def _docx_response(data, base_name: str):
     if data is None:
@@ -713,8 +717,9 @@ def suggest_from_highlights(
     ``/resumes/{id}/versions`` (so you always accept + save explicitly).
 
     The paste is extracted in full into clean points, then CLUSTERED into overarching
-    concept-level statements — the edits are driven by those synthesized ideas rather than
-    each granular line, so the résumé gains a few strong points, not a long list."""
+    concept-level statements. Edits are driven by BOTH those synthesized concepts and the
+    individual points, so a broad paste surfaces several bullets to choose from — capped at
+    ``_HIGHLIGHTS_MAX_SUGGESTIONS`` so a large data dump isn't overwhelming."""
     resume = get_resume(resume_id, user, state)
     if not body.text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste the output from your work AI first")
@@ -723,11 +728,22 @@ def suggest_from_highlights(
     if not points:
         return SuggestEditsResponse(suggestions=[])
     groups = state.resume_assistant.cluster_evidence(points, job=job, avoid=body.avoid)
-    # Drive the edits from the overarching statements (concept-level), falling back to the
-    # raw points only if clustering produced nothing.
-    basis = [g["summary"] for g in groups] or points
-    context = "\n".join(f"- {c}" for c in basis)
-    edits = state.resume_assistant.suggest_edits(resume, context, job=job, avoid=body.avoid)
+    # Richer pool: drive edits from the concept summaries AND the individual points (not just
+    # the merged concepts), so even a narrow paste surfaces more distinct options. The bubble
+    # review lets the user pick the ones they want; near-duplicates are softly deduped. Cap
+    # the final set so a large dump stays manageable.
+    summaries = [g["summary"] for g in groups]
+    seen = {" ".join(s.lower().split()) for s in summaries}
+    basis = list(summaries)
+    for p in points:
+        k = " ".join(p.lower().split())
+        if k and k not in seen:
+            seen.add(k)
+            basis.append(p)
+    context = "\n".join(f"- {c}" for c in (basis or points))
+    edits = state.resume_assistant.suggest_edits(
+        resume, context, job=job, avoid=body.avoid
+    )[:_HIGHLIGHTS_MAX_SUGGESTIONS]
     # Remember the generated bullets against the user's ORIGINAL paste (so the editor
     # reloads this run and its prompt by default next time).
     state.highlights_history.record(
