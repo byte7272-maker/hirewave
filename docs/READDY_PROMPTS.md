@@ -1224,3 +1224,44 @@ Acceptance: on any screen, there is **one** green primary action; **red appears 
 delete/remove/reject**; a benign control (zoom, Fit width, Replace a line, Preview) is never red; no
 screen shows more than two accent colors at once; nested card-in-card framing is gone in favor of
 whitespace; and step/label copy reads in plain language, not "ZONE A"/"REVISION"/"apply-edits".
+
+---
+
+## P10 — BUG: pressing Enter on an AI / bullet change doesn't save
+
+**Report:** in the résumé editor, an AI bullet change is **not saved when the user presses Enter** —
+the user edits (an AI "Ask AI to change it" instruction, or a bullet's text) and hits Enter, and
+nothing persists. Enter is advertised ("**Enter to apply**") but doesn't actually apply + save. Fix
+every place Enter is offered so it reliably **applies the change AND saves a new version**, then shows
+it. All endpoints already exist — this is a frontend key-handling/persistence bug.
+
+### Make Enter commit everywhere it's offered
+1. **"Ask AI to change it" box.** `Enter` (without Shift) submits the instruction → `POST
+   /resumes/{id}/ai-edit` → apply immediately → **new version saved**. `Shift+Enter` = newline. Don't
+   let Enter just insert a newline or get swallowed. (Tie-in to P0b: the dedup guard must **not** block
+   a resubmit — every Enter/Apply POSTs even if the text repeats; show "No change was made" inline
+   rather than silently doing nothing.)
+2. **Inline bullet reword** (click a bullet's text to edit it, per P8). `Enter` **commits** the edited
+   text: build a `reword` edit {before: original line, after: new text} → `POST /resumes/{id}/apply-edits`
+   → `POST /resumes/{id}/versions`. Today the edit appears to change locally but **never POSTs**, so it
+   is lost on reload — that's the bug. `Esc` cancels; **blur (click away) also commits** (don't drop an
+   edit just because the user clicked elsewhere instead of pressing Enter).
+3. **Dragging a suggestion onto the preview to replace/add** (P8) must likewise **persist** (new
+   version), not only update the on-screen preview.
+
+### Confirm it actually saved (so the user can trust Enter)
+- After any Enter/commit, **advance the viewed version** (P0e) and re-render the preview from the new
+  version so the change is visible immediately, and show the "**Updated — N change(s)**" cue (P4b).
+- The saved version must survive a **page reload** (the real test: edit → Enter → refresh → the change
+  is still there). If it isn't after reload, the POST didn't happen — that's the defect.
+- Never show a success state without a 2xx from `/versions` (or `/ai-edit`). On failure, surface a
+  small "Couldn't save — retry," never a silent no-op.
+
+### Scope
+Frontend key-handling + persistence only; reuse `ai-edit` / `apply-edits` / `versions`. No backend
+changes.
+
+Acceptance: typing an instruction in "Ask AI to change it" and pressing **Enter** applies it and saves
+a new version; editing a bullet's text and pressing **Enter** (or clicking away) saves it; in both
+cases the change **survives a page reload**; `Shift+Enter` makes a newline; a repeated instruction
+still POSTs and reports "No change was made" instead of doing nothing silently.
