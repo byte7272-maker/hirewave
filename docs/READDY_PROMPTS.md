@@ -1109,6 +1109,25 @@ The editor currently shows the same actions in several places. Collapse to **one
 - **One preview with one set of zoom controls.** Zoom/fit controls currently appear ~3 times (a top
   "ZOOM 43% · Fit page · Fit width · 100%", a mid "Pane · Fit · 50% · 75%", and a preview "68% · Fit
   width · 100%"). Keep a single zoom/fit control on the preview and delete the others.
+- **Strip the stack of bars over the preview (audit, current build).** Directly above the document
+  preview there are now ~6–7 stacked rows — far too many. Collapse them to a **single slim preview
+  header + one zoom row**:
+  - **Two "Preview" buttons:** the Edit⇄Preview toggle **and** a separate "Preview · Original file ·
+    Download" group both say Preview. Keep the Edit⇄Preview toggle; move **Original file** and
+    **Download** into a single "Download ▾" (or the ⋯ More menu). Remove the second "Preview".
+  - **Two version indicators:** a top "v33 · Updated Oct 17" chip (with ‹ › and ⋯ More) **and** a
+    "Version 33 ▾" selector on the zoom row. Keep **one** — the top chip with prev/next; drop the
+    second selector (full browsing lives in the Versions tab).
+  - **Two collapse/panel icons** stacked in the header — keep one.
+  - **Delete the "Page thumbnail — click to download the image" row** entirely (niche; if kept, put it
+    under Download ▾).
+  - **The "DOCUMENT · Hover a line to zoom · click it to edit · Click the page for a full readable
+    view" bar** is a verbose instruction, not a control — shrink to a one-time, dismissible hint (or a
+    small "?" tooltip), not a permanent bar.
+  - Keep, once: **Undo · Redo**, the small **"Improve weak lines (N)"** action, **one** zoom/fit
+    control (− 58% + · Fit), and **one** "Full size" affordance. Rename the **REVISION** tag to
+    **Edited** (P9). Net result over the preview: title + "Edited {date}" + one version chip · Undo/Redo
+    · one zoom/fit · Full size — nothing repeated.
 - **One way to preview / go full-screen.** "Preview", "Read full size", "Expand", and the Edit/Preview
   toggle overlap — keep the Edit⇄Preview toggle plus a single "Full size" affordance; drop the rest.
 - **One way to edit.** "Open editor", "Edit", "press E to edit", and "Edit manually" all open editing —
