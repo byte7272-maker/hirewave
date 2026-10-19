@@ -1319,3 +1319,51 @@ endpoints; the scheduling and email reap are server-side already.
 Acceptance: the matches list shows best-first with the top few highlighted; each card shows 2–3
 plain-language reasons (and a caution when present) plus an expandable score breakdown; a freshness
 "updated" cue and a Refresh are present; reasons/score come only from the API (nothing fabricated).
+
+---
+
+## P12 — Matches: run a search in place + show each match's age
+
+Audit of the live Matches page found two rough edges: starting a search is heavier than it should be,
+and you can't tell how old a match is. UI only, no backend (the API already returns `posted_ago`).
+
+### 1. "Run new search" should run in place, not open a separate confusing screen
+Today **"Run new search"** on the Matches page is a link that navigates to a whole **`/dashboard/search`**
+page — a role/location builder **plus its own "Recent jobs" grid of 87 roles** that duplicates the
+Matches list. That's a jarring second screen. Fix:
+- The **primary action on Matches is "Refresh"** — re-pull now (what the schedule does) and update the
+  list **in place** with a spinner, no navigation. Make this the obvious button.
+- **"New search" is a lightweight inline form** (a small popover/drawer on the Matches page): Role,
+  Location, Remote, Source toggles, "Rank by résumé" — then **Run** updates the Matches list in place
+  and (optionally) offers **Save search** so the agent re-runs it on the schedule. Do **not** navigate
+  to a separate page or show a second job grid.
+- Retire the standalone `/dashboard/search` "Recent jobs" grid — it's the Matches list under another
+  name. Keep only the **Saved searches** management (list, edit cadence, delete) if it needs a home;
+  everything else lives on Matches. One list of jobs, one place.
+- Don't show two near-identical actions ("Run new search" + "Refresh") with different behaviors — that's
+  the confusion. One **Refresh** (re-pull) + one **New search** (define/track).
+
+### 2. Show how old each match is (per card), not just an aggregate
+Today only an aggregate **"Newest posting 1 month ago"** shows; individual cards don't say their age, so
+a month-old leading match looks as fresh as a new one. The API returns **`posted_ago`** per match —
+render it:
+- On every match card show **"Posted {posted_ago}"** (e.g. "Posted 3 days ago" / "Posted 1 month ago").
+  Empty `posted_ago` → show nothing (don't guess).
+- **De-emphasize stale matches:** when a posting is old (say `posted_ago` implies > ~3 weeks), mute it
+  and add a small **"Older"** tag, so fresh roles stand out and a month-old top match is visibly old.
+- Make **"Sort by → Newest"** available (and consider surfacing fresher roles higher), so the user isn't
+  stuck with a stale posting leading the list.
+
+### 3. (Data note — not a UI task) Prune the test postings
+The live match pool is full of **test/junk postings** — "Subsea Kelp Logistics Lead 1788824848",
+"…z1788415338 / r1788414653", "IT Operations Director QQ", "Backend Engineer WW". These are seeded test
+data, not real jobs, and they dominate the list. They should be **removed from the account's job pool**
+(a data cleanup, separate from this UI prompt) so matches reflect real postings.
+
+### Scope
+Display + the inline search/refresh interaction; reuse the existing `/jobs/matches` (it already returns
+`posted_ago`) and the saved-search endpoints. No new backend.
+
+Acceptance: on Matches, **Refresh** re-pulls and updates the list in place (no navigation, no second job
+grid); **New search** is a small inline form that updates the same list and can be saved; every match
+card shows **"Posted {age}"** with stale ones muted/tagged "Older"; and there's a **Sort by Newest**.
