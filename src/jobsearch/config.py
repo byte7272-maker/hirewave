@@ -311,6 +311,16 @@ class Settings(BaseSettings):
         }.get(provider, provider.upper())
         return os.getenv(f"{key}_CLIENT_ID", ""), os.getenv(f"{key}_CLIENT_SECRET", "")
 
+    def oauth_available(self, provider: str) -> bool:
+        """Whether a REAL OAuth connect for ``provider`` can actually succeed — i.e.
+        live mode AND a client id/secret are configured. The UI uses this to avoid
+        offering a "Connect" button that would just bounce off the provider's error
+        page (an empty ``client_id``) when OAuth isn't set up for this deployment."""
+        if self.oauth_mode != "live":
+            return False
+        cid, secret = self.provider_credentials(provider)
+        return bool(cid and secret)
+
 
 @lru_cache
 def get_settings() -> Settings:

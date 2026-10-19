@@ -53,3 +53,22 @@ def test_connected_browser_session_shows_authenticated_with_ai_access():
 def test_connected_apps_requires_auth():
     client = _client()
     assert client.get("/api/v1/integrations/connected-apps").status_code == 401
+
+
+def test_oauth_available_flag_false_in_mock_mode():
+    # In the default mock mode (no client id/secret), a real OAuth "Connect" cannot
+    # work, so the UI is told NOT to offer it (and to use email forwarding instead).
+    client = _client()
+    h = _auth(client)
+    apps = {a["provider"]: a for a in client.get("/api/v1/integrations/connected-apps", headers=h).json()}
+    assert apps["gmail"]["oauth_available"] is False
+    assert apps["linkedin"]["oauth_available"] is False
+
+
+def test_oauth_available_true_when_live_and_configured(monkeypatch):
+    from jobsearch.config import Settings
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "cid")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "sec")
+    s = Settings(oauth_mode="live")
+    assert s.oauth_available("gmail") is True
+    assert s.oauth_available("linkedin") is False  # linkedin creds not set

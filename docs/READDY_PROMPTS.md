@@ -1367,3 +1367,51 @@ Display + the inline search/refresh interaction; reuse the existing `/jobs/match
 Acceptance: on Matches, **Refresh** re-pulls and updates the list in place (no navigation, no second job
 grid); **New search** is a small inline form that updates the same list and can be saved; every match
 card shows **"Posted {age}"** with stale ones muted/tagged "Older"; and there's a **Sort by Newest**.
+
+---
+
+## P13 — Connect email the right way (don't dump the user on Google's error page)
+
+**BUG found live:** on Integrations, clicking Gmail **"Connect"** redirects to Google and lands on an
+OAuth **error page** (the backend isn't configured for live OAuth, so `client_id` is empty). Fix the UI
+so it never does that, and clearly offer the **two** ways to feed job email — the user-preference feed
+(forwarding / scan) and, when set up, proactive Gmail. The backend now tells you which is available.
+
+### 1. Only show "Connect" when it will actually work
+- Read **`GET /api/v1/integrations/connected-apps`** — each provider now includes
+  **`oauth_available`** (true only when the deployment has live OAuth + credentials).
+- Gmail with **`oauth_available: false`** → **do NOT render a Connect button that redirects to Google.**
+  Instead show a muted "**Gmail sign-in isn't set up yet**" state and surface the forwarding/scan option
+  (below). If a Connect is ever clicked while unavailable and the API returns 400
+  ("gmail OAuth is not configured"), show that message inline — never navigate to Google.
+- Gmail with **`oauth_available: true`** → show **"Connect Gmail"** (the proactive option, §3).
+
+### 2. The user-preference feed — forwarding address + Scan (always available)
+This is the baseline way to feed job email, no Google app required. Present it on Integrations (and/or a
+small "Email job alerts" card):
+- **Forwarding address:** `GET /api/v1/inbox/address` → `jobs+<token>@…`. Show it with **Copy**, and a
+  one-line "Forward your job alerts here and they'll show up in your matches."
+- **Scan now:** a button calling **`POST /api/v1/inbox/scan?source=mailbox`** (or `?source=gmail` when
+  Gmail is connected) — show the returned `fetched` / `job_found` / `ingested` counts and that new roles
+  were added to matches. This is the P5 scan flow; reuse it. Make clear it reads **only job email**
+  (privacy), nothing personal.
+
+### 3. Proactive Gmail (only when `oauth_available`)
+- **"Connect Gmail"** → `POST /api/v1/integrations/connect/gmail`, then redirect the browser to the
+  returned `authorization_url` (real Google consent). On return, `connected-apps` shows gmail
+  `status:"connected"`.
+- Label it as the proactive option: "We'll check your Gmail for job alerts on a schedule." After
+  connecting, matches refresh from email automatically (the freshness cue on Matches updates).
+
+### 4. Status + disconnect
+- Reflect `connected-apps` status per provider: *Not connected · Connected · Expired*, with a
+  **Disconnect** (`DELETE /api/v1/integrations/{provider}`) when connected. For email specifically,
+  distinguish "forwarding set up" / "Gmail connected (proactive)" so the user knows which feed is on.
+
+### Scope
+Display + the connect/scan calls above, gated by `oauth_available`. No new endpoints. Never redirect to
+a provider when `oauth_available` is false.
+
+Acceptance: with OAuth unset, the Gmail card shows "not set up" + the forwarding address and a working
+**Scan now**, and there is **no** button that bounces to Google's error page; with OAuth set
+(`oauth_available:true`), **Connect Gmail** runs the real consent flow and shows Connected.

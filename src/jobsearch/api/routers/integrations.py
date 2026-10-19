@@ -142,6 +142,10 @@ def connected_apps(user: CurrentUser, state: StateDep) -> list[dict]:
             "supports_auto_apply": auto_apply,
             # AI tool can act when the account is authenticated AND the site is supported.
             "ai_access": authenticated and auto_apply,
+            # Whether a real OAuth "Connect" will work in this deployment. When false,
+            # the UI should NOT offer a Connect button (it would bounce off the provider's
+            # error page) — point the user to email forwarding / scan instead.
+            "oauth_available": state.settings.oauth_available(key),
         })
     return out
 
