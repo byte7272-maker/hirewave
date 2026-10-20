@@ -170,6 +170,15 @@ def create_app(
             # "in-process" => the API runs due grants/searches itself; "external"
             # => rely on the `python -m jobsearch.scheduler` cron.
             "scheduler": "in-process" if s.settings.scheduler_enabled else "external",
+            # OAuth config visibility (no secrets): the mode, and whether each
+            # provider's client id/secret are present — so a misconfigured "Connect"
+            # (e.g. GOOGLE_CLIENT_ID missing or JOBSEARCH_OAUTH_MODE not "live") is
+            # diagnosable from /health without exposing any credential values.
+            "oauth": {
+                "mode": s.settings.oauth_mode,
+                "gmail_configured": s.settings.oauth_available("gmail"),
+                "linkedin_configured": s.settings.oauth_available("linkedin"),
+            },
         }
 
     @app.get("/health/worker", tags=["meta"])
