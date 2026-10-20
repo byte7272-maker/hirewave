@@ -37,11 +37,13 @@ PROVIDER_REGISTRY: dict[Provider, ProviderConfig] = {
         authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
         token_url="https://oauth2.googleapis.com/token",
         revoke_url="https://oauth2.googleapis.com/revoke",
+        # Read-only: we only READ job alerts from Gmail to feed matches. We never
+        # send from the user's account, so we avoid the restricted `gmail.send` scope
+        # (which would force a heavier consent + Google verification).
         default_scopes=(
             "openid",
             "email",
             "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/gmail.send",
         ),
         use_pkce=True,
         extra_authorize_params={"access_type": "offline", "prompt": "consent"},
