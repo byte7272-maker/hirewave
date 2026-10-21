@@ -16,7 +16,15 @@ _SOURCE_NAMES = {
     "linkedin": "LinkedIn", "indeed": "Indeed", "glassdoor": "Glassdoor",
     "monster": "Monster", "ziprecruiter": "ZipRecruiter", "dice": "Dice",
     "greenhouse": "Greenhouse", "lever": "Lever", "wellfound": "Wellfound",
-    "aggregator": "Aggregator",
+    "aggregator": "Aggregator", "email": "Your inbox",
+}
+
+# Board domains for the source logo — so each match can credit + link to the board
+# it came from (Hirewave complements the boards, it doesn't hide them).
+_SOURCE_DOMAINS = {
+    "linkedin": "linkedin.com", "indeed": "indeed.com", "glassdoor": "glassdoor.com",
+    "monster": "monster.com", "ziprecruiter": "ziprecruiter.com", "dice": "dice.com",
+    "wellfound": "wellfound.com", "greenhouse": "greenhouse.io", "lever": "lever.co",
 }
 
 
@@ -173,6 +181,12 @@ class JobPosting(DomainModel):
     @property
     def company_logo(self) -> str:
         return self.company_logo_url or company_logo_from(self.company_domain)
+
+    @computed_field  # logo of the board/source this posting came from (attribution);
+    @property        # empty for inbox-sourced — the UI shows an inbox badge instead
+    def source_logo(self) -> str:
+        dom = _SOURCE_DOMAINS.get((self.source_platform or "").lower(), "")
+        return company_logo_from(dom) if dom else ""
 
     @computed_field  # True when another kept posting looks like the same job (cross-board)
     @property

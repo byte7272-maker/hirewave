@@ -1555,3 +1555,44 @@ Acceptance: each match card shows a clear **source badge** (board logo, or "From
 the **company** mark separately, and **"Posted … · Added …"** dates; the list is exactly what
 `/jobs/matches` returns (no sample data); and once test postings are pruned, the real ingested matches
 (including inbox-sourced ones) are what's shown.
+
+---
+
+## P17 — Matches: show the source board's logo and link straight to it (Hirewave complements boards)
+
+Hirewave surfaces and ranks jobs, but it should **credit and send traffic to the board the job lives on**
+— it complements LinkedIn/Indeed/etc., it doesn't hide them. Today the source shows as a tiny 2-letter
+chip and the card doesn't clearly go to the real posting. Fix it. Display only (the API now returns a
+`source_logo` and the direct `url`).
+
+### 1. Prominent, recognizable source logo
+Each match returns **`source_logo`** (the board's logo image), **`source_display`** ("LinkedIn",
+"Indeed", …) and **`source_platform`**:
+- Show the **board logo** clearly on the card (a real mark, not "in"/"Id"/"Gd" text). Use `source_logo`
+  as the image; on load error fall back to a clean text pill with `source_display`.
+- Place it as a small, confident **"Via {source_display}"** badge with the logo — visible at a glance,
+  not buried.
+- Keep it **distinct from the company logo** (`company_logo`): company = who's hiring; source = which
+  board we found it on. Show both.
+
+### 2. Link straight to the real posting (the premium source)
+- The badge (and the card's primary **"View"** / **"Apply"**) must open the posting's **`url`** — the
+  actual listing on that board — in a **new tab** (`target="_blank" rel="noopener"`). This is the
+  "send them to the source" behavior: Hirewave ranks it, the board owns the apply.
+- Wording like **"View on {source_display}"** makes the destination obvious and gives the board credit.
+- Never point "View/Apply" at a dead internal route when a real `url` exists.
+
+### 3. Inbox-sourced matches
+For a match surfaced from a connected inbox (`source_platform: "email"`, empty `source_logo`), show a
+small **"From your inbox"** badge (an envelope icon) instead of a board logo. If that match has a `url`
+(a link the recruiter/alert included), link to it; if not, don't fake a link — just show the badge and
+the recruiter/company.
+
+### Scope
+Render `source_logo` / `source_display` as a prominent, clickable **"Via {board}"** badge that opens
+`url` in a new tab; keep company vs source logos distinct; inbox items get an envelope badge. No new
+endpoints.
+
+Acceptance: every match card shows the **source board's logo** (or "From your inbox" for email),
+clearly and separate from the company logo; clicking the source badge or **View** opens the real posting
+on that board in a new tab; and nothing routes to a dead internal page when a `url` exists.

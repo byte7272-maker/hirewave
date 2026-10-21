@@ -145,6 +145,7 @@ def matches(
                 added_ago=r.job.added_ago,
                 source_platform=r.job.source_platform,
                 source_display=r.job.source_display,
+                source_logo=r.job.source_logo,
                 category=r.job.category,
                 salary_range=r.job.salary_range,
                 salary_display=r.job.salary_display,

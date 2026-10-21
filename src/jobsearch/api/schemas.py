@@ -168,6 +168,9 @@ class MatchOut(BaseModel):
     added_ago: str = ""  # when it entered your matches (ingested) — e.g. "today", "3 days ago"
     source_platform: str = ""  # e.g. "linkedin"
     source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
+    #: Logo of the board this job came from (attribution). Empty for inbox-sourced →
+    #: the UI shows an "inbox" badge. The posting's direct link is ``url``.
+    source_logo: str = ""
     category: str = ""  # broad category (Engineering, Data & Analytics, …)
     #: Salary: structured range + a ready-to-display string ("$90k - $130k"); the
     #: string is empty when no salary is known.
