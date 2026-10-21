@@ -97,3 +97,18 @@ def test_api_import_email_dedupes_on_reimport():
 def test_api_import_email_requires_auth():
     client = _client()
     assert client.post("/api/v1/job-search/import-email", files={"file": ("a.eml", ALERT, "message/rfc822")}).status_code == 401
+
+
+def test_parse_unwraps_click_tracking_links():
+    # Modern alerts wrap the real job URL in a tracking redirect param — follow one level.
+    raw = (
+        "From: LinkedIn Job Alerts <jobs-noreply@linkedin.com>\n"
+        "Subject: new jobs\nContent-Type: text/html\n\n"
+        '<a href="https://click.linkedin.com/e/redirect?url=https%3A%2F%2Fwww.linkedin.com%2Fjobs%2Fview%2F9988">'
+        'Principal Data Engineer</a><span>Hooli &middot; Remote</span>'
+    )
+    alert = parse_job_alert(raw)
+    assert len(alert.postings) == 1
+    p = alert.postings[0]
+    assert p["title"] == "Principal Data Engineer"
+    assert p["url"] == "https://www.linkedin.com/jobs/view/9988"  # unwrapped destination

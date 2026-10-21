@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Optional
 from email import message_from_string
 from email.header import decode_header, make_header
 from email.utils import parseaddr
@@ -132,16 +133,20 @@ def _is_job_sender(domain: str) -> bool:
     return False
 
 
-def _company_from(sender_domain: str, subject: str) -> str:
+def _company_from(sender_domain: str, subject: str, body: str = "") -> str:
     """Best-effort company name. For an ATS domain like 'acme.greenhouse.io' or
     'acme.workday.com', the left-most label is usually the company; otherwise pull a
-    name out of 'your application to <Company>' / 'opportunity at <Company>'."""
-    m = re.search(
-        r"(?:application to|opportunity at|role at|interview with|from)\s+([A-Z][\w.& ]{1,40})",
-        subject or "",
+    name out of 'your application to <Company>' / 'opportunity at <Company>' / '… role
+    at <Company>' in the subject, then the body."""
+    pat = re.compile(
+        r"(?:application to|opportunity at|role at|position at|interview with|hiring at|from)\s+"
+        r"([A-Z][\w.& ]{1,40})"
     )
-    if m:
-        return m.group(1).strip().rstrip(".,!")
+    for text in (subject or "", body or ""):
+        m = pat.search(text)
+        if m:
+            # stop a body match at a sentence/clause boundary
+            return re.split(r"[.,;!\n]", m.group(1).strip())[0].strip()
     parts = (sender_domain or "").split(".")
     if len(parts) >= 3 and _is_job_sender(sender_domain) and parts[0] not in {"www", "mail", "jobs", "no-reply", "noreply", "us", "careers", "hire"}:
         return parts[0].replace("-", " ").title()
@@ -210,11 +215,33 @@ def classify_job_email(sender: str, subject: str, body: str = "") -> JobEmail:
         sender=sender or "",
         sender_domain=domain,
         subject=subject or "",
-        company=_company_from(domain, subject or ""),
+        company=_company_from(domain, subject or "", body or ""),
         role=_extract_role(subject or "", body or ""),
         link=_extract_link(subject or "", body or ""),
         status=_KIND_STATUS.get(kind, ""),
     )
+
+
+def email_to_posting(c: "JobEmail") -> Optional[dict]:
+    """Turn a classified job email into a posting dict for the aggregator — so the
+    opportunities a connected inbox surfaces (recruiter outreach, single-role alerts)
+    become real match cards, not just inbox entries. Uses the fields the classifier
+    already extracted (role / company / link). Returns None when there's no concrete
+    role to make a posting from (e.g. a multi-job digest — those are handled by the
+    HTML alert parser instead), so we never create junk 'match' cards."""
+    title = (c.role or "").strip()
+    if len(title) < 3 or title.lower() in ("the", "a", "an"):
+        return None
+    src = (c.sender_domain or "").split(".")[0] or "email"
+    return {
+        "source_platform": src,
+        "title": title,
+        "company": (c.company or "").strip(),
+        "url": (c.link or "").strip(),
+        "remote": "remote" in f"{c.subject} {c.role}".lower(),
+        "description": f"{(c.subject or title).strip()} — surfaced from a {c.kind} email in your connected inbox.",
+        "requirements": [],
+    }
 
 
 def scan_job_emails(emails: list[dict]) -> list[JobEmail]:

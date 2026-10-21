@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines.integration.engine import IntegrationError
-from jobsearch.engines.sourcing.job_email import classify_job_email, raw_to_fields
+from jobsearch.engines.sourcing.job_email import classify_job_email, email_to_posting, raw_to_fields
 from jobsearch.models import InboxMessage, Provider
 
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
@@ -93,8 +93,16 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
 
     job_raws = [raw for _, raw in job]
     # Ingest first so a posting carried by the email exists before routing can tie a
-    # new tracker row to it.
+    # new tracker row to it. The HTML alert parser pulls job-board postings out of
+    # digest emails.
     _, ingested = state.inbox.sync(user.id, job_raws) if job_raws else ([], 0)
+    # Also surface opportunities the classifier extracted that the HTML parser can't —
+    # recruiter outreach and single-role alerts become match cards (deduped by the
+    # aggregator against anything the parser already ingested).
+    email_postings = [p for c, _ in job if (p := email_to_posting(c))]
+    if email_postings:
+        res = state.aggregator.ingest(email_postings, sources={"email"})
+        ingested += res.ingested - res.hidden
     # Route progress-kind email (application/interview/offer/rejection) into the
     # applications tracker — one-way, no reply.
     routing = state.application_router.route(user.id, [c for c, _ in job])

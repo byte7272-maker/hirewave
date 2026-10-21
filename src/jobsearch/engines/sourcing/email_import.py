@@ -15,11 +15,24 @@ from email import message_from_bytes, message_from_string
 from email.utils import parseaddr
 from html.parser import HTMLParser
 from html import unescape
+from urllib.parse import unquote
 
 # hrefs that look like a real job posting …
 _JOB_URL = re.compile(r"(/jobs?/view|/viewjob|/job-listing|/jobs?/|/careers?/|[?&]jk=|/rc/clk|/comm/jobs|/partner/joblisting)", re.I)
 # … and ones that are clearly not.
 _NON_JOB = re.compile(r"(unsubscribe|/help|/settings|/login|/account|optout|mailto:|/feed|notification|/privacy|/legal)", re.I)
+# Click-tracking links wrap the real destination in a query param; follow one level so
+# job-URL detection sees the actual job URL (modern LinkedIn/Indeed/… alerts use these).
+_REDIR_PARAM = re.compile(r"[?&](?:url|u|redirect|redirect_url|redirecturl|target|dest|destination|link|joburl|r)=([^&]+)", re.I)
+
+
+def _unwrap(href: str) -> str:
+    m = _REDIR_PARAM.search(href or "")
+    if m:
+        inner = unquote(m.group(1))
+        if inner.startswith("http"):
+            return inner
+    return href or ""
 _CTA = {
     "view job", "view jobs", "see all", "see all jobs", "apply", "apply now", "view",
     "see more", "update", "settings", "help", "sign in", "easy apply", "save job",
@@ -102,7 +115,7 @@ def _postings_from_tokens(tokens: list[tuple], source: str) -> list[dict]:
     for i, tok in enumerate(tokens):
         if tok[0] != "link":
             continue
-        href, text = tok[1], unescape(tok[2])
+        href, text = _unwrap(tok[1]), unescape(tok[2])
         if not href or _NON_JOB.search(href) or not _JOB_URL.search(href):
             continue
         if not _is_title(text) or href in seen_urls:

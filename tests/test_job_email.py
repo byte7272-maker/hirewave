@@ -117,6 +117,37 @@ def test_mock_mail_source_scans_to_job_kinds():
     assert {"recruiter", "application", "interview", "rejection"} <= {e.kind for e in emails}
 
 
+def test_email_to_posting_from_recruiter_outreach():
+    from jobsearch.engines.sourcing.job_email import email_to_posting
+    rec = classify_job_email("jane@talent.com", "Opportunity",
+                             "Interested in your background for a Staff Engineer role at Globex.")
+    p = email_to_posting(rec)
+    assert p and p["title"] == "Staff Engineer" and p["company"] == "Globex"
+    # an alert with no concrete role -> None (left to the HTML parser)
+    alert = classify_job_email("jobs-noreply@linkedin.com", "5 new jobs for you", "...")
+    assert email_to_posting(alert) is None
+
+
+def test_scan_surfaces_recruiter_emails_as_matches():
+    # The mock mailbox includes a recruiter email (Staff Engineer @ Globex). After scan it
+    # should become a real match card, not just an inbox entry.
+    from fastapi.testclient import TestClient
+    from jobsearch.api.app import create_app
+    from jobsearch.api.state import AppState
+    from jobsearch.engines.integration import MockTokenExchanger
+
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    client.post("/api/v1/auth/register",
+                json={"email": "sr@demo.com", "password": "supersecret12", "full_name": "SR"})
+    tok = client.post("/api/v1/auth/login",
+                      json={"email": "sr@demo.com", "password": "supersecret12"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    data = client.post("/api/v1/inbox/scan", headers=h).json()
+    assert data["ingested"] >= 1  # recruiter/application roles surfaced as postings
+    matches = client.get("/api/v1/jobs/matches", headers=h).json()
+    assert any(m["company"] == "Globex" for m in matches)
+
+
 def test_scan_endpoint_filters_and_categorizes():
     from fastapi.testclient import TestClient
     from jobsearch.api.app import create_app
