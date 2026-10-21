@@ -8,6 +8,7 @@ disabled (403), so they are safe by default.
 
 from __future__ import annotations
 
+import re
 import secrets
 
 from fastapi import APIRouter, Header, HTTPException, status
@@ -98,3 +99,52 @@ def reject_template(
 ) -> ResumeTemplate:
     _require_admin(state, x_admin_token)
     return _set_template_status(state, template_id, "rejected")
+
+
+# --- prune seeded/demo job postings -----------------------------------------
+# Fictional companies used only in dev/demo fixtures (TV/movie stand-ins).
+_SEED_COMPANIES = {
+    "hooli", "initech", "initechww", "globex", "umbrella", "umbrella software", "umbrella.dev",
+    "stark industries", "northwind labs", "novacorp", "atlasco", "nimbusco",
+    "virtucon", "wernham hogg", "pied piper", "soylent corp",
+}
+# Auto-generated junk titles/companies: ID suffixes (z/r + long digits, bare long digit
+# runs), the joke "Subsea Kelp" role, and placeholder tokens (XYZ / QQ / ZZ / WW).
+_SEED_JUNK = re.compile(r"(\b[zr]\d{6,}\b|\b\d{7,}\b|subsea kelp|\b(?:xyz|qq|zz|ww)\b)", re.I)
+
+
+def _is_seed_job(job) -> bool:
+    """True for a dev/demo posting (fictional company or auto-generated junk). Never
+    matches a real posting (Sodexo, Accenture, …) or an inbox-sourced one."""
+    if (job.source_platform or "").lower() in ("email", "match"):
+        return False  # protect anything surfaced from a connected inbox
+    if (job.company or "").strip().lower() in _SEED_COMPANIES:
+        return True
+    return bool(_SEED_JUNK.search(job.title or "") or _SEED_JUNK.search(job.company or ""))
+
+
+@router.post("/prune-seed-jobs")
+def prune_seed_jobs(
+    state: StateDep, x_admin_token: str = Header(""), confirm: bool = False
+) -> dict:
+    """Remove seeded/demo job postings (fictional companies + auto-generated junk) from
+    the shared pool so real matches aren't buried. Dry run by default: returns what WOULD
+    be deleted (count + a sample). Pass ``confirm=true`` to actually delete. Inbox-sourced
+    postings are never touched."""
+    _require_admin(state, x_admin_token)
+    all_jobs = state.jobs.all()
+    targets = [j for j in all_jobs if _is_seed_job(j)]
+    deleted = 0
+    if confirm:
+        for j in targets:
+            if state.jobs.delete(j.id):
+                deleted += 1
+            state.verifications.pop(j.id, None)
+    return {
+        "total_jobs": len(all_jobs),
+        "matched": len(targets),
+        "deleted": deleted,
+        "remaining": len(all_jobs) - deleted,
+        "dry_run": not confirm,
+        "sample": [f"{(j.title or '?')} @ {(j.company or '?')}" for j in targets[:20]],
+    }
