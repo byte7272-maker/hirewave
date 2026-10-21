@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Header, HTTPException, status
+import json as _json
+
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines.integration.engine import IntegrationError
@@ -129,28 +131,100 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
     }
 
 
+# Inbound-email providers POST with different shapes; read the recipient, the raw
+# MIME, and the parts under any of their common field names so one webhook works for
+# SendGrid Inbound Parse, Mailgun Routes, Postmark, Cloudflare Email Workers, etc.
+_RECIP_KEYS = ("to", "To", "recipient", "OriginalRecipient", "original_recipient")
+_RAW_KEYS = ("email", "raw", "RawEmail", "mime", "MimeContent", "body-mime")
+_FROM_KEYS = ("from", "From", "sender", "FromFull")
+_SUBJ_KEYS = ("subject", "Subject")
+_TEXT_KEYS = ("text", "TextBody", "body-plain", "plain", "stripped-text")
+_HTML_KEYS = ("html", "HtmlBody", "body-html")
+
+
+async def _read_payload(request: Request) -> dict:
+    """Body as a flat dict, whether the provider sent JSON or form/multipart."""
+    ctype = (request.headers.get("content-type") or "").lower()
+    if "application/json" in ctype:
+        try:
+            data = await request.json()
+            return data if isinstance(data, dict) else {}
+        except Exception:  # noqa: BLE001
+            return {}
+    try:
+        form = await request.form()
+        return {k: (v if isinstance(v, str) else getattr(v, "filename", "")) for k, v in form.items()}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _first(d: dict, keys: tuple) -> str:
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v
+    return ""
+
+
+def _recipient(d: dict) -> str:
+    """The delivered-to address (contains ``jobs+<token>@…``)."""
+    v = _first(d, _RECIP_KEYS)
+    if v:
+        return v
+    env = d.get("envelope")  # SendGrid sends {"to":["x@.."],"from":".."} (JSON string)
+    if env:
+        try:
+            e = env if isinstance(env, dict) else _json.loads(env)
+            tos = e.get("to")
+            if isinstance(tos, list) and tos:
+                return str(tos[0])
+            if isinstance(tos, str):
+                return tos
+        except Exception:  # noqa: BLE001
+            pass
+    return ""
+
+
+def _raw_message(d: dict) -> str:
+    """Prefer the full raw MIME; otherwise synthesize a minimal RFC 822 message from
+    the parsed parts so the alert parser can still read sender/subject/links."""
+    raw = _first(d, _RAW_KEYS)
+    if raw:
+        return raw
+    frm, subj = _first(d, _FROM_KEYS), _first(d, _SUBJ_KEYS)
+    text, html = _first(d, _TEXT_KEYS), _first(d, _HTML_KEYS)
+    headers = []
+    if frm:
+        headers.append(f"From: {frm}")
+    if subj:
+        headers.append(f"Subject: {subj}")
+    headers.append("Content-Type: text/plain" if (text or not html) else "Content-Type: text/html")
+    return "\n".join(headers) + "\n\n" + (text or html)
+
+
 @router.post("/inbound")
 async def inbound(
+    request: Request,
     state: StateDep,
-    to: str = Form(...),
-    email: str = Form(default=""),
-    html: str = Form(default=""),
-    text: str = Form(default=""),
+    secret: str = Query(default=""),
     x_inbox_secret: str = Header(default="", alias="X-Inbox-Secret"),
 ) -> dict:
-    """Webhook for an inbound-email provider (SendGrid/Postmark/Mailgun).
+    """Webhook for an inbound-email provider (SendGrid / Mailgun / Postmark / Cloudflare).
 
-    Routes a received email to the user whose forwarding token matches ``to``,
-    files it in their inbox, and ingests any job links. Gated by a shared secret
-    (blank secret = allow, for local testing). Unknown recipients are silently
-    accepted so the endpoint can't be used to probe which addresses exist.
+    Routes a received email to the user whose forwarding token matches the recipient,
+    files it in their inbox, and ingests any job links. Accepts JSON or form bodies and
+    the common per-provider field names. Gated by a shared secret, supplied either as the
+    ``X-Inbox-Secret`` header or a ``?secret=`` query param (providers that can't add
+    headers use the query). Blank configured secret = allow (local testing). Unknown
+    recipients are silently accepted so the endpoint can't be used to probe addresses.
     """
-    secret = state.settings.inbox_webhook_secret
-    if secret and x_inbox_secret != secret:
+    expected = state.settings.inbox_webhook_secret
+    provided = x_inbox_secret or secret
+    if expected and provided != expected:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid webhook secret")
-    target = state.inbox.user_for_address(to)
+    data = await _read_payload(request)
+    target = state.inbox.user_for_address(_recipient(data))
     if target is None:
         return {"accepted": False}
-    raw = email or html or text
-    msg, result = state.inbox.receive(target.id, raw)
+    msg, result = state.inbox.receive(target.id, _raw_message(data))
     return {"accepted": True, "message_id": msg.id, "ingested": result.ingested}

@@ -50,6 +50,45 @@ def test_inbound_webhook_routes_and_ingests():
     assert any(m["company"] == "Datadog" for m in matches)
 
 
+def test_inbound_accepts_json_body_postmark_style():
+    # Postmark/Cloudflare POST JSON, not form — recipient + raw MIME under capitalized keys.
+    client = _client()
+    a = _auth(client, "pm@x.com")
+    addr = client.get("/api/v1/inbox/address", headers=a).json()["address"]
+    r = client.post("/api/v1/inbox/inbound", json={"To": addr, "RawEmail": ALERT})
+    assert r.status_code == 200 and r.json()["accepted"] is True and r.json()["ingested"] == 2
+
+
+def test_inbound_synthesizes_from_parts_when_no_raw_mime():
+    # Mailgun-style: no raw MIME, just from/subject/html parts — we build a message.
+    client = _client()
+    a = _auth(client, "mg@x.com")
+    addr = client.get("/api/v1/inbox/address", headers=a).json()["address"]
+    r = client.post("/api/v1/inbox/inbound", data={
+        "recipient": addr, "from": "LinkedIn <jobs-noreply@linkedin.com>",
+        "subject": "2 new jobs", "html": '<a href="https://www.linkedin.com/jobs/view/501">SRE</a>',
+    })
+    assert r.status_code == 200 and r.json()["accepted"] is True
+
+
+def test_inbound_secret_via_query_param():
+    # Providers that can't set a header pass the secret as ?secret=.
+    from jobsearch.config import Settings
+    state = AppState(settings=Settings(inbox_webhook_secret="shh"), exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    a = _auth(client, "sec@x.com")
+    addr = client.get("/api/v1/inbox/address", headers=a).json()["address"]
+    # wrong/no secret -> 401
+    assert client.post("/api/v1/inbox/inbound", data={"to": addr, "email": ALERT}).status_code == 401
+    # correct secret via query -> ok
+    ok = client.post("/api/v1/inbox/inbound?secret=shh", data={"to": addr, "email": ALERT})
+    assert ok.status_code == 200 and ok.json()["accepted"] is True
+    # correct secret via header -> ok
+    ok2 = client.post("/api/v1/inbox/inbound", data={"to": addr, "email": ALERT},
+                      headers={"X-Inbox-Secret": "shh"})
+    assert ok2.status_code == 200
+
+
 def test_inbound_unknown_recipient_silently_accepted():
     client = _client()
     _auth(client, "a@x.com")
