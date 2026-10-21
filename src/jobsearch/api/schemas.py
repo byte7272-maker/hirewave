@@ -166,11 +166,15 @@ class MatchOut(BaseModel):
     remote: bool = False
     posted_ago: str = ""  # how fresh the posting is — e.g. "2 days ago" (empty when unknown)
     added_ago: str = ""  # when it entered your matches (ingested) — e.g. "today", "3 days ago"
-    source_platform: str = ""  # e.g. "linkedin"
-    source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
+    source_platform: str = ""  # raw source as ingested, e.g. "linkedin", "match"
+    source_slug: str = ""  # canonical board key ("match"→"indeed"); "email" = inbox
+    source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn", "Indeed"
     #: Logo of the board this job came from (attribution). Empty for inbox-sourced →
     #: the UI shows an "inbox" badge. The posting's direct link is ``url``.
     source_logo: str = ""
+    #: Where to open the source board: the direct posting ``url`` when known, else a
+    #: board search for this role so the user can still go straight to the source.
+    source_url: str = ""
     category: str = ""  # broad category (Engineering, Data & Analytics, …)
     #: Salary: structured range + a ready-to-display string ("$90k - $130k"); the
     #: string is empty when no salary is known.
@@ -302,7 +306,10 @@ class JobCard(BaseModel):
     remote: bool = False
     url: str = ""
     source_platform: str = ""
+    source_slug: str = ""  # canonical board key ("match"→"indeed"); "email" = inbox
     source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
+    source_logo: str = ""  # board logo for attribution (empty for inbox-sourced)
+    source_url: str = ""  # direct posting link, else a board search for this role
     category: str = ""
     posted_ago: str = ""
     salary_range: Optional[SalaryRange] = None
@@ -319,7 +326,10 @@ class JobCard(BaseModel):
             remote=job.remote,
             url=job.url,
             source_platform=job.source_platform,
+            source_slug=job.source_slug,
             source_display=job.source_display,
+            source_logo=job.source_logo,
+            source_url=job.source_url,
             category=job.category,
             posted_ago=job.posted_ago,
             salary_range=job.salary_range,

@@ -32,6 +32,34 @@ def test_mock_source_returns_multi_board_with_dup_and_scam():
     assert any(r["company"] == "QuickCash Global" for r in rows)  # a scam to filter
 
 
+def test_source_attribution_logo_name_and_link():
+    """Every known board resolves a recognizable name + logo + a click-through link,
+    and aliases (e.g. Indeed's match.* digests) normalize to the real board."""
+    from jobsearch.models import JobPosting
+
+    # A known board with a direct posting URL -> credits the board, links straight to it.
+    li = JobPosting(source_platform="linkedin", title="Data Analyst", company="Acme",
+                    url="https://linkedin.com/jobs/view/123")
+    assert li.source_slug == "linkedin"
+    assert li.source_display == "LinkedIn"
+    assert li.source_logo == "https://logo.clearbit.com/linkedin.com"
+    assert li.source_url == "https://linkedin.com/jobs/view/123"  # direct link preferred
+
+    # Indeed "jobs that match you" digests arrive as "match" -> normalized to Indeed,
+    # and with no posting URL we still link straight to an Indeed search for the role.
+    m = JobPosting(source_platform="match", title="Client Service Manager", company="Sodexo")
+    assert m.source_slug == "indeed"
+    assert m.source_display == "Indeed"
+    assert m.source_logo == "https://logo.clearbit.com/indeed.com"
+    assert m.source_url.startswith("https://www.indeed.com/jobs?q=")
+    assert "Client+Service+Manager" in m.source_url and "Sodexo" in m.source_url
+
+    # Inbox-sourced (no board) -> no board logo (UI shows an inbox badge), no board link.
+    e = JobPosting(source_platform="email", title="Role", company="Co")
+    assert e.source_slug == "email"
+    assert e.source_logo == "" and e.source_url == ""
+
+
 def test_aggregate_dedupes_and_hides_scam():
     agg, jobs, verifications = _aggregator()
     r = agg.search(JobQuery(role="Backend Engineer", location="Remote"))

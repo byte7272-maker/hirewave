@@ -1560,6 +1560,12 @@ the **company** mark separately, and **"Posted … · Added …"** dates; the li
 
 ## P17 — Matches: show the source board's logo and link straight to it (Hirewave complements boards)
 
+> **Superseded by [P18](#p18--matches-always-resolve-a-board-logo--a-direct-source-link).** P18 keeps
+> everything here and fixes the two gaps that showed up live: the badge now uses the normalized
+> **`source_slug`** (so Indeed's `match.*` digests read "Indeed", not "Match") and links via
+> **`source_url`** (a direct posting link when known, else a board search), so the "go to the source"
+> button is never dead. Read P18 for the current spec.
+
 Hirewave surfaces and ranks jobs, but it should **credit and send traffic to the board the job lives on**
 — it complements LinkedIn/Indeed/etc., it doesn't hide them. Today the source shows as a tiny 2-letter
 chip and the card doesn't clearly go to the real posting. Fix it. Display only (the API now returns a
@@ -1596,3 +1602,59 @@ endpoints.
 Acceptance: every match card shows the **source board's logo** (or "From your inbox" for email),
 clearly and separate from the company logo; clicking the source badge or **View** opens the real posting
 on that board in a new tab; and nothing routes to a dead internal page when a `url` exists.
+
+---
+
+## P18 — Matches: always resolve a board logo + a direct source link
+
+Finishes P16/P17. The source badge was showing the raw word **"Match"** with no logo and no working
+link, because those jobs came from Indeed's "jobs that match you" digests (`source_platform: "match"`)
+and had no individual posting URL. The backend now normalizes and resolves this for you — **this prompt
+is display only**, no new endpoints. Each match (and each saved/applied job card) now returns:
+
+- **`source_slug`** — the *canonical* board key, already de-aliased: `match` → `indeed`, `li` →
+  `linkedin`, etc. **Use this (not `source_platform`) to pick the brand mark.** `"email"` means it came
+  from the connected inbox.
+- **`source_display`** — the clean board name for that slug ("LinkedIn", "Indeed", "Glassdoor",
+  "Monster", "ZipRecruiter", "Dice", "CareerBuilder", "SimplyHired", …). Never shows a cryptic alias.
+- **`source_logo`** — the board's logo image URL (empty only for inbox-sourced).
+- **`source_url`** — **where to go to reach the source**: the direct posting link when we have one,
+  otherwise a **board search for this exact role** on that board (e.g. an Indeed search for the title +
+  company). This is **always populated for a known board**, so the "go to the source" action is never
+  dead. (Empty only for inbox-sourced jobs with no link.)
+
+### 1. Prominent, recognizable board logos
+For the boards the user named and every other known board — **LinkedIn, Glassdoor, Indeed, Monster,
+ZipRecruiter, Dice, CareerBuilder, SimplyHired, Wellfound, Greenhouse, Lever** — show a confident,
+instantly recognizable brand badge on each card, keyed by **`source_slug`**:
+- Prefer a crisp built-in brand icon for the slug (e.g. a Simple Icons / brand-icon set) rendered in the
+  board's brand color, so it's sharp at small sizes. Use **`source_logo`** as the image source / fallback,
+  and if that also fails, a clean text pill with **`source_display`**. Never render the raw slug or a
+  2-letter stub ("ma", "Match", "li").
+- Make it a **"Via {source_display}"** badge with the logo — prominent at a glance, placed consistently
+  (e.g. top-right of the card or beside the title), not buried in small print.
+- Keep it **distinct from the company logo** (`company_logo`): company = who's hiring; board = where
+  Hirewave found it. Show both.
+
+### 2. One obvious, always-working link to the premium source
+- The source badge **and** a clear secondary action labeled **"View on {source_display}"** both open
+  **`source_url`** in a **new tab** (`target="_blank" rel="noopener noreferrer"`).
+- Because `source_url` falls back to a role-specific board search, this works even for digest/recruiter
+  matches with no direct posting URL — the user still lands on that board, searching for this role.
+- Treat this as Hirewave being **complementary, not adversarial**: Hirewave ranks and explains the match;
+  the board owns the listing and the apply. Give the board the credit and the click.
+
+### 3. Inbox-sourced matches (unchanged)
+When `source_slug` is `"email"` (empty `source_logo`/`source_url`), show the small **"From your inbox"**
+envelope badge instead of a board logo, and don't fabricate a link.
+
+### Scope
+Display of `source_slug` / `source_display` / `source_logo` / `source_url` (and the same four fields now
+on saved/applied **job cards**) as a prominent, clickable **"Via {board}"** badge + a **"View on
+{board}"** action opening `source_url` in a new tab. No new endpoints.
+
+Acceptance: no match ever shows a raw/cryptic source word — Indeed `match.*` digests read **"Indeed"**
+with the Indeed mark; every known board (LinkedIn/Glassdoor/Indeed/Monster/ZipRecruiter/Dice/…) shows a
+recognizable logo distinct from the company logo; the source badge and **"View on {board}"** both open
+`source_url` in a new tab and are never dead (digest/recruiter matches open a board search for the role);
+inbox-sourced matches show the envelope badge with no fake link.

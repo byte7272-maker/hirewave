@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
+from urllib.parse import quote_plus
 
 from pydantic import Field, computed_field
 
@@ -15,6 +16,7 @@ from jobsearch.models.user import SalaryRange
 _SOURCE_NAMES = {
     "linkedin": "LinkedIn", "indeed": "Indeed", "glassdoor": "Glassdoor",
     "monster": "Monster", "ziprecruiter": "ZipRecruiter", "dice": "Dice",
+    "careerbuilder": "CareerBuilder", "simplyhired": "SimplyHired",
     "greenhouse": "Greenhouse", "lever": "Lever", "wellfound": "Wellfound",
     "aggregator": "Aggregator", "email": "Your inbox",
 }
@@ -24,8 +26,42 @@ _SOURCE_NAMES = {
 _SOURCE_DOMAINS = {
     "linkedin": "linkedin.com", "indeed": "indeed.com", "glassdoor": "glassdoor.com",
     "monster": "monster.com", "ziprecruiter": "ziprecruiter.com", "dice": "dice.com",
+    "careerbuilder": "careerbuilder.com", "simplyhired": "simplyhired.com",
     "wellfound": "wellfound.com", "greenhouse": "greenhouse.io", "lever": "lever.co",
 }
+
+# Normalize the many ways a board's name reaches us (sender sub-domains, abbreviations,
+# old aliases) down to one canonical slug, so the display/logo/link all agree. E.g.
+# Indeed's "jobs that match you" digests arrive from ``match.indeed.com`` → "match".
+_SOURCE_ALIASES = {
+    "match": "indeed", "e": "indeed", "indeedemail": "indeed", "indeedapply": "indeed",
+    "li": "linkedin", "linkedin.com": "linkedin",
+    "glassdoor.com": "glassdoor", "gd": "glassdoor",
+    "monster.com": "monster", "ziprecruiter.com": "ziprecruiter", "zip": "ziprecruiter",
+    "angellist": "wellfound", "angel": "wellfound",
+}
+
+# Per-board search URL so a match can link straight to the source board even when we
+# don't have the individual posting URL (e.g. recruiter/digest emails). ``{q}`` is the
+# role + company, URL-encoded. The direct posting ``url`` is always preferred when present.
+_SOURCE_SEARCH = {
+    "linkedin": "https://www.linkedin.com/jobs/search/?keywords={q}",
+    "indeed": "https://www.indeed.com/jobs?q={q}",
+    "glassdoor": "https://www.glassdoor.com/Job/jobs.htm?sc.keyword={q}",
+    "monster": "https://www.monster.com/jobs/search?q={q}",
+    "ziprecruiter": "https://www.ziprecruiter.com/jobs-search?search={q}",
+    "dice": "https://www.dice.com/jobs?q={q}",
+    "careerbuilder": "https://www.careerbuilder.com/jobs?keywords={q}",
+    "simplyhired": "https://www.simplyhired.com/search?q={q}",
+    "wellfound": "https://wellfound.com/jobs?q={q}",
+}
+
+
+def normalize_source(source_platform: str) -> str:
+    """Canonical board slug for a raw source value ("match" -> "indeed", "LI" ->
+    "linkedin"). Returns the lower-cased input unchanged when there is no alias."""
+    s = (source_platform or "").strip().lower()
+    return _SOURCE_ALIASES.get(s, s)
 
 
 def _money(amount: Optional[int], currency: str) -> str:
@@ -58,9 +94,10 @@ def format_salary(salary: "Optional[SalaryRange]") -> str:
 
 
 def source_display_name(source_platform: str) -> str:
-    """A nicely-cased board name for display (``linkedin`` -> ``LinkedIn``)."""
-    s = (source_platform or "").strip()
-    return _SOURCE_NAMES.get(s.lower(), s.title()) if s else ""
+    """A nicely-cased board name for display (``linkedin`` -> ``LinkedIn``,
+    ``match`` -> ``Indeed``)."""
+    slug = normalize_source(source_platform)
+    return _SOURCE_NAMES.get(slug, slug.title()) if slug else ""
 
 
 def company_logo_from(domain: str) -> str:
@@ -182,11 +219,27 @@ class JobPosting(DomainModel):
     def company_logo(self) -> str:
         return self.company_logo_url or company_logo_from(self.company_domain)
 
+    @computed_field  # canonical board slug ("match" -> "indeed"); "" when unknown. The
+    @property        # UI can map this to a bundled brand icon; "email" = inbox-sourced.
+    def source_slug(self) -> str:
+        return normalize_source(self.source_platform)
+
     @computed_field  # logo of the board/source this posting came from (attribution);
     @property        # empty for inbox-sourced — the UI shows an inbox badge instead
     def source_logo(self) -> str:
-        dom = _SOURCE_DOMAINS.get((self.source_platform or "").lower(), "")
+        dom = _SOURCE_DOMAINS.get(self.source_slug, "")
         return company_logo_from(dom) if dom else ""
+
+    @computed_field  # where to open the source: the direct posting ``url`` when known,
+    @property        # else a board search for this role so the user can still go direct
+    def source_url(self) -> str:
+        if self.url:
+            return self.url
+        tmpl = _SOURCE_SEARCH.get(self.source_slug, "")
+        if not tmpl:
+            return ""
+        q = quote_plus(" ".join(p for p in (self.title, self.company) if p).strip())
+        return tmpl.format(q=q) if q else ""
 
     @computed_field  # True when another kept posting looks like the same job (cross-board)
     @property
