@@ -179,6 +179,10 @@ def create_app(
                 "gmail_configured": s.settings.oauth_available("gmail"),
                 "linkedin_configured": s.settings.oauth_available("linkedin"),
             },
+            # "http" => the live Gmail fetcher actually reads connected Gmail (for the
+            # scheduled reap + Scan); "mock" => offline, so a connected Gmail imports
+            # nothing. Must be "http" in production for email-reap to work.
+            "gmail_fetch": s.settings.gmail_fetch,
         }
 
     @app.get("/health/worker", tags=["meta"])
