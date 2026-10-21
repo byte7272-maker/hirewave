@@ -1415,3 +1415,101 @@ a provider when `oauth_available` is false.
 Acceptance: with OAuth unset, the Gmail card shows "not set up" + the forwarding address and a working
 **Scan now**, and there is **no** button that bounces to Google's error page; with OAuth set
 (`oauth_available:true`), **Connect Gmail** runs the real consent flow and shows Connected.
+
+---
+
+## P14 — Integrations in the sidebar + friendly post-connect (toast + "pull now")
+
+Two small gaps: the **Integrations page isn't reachable from the menu** (users have to type the URL),
+and after connecting Gmail the browser lands on a raw `{"connected":"gmail"}` page instead of coming
+back into the app. Make it clean and guided. Display + one scan call; no new endpoints.
+
+### 1. Add "Integrations" to the sidebar
+Add a left-nav item **Integrations** → `/dashboard/integrations` (an icon like a plug/link). Put it near
+account/settings items. Note the existing **"Connections"** item is the *peer network* (social), which
+is easy to confuse with connecting apps — consider renaming it **"People"** or **"Network"** so
+"Integrations" is clearly the place to connect Gmail / job sites.
+
+### 2. Come back into the app after connecting (not a JSON page)
+The OAuth callback redirects to the configured success URL with `?connected=<provider>` or
+`?error=<reason>` (the backend var `JOBSEARCH_OAUTH_SUCCESS_REDIRECT` points at
+`https://hlrtlg.readdy.co/dashboard/integrations`). On the Integrations page:
+- On **`?connected=gmail`** → show a success toast **"Gmail connected ✓"**, refresh the connected-apps
+  state so the card flips to **Connected**, and strip the query param from the URL.
+- On **`?error=...`** → show a friendly inline message (e.g. "Couldn't connect Gmail — try again"),
+  not a stack trace; map `exchange_failed`/`invalid_state`/`access_denied` to plain language.
+
+### 3. Prompt the first pull on connect (the key ask)
+Immediately after a successful Gmail connect, **ask the user to run the first import** — don't make them
+hunt for the Scan button:
+- Show a small prompt/modal: **"Pull your job alerts from Gmail now?"** with a primary **"Pull now"** and
+  a secondary "Later".
+- **Pull now** → `POST /api/v1/inbox/scan?source=gmail` → show the result inline: **"Added N roles to
+  your matches"** (from `ingested` / `job_found`), with a link to **Matches**. Make clear it reads only
+  job email.
+- "Later" → dismiss; the scheduled reap will pick it up anyway. Don't nag again automatically.
+
+**Scope.** Sidebar entry + success/error handling of the redirect param + a one-time post-connect scan
+prompt. No new backend (the scan + connected-apps endpoints exist; the redirect is a server env var).
+
+Acceptance: **Integrations** is reachable from the sidebar; after Connect Gmail the user lands back on
+the Integrations page with a "Connected ✓" toast (no JSON page) and is prompted **"Pull your job alerts
+now?"**, which runs the scan and reports how many roles were added.
+
+---
+
+## P15 — Auto-apply: make the premiere feature simple (consolidate the 4-tab hub)
+
+Auto-apply is the flagship feature but today its page is a **4-tab hub — Pipeline · Authenticated apps ·
+Auto-apply rules · Apply queue** — that **duplicates other pages** and buries the actual automation.
+Refocus it so the premiere action is obvious and the duplication is gone. Display/IA only; reuse
+existing endpoints.
+
+### The core idea
+Auto-apply is **one promise**: *"Project Harbor applies to matching jobs for you — and never sends
+without your approval."* The page should make exactly that easy, in a simple top-to-bottom flow, not a
+tabbed everything-dashboard. Lead with the safety line prominently.
+
+### 1. Reduce to three clear steps (no tabs)
+Lay it out as a simple guided flow:
+1. **Connect where you apply** — a compact status of the sites connected for auto-apply (LinkedIn,
+   Indeed, …) with a **Connect** that deep-links to **Integrations** (don't rebuild site-connection UI
+   here). Show "Connected ✓ / Not connected" per site, nothing more.
+2. **Set your rule** — the heart of it: one clear rule builder — *"Auto-apply to roles matching
+   {title/keywords}, {location/remote}, ≥ {salary}, fit ≥ {score}"* with a big **On/Off** and the
+   standing-rule endpoints already in use. Show the rule in plain English ("On — applies to Senior
+   Backend Engineer, remote, ≥$150k, with your approval").
+3. **Approve & track** — the **Apply queue** (review → Approve/Skip each pending apply). This is the
+   daily action; make it the most visible working area.
+
+### 2. Remove the duplicates (link, don't re-render)
+- **Pipeline tab** (Draft/Submitted/Interviewing/Offer + stage board) **duplicates the Applications
+  tracker.** Drop the full board here; show at most a tiny summary ("12 in pipeline · 2 interviewing")
+  that links to **Applications**. One place to track applications.
+- **Authenticated apps tab** **duplicates Integrations/Connections.** Replace with the compact
+  connected-sites status in step 1 that links to **Integrations**.
+- **"Top matches to add"** **duplicates Matches.** Drop the re-ranked match cards; link to **Matches**
+  ("Add more from your matches →").
+- The separate **"Approvals"** sidebar item and the **Apply queue** are the same thing — keep **one**
+  (the queue in step 3) and point the other at it.
+
+### 3. Clean up the noise
+- The **"Project Harbor Connect … update available"** banner is loud — make it a small, dismissible
+  chip, not a headline.
+- The pipeline/matches are full of **seeded test rows** (e.g. "…z1788415338", "Director of IT Operations
+  XYZ" repeated) — those are test data to prune (data cleanup, separate from this UI).
+
+### 4. Keep the trust front-and-center
+Keep a persistent, plain line near the top: **"Nothing is submitted without your approval."** Auto-apply
+prepares applications; the user approves each from the queue. This is the product's core promise — don't
+bury it.
+
+**Scope.** One simple page: connect (→ Integrations) · set rule · approve queue; everything else links to
+its canonical page (Applications, Matches, Integrations). Reuse the existing auto-apply rule / queue /
+connected-apps endpoints. No new backend.
+
+Acceptance: opening Auto-apply shows a simple three-step flow (connect sites · set rule · approve queue)
+with the "nothing sent without approval" promise visible; there are **no** duplicated Pipeline board,
+site-connection UI, or match-ranking on the page (each links to Applications / Integrations / Matches);
+the rule has one clear On/Off and reads in plain English; and the update banner is a small dismissible
+chip.
