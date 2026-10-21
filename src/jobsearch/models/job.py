@@ -145,6 +145,30 @@ class JobPosting(DomainModel):
             return "1 month ago"
         return f"{d // 30} months ago"
 
+    @computed_field  # serialized: human-readable "added X ago" — when this posting
+    @property        # entered your pool (from first_seen_at), i.e. when we ingested it
+    def added_ago(self) -> str:
+        seen = self.first_seen_at
+        now = utcnow()
+        if seen.tzinfo is None:
+            now = now.replace(tzinfo=None)
+        elif now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        d = max(0, (now - seen).days)
+        if d == 0:
+            return "today"
+        if d == 1:
+            return "yesterday"
+        if d < 7:
+            return f"{d} days ago"
+        if d < 14:
+            return "1 week ago"
+        if d < 31:
+            return f"{d // 7} weeks ago"
+        if d < 60:
+            return "1 month ago"
+        return f"{d // 30} months ago"
+
     @computed_field  # resolved logo for display: explicit source logo, else domain-derived
     @property
     def company_logo(self) -> str:

@@ -142,6 +142,7 @@ def matches(
                 location=r.job.location,
                 remote=r.job.remote,
                 posted_ago=r.job.posted_ago,
+                added_ago=r.job.added_ago,
                 source_platform=r.job.source_platform,
                 source_display=r.job.source_display,
                 category=r.job.category,

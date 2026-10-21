@@ -164,7 +164,8 @@ class MatchOut(BaseModel):
     url: str = ""
     location: str = ""
     remote: bool = False
-    posted_ago: str = ""  # e.g. "2 days ago" (empty when unknown)
+    posted_ago: str = ""  # how fresh the posting is — e.g. "2 days ago" (empty when unknown)
+    added_ago: str = ""  # when it entered your matches (ingested) — e.g. "today", "3 days ago"
     source_platform: str = ""  # e.g. "linkedin"
     source_display: str = ""  # nicely-cased board name, e.g. "LinkedIn"
     category: str = ""  # broad category (Engineering, Data & Analytics, …)

@@ -232,7 +232,14 @@ def email_to_posting(c: "JobEmail") -> Optional[dict]:
     title = (c.role or "").strip()
     if len(title) < 3 or title.lower() in ("the", "a", "an"):
         return None
-    src = (c.sender_domain or "").split(".")[0] or "email"
+    dom = (c.sender_domain or "").lower()
+    # Clean source label: a known board when the sender is one, else "email" (so a
+    # recruiter from talent-partners.com reads "email", not "talent").
+    src = next(
+        (b for b in ("linkedin", "indeed", "glassdoor", "ziprecruiter", "monster", "dice", "wellfound")
+         if b in dom),
+        "email",
+    )
     return {
         "source_platform": src,
         "title": title,

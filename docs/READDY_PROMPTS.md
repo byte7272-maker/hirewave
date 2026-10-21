@@ -1513,3 +1513,45 @@ with the "nothing sent without approval" promise visible; there are **no** dupli
 site-connection UI, or match-ranking on the page (each links to Applications / Integrations / Matches);
 the rule has one clear On/Off and reads in plain English; and the update banner is a small dismissible
 chip.
+
+---
+
+## P16 — Matches: prominent source logo + freshness/added dates + show the real ingested data
+
+Three fixes to the match cards. The backend now returns everything needed — this is display.
+
+### 1. Make the source of each job prominent
+Every match says where it came from via **`source_platform`** / **`source_display`** (e.g. `linkedin`,
+`indeed`, `glassdoor`, or **`email`** for one surfaced from your connected inbox). Show it clearly on
+the card:
+- A recognizable **source badge/logo** for the board (LinkedIn / Indeed / Glassdoor / ZipRecruiter /
+  Monster / Dice), using `source_platform` to pick the mark; label it with `source_display`.
+- For **`source_platform: "email"`**, show a small **inbox badge — "From your inbox"** so the user
+  knows it came from a connected email (recruiter outreach / alert), not a board scrape.
+- Keep this distinct from the **company** logo (`company_logo`, which may be empty → fall back to a
+  company lettermark). Company = who's hiring; source = where we found it. Show both, don't conflate.
+
+### 2. Show both dates (freshness AND when it was added)
+Cards currently show no dates. The API now returns two:
+- **`posted_ago`** — how fresh the *posting* is ("Posted 3 days ago"). Empty when unknown → hide.
+- **`added_ago`** — when it entered *your* matches / was ingested ("Added today", "Added 2 days ago").
+Show them together, e.g. **"Posted 5 days ago · Added today"**. Mute an old `posted_ago` (> ~3 weeks)
+and tag it "Older" (per P12), so a stale posting is obvious even if it was just ingested.
+
+### 3. Show the real ingested data (nothing fabricated or stale)
+- Render match cards **only** from the live `GET /api/v1/jobs/matches` response — never sample/placeholder
+  cards, and don't cache a stale list across a refresh. What's on screen must equal what the API returns
+  right now (after a scan/reap, the new roles appear on the next fetch/refresh).
+- The pool still contains **seeded test postings** ("…z1788415338", "Director of IT Operations XYZ",
+  "…QQ/WW/ZZ") that drown the real ones. Those must be **pruned from the account's job pool** (a data
+  cleanup, separate from this UI) so the user sees their genuine matches — including the email-sourced
+  ones — not test rows.
+
+### Scope
+Display of `source_platform`/`source_display`/`company_logo` + `posted_ago`/`added_ago`, straight from
+`/jobs/matches`. No new endpoints.
+
+Acceptance: each match card shows a clear **source badge** (board logo, or "From your inbox" for email),
+the **company** mark separately, and **"Posted … · Added …"** dates; the list is exactly what
+`/jobs/matches` returns (no sample data); and once test postings are pruned, the real ingested matches
+(including inbox-sourced ones) are what's shown.
