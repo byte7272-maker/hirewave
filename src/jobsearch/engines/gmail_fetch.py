@@ -61,11 +61,17 @@ class HttpGmailAlertFetcher:
 
     def __init__(self, *, timeout: float = 20.0) -> None:
         self._timeout = timeout
+        #: Why the last fetch returned nothing (surfaced by /inbox/scan for debugging):
+        #: "" on success, else e.g. "list 403: Gmail API has not been used…", "no messages
+        #: matched query", "no access token". Never raises — the reap stays best-effort.
+        self.last_error = ""
 
     def fetch(self, *, access_token: str = "", max_messages: int = 10) -> list[str]:  # pragma: no cover - network
         import httpx
 
+        self.last_error = ""
         if not access_token:
+            self.last_error = "no access token"
             return []
         headers = {"Authorization": f"Bearer {access_token}"}
         try:
@@ -75,8 +81,14 @@ class HttpGmailAlertFetcher:
             )
             listing.raise_for_status()
             ids = [m["id"] for m in listing.json().get("messages", [])]
-        except (httpx.HTTPError, ValueError, KeyError):
+        except httpx.HTTPStatusError as exc:
+            self.last_error = f"list {exc.response.status_code}: {exc.response.text[:200]}"
             return []
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            self.last_error = f"list failed: {type(exc).__name__}"
+            return []
+        if not ids:
+            self.last_error = "no messages matched the job-alert query"
         raws: list[str] = []
         for mid in ids:
             try:

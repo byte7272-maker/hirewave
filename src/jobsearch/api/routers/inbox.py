@@ -107,6 +107,9 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
         "fetched": len(raws),
         "job_found": len(job),
         "ingested": ingested,
+        # When a Gmail scan fetched nothing, say WHY (API disabled, no match, token) so a
+        # misconfig is diagnosable instead of looking like an empty inbox. "" = no issue.
+        "gmail_error": getattr(state.gmail_fetcher, "last_error", "") if source == "gmail" and not raws else "",
         "by_kind": by_kind,
         "tracker": {
             "routed": routing.routed,
