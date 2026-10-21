@@ -14,7 +14,17 @@ from typing import Optional, Protocol, runtime_checkable
 from jobsearch.config import Settings, get_settings
 
 # Which senders count as job alerts (used by the real Gmail query).
-_ALERT_QUERY = "from:(linkedin.com OR indeed.com OR glassdoor.com OR ziprecruiter.com OR monster.com) newer_than:7d"
+# Pull recent mail from the job boards AND the ATS/recruiting platforms that send
+# alerts/confirmations (greenhouse, lever, workday, …) — the senders the classifier
+# already recognizes — over a 30-day window. The `from:(...)` filter is the privacy
+# gate at the Gmail-API level: only job-sender mail is ever read in.
+_ALERT_SENDERS = (
+    "linkedin.com", "indeed.com", "glassdoor.com", "ziprecruiter.com", "monster.com",
+    "dice.com", "wellfound.com", "builtin.com", "hired.com", "otta.com",
+    "greenhouse.io", "greenhouse-mail.io", "lever.co", "myworkday.com", "icims.com",
+    "smartrecruiters.com", "ashbyhq.com", "jobvite.com", "workable.com",
+)
+_ALERT_QUERY = "from:(" + " OR ".join(_ALERT_SENDERS) + ") newer_than:30d"
 
 _SAMPLE = [
     """From: LinkedIn Job Alerts <jobs-noreply@linkedin.com>
