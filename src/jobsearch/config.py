@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     # JSON (handy for API testing); set to e.g. http://localhost:3000/integrations
     # for the real redirect-based browser flow.
     oauth_success_redirect: str = ""
+    # Where to send the browser after a "Sign in with Google" LOGIN (distinct from
+    # connecting Gmail above). The backend appends the session tokens as a URL
+    # fragment (#access_token=…&refresh_token=…) for the frontend to read. Blank =
+    # return JSON (handy for API testing). e.g. https://your-frontend/auth/callback
+    login_success_redirect: str = Field(default="", validation_alias="JOBSEARCH_LOGIN_SUCCESS_REDIRECT")
 
     # --- Document storage --------------------------------------------------
     # Where uploaded résumé files are stored. Blank = in-memory (per-process);

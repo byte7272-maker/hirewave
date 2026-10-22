@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import secrets
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 
 from jobsearch.api.deps import StateDep
 from jobsearch.api.firebase_auth import FirebaseAuthError
+from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.api.schemas import (
     FirebaseAuthRequest,
     LoginRequest,
@@ -24,7 +27,7 @@ from jobsearch.api.security import (
     hash_password,
     verify_password,
 )
-from jobsearch.models import User, UserProfile
+from jobsearch.models import Provider, User, UserProfile
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -129,3 +132,95 @@ def logout(body: RefreshRequest, state: StateDep) -> None:
         state.revoked_jti.add(payload["jti"])
     except TokenError:
         pass  # already invalid — nothing to revoke
+
+
+# --- Sign in with Google (OIDC login) --------------------------------------
+# A real server-side Google OAuth LOGIN (distinct from connecting Gmail): the
+# backend holds state + PKCE, exchanges the code, reads the email from the OIDC
+# id_token, finds/creates the user, and issues this app's session tokens. Reuses
+# the existing Google (Gmail) OAuth client with login-only scopes.
+_GOOGLE_LOGIN_SCOPES = ["openid", "email", "profile"]
+_LOGIN_MARKER = "__google_login__"
+
+
+def _google_login_redirect_uri(state: StateDep) -> str:
+    """The backend callback Google redirects to — must be registered as an
+    Authorized redirect URI on the Google client. Derived from the configured
+    OAuth redirect base's origin so it tracks the deployment automatically."""
+    origin = state.settings.oauth_redirect_base.split("/api/v1")[0].rstrip("/")
+    return f"{origin}/api/v1/auth/google/callback"
+
+
+@router.get("/google/login")
+def google_login(state: StateDep):
+    """Begin 'Sign in with Google'. Redirects the browser to Google's consent."""
+    try:
+        req = state.integration.build_authorization_request(
+            Provider.GMAIL,
+            scopes=_GOOGLE_LOGIN_SCOPES,
+            redirect_uri=_google_login_redirect_uri(state),
+        )
+    except IntegrationError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    state.pending_auth.put(
+        req.state, user_id="", provider=_LOGIN_MARKER, code_verifier=req.code_verifier
+    )
+    return RedirectResponse(req.authorize_url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/google/callback")
+def google_callback(
+    state: StateDep,
+    code: str = Query(default=""),
+    oauth_state: str = Query(default="", alias="state"),
+    error: str = Query(default=""),
+):
+    """Google redirect target for login: exchange the code, resolve the user by
+    email, and issue session tokens. With ``login_success_redirect`` set, the
+    browser is redirected there with the tokens in the URL fragment; otherwise the
+    tokens are returned as JSON (handy for API testing)."""
+    dest = state.settings.login_success_redirect
+
+    def _fail(reason: str):
+        if dest:
+            return RedirectResponse(f"{dest}#error={reason}", status_code=status.HTTP_302_FOUND)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"google login failed: {reason}")
+
+    if error or not code:
+        return _fail(error or "missing_code")
+    pending = state.pending_auth.pop(oauth_state)
+    if pending is None or pending.get("provider") != _LOGIN_MARKER:
+        return _fail("invalid_state")
+    try:
+        claims = state.integration.exchange_identity(
+            Provider.GMAIL, code=code, code_verifier=pending.get("code_verifier", ""),
+            redirect_uri=_google_login_redirect_uri(state),
+        )
+    except IntegrationError:
+        return _fail("exchange_failed")
+
+    email = (claims.get("email") or "").lower()
+    if not email:
+        return _fail("no_email")
+
+    user = state.user_by_email(email)
+    if user is None:
+        # First Google sign-in creates the account — apply the signup gate (an
+        # existing user signing in again is unaffected).
+        try:
+            _require_signup_allowed(state, "", email=email)
+        except HTTPException:
+            return _fail("signups_closed")
+        user = User(email=email, full_name=claims.get("name", ""))
+        state.users.add(user)
+        state.profiles.add(UserProfile(user_id=user.id))
+
+    tok = _tokens(user.id)
+    if dest:
+        frag = urlencode({
+            "access_token": tok.access_token,
+            "refresh_token": tok.refresh_token,
+            "token_type": "bearer",
+        })
+        return RedirectResponse(f"{dest}#{frag}", status_code=status.HTTP_302_FOUND)
+    return tok

@@ -1821,3 +1821,39 @@ Acceptance: "Suggest a response" on any question returns a grounded reply that *
 itself into the card** with a category + tips + time badge; the user can edit it, **Save** it,
 see it in a **Saved answers** list, **print** that list, and delete entries; saved answers are
 private to the user and persist across sessions; nothing fabricates facts not in the résumé.
+
+---
+
+## P21 — Make "Sign in with Google" actually log the user in (backend OIDC flow)
+
+The current "Continue with Google" button is wired to the Gmail-*connect* OAuth and never creates a session, so it always fails. Repoint it at the real **backend Google-login** flow (now LIVE). This is a full-page redirect flow — **no Firebase, no client-side Google SDK, no client secret in the browser.**
+
+### 1. Start login = navigate to the backend
+"Continue with Google" (on both the login and sign-up screens) should do a **full-page navigation** to:
+```
+GET {API_BASE}/api/v1/auth/google/login
+```
+(where `{API_BASE}` is the same backend origin the rest of the app calls). Don't `fetch()` it — it issues a 302 to Google; let the browser follow it. Don't build any Google URL yourself; the backend holds the state + PKCE.
+
+### 2. Receive the session on return
+After the user approves, the backend redirects the browser to your configured **callback route** with the session tokens in the **URL fragment**:
+```
+{login_success_redirect}#access_token=<JWT>&refresh_token=<JWT>&token_type=bearer
+```
+(On failure it's `{login_success_redirect}#error=<reason>` — e.g. `invalid_state`, `exchange_failed`, `signups_closed`.)
+
+Build a small **callback route** (e.g. `/auth/callback`) that, on mount:
+1. Parses `window.location.hash` (strip the leading `#`, read `access_token` / `refresh_token` / `error`).
+2. On tokens: store them exactly where the app keeps them today (**`hw_access`** / **`hw_refresh`** in localStorage), **clear the hash** (`history.replaceState` so the tokens aren't left in the address bar/history), then redirect to `/dashboard`.
+3. On `error`: redirect back to `/auth/login` and show "Google sign-in failed — {reason}".
+4. Null-safe: if the hash has neither tokens nor error, send them to `/auth/login`.
+
+This callback URL must equal the backend's `JOBSEARCH_LOGIN_SUCCESS_REDIRECT` env var (set to `https://hlrtlg.readdy.co/auth/callback`).
+
+### 3. Keep email+password as-is
+The existing email/password form already works — leave it. This only fixes the Google button.
+
+### Scope
+Repoint the Google button to `{API_BASE}/api/v1/auth/google/login` + add the fragment-reading `/auth/callback` route. No other backend calls; tokens arrive via the fragment.
+
+Acceptance: clicking "Continue with Google" sends the user to Google, and after approving they land logged-in on the dashboard with `hw_access`/`hw_refresh` stored; the tokens are not left in the URL; a denied/failed sign-in returns to the login page with a readable message; email+password login is unaffected.

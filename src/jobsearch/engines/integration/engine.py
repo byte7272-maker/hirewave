@@ -14,7 +14,9 @@ the flow is fully testable offline with :class:`MockTokenExchanger`.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
+import json
 import os
 import secrets
 from dataclasses import dataclass, field
@@ -66,6 +68,19 @@ class AuthorizationRequest:
 
 class IntegrationError(RuntimeError):
     pass
+
+
+def _decode_jwt_claims(token: str) -> dict:
+    """Decode (NOT verify) the payload of a JWT — e.g. an OIDC ``id_token``. The
+    token came straight from the provider's token endpoint over TLS using our client
+    secret, so for reading the email/sub we parse rather than re-verify the signature.
+    Returns {} on any malformed input."""
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # restore base64 padding
+        return json.loads(base64.urlsafe_b64decode(payload_b64).decode())
+    except (IndexError, ValueError, binascii.Error, UnicodeDecodeError):
+        return {}
 
 
 def _pkce_pair() -> tuple[str, str]:
@@ -177,6 +192,39 @@ class IntegrationEngine:
                 f"failed to connect {provider.value}: {exc}"
             ) from exc
         return self._store(user_id, provider, resp)
+
+    def exchange_identity(
+        self,
+        provider: Provider,
+        *,
+        code: str,
+        code_verifier: str = "",
+        redirect_uri: Optional[str] = None,
+    ) -> dict:
+        """Exchange an authorization code for the user's **identity** (OIDC login) —
+        NOT a stored connection. Returns the id_token claims (``email``, ``sub``,
+        ``name``, ``email_verified``). Used by "Sign in with Google": there is no
+        user yet, so nothing is persisted. Raises :class:`IntegrationError` on a
+        failed exchange or when no email can be determined."""
+        config = get_provider_config(provider)
+        client_id, client_secret = self.settings.provider_credentials(provider.value)
+        redirect = redirect_uri or f"{self.settings.oauth_redirect_base}/{provider.value}"
+        try:
+            resp = self.exchanger.exchange_code(
+                config, code=code, redirect_uri=redirect,
+                client_id=client_id, client_secret=client_secret, code_verifier=code_verifier,
+            )
+        except TokenExchangeError as exc:
+            raise IntegrationError(f"login token exchange failed: {exc}") from exc
+        raw = resp.raw or {}
+        claims = _decode_jwt_claims(raw["id_token"]) if raw.get("id_token") else {}
+        # Fallbacks so the mock exchanger / non-OIDC responses still carry an email.
+        for k in ("email", "sub", "name", "email_verified"):
+            if not claims.get(k) and raw.get(k) is not None:
+                claims[k] = raw[k]
+        if not claims.get("email"):
+            raise IntegrationError("login provider returned no email")
+        return claims
 
     # -- token access -------------------------------------------------------
     def get_access_token(self, user_id: str, provider: Provider) -> str:
