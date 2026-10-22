@@ -13,10 +13,15 @@ from jobsearch.api.schemas import (
     MockInterviewReplyRequest,
     MockInterviewStartRequest,
     PersonaVoiceUpdate,
+    SaveAnswerRequest,
+    SavedAnswerOut,
+    SuggestAnswerRequest,
+    SuggestedAnswerOut,
     TtsRequest,
     VocabularyRequest,
 )
 from jobsearch.engines.interview import suggested_answer_seconds
+from jobsearch.engines.interview.engine import infer_category
 from jobsearch.models import (
     CustomVoice,
     InterviewDifficulty,
@@ -25,6 +30,8 @@ from jobsearch.models import (
     InterviewPrep,
     MockInterviewSession,
     PersonaVoice,
+    QuestionCategory,
+    SavedAnswer,
     SessionStatus,
     UserProfile,
     VocabularyAnalysis,
@@ -192,6 +199,85 @@ def coach_mock(session_id: str, user: CurrentUser, state: StateDep) -> MockCoach
         answer_seconds=suggested_answer_seconds(coached.category),
         tips=coached.tips,
     )
+
+
+# --- answer suggestions + a personal library -------------------------------
+@router.post("/suggest-answer", response_model=SuggestedAnswerOut)
+def suggest_answer(
+    body: SuggestAnswerRequest, user: CurrentUser, state: StateDep
+) -> SuggestedAnswerOut:
+    """A brief, résumé-grounded suggested answer to a single question — from
+    anywhere (question bank, prep, a custom question), no mock session needed.
+
+    Grounded strictly in the user's résumé/profile + brought-in work highlights,
+    so it never fabricates. The UI transcribes it into the card; the user can save
+    it to learn effective phrasing and techniques."""
+    question = (body.question or "").strip()
+    if not question:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "a question is required")
+    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+    resume = state.resumes.get(body.resume_id) if body.resume_id else None
+    if body.resume_id and (resume is None or resume.user_id != user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
+    if body.job_posting_id and job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    coached = state.interview.coach(
+        question, profile, resume=resume, job=job,
+        experience_context=state.experience.context_text(user.id),
+    )
+    return SuggestedAnswerOut(
+        question=coached.question,
+        category=coached.category.value,
+        answer=coached.suggested_answer,
+        tips=coached.tips,
+        answer_seconds=suggested_answer_seconds(coached.category),
+    )
+
+
+def _answer_out(a: SavedAnswer) -> SavedAnswerOut:
+    return SavedAnswerOut(
+        id=a.id, question=a.question, category=a.category.value, answer=a.answer,
+        tips=a.tips, source=a.source, resume_id=a.resume_id, job_posting_id=a.job_posting_id,
+        created_at=a.created_at.isoformat(), updated_at=a.updated_at.isoformat(),
+    )
+
+
+@router.post("/saved-answers", response_model=SavedAnswerOut, status_code=status.HTTP_201_CREATED)
+def save_answer(body: SaveAnswerRequest, user: CurrentUser, state: StateDep) -> SavedAnswerOut:
+    """Keep an answer (a suggestion, the user's edit of one, or their own) so it can
+    be re-read and printed later to learn good phrasing."""
+    if not (body.question or "").strip() or not (body.answer or "").strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "question and answer are required")
+    try:
+        category = QuestionCategory(body.category) if body.category else infer_category(body.question)
+    except ValueError:
+        category = infer_category(body.question)
+    source = body.source if body.source in ("suggested", "edited", "own") else "suggested"
+    saved = SavedAnswer(
+        user_id=user.id, question=body.question.strip(), category=category,
+        answer=body.answer.strip(), tips=body.tips, source=source,
+        resume_id=body.resume_id, job_posting_id=body.job_posting_id,
+    )
+    return _answer_out(state.saved_answers.add(saved))
+
+
+@router.get("/saved-answers", response_model=list[SavedAnswerOut])
+def list_saved_answers(user: CurrentUser, state: StateDep) -> list[SavedAnswerOut]:
+    """The user's saved answers, most recent first (for reading / printing)."""
+    answers = sorted(
+        state.saved_answers.find(user_id=user.id),
+        key=lambda a: a.created_at, reverse=True,
+    )
+    return [_answer_out(a) for a in answers]
+
+
+@router.delete("/saved-answers/{answer_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_saved_answer(answer_id: str, user: CurrentUser, state: StateDep) -> None:
+    a = state.saved_answers.get(answer_id)
+    if a is None or a.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "saved answer not found")
+    state.saved_answers.delete(answer_id)
 
 
 @router.get("/mock", response_model=list[MockInterviewSession])

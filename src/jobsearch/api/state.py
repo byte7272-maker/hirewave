@@ -114,6 +114,7 @@ class AppState:
         self.applications = repos.applications
         self.notifications = repos.notifications
         self.mock_interviews = repos.mock_interviews
+        self.saved_answers = repos.saved_answers  # user's kept interview answers
         self.monitored_identifiers = repos.monitored_identifiers
         self.exposure_findings = repos.exposure_findings
         self.community_questions = repos.community_questions

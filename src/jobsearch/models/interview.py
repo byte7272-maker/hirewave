@@ -29,6 +29,25 @@ class InterviewQuestion(DomainModel):
     tips: str = ""
 
 
+class SavedAnswer(DomainModel):
+    """A suggested (or user-edited) interview answer the user kept, so they can
+    re-read and print good phrasings and techniques. User-owned, no session needed."""
+
+    id: str = Field(default_factory=lambda: new_id("ans_"))
+    user_id: str
+    question: str = ""
+    category: QuestionCategory = QuestionCategory.BEHAVIORAL
+    answer: str = ""          # the suggested/edited answer text
+    tips: str = ""            # how-to-answer technique for this question
+    #: Where it came from: a model suggestion, the user's own edit of one, or their
+    #: own writing. Lets the UI label saved answers and the user learn from them.
+    source: Literal["suggested", "edited", "own"] = "suggested"
+    resume_id: Optional[str] = None       # the résumé it was grounded in, if any
+    job_posting_id: Optional[str] = None  # the target job, if any
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class InterviewPrep(DomainModel):
     id: str = Field(default_factory=lambda: new_id("prep_"))
     user_id: str

@@ -1769,3 +1769,55 @@ Add a **Blocked** sub-section (collapsed when empty):
 - **Unblock** on each → `DELETE /api/v1/social/blocks/{user_id}` (204). Note it does **not** reconnect — they re-invite as usual.
 
 Rules: blocking/removing is instant and client-confirmed; blocking is **silent** (never notify the blocked user); only the blocker sees/unblocks their own blocks; a blocked pair can't accept each other's invites (the API returns 400 — surface it as *"You've blocked this person — unblock to reconnect."*). Acceptance: a user can remove or block any connection from People, see their Blocked list, and unblock; a removed person can be re-invited, a blocked one cannot until unblocked.
+
+---
+
+## P20 — Interview: "Suggest a response" (transcribed into the card) + a saved-answers library
+
+Add a coach to the interview section that drafts a brief, résumé-grounded reply to any
+question, **types it out live in the card**, and lets the user **save** answers to re-read
+and print — so they learn effective phrasing and techniques. Backend is LIVE; this is display.
+
+### 1. "Suggest a response" on a question
+Anywhere a question is shown (the Question Bank in Community, interview prep, a custom
+question the user types), add a **"Suggest a response"** button.
+- Call **`POST /api/v1/interview/suggest-answer`** `{ question, resume_id?, job_posting_id? }`
+  (pass the user's selected résumé id when known, so the answer is grounded in it; and the
+  target job id when there's one). Response:
+  `{ question, category, answer, tips, answer_seconds }`.
+- The `answer` is a brief (3–5 sentence) reply grounded strictly in the user's résumé/profile
+  — never fabricated. `category` is the question type (intro/behavioral/technical/…), `tips`
+  is the technique for that type, `answer_seconds` is a spoken-answer time budget.
+
+### 2. Transcribe it into the card (visible typing)
+When the answer returns, **render it with a typewriter/transcription effect inside the card**
+— reveal it progressively (e.g. a few characters or a word at a time, ~30–60 ms/word) with a
+blinking caret while "typing," so it reads like it's being spoken/written out, not pasted.
+- Show a subtle **"Suggesting…"** state while the request is in flight (AbortController ~30 s;
+  on error → a Retry affordance, never an infinite spinner).
+- Below/beside the answer, show the **category chip**, the **tips** line, and the
+  **answer_seconds** as a "~90s" target badge.
+- Keep it honest: label it a **suggestion** ("A starting point — make it yours"), and if the
+  answer says the résumé lacks a relevant example, surface that plainly rather than hiding it.
+
+### 3. Save answers to a personal library (read + print)
+A **Save** action on the card keeps the answer for later study:
+- **`POST /api/v1/interview/saved-answers`** `{ question, answer, category?, tips?, source, resume_id?, job_posting_id? }`
+  where `source` = **"suggested"** (saved as-is), **"edited"** (user tweaked the text first), or
+  **"own"** (user wrote it). Let the user lightly **edit the answer before saving** (so they can
+  make it their own) — save with `source:"edited"` then.
+- A **"Saved answers"** view/tab lists **`GET /api/v1/interview/saved-answers`** (most recent
+  first): each shows the question, category chip, the answer, tips, and a source label.
+- **Read & print:** each saved answer is readable in full; add a **Print** action (a clean
+  print stylesheet, or `window.print()` on a print-friendly list) so the user can print their
+  answers to study phrasing and techniques offline. **Remove** → `DELETE /api/v1/interview/saved-answers/{id}`.
+
+### Scope
+Display + the four live endpoints (`/interview/suggest-answer`, `POST`/`GET`/`DELETE`
+`/interview/saved-answers`). The typewriter effect is purely client-side over the returned
+text. No new backend.
+
+Acceptance: "Suggest a response" on any question returns a grounded reply that **visibly types
+itself into the card** with a category + tips + time badge; the user can edit it, **Save** it,
+see it in a **Saved answers** list, **print** that list, and delete entries; saved answers are
+private to the user and persist across sessions; nothing fabricates facts not in the résumé.

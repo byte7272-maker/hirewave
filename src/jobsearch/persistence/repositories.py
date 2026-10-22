@@ -39,6 +39,7 @@ from jobsearch.models import (
     PracticeSignal,
     ReminderPrefs,
     Resume,
+    SavedAnswer,
     SavedJob,
     SavedSearch,
     ResumeTemplate,
@@ -81,6 +82,7 @@ class Repositories:
     saved_jobs: Repository[SavedJob]
     authenticity_records: Repository[JobAuthenticityRecord]
     inbox_messages: Repository[InboxMessage]
+    saved_answers: Repository[SavedAnswer]
     invites: Repository[Invite]
     connections: Repository[Connection]
     blocks: Repository[Block]
@@ -133,6 +135,7 @@ def build_repositories(
             saved_jobs=InMemoryRepository(),
             authenticity_records=InMemoryRepository(),
             inbox_messages=InMemoryRepository(),
+            saved_answers=InMemoryRepository(),
             invites=InMemoryRepository(),
             connections=InMemoryRepository(),
             blocks=InMemoryRepository(),
@@ -185,6 +188,7 @@ def build_repositories(
         saved_jobs=repo("saved_jobs"),
         authenticity_records=repo("authenticity_records"),
         inbox_messages=repo("inbox_messages"),
+        saved_answers=repo("saved_answers"),
         invites=repo("invites"),
         connections=repo("connections"),
         blocks=repo("blocks"),

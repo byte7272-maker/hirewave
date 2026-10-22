@@ -482,6 +482,51 @@ class MockCoachOut(BaseModel):
     tips: str = ""  # short how-to-answer hint
 
 
+class SuggestAnswerRequest(BaseModel):
+    """Ask for a brief, résumé-grounded suggested answer to a single interview
+    question — from anywhere (question bank, prep, a custom question), no mock
+    session needed."""
+
+    question: str
+    resume_id: Optional[str] = None       # ground the answer in this résumé
+    job_posting_id: Optional[str] = None  # tailor to this target job
+
+
+class SuggestedAnswerOut(BaseModel):
+    """A suggested answer the UI can transcribe into the card, plus technique tips."""
+
+    question: str
+    category: str              # intro/motivation/technical/behavioral/experience/gap/closing
+    answer: str                # brief (3-5 sentence) résumé-grounded answer, never fabricated
+    tips: str = ""             # how-to-answer technique for this question type
+    answer_seconds: int = 90   # a sensible spoken-answer time budget
+
+
+class SaveAnswerRequest(BaseModel):
+    """Keep an answer (a suggestion, your edit of one, or your own) to re-read/print."""
+
+    question: str
+    answer: str
+    category: str = ""         # blank = inferred from the question
+    tips: str = ""
+    source: str = "suggested"  # suggested | edited | own
+    resume_id: Optional[str] = None
+    job_posting_id: Optional[str] = None
+
+
+class SavedAnswerOut(BaseModel):
+    id: str
+    question: str
+    category: str
+    answer: str
+    tips: str = ""
+    source: str = "suggested"
+    resume_id: Optional[str] = None
+    job_posting_id: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
 class ScreenerAnswerIn(BaseModel):
     question: str
     answer: str
