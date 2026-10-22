@@ -174,6 +174,74 @@ def test_share_missing_job_404():
     assert r.status_code == 404
 
 
+def test_remove_connection_disconnects_and_allows_reconnect():
+    client = _client()
+    a = _auth(client, "a@x.com")
+    b = _auth(client, "b@x.com")
+    b_id, _ = _connect(client, a, b)
+    # either side can remove; here a removes b
+    assert client.delete(f"/api/v1/social/connections/{b_id}", headers=a).status_code == 204
+    assert client.get("/api/v1/social/connections", headers=a).json() == []
+    assert client.get("/api/v1/social/connections", headers=b).json() == []
+    # removing again → 404 (no longer connected)
+    assert client.delete(f"/api/v1/social/connections/{b_id}", headers=a).status_code == 404
+    # messaging stops once disconnected
+    assert client.post("/api/v1/social/messages", headers=a,
+                       json={"to_user_id": b_id, "body": "still there?"}).status_code == 400
+    # but they can reconnect via a fresh invite (no block)
+    code = client.post("/api/v1/social/invites", headers=a).json()["code"]
+    assert client.post("/api/v1/social/invites/accept", headers=b, json={"code": code}).status_code == 200
+    assert len(client.get("/api/v1/social/connections", headers=a).json()) == 1
+
+
+def test_block_disconnects_prevents_message_and_reconnect():
+    client = _client()
+    a = _auth(client, "a@x.com")
+    b = _auth(client, "b@x.com")
+    b_id, a_id = _connect(client, a, b)
+    # a blocks b → connection gone for both, b appears in a's block list
+    assert client.post(f"/api/v1/social/blocks/{b_id}", headers=a).status_code == 204
+    assert client.get("/api/v1/social/connections", headers=a).json() == []
+    assert client.get("/api/v1/social/connections", headers=b).json() == []
+    blocked = client.get("/api/v1/social/blocks", headers=a).json()
+    assert [u["user_id"] for u in blocked] == [b_id]
+    # neither direction can message while blocked
+    assert client.post("/api/v1/social/messages", headers=a,
+                       json={"to_user_id": b_id, "body": "hi"}).status_code == 400
+    assert client.post("/api/v1/social/messages", headers=b,
+                       json={"to_user_id": a_id, "body": "hi"}).status_code == 400
+    # and a fresh invite can't be accepted across the block (from either side)
+    code = client.post("/api/v1/social/invites", headers=b).json()["code"]
+    assert client.post("/api/v1/social/invites/accept", headers=a, json={"code": code}).status_code == 400
+    # block is silent to the blocked user — b does not see a in their block list
+    assert client.get("/api/v1/social/blocks", headers=b).json() == []
+
+
+def test_unblock_only_by_blocker_then_reconnectable():
+    client = _client()
+    a = _auth(client, "a@x.com")
+    b = _auth(client, "b@x.com")
+    b_id, a_id = _connect(client, a, b)
+    client.post(f"/api/v1/social/blocks/{b_id}", headers=a)
+    # b (not the blocker) can't lift a's block → 404
+    assert client.delete(f"/api/v1/social/blocks/{a_id}", headers=b).status_code == 404
+    # a (the blocker) lifts it
+    assert client.delete(f"/api/v1/social/blocks/{b_id}", headers=a).status_code == 204
+    assert client.get("/api/v1/social/blocks", headers=a).json() == []
+    # unblock does not auto-reconnect, but a fresh invite now works
+    assert client.get("/api/v1/social/connections", headers=a).json() == []
+    code = client.post("/api/v1/social/invites", headers=a).json()["code"]
+    assert client.post("/api/v1/social/invites/accept", headers=b, json={"code": code}).status_code == 200
+
+
+def test_cannot_block_self():
+    client = _client()
+    a = _auth(client, "a@x.com")
+    b = _auth(client, "b@x.com")
+    _, a_id = _connect(client, a, b)  # b's view of a IS a's own id
+    assert client.post(f"/api/v1/social/blocks/{a_id}", headers=a).status_code == 400
+
+
 def test_social_requires_auth():
     client = _client()
     assert client.get("/api/v1/social/connections").status_code == 401

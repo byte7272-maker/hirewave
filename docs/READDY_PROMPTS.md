@@ -1709,10 +1709,12 @@ Keep the existing routes working (so deep links/bookmarks don't break) — this 
 One page at `/dashboard/community` with a tab bar. **Consent is the spine: you only connect with people you invite or who invite you, and messaging/practice is limited to accepted connections.** Tabs:
 
 **1. People** (connections + who may connect)
-- Your connections: `GET /api/v1/social/connections`.
+- Your connections: `GET /api/v1/social/connections`. On each, a kebab/overflow menu with **Remove** and **Block**.
 - Pending invitations waiting on **your** approval, with **Accept**: `GET /api/v1/social/invites`, `POST /api/v1/social/invites/accept { code }`.
 - Invite someone (you control who joins your circle): `POST /api/v1/social/invites` (returns a shareable code/link) and `POST /api/v1/social/invites/email { email }`.
-- Make it explicit in copy: *"You decide who connects. Requests wait for your approval, and only accepted connections can message you."*
+- **Remove a connection:** `DELETE /api/v1/social/connections/{user_id}` — disconnects (either side can); they can reconnect later via a fresh invite. Confirm first ("Remove {name}? You can reconnect with a new invite.").
+- **Block someone:** `POST /api/v1/social/blocks/{user_id}` — removes the connection *and* stops all messaging and reconnection until unblocked; it's **silent** (they aren't told). A **Blocked** sub-section lists `GET /api/v1/social/blocks` with an **Unblock** action (`DELETE /api/v1/social/blocks/{user_id}`; unblocking does not auto-reconnect). Confirm blocks too.
+- Make it explicit in copy: *"You decide who connects. Requests wait for your approval, and only accepted connections can message you — and you can remove or block anyone, anytime."*
 
 **2. Messages** (chat — connections only)
 - Thread list: `GET /api/v1/social/threads`. Conversation: `GET /api/v1/social/messages/{other_id}`. Send: `POST /api/v1/social/messages { to_user_id, body, shared_job_id? }`.
@@ -1750,4 +1752,20 @@ Menu consolidation + grouping + renaming, Community assembled from the live `soc
 
 Acceptance: the sidebar shows ~8 grouped items (not 23); there is no standalone **Assistant**, **Saved searches**, **Saved jobs**, **Flagged jobs**, **People**, **Messages**, **Boards**, **Community (questions)**, **Peer practice**, **Profile**, **Job preferences**, **Reminders**, **Security**, or **Tester** menu entry — each lives inside its new parent; **Community** opens a tabbed hub where the user can accept/decline connection requests, message and share a job **only** with accepted connections, join groups, browse/contribute interview questions, and start a peer practice with a connection; Jobs shows Matches/Saved/Flagged/Manage-searches as tabs; Auto-apply contains the former Assistant toggles + activity; Settings contains the six account sections; old deep links still resolve.
 
-> **Optional backend follow-up (not required for this prompt):** there is currently no "remove/block a connection" endpoint (`social.py` has invite/accept/connections/messages only). For a fuller "you control who you connect with," add `DELETE /api/v1/social/connections/{user_id}` (remove) and an optional block list. Say the word and I'll build it; until then the UI should simply omit a Remove/Block control rather than show a dead one.
+> **Backend note:** remove/block is now **built and live** (added after the first P19 build): `DELETE /api/v1/social/connections/{id}` (remove), `POST`/`DELETE /api/v1/social/blocks/{id}` (block/unblock), `GET /api/v1/social/blocks` (list). Blocking is symmetric (neither side can message or reconnect) and silent; only the blocker can unblock. If the Community page was built before these existed, apply the small **P19b** patch below to wire up the Remove/Block controls.
+
+---
+
+## P19b — Patch: wire Remove/Block into Community → People (endpoints now live)
+
+Small follow-up to P19. The Community **People** tab already lists connections and pending invites; add member management now that the endpoints exist. Display only, no new backend.
+
+On each row in **Your connections**, add an overflow (⋯) menu:
+- **Remove** → `DELETE /api/v1/social/connections/{user_id}` (204). Confirm: *"Remove {name}? You can reconnect with a new invite."* On success drop the row; messaging to them stops.
+- **Block** → `POST /api/v1/social/blocks/{user_id}` (204). Confirm: *"Block {name}? This removes the connection and stops all messages. They won't be told."* On success drop the row.
+
+Add a **Blocked** sub-section (collapsed when empty):
+- List: `GET /api/v1/social/blocks` → `[{ user_id, name }]`.
+- **Unblock** on each → `DELETE /api/v1/social/blocks/{user_id}` (204). Note it does **not** reconnect — they re-invite as usual.
+
+Rules: blocking/removing is instant and client-confirmed; blocking is **silent** (never notify the blocked user); only the blocker sees/unblocks their own blocks; a blocked pair can't accept each other's invites (the API returns 400 — surface it as *"You've blocked this person — unblock to reconnect."*). Acceptance: a user can remove or block any connection from People, see their Blocked list, and unblock; a removed person can be re-invited, a blocked one cannot until unblocked.

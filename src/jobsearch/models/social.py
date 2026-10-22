@@ -47,3 +47,16 @@ class DirectMessage(DomainModel):
     shared_job_id: Optional[str] = None  # a job posting shared in the message
     is_read: bool = False
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class Block(DomainModel):
+    """One user blocking another. Directional (``blocker`` set it, and only they
+    can lift it), but enforced symmetrically: while a block exists between two
+    users, neither can message the other or (re)connect. ``key`` is the unordered
+    pair so a block is quick to look up from either side."""
+
+    id: str = Field(default_factory=lambda: new_id("block_"))
+    blocker_id: str  # who created the block (the only one who can remove it)
+    blocked_id: str  # who is blocked
+    key: str = ""  # pair_key(blocker_id, blocked_id) — indexed for lookup
+    created_at: datetime = Field(default_factory=utcnow)

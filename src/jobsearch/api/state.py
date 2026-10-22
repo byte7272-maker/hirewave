@@ -226,6 +226,7 @@ class AppState:
         self.social = SocialEngine(
             invites=repos.invites,
             connections=repos.connections,
+            blocks=repos.blocks,
             messages=repos.direct_messages,
             users=repos.users,
             notifier=self.notifications.add,

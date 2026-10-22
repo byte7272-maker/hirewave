@@ -96,6 +96,7 @@ from jobsearch.models.practice import PracticeSession, PracticeSignal, PracticeS
 from jobsearch.models.reminders import ReminderPrefs
 from jobsearch.models.saved_search import SavedSearch
 from jobsearch.models.social import (
+    Block,
     Connection,
     DirectMessage,
     Invite,
@@ -132,6 +133,7 @@ __all__ = [
     "CoverLetterReview",
     "CoverLetterRevision",
     "CoverLetterSource",
+    "Block",
     "Connection",
     "CustomVoice",
     "DirectMessage",

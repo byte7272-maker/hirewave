@@ -73,6 +73,39 @@ def connections(user: CurrentUser, state: StateDep) -> list[ConnectionBrief]:
     return [ConnectionBrief(user_id=u.id, name=u.full_name or u.email) for u in state.social.connections_for(user.id)]
 
 
+@router.delete("/connections/{other_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_connection(other_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Disconnect from a connection (either side can). They can reconnect later via
+    a fresh invite. Use the block endpoints to also prevent reconnection/messaging."""
+    if not state.social.remove_connection(user.id, other_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not connected")
+
+
+# --- blocking ---------------------------------------------------------------
+@router.get("/blocks", response_model=list[ConnectionBrief])
+def list_blocks(user: CurrentUser, state: StateDep) -> list[ConnectionBrief]:
+    """People you've blocked (you can unblock any of them)."""
+    return [ConnectionBrief(user_id=u.id, name=u.full_name or u.email) for u in state.social.blocked_users(user.id)]
+
+
+@router.post("/blocks/{other_id}", status_code=status.HTTP_204_NO_CONTENT)
+def block_user(other_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Block someone: removes any connection and prevents messaging or reconnecting
+    until you unblock. Silent — the blocked user isn't notified. Idempotent."""
+    try:
+        state.social.block(user.id, other_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+@router.delete("/blocks/{other_id}", status_code=status.HTTP_204_NO_CONTENT)
+def unblock_user(other_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Lift a block you created (does not auto-reconnect — re-invite as usual). 404
+    if you had not blocked them."""
+    if not state.social.unblock(user.id, other_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not blocked")
+
+
 # --- messaging --------------------------------------------------------------
 @router.get("/threads")
 def threads(user: CurrentUser, state: StateDep) -> list[dict]:

@@ -11,6 +11,7 @@ from jobsearch.models import (
     AutoApplyGrant,
     AutomationAction,
     AutomationConsent,
+    Block,
     Board,
     BrowserSession,
     ConnectIntent,
@@ -82,6 +83,7 @@ class Repositories:
     inbox_messages: Repository[InboxMessage]
     invites: Repository[Invite]
     connections: Repository[Connection]
+    blocks: Repository[Block]
     direct_messages: Repository[DirectMessage]
     boards: Repository[Board]
     board_members: Repository[BoardMember]
@@ -133,6 +135,7 @@ def build_repositories(
             inbox_messages=InMemoryRepository(),
             invites=InMemoryRepository(),
             connections=InMemoryRepository(),
+            blocks=InMemoryRepository(),
             direct_messages=InMemoryRepository(),
             boards=InMemoryRepository(),
             board_members=InMemoryRepository(),
@@ -184,6 +187,7 @@ def build_repositories(
         inbox_messages=repo("inbox_messages"),
         invites=repo("invites"),
         connections=repo("connections"),
+        blocks=repo("blocks"),
         direct_messages=repo("direct_messages"),
         boards=repo("boards"),
         board_members=repo("board_members"),

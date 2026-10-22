@@ -11,6 +11,7 @@ import secrets
 from typing import Callable, Optional
 
 from jobsearch.models import (
+    Block,
     Connection,
     DirectMessage,
     Invite,
@@ -29,6 +30,7 @@ class SocialEngine:
         *,
         invites: Optional[Repository[Invite]] = None,
         connections: Optional[Repository[Connection]] = None,
+        blocks: Optional[Repository[Block]] = None,
         messages: Optional[Repository[DirectMessage]] = None,
         users: Repository[User],
         notifier: Optional[Callable[[Notification], None]] = None,
@@ -38,6 +40,7 @@ class SocialEngine:
     ) -> None:
         self.invites = invites or InMemoryRepository(id_attr="id")
         self.connections = connections or InMemoryRepository(id_attr="id")
+        self.blocks = blocks or InMemoryRepository(id_attr="id")
         self.messages = messages or InMemoryRepository(id_attr="id")
         self.users = users
         self._notifier = notifier or (lambda n: None)
@@ -79,6 +82,8 @@ class SocialEngine:
             raise ValueError("invalid invite code")
         if inv.from_user_id == user_id:
             raise ValueError("you can't accept your own invite")
+        if self.is_blocked(inv.from_user_id, user_id):
+            raise ValueError("can't connect — one of you has blocked the other")
         if inv.status == InviteStatus.PENDING:
             inv.status = InviteStatus.ACCEPTED
             inv.accepted_by = user_id
@@ -92,6 +97,8 @@ class SocialEngine:
 
     # -- connections --------------------------------------------------------
     def _ensure_connection(self, a: str, b: str) -> Connection:
+        if self.is_blocked(a, b):
+            raise ValueError("can't connect — one of you has blocked the other")
         key = pair_key(a, b)
         found = self.connections.find(key=key)
         if found:
@@ -100,6 +107,54 @@ class SocialEngine:
 
     def are_connected(self, a: str, b: str) -> bool:
         return bool(self.connections.find(key=pair_key(a, b)))
+
+    def remove_connection(self, user_id: str, other_id: str) -> bool:
+        """Disconnect two users (either side may do this). Returns True if a
+        connection existed. They can reconnect later via a fresh invite (unless a
+        block is in place)."""
+        removed = False
+        for c in self.connections.find(key=pair_key(user_id, other_id)):
+            self.connections.delete(c.id)
+            removed = True
+        return removed
+
+    # -- blocking -----------------------------------------------------------
+    def is_blocked(self, a: str, b: str) -> bool:
+        """True if either user has blocked the other (symmetric enforcement)."""
+        return bool(self.blocks.find(key=pair_key(a, b)))
+
+    def block(self, user_id: str, other_id: str) -> Block:
+        """``user_id`` blocks ``other_id``: removes any connection and records the
+        block. Idempotent — re-blocking returns the existing block. Silent (the
+        blocked user is not notified)."""
+        if user_id == other_id:
+            raise ValueError("you can't block yourself")
+        self.remove_connection(user_id, other_id)
+        existing = [b for b in self.blocks.find(key=pair_key(user_id, other_id))
+                    if b.blocker_id == user_id]
+        if existing:
+            return existing[0]
+        return self.blocks.add(Block(
+            blocker_id=user_id, blocked_id=other_id, key=pair_key(user_id, other_id),
+        ))
+
+    def unblock(self, user_id: str, other_id: str) -> bool:
+        """Lift a block ``user_id`` created. Only the blocker can remove their own
+        block; a block the other user placed is left intact. Returns True if one was
+        removed. Does not reconnect them — they re-invite as usual."""
+        removed = False
+        for b in self.blocks.find(key=pair_key(user_id, other_id)):
+            if b.blocker_id == user_id:
+                self.blocks.delete(b.id)
+                removed = True
+        return removed
+
+    def blocked_ids(self, user_id: str) -> list[str]:
+        """Users ``user_id`` has blocked (not users who blocked them)."""
+        return [b.blocked_id for b in self.blocks.all() if b.blocker_id == user_id]
+
+    def blocked_users(self, user_id: str) -> list[User]:
+        return [u for u in (self.users.get(i) for i in self.blocked_ids(user_id)) if u]
 
     def connection_ids(self, user_id: str) -> list[str]:
         out = []
@@ -117,6 +172,8 @@ class SocialEngine:
     def send_message(self, from_id: str, to_id: str, *, body: str = "", shared_job_id: Optional[str] = None) -> DirectMessage:
         if from_id == to_id:
             raise ValueError("cannot message yourself")
+        if self.is_blocked(from_id, to_id):
+            raise ValueError("can't message — one of you has blocked the other")
         if not self.are_connected(from_id, to_id):
             raise ValueError("you can only message your connections")
         if not body.strip() and not shared_job_id:
