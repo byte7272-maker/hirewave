@@ -1658,3 +1658,96 @@ with the Indeed mark; every known board (LinkedIn/Glassdoor/Indeed/Monster/ZipRe
 recognizable logo distinct from the company logo; the source badge and **"View on {board}"** both open
 `source_url` in a new tab and are never dead (digest/recruiter matches open a board search for the role);
 inbox-sourced matches show the envelope badge with no fake link.
+
+---
+
+## P19 — Simplify the whole app: consolidate the 23-item menu, rename for humans, and make Community a real (basic) social network
+
+Two jobs in one pass. **(A)** The left sidebar has grown to **23 flat, ungrouped destinations** — overwhelming, and several are two doors to the same feature. Consolidate to **~8 grouped items** and rename them in plain language. **(B)** Turn the scattered social pages into one **Community** hub that behaves like a basic social network: you choose who you connect with, you can chat and share only with accepted connections, and the crowdsourced interview questions live here too.
+
+**This is a frontend / information-architecture change.** Every endpoint named below is already LIVE — **no new backend** (one small, clearly-marked optional follow-up at the end). Standard assumptions: verify on the **published** site (`hlrtlg.readdy.co`), Bearer token on every call, no infinite spinners, null-safe.
+
+### A. The new top-level menu (23 → 8), grouped
+
+Replace the flat list with these **grouped** sections (group headers are labels, not links):
+
+**Find & apply**
+1. **Dashboard** — `/dashboard` (home).
+2. **Jobs** — `/dashboard/matches`. The single jobs home (see §D). Absorbs **Saved searches**, **Saved jobs**, **Flagged jobs** as tabs/filters — they are **removed as separate menu items**.
+3. **Applications** — `/dashboard/applications` (the tracker).
+4. **Auto-apply** ⭐ — `/dashboard/auto-apply`. Absorbs **Assistant** (see §E) — **Assistant is removed as a menu item**.
+
+**Prepare**
+5. **Documents** — `/dashboard/documents` (résumés + cover letters).
+6. **Inbox** — `/dashboard/inbox` (the grouped job-email reader from P5).
+7. **Practice interviews** — `/dashboard/interview` (the solo AI mock interview; rename from "Interviews (AI)").
+
+**Connect**
+8. **Community** — `/dashboard/community` (the social hub, see §C). Absorbs **People/Network**, **Messages**, **Boards**, **Community questions**, and **Peer practice** — all **removed as separate menu items** and become tabs inside Community.
+
+**Bottom of sidebar (secondary, visually separated):**
+- **Settings** — `/dashboard/settings`. Absorbs **Profile**, **Job preferences**, **Integrations**, **Reminders**, **Security**, **Tester program** as sections/sub-pages — all **removed from the primary menu** (see §F).
+
+Keep the existing routes working (so deep links/bookmarks don't break) — this is about what appears in the **menu** and how pages are grouped, not deleting routes. Old routes can redirect to their new home (e.g. `/dashboard/network` → `/dashboard/community?tab=people`).
+
+### B. Renaming map (plain-language labels)
+
+| Old menu label | New label | Why |
+|---|---|---|
+| Interviews (AI) | **Practice interviews** | Drop the clunky "(AI)" parenthetical |
+| Community (→ `/questions`) | *(moves into Community as the **Questions** tab)* | The label described a forum but opened a question bank |
+| People | *(Community → **People** tab)* | "People" alone was ambiguous |
+| Messages | *(Community → **Messages** tab)* | — |
+| Boards | *(Community → **Groups** tab)* | "Boards" read as job-boards/kanban |
+| Peer practice | *(Community → **Practice** tab)* | It needs a connection — inherently social |
+| Assistant | *(removed → folded into Auto-apply)* | Duplicated Auto-apply |
+| Saved searches / Saved jobs / Flagged jobs | *(Jobs tabs)* | All are views of jobs |
+| Tester program | *(Settings)* | Not a primary destination |
+
+### C. Community — a basic social network (the main build)
+
+One page at `/dashboard/community` with a tab bar. **Consent is the spine: you only connect with people you invite or who invite you, and messaging/practice is limited to accepted connections.** Tabs:
+
+**1. People** (connections + who may connect)
+- Your connections: `GET /api/v1/social/connections`.
+- Pending invitations waiting on **your** approval, with **Accept**: `GET /api/v1/social/invites`, `POST /api/v1/social/invites/accept { code }`.
+- Invite someone (you control who joins your circle): `POST /api/v1/social/invites` (returns a shareable code/link) and `POST /api/v1/social/invites/email { email }`.
+- Make it explicit in copy: *"You decide who connects. Requests wait for your approval, and only accepted connections can message you."*
+
+**2. Messages** (chat — connections only)
+- Thread list: `GET /api/v1/social/threads`. Conversation: `GET /api/v1/social/messages/{other_id}`. Send: `POST /api/v1/social/messages { to_user_id, body, shared_job_id? }`.
+- **Only show "Message" affordances for accepted connections.** Do not allow composing to a non-connection.
+- **Sharing:** a message can carry a job (`shared_job_id`) — render the shared job as a little card in the bubble (title + company, link). Add a "Share to a connection" action on job cards that opens a compose-to-connection sheet.
+
+**3. Groups** (formerly Boards — communities to share leads/referrals)
+- Mine + discover: `GET /api/v1/boards`, `GET /api/v1/boards/discover`. Create/join/leave: `POST /api/v1/boards`, `POST /api/v1/boards/join { board_id | code }`, `DELETE /api/v1/boards/{id}/membership`.
+- Inside a group: members `GET /api/v1/boards/{id}/members`; feed `GET /api/v1/boards/{id}/posts`; post `POST /api/v1/boards/{id}/posts { body, shared_job_id? }` (posts can share a job too).
+
+**4. Questions** (the crowdsourced interview-question bank — moved here per request)
+- Browse/search by job title: `GET /api/v1/questions/search?title=…`, titles `GET /api/v1/questions/titles`, mine `GET /api/v1/questions/mine`.
+- Contribute: `POST /api/v1/questions { job_title, question, category, tips }`. Upvote / flag: `POST /api/v1/questions/{id}/vote`, `POST /api/v1/questions/{id}/flag`.
+- Framing: *"Real interview questions shared by the community — study up, then pay it forward."*
+
+**5. Practice** (live peer mock interview with a connection)
+- Sessions `GET /api/v1/practice`; invite a **connection** `POST /api/v1/practice { guest_id }`; accept + live signalling via the existing practice/WebRTC endpoints. Only offer "Practice together" from an accepted connection.
+
+**Community conventions:** one consistent empty state per tab ("Invite a friend to get started", etc.); a connection's mini-profile (name + a "Message"/"Practice together" action) is the hub that ties People ⇄ Messages ⇄ Practice together; never expose another user's email or ids in the UI.
+
+### D. Jobs — one home, not four menu items
+`/dashboard/matches` becomes **Jobs** with a simple filter/tab row: **Matches** (default), **Saved** (`GET /api/v1/jobs/saved`), **Flagged** (community-reported dubious postings — keep the safety framing), and **Manage searches** (the saved-search list + "Run now", pulled in from the old Saved-searches page). Running or editing a search happens here; it should never feel like a separate destination.
+
+### E. Auto-apply absorbs Assistant
+The **Assistant** page ("Automation assistant": auto-prepare drafts / auto-fill / auto-submit toggles + activity log) is the **settings + activity** half of **Auto-apply**. Fold it in:
+- Its permission toggles become an **"Automation settings"** panel inside Auto-apply (keep "nothing is submitted without your approval" prominent).
+- Its **activity log** becomes Auto-apply's history/activity view.
+- "Prepare drafts now" is Auto-apply's prepare action. Endpoints: the existing `/api/v1/assistant/*` and `/api/v1/auto-apply/*` — just surfaced under one page. Remove the standalone Assistant menu item.
+
+### F. Settings absorbs the account cluster
+`/dashboard/settings` gets sections (tabs or a sub-nav): **Profile** (`/profile`), **Job preferences** (`/preferences`), **Integrations/Connections** (`/integrations` — the one true home for all connections; Auto-apply's "Manage connections" and Inbox's "Connect Gmail" link here instead of duplicating it), **Reminders** (`/reminders`), **Security & privacy** (`/security`), and **Tester program** (`/tester`). None of these appear in the primary menu anymore.
+
+### Scope
+Menu consolidation + grouping + renaming, Community assembled from the live `social`/`boards`/`questions`/`practice` endpoints, Jobs/Auto-apply/Settings regrouping. Keep old routes alive (redirect to new homes). **No new backend**, with one exception noted below.
+
+Acceptance: the sidebar shows ~8 grouped items (not 23); there is no standalone **Assistant**, **Saved searches**, **Saved jobs**, **Flagged jobs**, **People**, **Messages**, **Boards**, **Community (questions)**, **Peer practice**, **Profile**, **Job preferences**, **Reminders**, **Security**, or **Tester** menu entry — each lives inside its new parent; **Community** opens a tabbed hub where the user can accept/decline connection requests, message and share a job **only** with accepted connections, join groups, browse/contribute interview questions, and start a peer practice with a connection; Jobs shows Matches/Saved/Flagged/Manage-searches as tabs; Auto-apply contains the former Assistant toggles + activity; Settings contains the six account sections; old deep links still resolve.
+
+> **Optional backend follow-up (not required for this prompt):** there is currently no "remove/block a connection" endpoint (`social.py` has invite/accept/connections/messages only). For a fuller "you control who you connect with," add `DELETE /api/v1/social/connections/{user_id}` (remove) and an optional block list. Say the word and I'll build it; until then the UI should simply omit a Remove/Block control rather than show a dead one.
