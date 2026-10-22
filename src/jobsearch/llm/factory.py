@@ -50,6 +50,32 @@ def build_review_llm(settings: Settings | None = None) -> LLMProvider:
     return MockLLMProvider()
 
 
+def build_premium_llm(settings: Settings | None = None) -> LLMProvider:
+    """The PREMIUM tier for high-value generative work (résumé/cover generation, bullet
+    generation, evidence analysis/synthesis, rewrites). When ``premium_llm_provider`` is
+    unset it falls back to the general :func:`build_llm`, so leaving it off changes
+    nothing. Set it (e.g. ``anthropic``) to route only the premium call sites to a
+    stronger model while the rest of the app stays on the general provider."""
+    s = settings or get_settings()
+    provider = (s.premium_llm_provider or "").strip().lower()
+    if not provider:
+        return build_llm(s)  # disabled → identical to today
+    model = (s.premium_model or "").strip()
+
+    if provider == "anthropic":
+        from jobsearch.llm.providers import AnthropicLLMProvider
+
+        return AnthropicLLMProvider(s.anthropic_api_key, model or s.anthropic_model)
+    if provider == "openai" and s.openai_api_key:
+        from jobsearch.llm.providers import OpenAILLMProvider
+
+        return OpenAILLMProvider(s.openai_api_key, model or s.openai_model,
+                                 timeout=s.llm_timeout_seconds, max_retries=s.llm_max_retries)
+    if provider == "mock":
+        return MockLLMProvider()
+    return build_llm(s)  # misconfigured (e.g. openai with no key) → safe fallback
+
+
 def build_embedder(settings: Settings | None = None) -> EmbeddingProvider:
     """Return the configured embedding provider (falls back to mock).
 

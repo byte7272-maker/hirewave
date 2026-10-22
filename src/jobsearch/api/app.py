@@ -150,6 +150,11 @@ def create_app(
             "status": "ok",
             "commit": commit[:7],
             "llm_provider": s.generation.llm.name,
+            # PREMIUM generative tier (bullet generator, evidence analysis, rewrites,
+            # résumé/cover generation). "" provider = disabled → premium == general LLM.
+            "premium_llm_provider": s.settings.premium_llm_provider or "(general)",
+            "premium_llm": s.generation.llm.name,
+            "premium_model": getattr(s.generation.llm, "_model", ""),
             "review_model": s.settings.review_model,  # model for resume/cover-letter AI
             # The provider actually powering the résumé "Ask AI" / review / improve
             # features (build_review_llm). "mock" here means a real key didn't resolve,

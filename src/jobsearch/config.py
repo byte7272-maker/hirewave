@@ -14,6 +14,9 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LLMProviderName = Literal["anthropic", "openai", "mock"]
+#: Premium (high-value) LLM tier. "" = disabled → premium work uses the general
+#: ``llm_provider`` (so leaving it unset changes nothing).
+PremiumLLMProviderName = Literal["", "anthropic", "openai", "mock"]
 EmbeddingProviderName = Literal["openai", "mock"]
 AutomationMode = Literal["simulate", "live"]
 OAuthMode = Literal["mock", "live"]
@@ -78,6 +81,16 @@ class Settings(BaseSettings):
     #: summaries). Defaults to the cheapest tier; point it at a stronger model
     #: (e.g. gpt-4o, or a claude-* id when llm_provider=anthropic) for deeper critique.
     review_model: str = Field(default="gpt-4o-mini", validation_alias="JOBSEARCH_REVIEW_MODEL")
+    #: PREMIUM tier for high-value generative work — résumé/cover generation, bullet
+    #: generation, evidence analysis/synthesis, rewrites. "" = disabled (that work uses
+    #: the general ``llm_provider``). Set "anthropic" to route it to Claude while the
+    #: rest of the app stays on OpenAI. Lesser/critique/conversation work is never
+    #: affected by this.
+    premium_llm_provider: PremiumLLMProviderName = Field(
+        default="", validation_alias="JOBSEARCH_PREMIUM_LLM_PROVIDER")
+    #: Model for the premium tier; blank = the provider's default (e.g. ``anthropic_model``
+    #: for Anthropic, ``openai_model`` for OpenAI).
+    premium_model: str = Field(default="", validation_alias="JOBSEARCH_PREMIUM_MODEL")
     openai_embedding_model: str = Field(
         default="text-embedding-3-small", validation_alias="OPENAI_EMBEDDING_MODEL"
     )

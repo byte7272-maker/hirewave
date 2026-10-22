@@ -19,7 +19,7 @@ import re
 import time
 from typing import Optional
 
-from jobsearch.llm import LLMProvider, build_llm
+from jobsearch.llm import LLMProvider, build_llm, build_premium_llm
 from jobsearch.engines.sourcing.skills import extract_skills
 from jobsearch.models import (
     CoverLetter,
@@ -738,8 +738,23 @@ def match_bullets(
 
 
 class ResumeAssistant:
-    def __init__(self, llm: Optional[LLMProvider] = None) -> None:
+    def __init__(
+        self, llm: Optional[LLMProvider] = None, *, premium_llm: Optional[LLMProvider] = None
+    ) -> None:
+        #: ``llm`` = the critique/summary/parse tier (cheap by default — review,
+        #: change summaries, structured parse, template styling, qualifications).
         self.llm = llm or build_llm()
+        #: The configured premium provider, or ``None`` when the premium tier is
+        #: disabled (then :pyattr:`premium` transparently uses ``self.llm``).
+        self._premium = premium_llm
+
+    @property
+    def premium(self) -> LLMProvider:
+        """The high-value generative tier (bullet generation, evidence analysis/
+        synthesis, résumé/cover rewrites). Resolves live to ``self.llm`` when no
+        premium provider is configured, so (a) behaviour is unchanged until premium is
+        set and (b) reassigning ``self.llm`` (e.g. in tests) still drives it."""
+        return self._premium or self.llm
 
     # -- review -------------------------------------------------------------
     def review(
@@ -1068,7 +1083,7 @@ class ResumeAssistant:
             + f"\nCurrent resume:\n{base[:6000]}\n\nRewrite it accordingly."
         )
         try:
-            preview = self.llm.complete(prompt, system=_REVISE_SYSTEM, max_tokens=1200).strip()
+            preview = self.premium.complete(prompt, system=_REVISE_SYSTEM, max_tokens=1200).strip()
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return ResumeRevision(resume_id=resume.id, instruction=instruction, preview=preview or base)
@@ -1100,7 +1115,7 @@ class ResumeAssistant:
         steer = f" Follow this instruction: {instruction.strip()}." if instruction.strip() else ""
         ctx = f"\nSurrounding text (for context, do not rephrase it):\n{context.strip()[:1200]}" if context.strip() else ""
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 f"Rephrase the SELECTED text below. Return ONLY a JSON array of {want} "
                 "as strings, best first. Preserve the original meaning and keep it truthful -- "
                 "never add facts, numbers, employers, titles, or skills that are not already "
@@ -1233,7 +1248,7 @@ class ResumeAssistant:
         focus = f" Focus improvements toward: {instruction}." if instruction else ""
         points = _focus_points_block(focus_points)
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "Improve the resume below and return ONLY JSON Resume format (keys: "
                 "basics{name,label,email,phone,url,summary,location{city,region}}, "
                 "work[{name,position,startDate,endDate,summary,highlights[]}], "
@@ -1275,7 +1290,7 @@ class ResumeAssistant:
         focus = f" Also focus on: {instruction.strip()}." if instruction.strip() else ""
         ideas = _ideas_block(pts)
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "Rewrite the resume below and INCORPORATE the candidate's additional points, then "
                 "return ONLY JSON Resume format (keys: basics{name,label,email,phone,url,summary,"
                 "location{city,region}}, work[{name,position,startDate,endDate,summary,highlights[]}], "
@@ -1405,7 +1420,7 @@ class ResumeAssistant:
         if not text:
             return []
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "From the notes below (a person's work history and company information pulled from their "
                 "tools), extract the discrete, résumé-worthy accomplishments, initiatives, and metrics as a "
                 "JSON array of short strings — one clear fact per string, each stating what was achieved and "
@@ -1453,7 +1468,7 @@ class ResumeAssistant:
                      "favor themes that add something NEW and complementary, and don't just restate them:\n"
                      + "\n".join(f"- {a}" for a in avoid[:30]))
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "Group the résumé evidence points below into as many distinct themes as the "
                 "accomplishments genuinely warrant (up to 14) — keep separate accomplishments in "
                 "separate themes rather than over-merging them, so a rich paste yields several "
@@ -1520,7 +1535,7 @@ class ResumeAssistant:
                 "accomplishment, dimension, or metric:\n" + "\n".join(f"- {a}" for a in avoid[:40])
             )
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "You are editing a résumé using the user's pasted notes. Propose specific edits as a "
                 "JSON array; each item: {\"action\":\"add\"|\"remove\"|\"reword\", \"section\":<e.g. "
                 "Summary/Experience/Skills>, \"before\":<the EXACT existing résumé text to change, "
@@ -1632,7 +1647,7 @@ class ResumeAssistant:
         focus = f" Also focus on: {instruction.strip()}." if instruction.strip() else ""
         ideas = _ideas_block(pts)
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "Rewrite the cover letter below and INCORPORATE the candidate's additional points, then "
                 "return ONLY JSON with " + self._CL_KEYS + ". Work each point naturally into the body, "
                 "backing a claim with a concrete result where the candidate gave one, cut cliches, keep it "
@@ -1969,7 +1984,7 @@ class ResumeAssistant:
         focus = f" Focus improvements toward: {instruction}." if instruction else ""
         points = _focus_points_block(focus_points)
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 "Improve the cover letter below and return ONLY JSON with " + self._CL_KEYS + ". "
                 "Open with a specific hook (not 'I am writing to'), name the company and role, back a "
                 "claim with a concrete result, cut cliches, keep it 250-400 words. Use ONLY facts "
@@ -2001,7 +2016,7 @@ class ResumeAssistant:
             + f"\nCurrent cover letter:\n{base[:6000]}\n\nRewrite it accordingly."
         )
         try:
-            preview = self.llm.complete(prompt, system=_CL_REVISE_SYSTEM, max_tokens=900).strip()
+            preview = self.premium.complete(prompt, system=_CL_REVISE_SYSTEM, max_tokens=900).strip()
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return CoverLetterRevision(

@@ -57,7 +57,7 @@ from jobsearch.api.firebase_auth import build_firebase_verifier
 from jobsearch.engines.matching import MatchingEngine
 from jobsearch.engines.monitoring import MonitoringEngine
 from jobsearch.engines.verification import VerificationEngine
-from jobsearch.llm import build_embedder, build_llm, build_review_llm
+from jobsearch.llm import build_embedder, build_llm, build_premium_llm, build_review_llm
 from jobsearch.models import User, VerificationResult
 from jobsearch.persistence import build_repositories
 from jobsearch.security.crypto import FieldCipher
@@ -144,6 +144,12 @@ class AppState:
 
         # Engines (share providers where sensible).
         llm = build_llm(self.settings)
+        # PREMIUM tier for high-value generative work (résumé/cover generation + the
+        # bullet generator, evidence analysis/synthesis, and rewrites in ResumeAssistant).
+        # None when JOBSEARCH_PREMIUM_LLM_PROVIDER is unset → those paths use the general
+        # `llm` (ResumeAssistant) / fall back to `llm` (generation), i.e. no change.
+        premium_configured = bool((self.settings.premium_llm_provider or "").strip())
+        premium_llm = build_premium_llm(self.settings) if premium_configured else None
         embedder = build_embedder(self.settings)
         # Real OAuth token exchange in live mode; mock offline. An explicitly
         # injected exchanger (e.g. in tests) always wins.
@@ -157,10 +163,13 @@ class AppState:
             token_store=repos.token_store, exchanger=exchanger, settings=self.settings
         )
         self.linkedin_provider = build_linkedin_provider(self.settings)
-        self.generation = GenerationEngine(llm=llm)
-        # Résumé/cover-letter AI uses its own (configurable) model — cheapest by
-        # default, dial up via JOBSEARCH_REVIEW_MODEL for deeper expert critique.
-        self.resume_assistant = ResumeAssistant(llm=build_review_llm(self.settings))
+        self.generation = GenerationEngine(llm=premium_llm or llm)
+        # Résumé/cover-letter AI: critique/summaries use the configurable review model
+        # (cheapest by default, dial up via JOBSEARCH_REVIEW_MODEL); the generative work
+        # (bullet generation, evidence analysis/synthesis, rewrites) uses the premium tier.
+        self.resume_assistant = ResumeAssistant(
+            llm=build_review_llm(self.settings), premium_llm=premium_llm
+        )
         self.interview = InterviewEngine(llm=llm)
         # Interview media (voice/video) + user-directed content sources.
         self.persona_library = PersonaLibrary.from_settings(self.settings)
