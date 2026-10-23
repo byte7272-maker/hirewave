@@ -9,6 +9,7 @@ the user connects Gmail). Returns raw email bodies for the inbox to parse.
 from __future__ import annotations
 
 import base64
+import os
 from typing import Optional, Protocol, runtime_checkable
 
 from jobsearch.config import Settings, get_settings
@@ -24,7 +25,14 @@ _ALERT_SENDERS = (
     "greenhouse.io", "greenhouse-mail.io", "lever.co", "myworkday.com", "icims.com",
     "smartrecruiters.com", "ashbyhq.com", "jobvite.com", "workable.com",
 )
-_ALERT_QUERY = "from:(" + " OR ".join(_ALERT_SENDERS) + ") newer_than:30d"
+# How far back the Gmail search looks. Default 90 days (was 30, which missed
+# LinkedIn/Glassdoor alerts older than a month while fresh Indeed digests crowded
+# the window). Override with JOBSEARCH_GMAIL_WINDOW_DAYS.
+try:
+    _WINDOW_DAYS = max(1, int(os.getenv("JOBSEARCH_GMAIL_WINDOW_DAYS", "90") or "90"))
+except ValueError:
+    _WINDOW_DAYS = 90
+_ALERT_QUERY = "from:(" + " OR ".join(_ALERT_SENDERS) + f") newer_than:{_WINDOW_DAYS}d"
 
 _SAMPLE = [
     """From: LinkedIn Job Alerts <jobs-noreply@linkedin.com>
