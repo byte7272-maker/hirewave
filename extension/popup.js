@@ -123,7 +123,9 @@ function setPullStatus(msg, kind) {
 // Injected into the active board tab. Provider-AGNOSTIC: a per-host config gives
 // the job-detail URL pattern + source key; everything else is generic DOM reading.
 // Returns {source, jobs:[{source_platform, external_id, url, title, company,
-// location, remote, salary_range?}]}. Best-effort — selectors drift per board.
+// location, remote, salary_range?, description?}]}. Best-effort — selectors drift
+// per board. On a job-detail page it also captures the full description (JSON-LD
+// JobPosting first, then common containers) so the pulled job arrives enriched.
 function scrapeBoardJobs() {
   const host = location.hostname.replace(/^www\./, "");
   const CFG = {
@@ -169,6 +171,50 @@ function scrapeBoardJobs() {
     if (sm) job.salary_range = { minimum: +sm[1] * 1000, maximum: +sm[2] * 1000, currency: "USD" };
     if (title) jobs.push(job);
   });
+
+  // On a job-DETAIL page the full description is in the DOM — capture it client-
+  // side (works even on auth-walled boards the server can't fetch) and attach it
+  // to the job being viewed. Prefer schema.org JobPosting JSON-LD (agnostic across
+  // boards); fall back to common description containers.
+  try {
+    let pageJD = "";
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
+      if (pageJD) return;
+      let data; try { data = JSON.parse(s.textContent); } catch (e) { return; }
+      const stack = [data];
+      while (stack.length && !pageJD) {
+        const n = stack.pop();
+        if (Array.isArray(n)) { stack.push(...n); continue; }
+        if (n && typeof n === "object") {
+          if (Array.isArray(n["@graph"])) stack.push(...n["@graph"]);
+          const t = n["@type"], types = Array.isArray(t) ? t : [t];
+          if (types.some((x) => String(x).toLowerCase() === "jobposting") && n.description) {
+            pageJD = String(n.description).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          }
+        }
+      }
+    });
+    if (!pageJD) {
+      const sel = "#jobDescriptionText,.jobsearch-jobDescriptionText,.show-more-less-html__markup,"
+        + ".jobs-description__content,.jobDescriptionContent,[class*='jobDescription'],[data-testid*='jobDescription']";
+      const el = document.querySelector(sel);
+      if (el && el.innerText && el.innerText.trim().length > 120) {
+        pageJD = el.innerText.replace(/\s+/g, " ").trim();
+      }
+    }
+    if (pageJD) {
+      pageJD = pageJD.slice(0, 8000);
+      const here = location.href;
+      // Attach to the job actually being viewed (its id is in the current URL);
+      // if only one job was found, it's this one.
+      jobs.forEach((j) => {
+        if (!j.description && (jobs.length === 1 || (j.external_id && here.includes(j.external_id)))) {
+          j.description = pageJD;
+        }
+      });
+    }
+  } catch (e) { /* best-effort — never block the pull */ }
+
   return { source: cfg.source, jobs: jobs };
 }
 
