@@ -1857,3 +1857,35 @@ The existing email/password form already works — leave it. This only fixes the
 Repoint the Google button to `{API_BASE}/api/v1/auth/google/login` + add the fragment-reading `/auth/callback` route. No other backend calls; tokens arrive via the fragment.
 
 Acceptance: clicking "Continue with Google" sends the user to Google, and after approving they land logged-in on the dashboard with `hw_access`/`hw_refresh` stored; the tokens are not left in the URL; a denied/failed sign-in returns to the login page with a readable message; email+password login is unaffected.
+
+---
+
+## P22 — Consistent experience across devices (hydrate preferences + UI state from the server)
+
+The backend already persists per-user state server-side (profile + job preferences, saved jobs/searches, applications, documents, interview history, onboarding, **recently-viewed**, and a general **view-state** store). Make the frontend actually **read from and write to** those so a user who logs in on another device/browser picks up where they left off. **This is frontend wiring only — all endpoints are LIVE.**
+
+### Principle
+**Server is the source of truth; `localStorage` is only a per-device paint cache.** Keep the auth tokens (`hw_access`/`hw_refresh`) in `localStorage` (device-local is correct), but **do not** keep durable user state (preferences, filters, last tab, drafts) only in `localStorage` — it won't follow the user.
+
+### 1. Hydrate on load (after auth)
+Right after sign-in / app boot, fetch and apply:
+- **Job preferences** from the profile (categories, locations, salary, seniority) → use them to set the Matches category chips, default filters, and search defaults.
+- **View-state**: `GET /api/v1/view-state` (all) or `GET /api/v1/view-state/{view}` per page → restore that view's UI state (active tab, filters, sort, expanded/collapsed sections).
+- **Recently-viewed**: `GET /api/v1/recently-viewed` → the "jump back in" rail.
+
+### 2. Persist UI state as it changes
+When the user changes a durable per-view setting (active tab, filter, sort order, selected résumé, collapsed panels), write it:
+- `PUT /api/v1/view-state/{view}` with the view's state object (debounce ~500 ms; it's a small JSON blob per view). Optionally mirror to `localStorage` for instant repaint, but treat the server copy as authoritative and reconcile on load.
+- `DELETE /api/v1/view-state/{view}` to reset a view.
+
+### 3. Record opens for "jump back in"
+When the user opens a résumé, match, application, or interview, record it:
+- `POST /api/v1/recently-viewed` `{ kind, ref_id, title, subtitle, view }` so the rail is the same on every device.
+
+### 4. Preferences are edited in one place, read everywhere
+Saving job preferences (categories/locations/salary/seniority) must `PUT` them to the profile/preferences endpoint (not just local state), and every surface that filters (Matches, Jobs, saved searches) reads those same saved preferences — so changing them on a laptop changes them on a phone.
+
+### Scope
+Frontend hydration + persistence against the live `view-state`, `recently-viewed`, and profile/preferences endpoints. Tokens stay device-local. No backend changes.
+
+Acceptance: set a filter/active-tab/sort and a category preference on one device, log in on another → the same preferences, view state, and recently-viewed rail are restored; changing preferences on either device reflects on both; nothing durable is lost by clearing one device's `localStorage` (it re-hydrates from the server).
