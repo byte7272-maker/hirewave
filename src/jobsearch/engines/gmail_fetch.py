@@ -82,20 +82,45 @@ class HttpGmailAlertFetcher:
             self.last_error = "no access token"
             return []
         headers = {"Authorization": f"Bearer {access_token}"}
-        try:
-            listing = httpx.get(
-                "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-                headers=headers, params={"q": _ALERT_QUERY, "maxResults": max_messages}, timeout=self._timeout,
-            )
-            listing.raise_for_status()
-            ids = [m["id"] for m in listing.json().get("messages", [])]
-        except httpx.HTTPStatusError as exc:
-            self.last_error = f"list {exc.response.status_code}: {exc.response.text[:200]}"
-            return []
-        except (httpx.HTTPError, ValueError, KeyError) as exc:
-            self.last_error = f"list failed: {type(exc).__name__}"
-            return []
-        if not ids:
+        list_url = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+
+        # List each sender SEPARATELY (not one combined date-sorted query) so a
+        # high-volume board (e.g. Indeed sends many digests) can't crowd the others
+        # out of the result set. Cap per board, then round-robin interleave so every
+        # board that has mail is represented up to max_messages.
+        per_sender = max(3, min(15, max_messages))
+        per_sender_ids: list[list[str]] = []
+        errors = 0
+        for domain in _ALERT_SENDERS:
+            try:
+                r = httpx.get(
+                    list_url, headers=headers,
+                    params={"q": f"from:{domain} newer_than:{_WINDOW_DAYS}d", "maxResults": per_sender},
+                    timeout=self._timeout,
+                )
+                r.raise_for_status()
+                per_sender_ids.append([m["id"] for m in r.json().get("messages", [])])
+            except httpx.HTTPStatusError as exc:
+                self.last_error = f"list {exc.response.status_code}: {exc.response.text[:200]}"
+                per_sender_ids.append([]); errors += 1
+            except (httpx.HTTPError, ValueError, KeyError) as exc:
+                self.last_error = f"list failed: {type(exc).__name__}"
+                per_sender_ids.append([]); errors += 1
+
+        ids: list[str] = []
+        seen: set[str] = set()
+        col = 0
+        while len(ids) < max_messages and any(col < len(x) for x in per_sender_ids):
+            for sender_ids in per_sender_ids:
+                if col < len(sender_ids) and sender_ids[col] not in seen:
+                    seen.add(sender_ids[col]); ids.append(sender_ids[col])
+                    if len(ids) >= max_messages:
+                        break
+            col += 1
+
+        if ids:
+            self.last_error = ""  # got mail from at least one sender
+        elif errors < len(_ALERT_SENDERS):
             self.last_error = "no messages matched the job-alert query"
         raws: list[str] = []
         for mid in ids:
