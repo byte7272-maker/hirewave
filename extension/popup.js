@@ -142,13 +142,22 @@ function scrapeBoardJobs() {
   document.querySelectorAll("a[href]").forEach((a) => {
     const href = a.href || ""; const m = href.match(cfg.re); if (!m) return;
     const id = m[1] || m[2]; if (!id || seen.has(id)) return; seen.add(id);
-    const card = a.closest("li,article,[data-job-id],.job-card-container,div");
+    // Prefer the real job-card container (an <li> etc.) — a bare "div" fallback in
+    // one closest() call would match a tight wrapper around just the title link and
+    // miss the company/location lines.
+    const card = a.closest("li,article,[data-job-id],[data-occludable-job-id],.job-card-container") || a.closest("div");
     let lines = (card ? card.innerText : "").split("\n").map((s) => s.trim()).filter(Boolean);
-    lines = lines.filter((l, i) => l !== lines[i - 1] && !/with verification$/i.test(l));
-    const title = (a.getAttribute("aria-label") || a.innerText || lines[0] || "").replace(/\s+/g, " ").trim();
-    const locLine = lines.find((l) => /\b[A-Z]{2}\b|Remote|Hybrid|On-site|Metropolitan|United States/.test(l)) || "";
-    const company = lines.find((l) => l && l !== title && l !== locLine && !/^\$/.test(l) &&
-      !/^(Promoted|Viewed|Easy Apply|Actively|Reposted|\d+ (applicant|school|connection|company))/i.test(l)) || "";
+    lines = lines.filter((l, i) => l !== lines[i - 1] && !/\bwith verification$/i.test(l));
+    // Title from the first card line (clean) — NOT the aria-label, which appends
+    // noise like "with verification". Company is the next real line (not a
+    // location, salary, or LinkedIn metadata badge).
+    const title = (lines[0] || a.getAttribute("aria-label") || a.innerText || "")
+      .replace(/\s+with verification$/i, "").replace(/\s+/g, " ").trim();
+    const isLoc = (l) => /\((?:Remote|Hybrid|On-site)\)|,\s?[A-Z]{2}\b|Metropolitan Area|\bRemote\b|United States/.test(l);
+    const isNoise = (l) => /^\$/.test(l) ||
+      /^(Promoted|Viewed|Saved?|Easy Apply|Actively|Reposted|\d+ (applicant|school|connection|company|alum))/i.test(l);
+    const locLine = lines.find(isLoc) || "";
+    const company = lines.slice(1).find((l) => l && l !== title && !isLoc(l) && !isNoise(l)) || "";
     const sal = lines.find((l) => /\$/.test(l)) || "";
     const job = {
       source_platform: cfg.source, external_id: String(id),
