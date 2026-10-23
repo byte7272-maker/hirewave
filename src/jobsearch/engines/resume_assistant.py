@@ -1042,7 +1042,7 @@ class ResumeAssistant:
         if not text:
             return ""
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 f"Job: {job.title} at {job.company}\n"
                 f"Job requirements: {', '.join(job.requirements[:12]) or 'n/a'}\n"
                 f"Resume (excerpt):\n{text[:2500]}\n\n"
@@ -1912,7 +1912,7 @@ class ResumeAssistant:
         if not text:
             return ""
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 f"Job: {job.title} at {job.company}\n"
                 f"Job requirements: {', '.join(job.requirements[:12]) or 'n/a'}\n"
                 f"Cover letter:\n{text[:2000]}\n\n"
