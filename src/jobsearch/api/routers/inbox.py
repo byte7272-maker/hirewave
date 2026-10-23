@@ -7,11 +7,26 @@ import json as _json
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.engines.sourcing.job_email import classify_job_email, email_to_posting, raw_to_fields
 from jobsearch.models import InboxMessage, Provider
 
 router = APIRouter(prefix="/api/v1/inbox", tags=["inbox"])
+
+
+def _fetch_all_gmail(state, user_id: str) -> list[str]:
+    """Pull raw messages from EVERY connected Gmail inbox (a user may connect
+    several). With the offline mock fetcher no connection is needed. Raises
+    HTTP 400 when the live fetcher has no inbox to read."""
+    fetcher = state.gmail_fetcher
+    if not fetcher.live:
+        return fetcher.fetch(access_token="", max_messages=state.settings.gmail_max_messages)
+    pairs = state.integration.inbox_tokens(user_id, Provider.GMAIL)
+    if not pairs:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "connect Gmail first")
+    raws: list[str] = []
+    for _email, token in pairs:
+        raws.extend(fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages))
+    return raws
 
 
 @router.get("/address")
@@ -47,14 +62,7 @@ def sync_gmail(user: CurrentUser, state: StateDep) -> dict:
     With the offline ``mock`` fetcher no connection is needed; the ``http``
     fetcher uses the Gmail read scope granted when the user connected Gmail.
     """
-    fetcher = state.gmail_fetcher
-    token = ""
-    if fetcher.live:
-        try:
-            token = state.integration.get_access_token(user.id, Provider.GMAIL)
-        except IntegrationError as exc:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"connect Gmail first: {exc}") from exc
-    raws = fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages)
+    raws = _fetch_all_gmail(state, user.id)
     msgs, ingested = state.inbox.sync(user.id, raws)
     return {"fetched": len(raws), "ingested": ingested, "message_ids": [m.id for m in msgs]}
 
@@ -70,14 +78,7 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
     (alert / application / interview / offer / rejection / recruiter). Postings carried
     by the job mail are ingested into your search results."""
     if source == "gmail":
-        fetcher = state.gmail_fetcher
-        token = ""
-        if fetcher.live:
-            try:
-                token = state.integration.get_access_token(user.id, Provider.GMAIL)
-            except IntegrationError as exc:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"connect Gmail first: {exc}") from exc
-        raws = fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages)
+        raws = _fetch_all_gmail(state, user.id)
     elif source == "mailbox":
         raws = state.job_mail_source.fetch()
     else:

@@ -96,9 +96,20 @@ class TokenStore:
         refresh_token: str = "",
         scopes: Optional[list[str]] = None,
         expires_at=None,
+        account_email: str = "",
     ) -> OAuthToken:
+        # AAD is bound to user:provider (not the account), so the same key reveals
+        # every inbox — adding accounts never invalidates existing ciphertext.
         aad = self._aad(user_id, provider)
-        existing = self.get_record(user_id, provider)
+        existing = self.get_record(user_id, provider, account_email=account_email or None)
+        if existing is None and account_email:
+            # Upgrade path: a pre-existing record had no email recorded. Adopt it
+            # instead of creating a duplicate inbox for the same account.
+            legacy = next(
+                (r for r in self._repo.find(user_id=user_id, provider=provider) if not r.account_email),
+                None,
+            )
+            existing = legacy
         token = existing or OAuthToken(user_id=user_id, provider=provider)
         token.access_token = self._cipher.encrypt(access_token, aad=aad)
         token.refresh_token = (
@@ -106,16 +117,27 @@ class TokenStore:
         )
         token.scopes = scopes or token.scopes
         token.expires_at = expires_at
+        if account_email:  # never clear a known email on a refresh that lacks one
+            token.account_email = account_email
         token.updated_at = utcnow()
         return self._repo.add(token)
 
-    def get_record(self, user_id: str, provider: Provider) -> Optional[OAuthToken]:
+    def get_record(
+        self, user_id: str, provider: Provider, *, account_email: Optional[str] = None
+    ) -> Optional[OAuthToken]:
         matches = self._repo.find(user_id=user_id, provider=provider)
-        return matches[0] if matches else None
+        if not matches:
+            return None
+        if account_email is None:
+            # The "primary" inbox: the original (no email) if present, else the first.
+            return next((m for m in matches if not m.account_email), matches[0])
+        return next((m for m in matches if m.account_email == account_email), None)
 
-    def reveal(self, user_id: str, provider: Provider) -> Optional[tuple[str, str]]:
+    def reveal(
+        self, user_id: str, provider: Provider, *, account_email: Optional[str] = None
+    ) -> Optional[tuple[str, str]]:
         """Return decrypted ``(access_token, refresh_token)`` or ``None``."""
-        rec = self.get_record(user_id, provider)
+        rec = self.get_record(user_id, provider, account_email=account_email)
         if rec is None:
             return None
         aad = self._aad(user_id, provider)
@@ -126,8 +148,20 @@ class TokenStore:
     def list_providers(self, user_id: str) -> list[OAuthToken]:
         return self._repo.find(user_id=user_id)
 
-    def delete(self, user_id: str, provider: Provider) -> bool:
-        rec = self.get_record(user_id, provider)
+    def list_accounts(self, user_id: str, provider: Provider) -> list[OAuthToken]:
+        """Every connected account/inbox for one provider."""
+        return self._repo.find(user_id=user_id, provider=provider)
+
+    def delete(
+        self, user_id: str, provider: Provider, *, account_email: Optional[str] = None
+    ) -> bool:
+        """Remove a connection. ``account_email=None`` removes **all** inboxes for
+        the provider (full disconnect); a specific email removes just that one."""
+        if account_email is None:
+            recs = self._repo.find(user_id=user_id, provider=provider)
+            removed = [self._repo.delete(r.id) for r in recs]
+            return any(removed)
+        rec = self.get_record(user_id, provider, account_email=account_email)
         return self._repo.delete(rec.id) if rec else False
 
 

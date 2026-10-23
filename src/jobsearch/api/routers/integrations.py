@@ -151,9 +151,16 @@ def connected_apps(user: CurrentUser, state: StateDep) -> list[dict]:
 
 
 @router.delete("/{provider}", status_code=status.HTTP_204_NO_CONTENT)
-def revoke(provider: str, user: CurrentUser, state: StateDep) -> None:
+def revoke(
+    provider: str,
+    user: CurrentUser,
+    state: StateDep,
+    account_email: str = Query("", description="remove just this inbox; blank = disconnect every inbox for the provider"),
+) -> None:
+    """Disconnect a provider. With no ``account_email`` this removes **every**
+    connected inbox for it; pass one address to remove just that inbox."""
     prov = _provider(provider)
-    if not state.integration.revoke(user.id, prov):
+    if not state.integration.revoke(user.id, prov, account_email=account_email or None):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "integration not connected")
 
 

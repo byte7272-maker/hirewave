@@ -2041,3 +2041,27 @@ Many matches arrive from email alerts / board digests with **only a title, compa
 Display + a button that calls the live endpoint; no client-side scraping. Null-safe (missing/!200 → leave the card, offer the source link). Global P0 rules apply.
 
 Acceptance: on Matches with placeholder-only jobs, "Get full descriptions" fills them in (looping until `remaining` is 0), the cards' snippets and the tailoring/fit views then show real detail, blocked postings degrade to a source link rather than an error, and a fresh scan/pull quietly enriches new matches on its own.
+
+---
+
+## P32 — Manage email sources: see the connected inbox, change it, add more
+
+Scanning pulls job mail from the user's connected inbox, but today the UI never shows **which** inbox, and there's no easy way to change it or add another. The backend now supports **multiple Gmail inboxes per user**, each labeled by its address. Give Integrations a clear "Email sources" section to see, add, and remove them. Backend is LIVE.
+
+### Data / endpoints (live)
+- `GET /api/v1/integrations` → one row per connected inbox: `{ provider, account_email, scopes, connected_at, expires_at, expired }`. A user can now have several `provider: "gmail"` rows, each with a distinct `account_email` (older connections may have an empty `account_email` — show them as "Connected inbox").
+- **Add / change an inbox:** `POST /api/v1/integrations/connect/gmail` → returns an `authorize_url`; send the user there. Google now shows an **account chooser**, so "Add another inbox" and "Change" use the *same* connect call — the user just picks a different Google account. On return the new inbox appears in the list.
+- **Remove one inbox:** `DELETE /api/v1/integrations/gmail?account_email={email}` removes just that inbox. `DELETE /api/v1/integrations/gmail` (no query) disconnects **all** Gmail inboxes.
+- After adding an inbox, offer "Scan now" (`POST /api/v1/inbox/scan?source=gmail`) — the scan already reads **every** connected inbox and merges the results.
+
+### UX — an "Email sources" card in Integrations / Settings
+1. **List each connected inbox** with its address (or "Connected inbox" when the address is blank), connected date, and an **Expired** badge when `expired` is true (with a "Reconnect" action that re-runs connect for that address).
+2. **"+ Add email source"** → the connect flow (account chooser). Make it obvious a user can connect more than one. After return, toast "Added {email}" and refresh the list.
+3. **Per-inbox "Remove"** → `DELETE …?account_email=`, with a confirm ("Stop scanning {email}?"); the other inboxes keep working. A separate "Disconnect all" for the no-query delete.
+4. **"Change inbox"** for a single-inbox user = "+ Add email source" then remove the old one — or just present both and let them remove the one they don't want. Don't force a disconnect-first flow.
+5. Show, near the scan button, how many inboxes will be scanned ("Scanning 2 inboxes").
+
+### Scope
+UI over the live endpoints; no client-side token handling (OAuth happens on the provider + backend). Null-safe: an empty list → an inviting "Connect your first email source" empty state. Global P0 rules (token refresh, Retry over infinite spinners) apply.
+
+Acceptance: Integrations shows every connected inbox by address; "+ Add email source" connects an additional Gmail via the account chooser and it appears in the list; removing one inbox leaves the others scanning; a scan reads all connected inboxes; an expired inbox shows Reconnect; and a user with no inbox sees a clear connect prompt.

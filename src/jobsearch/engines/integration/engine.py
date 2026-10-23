@@ -227,19 +227,24 @@ class IntegrationEngine:
         return claims
 
     # -- token access -------------------------------------------------------
-    def get_access_token(self, user_id: str, provider: Provider) -> str:
-        """Return a valid decrypted access token, refreshing if near expiry."""
-        rec = self.tokens.get_record(user_id, provider)
+    def get_access_token(
+        self, user_id: str, provider: Provider, *, account_email: Optional[str] = None
+    ) -> str:
+        """Return a valid decrypted access token, refreshing if near expiry.
+        ``account_email=None`` uses the primary inbox; pass an address to target a
+        specific one."""
+        rec = self.tokens.get_record(user_id, provider, account_email=account_email)
         if rec is None:
             raise IntegrationError(f"{provider.value} is not connected for this user")
         if rec.is_expired():
             rec = self._refresh(user_id, provider, rec)
-        revealed = self.tokens.reveal(user_id, provider)
+        revealed = self.tokens.reveal(user_id, provider, account_email=rec.account_email or None)
         assert revealed is not None
         return revealed[0]
 
     def _refresh(self, user_id: str, provider: Provider, rec: OAuthToken) -> OAuthToken:
-        revealed = self.tokens.reveal(user_id, provider)
+        account = rec.account_email or None
+        revealed = self.tokens.reveal(user_id, provider, account_email=account)
         if not revealed or not revealed[1]:
             raise IntegrationError(
                 f"{provider.value} token expired and no refresh token available — "
@@ -261,16 +266,33 @@ class IntegrationEngine:
         # Providers often omit a new refresh token on refresh — keep the old one.
         if not resp.refresh_token:
             resp.refresh_token = revealed[1]
-        return self._store(user_id, provider, resp)
+        # Preserve which inbox this is (the refresh response carries no id_token).
+        return self._store(user_id, provider, resp, account_email=rec.account_email)
+
+    def inbox_tokens(self, user_id: str, provider: Provider) -> list[tuple[str, str]]:
+        """``(account_email, access_token)`` for **every** connected inbox of a
+        provider, each refreshed as needed. Skips any inbox that can't be
+        refreshed (expired, no refresh token) rather than failing the whole scan."""
+        out: list[tuple[str, str]] = []
+        for rec in self.tokens.list_accounts(user_id, provider):
+            try:
+                tok = self.get_access_token(
+                    user_id, provider, account_email=rec.account_email or None
+                )
+            except IntegrationError:
+                continue
+            out.append((rec.account_email, tok))
+        return out
 
     # -- management ---------------------------------------------------------
     def list_connections(self, user_id: str) -> list[dict]:
-        """User-facing list of connected providers (never exposes token bytes)."""
+        """User-facing list of connected providers/inboxes (never exposes token bytes)."""
         out = []
         for rec in self.tokens.list_providers(user_id):
             out.append(
                 {
                     "provider": rec.provider.value,
+                    "account_email": rec.account_email,
                     "scopes": rec.scopes,
                     "connected_at": rec.created_at.isoformat(),
                     "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
@@ -279,11 +301,35 @@ class IntegrationEngine:
             )
         return out
 
-    def revoke(self, user_id: str, provider: Provider) -> bool:
-        return self.tokens.delete(user_id, provider)
+    def revoke(
+        self, user_id: str, provider: Provider, *, account_email: Optional[str] = None
+    ) -> bool:
+        """Disconnect a provider. ``account_email=None`` removes every inbox for it;
+        an address removes just that one."""
+        return self.tokens.delete(user_id, provider, account_email=account_email)
 
     # -- internals ----------------------------------------------------------
-    def _store(self, user_id: str, provider: Provider, resp: TokenResponse) -> OAuthToken:
+    @staticmethod
+    def _account_email_from(resp: TokenResponse) -> str:
+        """Best-effort account address from an OIDC id_token (Google/LinkedIn return
+        one when the 'openid email' scopes are granted). "" when unavailable."""
+        raw = getattr(resp, "raw", None) or {}
+        if raw.get("id_token"):
+            claims = _decode_jwt_claims(raw["id_token"])
+            email = claims.get("email")
+            if isinstance(email, str) and "@" in email:
+                return email.lower()
+        email = raw.get("email")
+        return email.lower() if isinstance(email, str) and "@" in email else ""
+
+    def _store(
+        self,
+        user_id: str,
+        provider: Provider,
+        resp: TokenResponse,
+        *,
+        account_email: str = "",
+    ) -> OAuthToken:
         if not resp.access_token:
             raise IntegrationError("token endpoint returned no access_token")
         expires_at = None
@@ -297,4 +343,5 @@ class IntegrationEngine:
             refresh_token=resp.refresh_token,
             scopes=scopes,
             expires_at=expires_at,
+            account_email=account_email or self._account_email_from(resp),
         )

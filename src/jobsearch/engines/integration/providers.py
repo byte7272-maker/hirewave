@@ -46,7 +46,9 @@ PROVIDER_REGISTRY: dict[Provider, ProviderConfig] = {
             "https://www.googleapis.com/auth/gmail.readonly",
         ),
         use_pkce=True,
-        extra_authorize_params={"access_type": "offline", "prompt": "consent"},
+        # select_account lets a user pick a DIFFERENT Google account when adding a
+        # second inbox; consent keeps the refresh token coming back.
+        extra_authorize_params={"access_type": "offline", "prompt": "select_account consent"},
     ),
     Provider.GOOGLE_DRIVE: ProviderConfig(
         provider=Provider.GOOGLE_DRIVE,

@@ -33,6 +33,10 @@ class OAuthToken(DomainModel):
     id: str = Field(default_factory=lambda: new_id("oauth_"))
     user_id: str
     provider: Provider
+    #: Which account this credential is for (e.g. the Gmail address). Lets a user
+    #: connect several inboxes of the same provider. "" = the original/primary
+    #: connection (back-compat: pre-existing records have no email recorded).
+    account_email: str = ""
     access_token: str = ""  # encrypted at rest
     refresh_token: str = ""  # encrypted at rest
     scopes: list[str] = Field(default_factory=list)
