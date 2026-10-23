@@ -1969,3 +1969,31 @@ Users keep several tailored versions of a résumé/cover letter; they need to se
 Display of the live `version-usage` endpoints + the `resume_version`/`cover_letter_version` fields on applications. No new backend.
 
 Acceptance: in the editor each version shows what it was tailored for and the jobs it was applied to; the applications tracker shows which version was sent to each job; saved jobs with a matching tailored version surface it; every embedded preview carries the same version↔job linkage. Nothing shows a version with no way to see where it went.
+
+---
+
+## P29 — One prominent Résumé ⇄ Cover letter toggle that drives the whole Workspace
+
+Right now the only way to switch document type is the small "Résumés / Cover letters" chooser at the **bottom** of the versions marquee, and it only re-lists versions — the **preview, the AI summary, and the side-panel tabs stay on the résumé**. Users can't tell they're even looking at two different documents. Make the switch **one obvious control** that flips **everything in the Workspace at once**, so the editor information always follows the selected type. Both types already exist server-side (`/resumes/*` and `/cover-letters/*`); this is **layout/state only — no new backend**.
+
+### A. The toggle
+- A single **segmented toggle — `[ Résumé | Cover letter ]`** — placed at the **top of the Workspace**, above the shared preview (and mirrored in the versions-marquee header), where it's the first thing you see. Not buried under the marquee. Use the same control in both spots, bound to one shared state; remove the old bottom-only chooser (or make it the same bound control, not a second independent one).
+- Each side shows a count when known (e.g. "Résumé · 1", "Cover letter · 2") and is disabled with a gentle "No cover letter yet — create one" affordance if the user has none, rather than switching to an empty editor.
+- Keyboard + obvious active state (filled segment), works on mobile (full-width segmented control, large tap targets).
+
+### B. What the toggle must switch — all together, as one `activeDocType`
+Flipping the toggle re-points the **entire** Workspace at the chosen document, in one action:
+1. **The shared preview** — renders the selected document's active version (`GET /{docType}/{id}` + `…/versions/{v}/render`), not the résumé's.
+2. **The versions marquee** — lists that document's versions and its `version-usage` (P28) linkage.
+3. **The right-hand tabbed panel** — swaps to that type's tab set and endpoints: résumé → Ask AI · My Work Highlights · Bullets · Manual edit · Design · Versions; **cover letter → the reduced set** (Ask AI · Manual edit · Design · Versions), per P7. Point every tab's calls at `/cover-letters/{id}/…` when a cover letter is active (`ai-edit`, `versions`, `replace`, templates), and hide the résumé-only tabs so no cover-letter action ever hits a résumé endpoint.
+4. **The AI summary / "what changed" cue / header title** — all reflect the active document.
+
+### C. State rules
+- One source of truth: `activeDocType` ∈ { `resume`, `cover_letter` } plus the active id for each. Switching **preserves each side independently** — flip to cover letter, edit, flip back, and the résumé is exactly where you left it (same `selectedVersion`, same open tab, same in-progress review). Don't reset the résumé when you touch the cover letter.
+- Remember the last-used type per session (so reopening the Workspace lands where the user was), null-safe: if the remembered cover letter was deleted, fall back to résumé without an error.
+- Deep links / entry CTAs carry the type (opening a cover letter from the Documents list lands with the toggle already on "Cover letter"). Global P0 rules still apply (token refresh, null-safe render on 200, Retry not infinite spinners).
+
+### D. Scope
+Frontend state + layout only. No new endpoints — reuse the live `/resumes/*` and `/cover-letters/*` routes already wired by P7/P28. Deterministic; the only AI is the same per-tab AI already in use.
+
+Acceptance: a single, clearly visible Résumé ⇄ Cover letter toggle sits above the preview and in the marquee header everywhere a document is shown; flipping it switches the preview, the versions marquee + P28 linkage, and the side-panel tabs/endpoints together in one action; cover letter shows the reduced tab set and never calls a résumé endpoint; each side keeps its own version/tab/review state across switches; and with no cover letter yet the control invites creating one instead of showing an empty editor.
