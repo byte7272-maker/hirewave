@@ -995,7 +995,11 @@ def get_resume(resume_id: str, user: CurrentUser, state: StateDep) -> Resume:
     resume = state.resumes.get(resume_id)
     if resume is None or resume.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
-    return ensure_resume_grade(state, ensure_rendered_text(state, resume))
+    resume = ensure_rendered_text(state, resume)
+    if not resume.versions and (resume.rendered_text or "").strip():  # heal pre-seeding uploads
+        _seed_original_version(resume, text_attr="rendered_text")
+        state.resumes.add(resume)
+    return ensure_resume_grade(state, resume)
 
 
 def _version_usage(state: StateDep, user_id: str, doc, *, is_mine, ver_of) -> list[VersionUsageOut]:
@@ -1544,6 +1548,9 @@ def get_cover_letter(cover_letter_id: str, user: CurrentUser, state: StateDep) -
     cl = state.cover_letters.get(cover_letter_id)
     if cl is None or cl.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "cover letter not found")
+    if not cl.versions and (cl.content or "").strip():  # heal pre-seeding uploads
+        _seed_original_version(cl, text_attr="content")
+        state.cover_letters.add(cl)
     return ensure_cover_letter_grade(state, cl)
 
 

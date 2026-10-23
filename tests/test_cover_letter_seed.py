@@ -36,6 +36,24 @@ def test_uploaded_cover_letter_has_an_original_version():
     assert len(usage) == 1 and usage[0]["version"] == 1
 
 
+def test_legacy_versionless_cover_letter_heals_on_read():
+    """A cover letter uploaded before seeding existed (content, no versions) gains its
+    Original the next time it's read — so the marquee stops showing it empty."""
+    from jobsearch.models import CoverLetter
+
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    user_id = state.users.find(email="c@x.com")[0].id
+    legacy = CoverLetter(user_id=user_id, content="Dear Team,\n\nHire me.\n\nSincerely,\nC")
+    state.cover_letters.add(legacy)
+    assert not legacy.versions  # starts empty (pre-seeding)
+
+    got = client.get(f"/api/v1/cover-letters/{legacy.id}", headers=h).json()
+    assert got["active_version"] == 1
+    assert [v["label"] for v in got["versions"]] == ["Original"]
+
+
 def test_cover_letter_format_standard_requires_salutation_and_signoff():
     # The shared standard the generate/edit prompts inject must mandate proper form.
     low = _CL_STANDARD.lower()
