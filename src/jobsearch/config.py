@@ -227,6 +227,11 @@ class Settings(BaseSettings):
     # deterministic sample alerts (offline default); "http" = the real Gmail API
     # using the user's OAuth token.
     gmail_fetch: Literal["mock", "http"] = "mock"
+    #: Max job-alert emails pulled per Gmail scan/reap. The fetcher used to be
+    #: hard-capped at 10; this makes it configurable with a higher default. Raising
+    #: it ingests more per scan (but each message is a separate Gmail API GET, so a
+    #: very large value makes a scan slower).
+    gmail_max_messages: int = Field(default=50, validation_alias="JOBSEARCH_GMAIL_MAX_MESSAGES")
 
     # --- Dedicated job mailbox (best-privacy: a mailbox that holds ONLY job mail) ---
     # Scanned over IMAP for job email of every kind (alerts, applications, recruiters,

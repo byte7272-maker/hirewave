@@ -54,7 +54,7 @@ def sync_gmail(user: CurrentUser, state: StateDep) -> dict:
             token = state.integration.get_access_token(user.id, Provider.GMAIL)
         except IntegrationError as exc:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"connect Gmail first: {exc}") from exc
-    raws = fetcher.fetch(access_token=token)
+    raws = fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages)
     msgs, ingested = state.inbox.sync(user.id, raws)
     return {"fetched": len(raws), "ingested": ingested, "message_ids": [m.id for m in msgs]}
 
@@ -77,7 +77,7 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
                 token = state.integration.get_access_token(user.id, Provider.GMAIL)
             except IntegrationError as exc:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"connect Gmail first: {exc}") from exc
-        raws = fetcher.fetch(access_token=token)
+        raws = fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages)
     elif source == "mailbox":
         raws = state.job_mail_source.fetch()
     else:

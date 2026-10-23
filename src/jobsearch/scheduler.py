@@ -36,7 +36,7 @@ def reap_email(state: AppState) -> int:
         except Exception:  # noqa: BLE001 - Gmail not connected for this user
             continue
         try:
-            raws = fetcher.fetch(access_token=token)
+            raws = fetcher.fetch(access_token=token, max_messages=state.settings.gmail_max_messages)
             job_raws = [
                 raw for raw in raws
                 if classify_job_email(**{k: raw_to_fields(raw)[k] for k in ("sender", "subject", "body")}).is_job

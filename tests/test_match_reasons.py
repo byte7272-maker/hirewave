@@ -116,6 +116,7 @@ def test_reap_email_ingests_job_mail_from_connected_gmail():
     state = types.SimpleNamespace(
         gmail_fetcher=_Fetcher(), integration=_Integration(),
         inbox=_Inbox(), users=_Users(),
+        settings=types.SimpleNamespace(gmail_max_messages=50),
     )
     ingested = reap_email(state)
     # only the job email is ingested; the personal email is dropped by the privacy gate

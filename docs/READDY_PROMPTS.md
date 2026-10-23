@@ -1889,3 +1889,31 @@ Saving job preferences (categories/locations/salary/seniority) must `PUT` them t
 Frontend hydration + persistence against the live `view-state`, `recently-viewed`, and profile/preferences endpoints. Tokens stay device-local. No backend changes.
 
 Acceptance: set a filter/active-tab/sort and a category preference on one device, log in on another → the same preferences, view state, and recently-viewed rail are restored; changing preferences on either device reflects on both; nothing durable is lost by clearing one device's `localStorage` (it re-hydrates from the server).
+
+---
+
+## P23 — Auto-apply: a simple, pre-filled rule (stop making users fill a blank complex form)
+
+Setting up an auto-apply rule is currently a complicated blank form, so nobody completes it. Make it **arrive pre-filled** from what we already know about the user, with advanced options tucked away. Backend is LIVE (new `GET /api/v1/auto-apply/suggested-criteria`).
+
+### 1. Pre-fill the rule from the user's own data
+When the user opens "Create rule" / "Set up auto-apply", first call:
+```
+GET /api/v1/auto-apply/suggested-criteria
+```
+→ `{ criteria: { title_keywords[], locations[], remote, sources[], min_fit_score }, suggested: { max_submits, daily_cap, mode, require_verified }, basis: { from_preferences, roles_ingested, top_categories[] } }`
+These are derived from the user's **saved job preferences** and the **roles already ingested** into their matches. Use them as the **default field values** — the form opens populated (editable), not empty. Show a one-line note from `basis` like *"Based on your preferences and N roles in your matches"* (or *"Based on your matches"* when `from_preferences` is false).
+
+### 2. One-click primary path
+Lead with a single **"Create rule from my matches"** button that just POSTs the suggested values to `POST /api/v1/auto-apply/grants` (`scope: "criteria"`, the returned `criteria`, and the `suggested` caps/mode). Most users should finish in one click.
+
+### 3. Collapse the complexity
+Keep only the essentials visible: **title keywords**, **locations**, **remote**, **min fit**, and the **daily cap** (as a friendly "apply to up to N/day" stepper). Put everything else — companies allow/deny, sources, max total, expiry, auto-vs-assisted mode — behind an **"Advanced options"** disclosure, collapsed by default. Explain mode in plain words: **Assisted** = "prepares each application, you click submit" (recommended / required for LinkedIn); **Auto** = "submits automatically after it passes your rule," with the "nothing is sent without your approval" promise still shown.
+
+### 4. Sensible defaults (not 10)
+Default the cap to the endpoint's `suggested` values (**25 total / 10 per day**), not the old hard 10. Default **mode = assisted**. Keep `require_verified` on.
+
+### Scope
+Pre-fill the rule form from `/auto-apply/suggested-criteria`, add a one-click "from my matches" create, collapse advanced fields. The create call is the existing `POST /auto-apply/grants`. No other backend changes.
+
+Acceptance: opening the rule form shows fields already populated from the user's preferences/matches with a plain-language basis note; "Create rule from my matches" makes a working grant in one click; advanced options are hidden by default; the default caps are higher than 10; mode defaults to assisted with a clear explanation.

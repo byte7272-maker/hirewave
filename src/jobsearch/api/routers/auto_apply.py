@@ -143,6 +143,67 @@ def disconnect_session(provider: str, user: CurrentUser, state: StateDep) -> Non
 
 
 # ---- grants ---------------------------------------------------------------
+_TITLE_STOP = {
+    "the", "and", "for", "with", "a", "an", "of", "to", "in", "at", "on", "senior",
+    "junior", "lead", "staff", "principal", "sr", "jr", "i", "ii", "iii", "remote",
+    "hybrid", "full", "time", "part", "contract", "intern", "entry", "level", "new",
+}
+
+
+@router.get("/suggested-criteria")
+def suggested_criteria(user: CurrentUser, state: StateDep) -> dict:
+    """Smart defaults for a new auto-apply rule, so the form arrives pre-filled
+    instead of blank. Derived from (1) the user's saved job preferences and (2) the
+    roles already ingested into their matches — title keywords, locations, sources,
+    plus sensible caps. The UI can apply these as defaults (user still edits)."""
+    profile = state.profiles.get(user.id)
+    prefs = profile.preferences if profile else None
+
+    jobs = state.jobs.all()
+    # Most-common title keywords across ingested roles (minus noise words).
+    word_freq: dict[str, int] = {}
+    cat_freq: dict[str, int] = {}
+    loc_freq: dict[str, int] = {}
+    sources: set[str] = set()
+    for j in jobs:
+        for w in (j.title or "").lower().replace("/", " ").replace(",", " ").split():
+            w = w.strip("()-:").strip()
+            if len(w) >= 3 and w not in _TITLE_STOP and not w.isdigit():
+                word_freq[w] = word_freq.get(w, 0) + 1
+        if j.category:
+            cat_freq[j.category] = cat_freq.get(j.category, 0) + 1
+        if j.location:
+            loc_freq[j.location] = loc_freq.get(j.location, 0) + 1
+        slug = getattr(j, "source_slug", "") or j.source_platform
+        if slug and slug != "email":
+            sources.add(slug)
+
+    top = lambda d, n: [k for k, _ in sorted(d.items(), key=lambda kv: -kv[1])[:n]]  # noqa: E731
+
+    # Preferences win; fall back to what's been ingested.
+    pref_roles = list(prefs.target_roles) if prefs and prefs.target_roles else []
+    title_keywords = pref_roles or (list(prefs.job_categories) if prefs and prefs.job_categories else []) or top(cat_freq, 3) or top(word_freq, 5)
+    locations = (list(prefs.target_locations) if prefs and prefs.target_locations else []) or top(loc_freq, 3)
+    remote = prefs.remote_ok if prefs else None
+
+    return {
+        "criteria": {
+            "title_keywords": title_keywords,
+            "locations": locations,
+            "remote": remote,
+            "sources": sorted(sources),
+            "min_fit_score": 60,
+        },
+        # Suggested limits — higher than the old 10 default, still safe/approval-gated.
+        "suggested": {"max_submits": 25, "daily_cap": 10, "mode": "assisted", "require_verified": True},
+        "basis": {
+            "from_preferences": bool(pref_roles or (prefs and (prefs.target_locations or prefs.job_categories))),
+            "roles_ingested": len(jobs),
+            "top_categories": top(cat_freq, 3),
+        },
+    }
+
+
 @router.post("/grants", response_model=GrantOut)
 def create_grant(body: CreateGrantRequest, user: CurrentUser, state: StateDep) -> GrantOut:
     if body.scope not in ("jobs", "criteria"):
