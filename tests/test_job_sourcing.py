@@ -42,7 +42,7 @@ def test_source_attribution_logo_name_and_link():
                     url="https://linkedin.com/jobs/view/123")
     assert li.source_slug == "linkedin"
     assert li.source_display == "LinkedIn"
-    assert li.source_logo == "https://logo.clearbit.com/linkedin.com"
+    assert li.source_logo == "https://icons.duckduckgo.com/ip3/linkedin.com.ico"
     assert li.source_url == "https://linkedin.com/jobs/view/123"  # direct link preferred
 
     # Indeed "jobs that match you" digests arrive as "match" -> normalized to Indeed,
@@ -50,7 +50,7 @@ def test_source_attribution_logo_name_and_link():
     m = JobPosting(source_platform="match", title="Client Service Manager", company="Sodexo")
     assert m.source_slug == "indeed"
     assert m.source_display == "Indeed"
-    assert m.source_logo == "https://logo.clearbit.com/indeed.com"
+    assert m.source_logo == "https://icons.duckduckgo.com/ip3/indeed.com.ico"
     assert m.source_url.startswith("https://www.indeed.com/jobs?q=")
     assert "Client+Service+Manager" in m.source_url and "Sodexo" in m.source_url
 
@@ -224,7 +224,7 @@ def test_api_run_ingests_into_matches():
     assert m["url"].startswith("http")
     assert "location" in m and "remote" in m and "posted_ago" in m and "source_platform" in m
     # a company logo is resolved for display (derived from the company domain here)
-    assert m["company_logo"].startswith("https://logo.clearbit.com/")
+    assert m["company_logo"].startswith("https://icons.duckduckgo.com/ip3/")
     # salary + source platform are surfaced for display
     assert m["source_platform"] and m["source_display"]  # e.g. "linkedin" -> "LinkedIn"
     assert m["salary_range"] is not None

@@ -1626,11 +1626,17 @@ is display only**, no new endpoints. Each match (and each saved/applied job card
 ### 1. Prominent, recognizable board logos
 For the boards the user named and every other known board — **LinkedIn, Glassdoor, Indeed, Monster,
 ZipRecruiter, Dice, CareerBuilder, SimplyHired, Wellfound, Greenhouse, Lever** — show a confident,
-instantly recognizable brand badge on each card, keyed by **`source_slug`**:
-- Prefer a crisp built-in brand icon for the slug (e.g. a Simple Icons / brand-icon set) rendered in the
-  board's brand color, so it's sharp at small sizes. Use **`source_logo`** as the image source / fallback,
-  and if that also fails, a clean text pill with **`source_display`**. Never render the raw slug or a
-  2-letter stub ("ma", "Match", "li").
+instantly recognizable brand badge on each card, keyed by **`source_slug`**. **Logo render order (three
+tiers, in this priority):**
+  1. **Crisp brand icon by `source_slug`** — a built-in brand-icon set (e.g. Simple Icons: `indeed`,
+     `linkedin`, `glassdoor`, `monster`, `ziprecruiter`, `dice`, …) rendered in the board's brand color.
+     Sharpest at small sizes; use it as the primary when the slug is in the set.
+  2. **`source_logo` as an `<img>`** — the backend now returns a **working** logo URL (a real favicon PNG;
+     we moved off the dead Clearbit endpoint, so these resolve with HTTP 200). Render it directly, and use
+     it as the fallback when the slug isn't in your icon set, with `onerror` → tier 3.
+  3. **Text pill** with **`source_display`** — last resort if both images fail.
+- Never render the raw slug or a 2-letter stub ("ma", "Match", "li"), and don't leave the badge empty —
+  one of the three tiers always produces something.
 - Make it a **"Via {source_display}"** badge with the logo — prominent at a glance, placed consistently
   (e.g. top-right of the card or beside the title), not buried in small print.
 - Keep it **distinct from the company logo** (`company_logo`): company = who's hiring; board = where

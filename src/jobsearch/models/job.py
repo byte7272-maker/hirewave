@@ -101,15 +101,17 @@ def source_display_name(source_platform: str) -> str:
 
 
 def company_logo_from(domain: str) -> str:
-    """Best-effort company logo URL derived from a company web/email domain.
+    """Best-effort logo/icon URL derived from a company or job-board web domain.
 
-    Uses Clearbit's public logo endpoint (no API key, real company marks). Returns
-    "" when there is no domain, so callers can fall back to a lettermark. The image
-    may 404 for unknown/placeholder domains — the frontend should handle a broken
-    image by showing initials.
+    Uses DuckDuckGo's icon service (no API key, returns a real PNG with HTTP 200).
+    We moved off Clearbit's logo endpoint, which HubSpot sunset — it had started
+    failing to resolve, so every logo rendered as a broken image. Returns "" when
+    there is no domain, so callers can fall back to a lettermark; the image may
+    still 404 for unknown domains, which the frontend should handle by showing
+    initials.
     """
     d = (domain or "").strip().lower()
-    return f"https://logo.clearbit.com/{d}" if d else ""
+    return f"https://icons.duckduckgo.com/ip3/{d}.ico" if d else ""
 
 
 class JobPosting(DomainModel):
