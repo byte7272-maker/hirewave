@@ -362,12 +362,22 @@ _CHANGE_SYSTEM = (
     "action verbs, keyword alignment, ATS-friendliness, structure, length. Be concrete "
     "and concise; plain ASCII."
 )
+# The structure + voice of a well-formed cover letter. Injected into every
+# generate/edit prompt so the AI always produces proper formatting and tight wording.
+_CL_STANDARD = (
+    "Format it as a proper business cover letter: (1) a SALUTATION on its own line -- "
+    "'Dear Hiring Manager,' or 'Dear <name>,' when a name is known (never omit it); "
+    "(2) THREE short body paragraphs -- an opening hook that names the role and company "
+    "(never 'I am writing to' or 'To whom it may concern'), a middle paragraph backing "
+    "ONE claim with a concrete result, and a brief closing paragraph with a call to "
+    "action; (3) a courteous SIGN-OFF -- 'Sincerely,' then the candidate's name. Keep "
+    "every sentence tight, active and specific: no cliches, no filler, no repetition. "
+    "200-350 words total."
+)
 _CL_REVISE_SYSTEM = (
     "You are an expert cover-letter editor. Rewrite the cover letter to satisfy the "
     "user's instruction, using ONLY facts already present -- never invent employers, "
-    "achievements, or metrics. Open with a specific hook (not 'I am writing to'), name "
-    "the company and role, back one claim with a concrete result, cut cliches, and keep "
-    "it to 250-400 words. Return only the revised cover letter."
+    "achievements, or metrics. " + _CL_STANDARD + " Return only the revised cover letter."
 )
 # Overused, generic cover-letter phrasing worth cutting.
 _CL_CLICHES = [
@@ -1649,10 +1659,11 @@ class ResumeAssistant:
         try:
             out = self.premium.complete(
                 "Rewrite the cover letter below and INCORPORATE the candidate's additional points, then "
-                "return ONLY JSON with " + self._CL_KEYS + ". Work each point naturally into the body, "
-                "backing a claim with a concrete result where the candidate gave one, cut cliches, keep it "
-                "250-400 words. Use ONLY facts already present PLUS the candidate's additional points -- "
-                "never invent employers, achievements, or metrics beyond what is stated." + focus + ideas + ctx +
+                "return ONLY JSON with " + self._CL_KEYS + ". " + _CL_STANDARD + " Always fill the "
+                "'salutation' and 'closing'/'signature' keys. Work each point naturally into the body, "
+                "backing a claim with a concrete result where the candidate gave one. Use ONLY facts "
+                "already present PLUS the candidate's additional points -- never invent employers, "
+                "achievements, or metrics beyond what is stated." + focus + ideas + ctx +
                 "\n\nCover letter:\n" + text[:3000],
                 system="You improve cover letters, incorporate the candidate's own notes, and output only valid JSON.",
                 max_tokens=1400,
@@ -1986,9 +1997,8 @@ class ResumeAssistant:
         try:
             out = self.premium.complete(
                 "Improve the cover letter below and return ONLY JSON with " + self._CL_KEYS + ". "
-                "Open with a specific hook (not 'I am writing to'), name the company and role, back a "
-                "claim with a concrete result, cut cliches, keep it 250-400 words. Use ONLY facts "
-                "already present -- never invent employers, achievements, or metrics." + focus + points + ctx +
+                + _CL_STANDARD + " Always fill the 'salutation' and 'closing'/'signature' keys. Use ONLY "
+                "facts already present -- never invent employers, achievements, or metrics." + focus + points + ctx +
                 "\n\nCover letter:\n" + text[:3000],
                 system="You improve cover letters and output only valid JSON.",
                 max_tokens=1400,

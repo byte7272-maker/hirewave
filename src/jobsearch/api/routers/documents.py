@@ -195,6 +195,16 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     setattr(doc, text_attr, new_content)
 
 
+def _seed_original_version(doc, *, text_attr: str) -> None:
+    """Seed the 'Original' version (v1) from the document's current text at creation
+    time, so an uploaded/generated doc shows a version in the marquee immediately
+    (not only after the first edit). No-op if it already has versions or no text."""
+    text = getattr(doc, text_attr) or ""
+    if text.strip() and not doc.versions:
+        doc.versions = [DocumentVersion(version=1, label="Original", content=text, source="original")]
+        doc.active_version = 1
+
+
 def _sync_active_version(doc, *, text_attr: str) -> None:
     """Keep the active version's stored text identical to the document body after an
     in-place edit, so a later version read/render doesn't serve the pre-edit page.
@@ -303,6 +313,7 @@ async def upload_resume(
     resume.rendered_text = extract_text(
         data, filename=filename, content_type=resume.content_type
     )[:20000]
+    _seed_original_version(resume, text_attr="rendered_text")  # show an "Original" in the marquee at once
     return ensure_resume_grade(state, state.resumes.add(resume))
 
 
@@ -1341,6 +1352,7 @@ def generate_cover_letter(
     if body.resume_id and (resume is None or resume.user_id != user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
     cl = state.generation.generate_cover_letter(profile, job, resume=resume, tone=body.tone)
+    _seed_original_version(cl, text_attr="content")  # generated letter is its Original version
     return state.cover_letters.add(cl)
 
 
@@ -1385,6 +1397,7 @@ async def upload_cover_letter(
     )
     state.documents.put(cl.id, data, content_type=content_type)
     cl.file_url = f"/api/v1/cover-letters/{cl.id}/file"
+    _seed_original_version(cl, text_attr="content")  # show an "Original" in the marquee at once
     return ensure_cover_letter_grade(state, state.cover_letters.add(cl))
 
 

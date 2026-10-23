@@ -178,12 +178,18 @@ class GenerationEngine:
             ) if block
         ) or "(no résumé or profile on file)"
         system = (
-            "You write tailored, authentic cover letters (3 short paragraphs). "
-            "Ground every claim in the candidate's résumé below; draw their real "
-            "experience, achievements, and skills from it. Never fabricate "
-            "experience the candidate does not have, but do NOT emit placeholders "
-            "or ask for more detail when a résumé is provided — write the letter "
-            "from it. " + _TONE_GUIDANCE[tone]
+            "You write tailored, authentic cover letters. Ground every claim in the "
+            "candidate's résumé below; draw their real experience, achievements, and "
+            "skills from it. Never fabricate experience the candidate does not have, "
+            "but do NOT emit placeholders or ask for more detail when a résumé is "
+            "provided — write the letter from it. Format it properly: open with a "
+            "salutation on its own line ('Dear Hiring Manager,' or 'Dear <name>,' "
+            "when known); THREE short body paragraphs — an opening hook naming the "
+            "role and company (never 'I am writing to' / 'To whom it may concern'), a "
+            "middle paragraph backing ONE claim with a concrete result, and a brief "
+            "closing with a call to action; end with 'Sincerely,' and the candidate's "
+            "name. Keep it tight and specific — no cliches, no filler; 200-350 words. "
+            + _TONE_GUIDANCE[tone]
         )
         job_detail = (job.description or "").strip()[:1500] or (
             f"(no description provided — target the role title '{job.title}' "
