@@ -1917,3 +1917,26 @@ Default the cap to the endpoint's `suggested` values (**25 total / 10 per day**)
 Pre-fill the rule form from `/auto-apply/suggested-criteria`, add a one-click "from my matches" create, collapse advanced fields. The create call is the existing `POST /auto-apply/grants`. No other backend changes.
 
 Acceptance: opening the rule form shows fields already populated from the user's preferences/matches with a plain-language basis note; "Create rule from my matches" makes a working grant in one click; advanced options are hidden by default; the default caps are higher than 10; mode defaults to assisted with a clear explanation.
+
+---
+
+## P24 — Fix the auto-apply rule card: status toggle + Run (stop the "status field required" error)
+
+Two bugs on the saved auto-apply rule card. Backend is correct and unchanged — these are frontend request/display fixes.
+
+### 1. The active/pause toggle must send `{ status }`
+The toggle calls `PATCH /api/v1/auto-apply/grants/{grant_id}` **with a JSON body** `{"status": "active"}` to enable or `{"status": "paused"}` to pause (allowed values: `active`, `paused`, `revoked`). Right now it's sending no body (or the wrong key), so the API returns **422 "status field required"** — that's the red error the user sees. Fix: always send `{ status: "<new state>" }`, `Content-Type: application/json`. The response is the updated grant; use it to re-render the toggle.
+
+### 2. Render the toggle from the grant's real `status`
+A newly-created grant comes back with **`status: "active"`**, so the toggle must read the grant's **`status`** field and show **on when `status === "active"`**, off when `paused`. Don't default the control to off/disabled — that's why an active rule looked disabled. (If you were keying the toggle off some other field like `mode`, switch it to `status`.)
+
+### 3. Run is a separate call — don't fire the status PATCH on Run
+"Run" is `POST /api/v1/auto-apply/grants/{grant_id}/run` with body `{ "dry_run": false }` (or `{ "dry_run": true }` to preview) — both fields optional, an empty `{}` is valid. It returns a RunResult (`eligible`, `attempted`, `submitted`, `outcomes[]`) → show that as the success message. **Do not** also call the status PATCH as a side effect of Run (that's what produced the simultaneous green-success + red-"status field required"). Only the toggle calls PATCH, and only with a `status`.
+
+### 4. Surface run results clearly
+After Run, show the counts from the result (e.g. "Prepared 3 · 0 submitted" in assisted/simulate) and, if `submitted`/prepared > 0, point the user to the **approvals/queue** to approve. In assisted mode nothing is sent without approval.
+
+### Scope
+Frontend only: send `{status}` on the toggle PATCH, drive the toggle from the grant's `status`, keep Run independent. No backend change.
+
+Acceptance: toggling a rule enables/pauses it with no error and the toggle reflects the saved `status`; a freshly-created rule shows as **active**; pressing Run shows only the run-result success (no "status field required"); approvals/queue reflect what a run prepared.
