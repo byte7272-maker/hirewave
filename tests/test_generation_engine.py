@@ -34,6 +34,39 @@ def test_generate_cover_letter(profile, matching_job):
     assert cl.approved is False
 
 
+def test_generate_cover_letter_grounds_in_resume_when_profile_empty():
+    """Regression: the generator must feed the résumé's real text into the prompt.
+    With an empty profile and an empty job description, the old code sent nothing
+    to ground on and the model returned a placeholder draft."""
+    from jobsearch.llm.base import LLMProvider
+    from jobsearch.models import JobPosting, Resume, UserProfile
+
+    captured = {}
+
+    class SpyLLM(LLMProvider):
+        name = "spy"
+
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            captured["prompt"] = prompt
+            captured["system"] = system
+            return "Dear Hiring Manager, ..."
+
+    engine = GenerationEngine(llm=SpyLLM())
+    profile = UserProfile(user_id="u1")  # empty: no headline/skills
+    job = JobPosting(title="SRE", company="Initech", description="")  # no description
+    resume = Resume(
+        user_id="u1",
+        rendered_text="Led a ZXQWOps platform migration saving 40% in cloud costs.",
+    )
+    cl = engine.generate_cover_letter(profile, job, resume=resume)
+
+    # The résumé's distinctive content reaches the prompt...
+    assert "ZXQWOps" in captured["prompt"]
+    # ...and the system prompt forbids placeholder output.
+    assert "placeholder" in captured["system"].lower()
+    assert cl.resume_id == resume.id
+
+
 def test_approval_gate_helper(profile, matching_job):
     engine = GenerationEngine()
     resume = engine.generate_resume(profile, matching_job)

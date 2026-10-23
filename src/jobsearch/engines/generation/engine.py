@@ -166,19 +166,39 @@ class GenerationEngine:
         tone: Tone = Tone.PROFESSIONAL,
     ) -> CoverLetter:
         top_skills = ", ".join(profile.skills[:6])
+        # The résumé is the source of truth for the candidate's real experience.
+        # The stored UserProfile is often empty, so without this the model has
+        # nothing to ground on and (correctly) refuses with a placeholder draft.
+        resume_text = (resume.rendered_text or "").strip() if resume else ""
+        profile_text = profile.to_context_text().strip()
+        candidate_context = "\n\n".join(
+            block for block in (
+                (f"Résumé:\n{resume_text[:4000]}" if resume_text else ""),
+                (f"Profile notes:\n{profile_text}" if profile_text else ""),
+            ) if block
+        ) or "(no résumé or profile on file)"
         system = (
             "You write tailored, authentic cover letters (3 short paragraphs). "
-            "Never fabricate experience the candidate does not have. "
-            + _TONE_GUIDANCE[tone]
+            "Ground every claim in the candidate's résumé below; draw their real "
+            "experience, achievements, and skills from it. Never fabricate "
+            "experience the candidate does not have, but do NOT emit placeholders "
+            "or ask for more detail when a résumé is provided — write the letter "
+            "from it. " + _TONE_GUIDANCE[tone]
+        )
+        job_detail = (job.description or "").strip()[:1500] or (
+            f"(no description provided — target the role title '{job.title}' "
+            f"at {job.company or 'the company'} using the résumé)"
         )
         prompt = (
             f"Role: {job.title or 'target role'}\n"
             f"Company: {job.company or 'the company'}\n"
             f"Candidate: {profile.headline or profile.user_id}\n"
             f"Top skills: {top_skills}\n\n"
-            f"Candidate profile:\n{profile.to_context_text()}\n\n"
-            f"Job description:\n{job.description[:1500]}\n\n"
-            "Write a cover letter for this specific role and company."
+            f"Candidate context (source of truth):\n{candidate_context}\n\n"
+            f"Job description:\n{job_detail}\n\n"
+            "Write a complete, ready-to-send cover letter for this specific role "
+            "and company, using the candidate context above. Output only the "
+            "letter — no placeholders, no notes, no bracketed fields."
         )
         content = self.llm.complete(prompt, system=system, temperature=0.6, max_tokens=600).strip()
         return CoverLetter(
