@@ -2065,3 +2065,24 @@ Scanning pulls job mail from the user's connected inbox, but today the UI never 
 UI over the live endpoints; no client-side token handling (OAuth happens on the provider + backend). Null-safe: an empty list → an inviting "Connect your first email source" empty state. Global P0 rules (token refresh, Retry over infinite spinners) apply.
 
 Acceptance: Integrations shows every connected inbox by address; "+ Add email source" connects an additional Gmail via the account chooser and it appears in the list; removing one inbox leaves the others scanning; a scan reads all connected inboxes; an expired inbox shows Reconnect; and a user with no inbox sees a clear connect prompt.
+
+---
+
+## P33 — Patch P29: the Résumé ⇄ Cover letter toggle must also switch the VERSIONS MARQUEE (and live next to it)
+
+P29 shipped, but only half-works: flipping the toggle switches the **editor document** (preview + side panel) — good — yet the **versions marquee stays stuck on the résumé's versions**. It must switch to the **cover letter's** versions too. And the toggle is currently only reachable away from the marquee; put one **in or directly above the marquee card** so switching is easy right where the versions live. No backend — the cover-letter version endpoints are already LIVE.
+
+### A. The marquee follows `activeDocType`
+The versions marquee is bound to the **same** `activeDocType` as the rest of the Workspace (one shared state — never a second independent selector):
+- **Résumé active** → marquee lists résumé versions: `GET /api/v1/resumes/{id}` (`versions[]`, `active_version`), thumbnails via `GET /resumes/{id}/versions/{v}/render`, linkage via `GET /resumes/{id}/version-usage` (P28).
+- **Cover letter active** → marquee lists the **cover letter's** versions from the **cover-letter** endpoints: `GET /api/v1/cover-letters/{id}` (`versions[]`, `active_version`), `GET /cover-letters/{id}/versions/{v}/render`, `GET /cover-letters/{id}/version-usage`. Rename/activate/delete also hit the `/cover-letters/...` routes.
+- The marquee **heading** reflects the type ("Your résumé · versions" ↔ "Your cover letter · versions"), and `selectedVersion` is tracked **per type** so flipping back to the résumé restores its selection (don't reset it).
+- A freshly uploaded cover letter has at least its "Original" version — so switching to Cover letter must show that version, never an empty or résumé-populated rail.
+
+### B. Put the toggle at the marquee
+In addition to the toggle above the preview (P29), render the **same** segmented `[ Résumé | Cover letter ]` control **in the marquee card's header (or directly above it)**, bound to the one shared state so both toggles move together. Switching from either spot flips the preview, side panel, **and** the marquee in one action. Keep the "No cover letter yet — create one" affordance when the user has none.
+
+### C. Scope
+Frontend state wiring only — point the marquee's data source at the active document's version endpoints and add the second toggle instance. No new backend; reuse the live résumé and cover-letter version routes. Null-safe (missing/!200 → empty-but-labeled rail, not a spinner or the other type's data).
+
+Acceptance: with the toggle on **Cover letter**, the versions marquee shows the **cover letter's** versions (heading says "cover letter", cards render cover-letter version content + P28 linkage), and flipping back to **Résumé** restores the résumé rail and its prior selection; a toggle sits in/above the marquee card and stays in sync with the one above the preview; and a just-uploaded cover letter shows its Original version in the rail rather than staying on the résumé's.
