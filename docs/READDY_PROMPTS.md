@@ -2018,3 +2018,26 @@ The version cards in the marquee **auto-zoom the résumé thumbnail to fill the 
 Pure presentation: card layout, the preview box aspect/clip, and the hover/focus pop-out. No endpoint, data, or state changes — the same version data (P2.1 marquee + P28 linkage) just becomes legible and clickable.
 
 Acceptance: every marquee card shows the full résumé page inside a fixed, page-shaped box with no overflow onto the text; the version label, tailored-for/applied-to linkage, change summary, date and action buttons sit in a clear region below and are always clickable; hovering or focusing a card pops it out above its neighbors at a larger, easily readable size without clipping or blocking its buttons, and collapses again on leave; reduced-motion and touch are handled.
+
+---
+
+## P31 — Matches: pull the full job description (so tailoring has something to work with)
+
+Many matches arrive from email alerts / board digests with **only a title, company and link** — their description is a one-line placeholder, so match scores, résumé review and cover-letter tailoring have nothing concrete to target. A new backend endpoint fetches each posting's own URL and extracts the **real** job description (schema.org JSON-LD first, then meta) — provider-agnostic. Wire it into Matches so users can fill in the detail. Backend is LIVE.
+
+### Endpoint (new)
+- `POST /api/v1/jobs/enrich-descriptions?limit={n}&job_ids={csv}` → `{ candidates, checked, enriched, enriched_job_ids, remaining }`.
+  - No `job_ids` → enriches any of the user's matches that still have a placeholder/thin description (up to `limit`, default 25, max 100).
+  - `job_ids` (comma-separated) → target specific cards.
+  - Best-effort and idempotent: a card with a real description is left alone; an unreachable/auth-walled posting (e.g. a logged-out LinkedIn page) is simply skipped, not failed. `remaining > 0` means call again to continue.
+
+### UX
+1. **Matches header action — "Get full descriptions."** Shows when any visible match is missing a real description. Clicking calls `enrich-descriptions` (no `job_ids`), shows a quiet progress state, and when `remaining > 0` keeps calling until it reaches 0 or the user stops. On finish: a toast — "Added full descriptions to {enriched} jobs." Then refresh `GET /jobs/matches` so scores/snippets update.
+2. **Per-card "Get description."** On a card whose description is still a placeholder, a small inline action calls the endpoint with that one `job_ids={id}`, then updates just that card. If it comes back not-enriched (board blocked), show a subtle "Couldn't load — open on {board}" linking to the source URL instead of an error.
+3. **Auto-enrich after a pull.** Right after a mailbox scan (P5) or an extension board pull ingests new jobs, fire one `enrich-descriptions` pass in the background so the freshly added matches gain descriptions without the user asking. Never block the ingest UI on it.
+4. Where a description now exists, the match card's snippet, the tailor/fit view, and the cover-letter "tailor for this job" flow all use it automatically (no extra wiring — they already read `job.description`).
+
+### Scope
+Display + a button that calls the live endpoint; no client-side scraping. Null-safe (missing/!200 → leave the card, offer the source link). Global P0 rules apply.
+
+Acceptance: on Matches with placeholder-only jobs, "Get full descriptions" fills them in (looping until `remaining` is 0), the cards' snippets and the tailoring/fit views then show real detail, blocked postings degrade to a source link rather than an error, and a fresh scan/pull quietly enriches new matches on its own.

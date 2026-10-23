@@ -276,6 +276,46 @@ def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: Current
     )
 
 
+@router.post("/enrich-descriptions")
+def enrich_descriptions(
+    state: StateDep,
+    _user: CurrentUser,
+    limit: int = Query(25, ge=1, le=100, description="max jobs to enrich this call"),
+    job_ids: str = Query("", description="comma-separated job ids to target; blank = any that need it"),
+) -> dict:
+    """Pull the **full job description** for matches that only have a placeholder
+    body. Fetches each posting's own URL and extracts the real JD (schema.org
+    JSON-LD first, then meta description) — provider-agnostic. Best-effort and
+    time-boxed: unreachable/auth-walled boards (e.g. a logged-out LinkedIn page)
+    are skipped, not failed. Returns how many were enriched.
+
+    Call it after a mailbox scan / board pull, or from a "Get full descriptions"
+    action on Matches. Idempotent — a job with a real description is left alone.
+    """
+    from jobsearch.engines.sourcing.jd_enrich import enrich_job, needs_jd
+
+    wanted = {s.strip() for s in job_ids.split(",") if s.strip()}
+    candidates = [
+        j for j in state.jobs.all()
+        if _visible(state, j) and needs_jd(j) and (not wanted or j.id in wanted)
+    ]
+    checked = enriched = 0
+    enriched_ids: list[str] = []
+    for job in candidates[:limit]:
+        checked += 1
+        if enrich_job(job):
+            state.jobs.add(job)
+            enriched += 1
+            enriched_ids.append(job.id)
+    return {
+        "candidates": len(candidates),
+        "checked": checked,
+        "enriched": enriched,
+        "enriched_job_ids": enriched_ids,
+        "remaining": max(0, len(candidates) - checked),
+    }
+
+
 # --- saved jobs (bookmarks) -------------------------------------------------
 def _saved_id(user_id: str, job_id: str) -> str:
     return f"{user_id}:{job_id}"
