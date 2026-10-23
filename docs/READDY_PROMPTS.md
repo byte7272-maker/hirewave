@@ -1997,3 +1997,24 @@ Flipping the toggle re-points the **entire** Workspace at the chosen document, i
 Frontend state + layout only. No new endpoints — reuse the live `/resumes/*` and `/cover-letters/*` routes already wired by P7/P28. Deterministic; the only AI is the same per-tab AI already in use.
 
 Acceptance: a single, clearly visible Résumé ⇄ Cover letter toggle sits above the preview and in the marquee header everywhere a document is shown; flipping it switches the preview, the versions marquee + P28 linkage, and the side-panel tabs/endpoints together in one action; cover letter shows the reduced tab set and never calls a résumé endpoint; each side keeps its own version/tab/review state across switches; and with no cover letter yet the control invites creating one instead of showing an empty editor.
+
+---
+
+## P30 — Fix the marquee card: constrain the preview to the page, pop it out on hover
+
+The version cards in the marquee **auto-zoom the résumé thumbnail to fill the whole card**, so the page image bleeds down over the version info (label, "Tailored for …", "Applied: …", change summary, date) — making the new P28/P29 linkage **unreadable and un-clickable**. Fix the card so the preview occupies **only its own page-shaped box** and the info area is always clear and interactive, and let the card **pop out on hover** so the details read easily. Layout/CSS only — **no backend, no data changes**.
+
+### A. Constrain the preview to the résumé's own dimensions
+- The thumbnail renders at the **document's page aspect ratio** (letter/A4), inside a **fixed preview box at the top of the card** — not stretched to the card's remaining height. Use `object-fit: contain` (or scale by the smaller of width/height fit) so the whole page shows with **no overflow and no crop**; letterbox with the card background if the ratios don't match. The preview must **never paint outside its box** — clip it (`overflow: hidden`) so it can't cover the text below.
+- Below the preview, a **dedicated info region** (its own flex row/stack, not overlapping the image) holds the label, the P28 badges ("Tailored for {company}", "Applied: …"), change summary, date, and the action buttons. This region is always fully visible and clickable; the preview never sits on top of it. Give the badges/links real hit targets (they're interactive per P28).
+- Kill any transform/scale that was being applied to make the image "fill" the card. One consistent preview box size across all cards so the rail reads evenly.
+
+### B. Pop out on hover (and on keyboard focus) to read it
+- On **hover or focus**, the card **lifts and scales up** (e.g. a larger floating version of the same card, or an elevation + modest zoom) **above its neighbors** (raise `z-index`, soft shadow), revealing the full info — long "Applied:" lists, the full change summary, full label — at a comfortable size. It returns on mouse-out / blur.
+- The pop-out must not clip at the rail's edges (render above the scroll container / use a portal-style layer) and must not steal the click: the buttons inside stay usable while popped. Keep it smooth (CSS transition), respect `prefers-reduced-motion` (fade/elevate without the scale), and keep it touch-friendly (tap to expand on mobile, where there's no hover).
+- Don't shift the rail layout when a card pops (overlay, don't reflow neighbors).
+
+### C. Scope
+Pure presentation: card layout, the preview box aspect/clip, and the hover/focus pop-out. No endpoint, data, or state changes — the same version data (P2.1 marquee + P28 linkage) just becomes legible and clickable.
+
+Acceptance: every marquee card shows the full résumé page inside a fixed, page-shaped box with no overflow onto the text; the version label, tailored-for/applied-to linkage, change summary, date and action buttons sit in a clear region below and are always clickable; hovering or focusing a card pops it out above its neighbors at a larger, easily readable size without clipping or blocking its buttons, and collapses again on leave; reduced-motion and touch are handled.
