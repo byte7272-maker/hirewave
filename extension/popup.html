@@ -43,10 +43,19 @@
   <button id="connect">Connect this site</button>
   <div id="status" class="status muted"></div>
 
+  <hr style="margin:16px 0;border:0;border-top:1px solid #ddd" />
+  <h1>Pull jobs into Project Harbor</h1>
+  <p class="sub">On any supported job board, pull the listings on the page into your matches. Works the same across LinkedIn, Indeed, Glassdoor, ZipRecruiter, Dice.</p>
+  <button id="pull">Pull jobs from this page</button>
+  <div id="pullStatus" class="status muted"></div>
+
   <details>
     <summary>Advanced</summary>
     <label for="apiBase">Project Harbor API base URL</label>
     <input id="apiBase" type="text" autocomplete="off" />
+    <label for="refreshToken">Project Harbor refresh token (for pulling jobs)</label>
+    <input id="refreshToken" type="password" placeholder="paste hw_refresh from Project Harbor" autocomplete="off" />
+    <p class="note">One-time: on Project Harbor, open DevTools console and run <code>localStorage.hw_refresh</code>, paste it here. Used only to mint a short-lived access token when you pull jobs.</p>
   </details>
 
   <p class="note">Make sure you're logged into the site in this browser first.</p>

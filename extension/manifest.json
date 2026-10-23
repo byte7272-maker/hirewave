@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.1.2",
-  "description": "Connect a job site to Project Harbor: captures your session (cookies only, never your password) so the assistant can apply for you.",
+  "version": "1.2.0",
+  "description": "Connect a job site to Project Harbor and pull your job matches from any board — captures your session (cookies only, never your password).",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
     "16": "icons/icon16.png",
@@ -10,7 +10,7 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["cookies", "tabs", "storage"],
+  "permissions": ["cookies", "tabs", "storage", "scripting"],
   "host_permissions": [
     "https://*.linkedin.com/*",
     "https://*.indeed.com/*",

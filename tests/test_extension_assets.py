@@ -33,3 +33,22 @@ def test_popup_uses_the_real_connect_endpoint_and_providers():
 def test_popup_html_loads_external_script_no_inline():
     html = (_EXT / "popup.html").read_text(encoding="utf-8")
     assert 'src="popup.js"' in html  # MV3 CSP forbids inline scripts
+
+
+def test_manifest_allows_job_pull():
+    manifest = json.loads((_EXT / "manifest.json").read_text(encoding="utf-8"))
+    # injecting the page scraper needs the scripting permission
+    assert "scripting" in manifest["permissions"]
+
+
+def test_popup_supports_provider_agnostic_job_pull():
+    js = (_EXT / "popup.js").read_text(encoding="utf-8")
+    html = (_EXT / "popup.html").read_text(encoding="utf-8")
+    assert 'id="pull"' in html  # the "Pull jobs from this page" button
+    # injects a scraper and sends to the deduping, provider-agnostic endpoint
+    assert "scrapeBoardJobs" in js and "executeScript" in js
+    assert "/api/v1/jobs/ingest-external" in js
+    assert "/api/v1/auth/refresh" in js  # mints a short-lived access token from the refresh token
+    # the scraper is agnostic across the major boards
+    for site in ("linkedin", "indeed", "glassdoor", "ziprecruiter", "dice", "monster"):
+        assert site in js

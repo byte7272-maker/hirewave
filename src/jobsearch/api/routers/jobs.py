@@ -11,6 +11,8 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
+    AggregationOut,
+    ExternalIngestRequest,
     IngestRequest,
     MatchOut,
     MatchReasonOut,
@@ -238,7 +240,8 @@ def export_matches(
 
 @router.post("/ingest", status_code=status.HTTP_201_CREATED)
 def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
-    """Store postings and verify each (admin/internal use)."""
+    """Store postings and verify each (admin/internal use). Does NOT de-duplicate —
+    prefer ``/ingest-external`` for client/browser pulls that may repeat."""
     ingested = 0
     for item in body.jobs:
         job = JobPosting(**item.model_dump())
@@ -246,6 +249,31 @@ def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
         state.verifications[job.id] = state.verification.verify(job)
         ingested += 1
     return {"ingested": ingested, "total": len(state.jobs.all())}
+
+
+@router.post("/ingest-external", response_model=AggregationOut)
+def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: CurrentUser) -> AggregationOut:
+    """Provider-AGNOSTIC ingest for client/browser pulls (e.g. the Connect
+    extension scraping LinkedIn/Indeed/Glassdoor/… job pages). De-duplicates via the
+    aggregator — cross-board duplicates are linked and identical re-posts collapse —
+    so pulling the same page repeatedly won't pile up copies (unlike ``/ingest``).
+
+    Each job carries its own ``source_platform`` (e.g. "linkedin"); ``source`` is a
+    fallback applied to any job that doesn't set one. Returns what was ingested vs.
+    skipped as duplicates."""
+    raw: list[dict] = []
+    for item in body.jobs:
+        d = item.model_dump()
+        if not d.get("source_platform") and body.source:
+            d["source_platform"] = body.source
+        raw.append(d)
+    srcs = {d.get("source_platform") for d in raw if d.get("source_platform")} or {body.source or "extension"}
+    result = state.aggregator.ingest(raw, sources=srcs)
+    return AggregationOut(
+        found=result.found, ingested=result.ingested, duplicates=result.duplicates,
+        hidden=result.hidden, sources=result.sources, job_ids=result.job_ids,
+        matched_job_ids=result.matched_job_ids,
+    )
 
 
 # --- saved jobs (bookmarks) -------------------------------------------------

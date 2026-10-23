@@ -128,6 +128,15 @@ class IngestRequest(BaseModel):
     jobs: list[JobInput]
 
 
+class ExternalIngestRequest(BaseModel):
+    """Provider-agnostic ingest from a client/browser pull (the Connect extension
+    scraping a job board). Each job sets its own ``source_platform``; ``source`` is a
+    fallback for jobs that don't."""
+
+    source: str = ""  # fallback board key, e.g. "linkedin" (per-job value wins)
+    jobs: list[JobInput]
+
+
 class SaveJobRequest(BaseModel):
     job_posting_id: str
     note: Optional[str] = None
