@@ -206,8 +206,9 @@ class GenerationEngine:
             "and company, using the candidate context above. Output only the "
             "letter — no placeholders, no notes, no bracketed fields."
         )
-        # Enough headroom for the full letter incl. the closing sign-off (600 cut it).
-        content = self.llm.complete(prompt, system=system, temperature=0.6, max_tokens=900).strip()
+        # Generous budget: the premium model (Opus) can spend output tokens on internal
+        # reasoning, so a tight cap truncated the letter mid-sentence before the sign-off.
+        content = self.llm.complete(prompt, system=system, temperature=0.6, max_tokens=2000).strip()
         return CoverLetter(
             user_id=profile.user_id,
             job_posting_id=job.id,

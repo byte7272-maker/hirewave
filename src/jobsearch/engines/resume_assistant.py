@@ -2026,7 +2026,9 @@ class ResumeAssistant:
             + f"\nCurrent cover letter:\n{base[:6000]}\n\nRewrite it accordingly."
         )
         try:
-            preview = self.premium.complete(prompt, system=_CL_REVISE_SYSTEM, max_tokens=900).strip()
+            # Generous budget so a reasoning model (Opus) can't exhaust the output on
+            # internal thinking and truncate the letter before its sign-off.
+            preview = self.premium.complete(prompt, system=_CL_REVISE_SYSTEM, max_tokens=2000).strip()
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError("revision service is unavailable right now") from exc
         return CoverLetterRevision(
