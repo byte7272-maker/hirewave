@@ -50,11 +50,23 @@ def create_application(
 ) -> ApplicationOut:
     if state.jobs.get(body.job_posting_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    # Record WHICH version of each document was applied — an explicit value from the
+    # request wins, else the document's active version at apply time.
+    r_ver = body.resume_version
+    if r_ver is None and body.resume_id:
+        r = state.resumes.get(body.resume_id)
+        r_ver = r.active_version if r else 0
+    c_ver = body.cover_letter_version
+    if c_ver is None and body.cover_letter_id:
+        c = state.cover_letters.get(body.cover_letter_id)
+        c_ver = c.active_version if c else 0
     app = Application(
         user_id=user.id,
         job_posting_id=body.job_posting_id,
         resume_id=body.resume_id,
+        resume_version=r_ver or 0,
         cover_letter_id=body.cover_letter_id,
+        cover_letter_version=c_ver or 0,
     )
     return _out(state, state.applications.add(app))
 

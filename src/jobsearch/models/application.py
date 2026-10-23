@@ -30,7 +30,12 @@ class Application(DomainModel):
     user_id: str
     job_posting_id: str
     resume_id: Optional[str] = None
+    #: Which saved VERSION of the résumé/cover letter was used for this application,
+    #: so "which jobs a version was applied to" is answerable. 0 = the doc had no
+    #: explicit version history at apply time (its live text was used).
+    resume_version: int = 0
     cover_letter_id: Optional[str] = None
+    cover_letter_version: int = 0
     status: ApplicationStatus = ApplicationStatus.DRAFT
     submitted_at: Optional[datetime] = None
     platform_response: dict[str, Any] = Field(default_factory=dict)

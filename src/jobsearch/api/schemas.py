@@ -292,7 +292,10 @@ class ApplicationCreate(BaseModel):
     # ``job_id``, so quick-apply from a match card can post either key.
     job_posting_id: str = Field(validation_alias=AliasChoices("job_posting_id", "job_id"))
     resume_id: Optional[str] = None
+    #: Which saved version to record as applied; omit to use the doc's active version.
+    resume_version: Optional[int] = None
     cover_letter_id: Optional[str] = None
+    cover_letter_version: Optional[int] = None
 
 
 class SubmitRequest(BaseModel):
@@ -432,6 +435,23 @@ class CreateVersionRequest(BaseModel):
     label: Optional[str] = None  # optional tag; defaults to the target job's type
     job_posting_id: Optional[str] = None  # the job this version targets, if any
     instruction: str = ""  # what was asked for (used in the change summary)
+
+
+class VersionUsageOut(BaseModel):
+    """One saved version plus its job linkage — the job it was tailored for and every
+    job it was applied to — so previews/versions/tracker can show where each version
+    went. Powers "which versions, and which jobs they were applied to.\""""
+
+    version: int
+    label: str = ""
+    change_summary: str = ""
+    source: str = ""              # original | revision | tailored | reuse
+    created_at: Optional[str] = None
+    #: The job this version was created/tailored for (denormalized title/company so it
+    #: shows even if the posting left the pool); null for a general version.
+    tailored_for: Optional[dict] = None   # {job_posting_id, title, company}
+    #: Jobs this exact version was applied to (from the applications tracker).
+    applied_to: list[JobCard] = Field(default_factory=list)
 
 
 class VersionReuseSuggestion(BaseModel):

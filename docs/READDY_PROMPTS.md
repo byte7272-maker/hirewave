@@ -1946,3 +1946,26 @@ After Run, show the counts from the result (e.g. "Prepared 3 · 0 submitted" in 
 Frontend only: send `{status}` on the toggle PATCH, drive the toggle from the grant's `status`, keep Run independent. No backend change.
 
 Acceptance: toggling a rule enables/pauses it with no error and the toggle reflects the saved `status`; a freshly-created rule shows as **active**; pressing Run shows only the run-result success (no "status field required"); approvals/queue reflect what a run prepared.
+
+---
+
+## P28 — Show which version went to which job, everywhere a document appears
+
+Users keep several tailored versions of a résumé/cover letter; they need to see, at a glance, **which version was tailored for which job and which jobs each version was applied to** — wherever a document is previewed, or recorded as saved/applied. Backend is LIVE; display only.
+
+### Data (new/updated endpoints)
+- **Version usage:** `GET /api/v1/resumes/{id}/version-usage` and `GET /api/v1/cover-letters/{id}/version-usage` →
+  `[{ version, label, change_summary, source, created_at, tailored_for: { job_posting_id, title, company } | null, applied_to: [ JobCard ] }]`.
+  `tailored_for` = the job the version was created/tailored for; `applied_to` = every job that exact version was applied to.
+- **Applications now record the version used:** each application (`GET /applications`, the tracker) includes **`resume_version`** and **`cover_letter_version`** (0 = the doc's live text, no explicit version).
+
+### Where to show it
+1. **Document preview / versions marquee (the editor).** For each version in the list, show its **label** + two badges: **"Tailored for {company}"** (from `tailored_for`) and **"Applied: {companies}"** (from `applied_to`, e.g. "Applied: Acme, Globex" or "Not applied yet"). The currently-previewed version highlights its own linkage. Make `applied_to`/`tailored_for` company chips click through to the job (its `job_posting_id` / the job's source link).
+2. **Applications tracker (recorded as applied).** On each application row/card, show **which version** was used: "Résumé — {version label or 'v{resume_version}'}" and, if present, "Cover letter — v{cover_letter_version}". Link it to that version in the editor. This answers "what did I send to this job?"
+3. **Saved jobs (recorded as saved).** If any version's `tailored_for` matches a saved job, surface a small **"Tailored résumé ready (v{n})"** hint on that saved-job card linking to the version; otherwise show nothing.
+4. **Wherever a résumé/cover-letter preview is embedded** (tailor view, reuse suggestion, match "quick apply" sheet) — show the active version's label + its tailored-for/applied-to summary, so the linkage travels with the preview.
+
+### Scope
+Display of the live `version-usage` endpoints + the `resume_version`/`cover_letter_version` fields on applications. No new backend.
+
+Acceptance: in the editor each version shows what it was tailored for and the jobs it was applied to; the applications tracker shows which version was sent to each job; saved jobs with a matching tailored version surface it; every embedded preview carries the same version↔job linkage. Nothing shows a version with no way to see where it went.

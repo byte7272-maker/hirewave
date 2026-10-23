@@ -52,6 +52,7 @@ from jobsearch.api.schemas import (
     StructuredImprovement,
     TailorRequest,
     VersionReuseSuggestion,
+    VersionUsageOut,
 )
 from jobsearch.models.common import utcnow
 from jobsearch.models import DocumentVersion
@@ -986,6 +987,44 @@ def get_resume(resume_id: str, user: CurrentUser, state: StateDep) -> Resume:
     return ensure_resume_grade(state, ensure_rendered_text(state, resume))
 
 
+def _version_usage(state: StateDep, user_id: str, doc, *, is_mine, ver_of) -> list[VersionUsageOut]:
+    """Per saved version: the job it was tailored for + every job it was applied to.
+    ``is_mine(app)`` filters applications to this document; ``ver_of(app)`` reads the
+    version that application used."""
+    by_ver: dict[int, list] = {}
+    for a in state.applications.find(user_id=user_id):
+        if not is_mine(a):
+            continue
+        job = state.jobs.get(a.job_posting_id)
+        if job is not None:
+            by_ver.setdefault(ver_of(a), []).append(JobCard.from_job(job))
+    out: list[VersionUsageOut] = []
+    for v in doc.versions:
+        tailored = None
+        if v.job_posting_id or v.job_title:
+            job = state.jobs.get(v.job_posting_id) if v.job_posting_id else None
+            tailored = {
+                "job_posting_id": v.job_posting_id,
+                "title": v.job_title or (job.title if job else ""),
+                "company": v.job_company or (job.company if job else ""),
+            }
+        out.append(VersionUsageOut(
+            version=v.version, label=v.label, change_summary=v.change_summary, source=v.source,
+            created_at=v.created_at.isoformat() if v.created_at else None,
+            tailored_for=tailored, applied_to=by_ver.get(v.version, []),
+        ))
+    return out
+
+
+@router.get("/resumes/{resume_id}/version-usage", response_model=list[VersionUsageOut])
+def resume_version_usage(resume_id: str, user: CurrentUser, state: StateDep) -> list[VersionUsageOut]:
+    """Which résumé versions exist and which jobs each was tailored for / applied to —
+    for showing version↔job linkage wherever the résumé is previewed or tracked."""
+    resume = get_resume(resume_id, user, state)
+    return _version_usage(state, user.id, resume,
+                          is_mine=lambda a: a.resume_id == resume.id, ver_of=lambda a: a.resume_version)
+
+
 @router.put("/resumes/{resume_id}", response_model=Resume)
 def update_resume(
     resume_id: str, body: ResumeUpdate, user: CurrentUser, state: StateDep
@@ -1493,6 +1532,14 @@ def get_cover_letter(cover_letter_id: str, user: CurrentUser, state: StateDep) -
     if cl is None or cl.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "cover letter not found")
     return ensure_cover_letter_grade(state, cl)
+
+
+@router.get("/cover-letters/{cover_letter_id}/version-usage", response_model=list[VersionUsageOut])
+def cover_letter_version_usage(cover_letter_id: str, user: CurrentUser, state: StateDep) -> list[VersionUsageOut]:
+    """Which cover-letter versions exist and which jobs each was tailored for / applied to."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    return _version_usage(state, user.id, cl,
+                          is_mine=lambda a: a.cover_letter_id == cl.id, ver_of=lambda a: a.cover_letter_version)
 
 
 @router.delete("/cover-letters/{cover_letter_id}", status_code=status.HTTP_204_NO_CONTENT)
