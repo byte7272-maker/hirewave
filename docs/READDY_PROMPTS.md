@@ -2164,3 +2164,29 @@ The suggested answer (P35's "Suggest an answer" — the model of the user's idea
 UI over the live endpoints; `catalog.tts` gates whether to show the neural chips, but the **device/Microsoft browser voices are always offered** (they need no server TTS). Null-safe; global P0 rules apply. This is the answer readout only — interviewer voices stay P35.
 
 Acceptance: a user can set the answer-readout voice in a tap or two (pick male/female, then a style) OR choose any device voice including every Microsoft voice the browser exposes; preview it; have it persist; and hear suggested answers read in that voice. With neural TTS off, the Microsoft/device voices still work.
+
+---
+
+## P37 — Label every interviewer/answer voice by name (no more "Neural voice")
+
+Some personas show a generic **"Neural voice"** instead of their actual voice name (e.g. Dr. Elena Rossi = Coral, Jordan Blake = Sage) because the UI's voice-name map only knows the original six voices. Fix the label so **every** voice shows its name — and make it future-proof so new voices never fall back to the generic label. No backend change: `voice_id` is already on `GET /interview/personas` rows and on `GET /interview/voices` / `/answer-voice`.
+
+### How to label a voice
+For a **server (neural) voice**, show `"<Name> · neural"` where `<Name>` is a friendly name for the `voice_id`. Use this map, and for any id not in it, **capitalize the id itself** (so a brand-new voice shows "<Capitalized> · neural", never "Neural voice"):
+
+```
+alloy→Alloy, ash→Ash, ballad→Ballad, coral→Coral, echo→Echo, fable→Fable,
+nova→Nova, onyx→Onyx, sage→Sage, shimmer→Shimmer, verse→Verse
+```
+
+For a **browser voice** (`source: "browser"`), show the device voice's own name (from `voice_uri` / the matching `speechSynthesis` voice), e.g. "Microsoft Ava (Natural)". Only when there is genuinely no voice id at all (no neural, no browser voice) fall back to a plain "Browser voice".
+
+### Where to apply it
+- The **persona gallery** cards ("Echo · neural", now also "Coral · neural", "Sage · neural").
+- The **Voice** picker per persona and the **Answer voice** control (show the current pick's name).
+- Anywhere a chosen voice is displayed.
+
+### Scope
+Pure labeling in the UI from data already returned by the API. Null-safe; global P0 rules apply.
+
+Acceptance: every persona card and voice control shows the voice's real name (Coral, Sage, etc.); no card shows the generic "Neural voice"; and a voice id the UI hasn't seen before still renders a capitalized name rather than the generic fallback.
