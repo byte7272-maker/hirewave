@@ -2265,3 +2265,29 @@ The avatar comes from `persona.avatar_url`, which the backend already lets you o
 Frontend layout/CSS only: drop the dead banner image, render the persona avatar with an initials fallback, and fix the header text contrast. Null-safe; global P0 rules apply.
 
 Acceptance: starting a practice interview shows the interviewer's avatar and their name/role/voice/difficulty clearly in the header; there is no broken-image icon and no invisible white-on-white text; if an avatar URL fails, a clean initials circle shows instead.
+
+---
+
+## P41 — Declutter the live interview session: one clear answer flow, obvious AI help
+
+The practice-interview session is overloaded and confusing. The AI help ("Suggest an answer" → model answer, voice, and Refine) actually works, but it's **buried** under a busy control area with several low-value / duplicated buttons, and there are **two competing answer inputs**. Simplify to one clear flow. No backend change — same endpoints.
+
+### The problems (observed in a live session)
+- Low-value / confusing controls crowd the answer area: **Done vs Send** (two "finish" buttons), **Pause**, **Re-record**, **Sensitivity**, plus mode toggles **"Turn hands-free off and record manually"**, **"Turn practice mode on"**, **"Mute interviewer voice"** — all competing at the same level.
+- The suggested-answer card and the **"Your answer appears here…"** textbox sit on top of each other, so it's unclear where the user is meant to act.
+- The AI action feels hard to reach even though it works.
+
+### Simplify to one answer flow
+1. **One answer input.** Keep a single "Your answer" area (type or speak). While recording, show just a **Record / Stop** toggle and a live transcript — remove **Pause**, **Re-record**, and **Sensitivity** (fold Sensitivity into a small settings "⋯" if truly needed; most users never touch it).
+2. **One finish button.** Replace **Done + Send** with a single primary **"Submit answer"**. (If "Done" only stops recording, merge it into Stop.)
+3. **Move mode toggles out of the main bar.** Put "Hands-free", "Practice mode", and "Mute interviewer voice" in a small overflow menu (⋯) or a compact settings row — not as prominent buttons beside the answer.
+4. **Make AI help the clear secondary action.** Keep **"Suggest an answer"** as a single obvious button near the question; once a model answer shows, keep its **Refine** (chips + "Tell the AI how to improve it…" + "Add a point") and voice controls — but collapse them tidily so the card isn't a wall of buttons (e.g. Refine and Voice behind small toggles that expand on demand).
+5. Keep the right-column **Transcript** and **Vocabulary coach** as-is, but ensure they don't compete visually with the primary answer action.
+
+### Result
+A clean session: the **question**, one **answer input** with a single Record/Stop + **Submit answer**, an obvious **Suggest an answer** for AI help (with Refine/voice tucked neatly), and advanced/mode options behind a ⋯ menu. No duplicated finish buttons, no stray low-value controls.
+
+### Scope
+Frontend layout/consolidation over the existing endpoints (`/interview/suggest-answer`, `/refine-answer`, `/tts`, mock `reply`). Null-safe; global P0 rules apply. Don't remove functionality — relocate the rarely-used controls; just stop them crowding the primary flow.
+
+Acceptance: in a live interview the user sees one answer input, a single Submit, and an obvious way to get + refine an AI suggestion; Pause/Re-record/Sensitivity/duplicate-finish buttons no longer crowd the bar (moved to a ⋯ menu or removed); and nothing about executing the AI prompt is ambiguous.
