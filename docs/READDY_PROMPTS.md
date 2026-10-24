@@ -2212,3 +2212,36 @@ After getting a suggested answer, the user should be able to **refine/recalculat
 UI over the live endpoint; iterative refine with Undo; null-safe; global P0 rules apply.
 
 Acceptance: under any suggested answer the user can type an instruction (or tap a chip) and add points to emphasize, get a reworked answer in place that reflects them while staying grounded in the résumé, refine again iteratively, and undo to the previous draft.
+
+---
+
+## P39 — One apply wizard (popup): add to pipeline → attach résumé/cover letter → start the automated apply (single or grouped)
+
+Applying is too many clicks across too many pages (Matches → save → Applications → open Details → attach docs → Submit; auto-apply is a separate rule flow). Collapse the common goal into **one wizard dialog** launched from anywhere a job appears — for a **single job or a grouped action** — that in a few simple choices adds the job(s) to the pipeline, attaches a résumé and/or cover letter, and kicks off the automated application on the external site. A new backend endpoint does it all in one call.
+
+### Endpoint (new, LIVE)
+`POST /api/v1/applications/batch`
+```
+{ job_ids: string[], resume_id?, resume_version?, cover_letter_id?, cover_letter_version?, submit?: bool, platform? }
+→ { results: [ { job_id, application_id, created, reused, submitted, requires_manual, fallback_url, message, error } ],
+    created, submitted, manual, failed }
+```
+- Adds each job to the pipeline with the chosen documents; **idempotent** (a job already in Draft is updated, not duplicated → `reused:true`).
+- `submit:true` also **starts the automated apply** on each site now; per-job `submitted` / `requires_manual` (+ `fallback_url`) / `error` come back so the wizard shows exactly what happened.
+- Supporting data already live: `GET /resumes`, `GET /cover-letters` (pick docs), `POST /cover-letters/generate` (make one tailored), `GET /auto-apply/sessions` (which boards are connected).
+
+### Launch points (a single "Apply" / "Quick apply" action)
+- A match card, a saved job, a job detail, **and** a multi-select on Matches/Saved ("Apply to N selected") → opens the **same** wizard. On the Applications board, a draft card's "Submit" also opens it (prefilled). Replace the buried Details→attach→Submit path.
+
+### The wizard — 3 light steps in a popup dialog
+1. **Jobs** — show the job(s) being applied to (1, or a list for the grouped action; let the user deselect any). A one-line note of which board each is on.
+2. **Documents** — pick a **résumé** (default: most-recent/active; dropdown of `GET /resumes`) and an optional **cover letter** (none / pick / **Generate tailored** via `/cover-letters/generate`). Applies the same choice to all jobs in a grouped action, with a small per-job override if they want. Show the version that will be recorded (P28).
+3. **Start** — two clear buttons: **"Add to pipeline"** (`submit:false` → just tracks them) and **"Start automated apply"** (`submit:true`). If a target board isn't connected (`GET /auto-apply/sessions`), surface a one-click Connect inline rather than failing. Honor the approval model — never present auto-send as bypassing the user's confirmation.
+
+### Results (in the dialog, then close)
+Per job: ✅ Submitted · ⚠️ Needs a manual finish ("Open on {board}" → `fallback_url` + any steps) · ❌ Error (reason). A summary line ("2 applied · 1 needs you · 0 failed"), then the Applications board reflects the new/updated cards. Grouped actions show a compact progress list.
+
+### Scope
+UI (a reusable dialog) over the live endpoints — one `batch` call does add + attach + optional submit. Null-safe (no résumé yet → prompt to add/generate one; no connected board → offer Connect). Global P0 rules apply.
+
+Acceptance: from a match/saved/detail card or a multi-select, one "Apply" opens a popup that, in ≤3 choices, adds the job(s) to the pipeline with a résumé (and optional cover letter) and can start the automated apply on each site; grouped actions apply the same choices to many jobs with per-job results; re-running doesn't create duplicate drafts; and a disconnected board offers Connect instead of erroring.

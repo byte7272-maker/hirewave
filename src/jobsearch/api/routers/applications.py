@@ -10,6 +10,9 @@ from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     ApplicationCreate,
     ApplicationOut,
+    BatchApplyOut,
+    BatchApplyRequest,
+    BatchApplyResult,
     JobCard,
     StatusUpdate,
     SubmitRequest,
@@ -44,31 +47,61 @@ def _out(state: StateDep, app: Application) -> ApplicationOut:
     )
 
 
+def _resolve_versions(state: StateDep, resume_id, cover_letter_id, resume_version, cover_letter_version):
+    """The version of each document to record as applied — an explicit value wins,
+    else the document's active version at apply time."""
+    r_ver = resume_version
+    if r_ver is None and resume_id:
+        r = state.resumes.get(resume_id)
+        r_ver = r.active_version if r else 0
+    c_ver = cover_letter_version
+    if c_ver is None and cover_letter_id:
+        c = state.cover_letters.get(cover_letter_id)
+        c_ver = c.active_version if c else 0
+    return r_ver or 0, c_ver or 0
+
+
+def _build_or_reuse_application(
+    state: StateDep, user_id: str, *, job_posting_id: str,
+    resume_id: str = "", cover_letter_id: str = "",
+    resume_version=None, cover_letter_version=None, dedup: bool = False,
+) -> tuple[Application, bool]:
+    """Add the job to the pipeline with the chosen documents. When ``dedup`` and a
+    draft for this job already exists, update that one instead of duplicating it
+    (used by the apply wizard). Returns ``(application, reused)``."""
+    r_ver, c_ver = _resolve_versions(state, resume_id, cover_letter_id, resume_version, cover_letter_version)
+    existing = next(
+        (a for a in state.applications.find(user_id=user_id)
+         if a.job_posting_id == job_posting_id and a.status == ApplicationStatus.DRAFT),
+        None,
+    ) if dedup else None
+    if existing is not None:
+        if resume_id:
+            existing.resume_id, existing.resume_version = resume_id, r_ver
+        if cover_letter_id:
+            existing.cover_letter_id, existing.cover_letter_version = cover_letter_id, c_ver
+        existing.updated_at = utcnow()
+        return state.applications.add(existing), True
+    app = Application(
+        user_id=user_id, job_posting_id=job_posting_id,
+        resume_id=resume_id, resume_version=r_ver,
+        cover_letter_id=cover_letter_id, cover_letter_version=c_ver,
+    )
+    return state.applications.add(app), False
+
+
 @router.post("", response_model=ApplicationOut, status_code=status.HTTP_201_CREATED)
 def create_application(
     body: ApplicationCreate, user: CurrentUser, state: StateDep
 ) -> ApplicationOut:
     if state.jobs.get(body.job_posting_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
-    # Record WHICH version of each document was applied — an explicit value from the
-    # request wins, else the document's active version at apply time.
-    r_ver = body.resume_version
-    if r_ver is None and body.resume_id:
-        r = state.resumes.get(body.resume_id)
-        r_ver = r.active_version if r else 0
-    c_ver = body.cover_letter_version
-    if c_ver is None and body.cover_letter_id:
-        c = state.cover_letters.get(body.cover_letter_id)
-        c_ver = c.active_version if c else 0
-    app = Application(
-        user_id=user.id,
-        job_posting_id=body.job_posting_id,
-        resume_id=body.resume_id,
-        resume_version=r_ver or 0,
-        cover_letter_id=body.cover_letter_id,
-        cover_letter_version=c_ver or 0,
+    app, _ = _build_or_reuse_application(
+        state, user.id, job_posting_id=body.job_posting_id,
+        resume_id=body.resume_id or "", cover_letter_id=body.cover_letter_id or "",
+        resume_version=body.resume_version, cover_letter_version=body.cover_letter_version,
     )
-    return _out(state, state.applications.add(app))
+    return _out(state, app)
 
 
 @router.get("", response_model=list[ApplicationOut])
@@ -86,68 +119,63 @@ def get_application(application_id: str, user: CurrentUser, state: StateDep) -> 
     return _out(state, _owned(state, user.id, application_id))
 
 
-@router.put("/{application_id}/submit", response_model=SubmitResponse)
-def submit(
-    application_id: str, body: SubmitRequest, user: CurrentUser, state: StateDep
-) -> SubmitResponse:
-    app = _owned(state, user.id, application_id)
+class _NeedsDocsError(RuntimeError):
+    """The application can't be submitted yet (missing job or résumé)."""
+
+
+def _submit_core(state: StateDep, user, app: Application, *, platform: str = ""):
+    """Run the automated application for one app. Raises ``_NeedsDocsError`` when it
+    lacks a job/résumé, or the automation engine's own exceptions
+    (ApprovalRequired/NoAdapter/RateLimit). Persists the mutated app on success."""
     job = state.jobs.get(app.job_posting_id)
     resume = state.resumes.get(app.resume_id) if app.resume_id else None
     cover = state.cover_letters.get(app.cover_letter_id) if app.cover_letter_id else None
     if job is None or resume is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "application requires a job posting and a generated resume before submitting",
-        )
+        raise _NeedsDocsError("application requires a job posting and a résumé before submitting")
     profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
-
-    # In live mode, supply the user's decrypted Gmail token so the email adapter
-    # can actually send (best-effort — a missing/expired connection just falls
-    # through to the manual fallback path).
+    # In live mode, supply the user's decrypted Gmail token so the email adapter can
+    # actually send (best-effort — a missing/expired connection falls through to manual).
     access_token = None
     if state.settings.automation_mode == "live":
         try:
             access_token = state.integration.get_access_token(user.id, Provider.GMAIL)
         except Exception:  # noqa: BLE001 - not connected / expired -> manual fallback
             access_token = None
-
     extra: dict = {}
-    if body.platform:
-        extra["platform"] = body.platform
-    # If the résumé is an uploaded file, attach the real bytes (adapters prefer
-    # this over the generated markdown).
+    if platform:
+        extra["platform"] = platform
+    # Prefer the uploaded résumé bytes over the generated markdown.
     stored = state.documents.get(resume.id)
     if stored is not None:
         data, content_type = stored
         extra["resume_file"] = {
             "filename": resume.original_filename or f"resume.{resume.format.value}",
-            "content_type": content_type,
-            "data": data,
+            "content_type": content_type, "data": data,
         }
-
     ctx = ApplicationContext(
-        application=app,
-        job=job,
-        resume=resume,
-        cover_letter=cover,
-        profile=profile,
-        applicant=user,  # name/email/phone for browser application forms
-        access_token=access_token,
-        extra=extra,
+        application=app, job=job, resume=resume, cover_letter=cover, profile=profile,
+        applicant=user, access_token=access_token, extra=extra,
     )
+    result = state.automation.submit(ctx)
+    state.applications.add(app)  # engine mutated app (status/audit) — persist it
+    return result
+
+
+@router.put("/{application_id}/submit", response_model=SubmitResponse)
+def submit(
+    application_id: str, body: SubmitRequest, user: CurrentUser, state: StateDep
+) -> SubmitResponse:
+    app = _owned(state, user.id, application_id)
     try:
-        result = state.automation.submit(ctx)
+        result = _submit_core(state, user, app, platform=body.platform or "")
+    except _NeedsDocsError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except ApprovalRequiredError as exc:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
     except NoAdapterError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except RateLimitError as exc:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
-
-    # The automation engine mutated `app` in place (status, audit trail,
-    # platform_response) — persist that back to the repository.
-    state.applications.add(app)
-
     return SubmitResponse(
         success=result.success,
         platform=result.platform,
@@ -157,6 +185,46 @@ def submit(
         fallback_url=result.fallback_url,
         manual_steps=app.platform_response.get("manual_steps", []),
     )
+
+
+@router.post("/batch", response_model=BatchApplyOut)
+def batch_apply(body: BatchApplyRequest, user: CurrentUser, state: StateDep) -> BatchApplyOut:
+    """Apply-wizard backend: add one or many jobs to the pipeline with the chosen
+    résumé/cover letter, and (when ``submit``) start the automated application on each
+    external site — all in one call. Per-job results so the wizard can show what
+    succeeded, what needs a manual finish, and what failed. Idempotent: a job already
+    in Draft is updated, not duplicated."""
+    out = BatchApplyOut()
+    for jid in dict.fromkeys(body.job_ids):  # de-dup the input list, keep order
+        if not jid or state.jobs.get(jid) is None:
+            out.results.append(BatchApplyResult(job_id=jid, error="job not found"))
+            out.failed += 1
+            continue
+        app, reused = _build_or_reuse_application(
+            state, user.id, job_posting_id=jid,
+            resume_id=body.resume_id or "", cover_letter_id=body.cover_letter_id or "",
+            resume_version=body.resume_version, cover_letter_version=body.cover_letter_version,
+            dedup=True,
+        )
+        res = BatchApplyResult(job_id=jid, application_id=app.id, created=not reused, reused=reused)
+        out.created += 1
+        if body.submit:
+            try:
+                r = _submit_core(state, user, app, platform=body.platform or "")
+                res.submitted = r.success
+                res.requires_manual = r.requires_manual
+                res.fallback_url = r.fallback_url or ""
+                res.message = r.message or ""
+                if r.success:
+                    out.submitted += 1
+                elif r.requires_manual:
+                    out.manual += 1
+            except (_NeedsDocsError, ApprovalRequiredError, NoAdapterError, RateLimitError) as exc:
+                res.error = str(exc)
+                res.requires_manual = True
+                out.manual += 1
+        out.results.append(res)
+    return out
 
 
 @router.put("/{application_id}/status", response_model=ApplicationOut)

@@ -302,6 +302,40 @@ class SubmitRequest(BaseModel):
     platform: Optional[str] = None  # override adapter selection
 
 
+class BatchApplyRequest(BaseModel):
+    """One-shot apply wizard: add job(s) to the pipeline with the chosen documents,
+    and optionally kick off the automated application on the external site. Works for
+    a single job or a grouped action (several job_ids)."""
+
+    job_ids: list[str] = Field(default_factory=list, validation_alias=AliasChoices("job_ids", "job_posting_ids"))
+    resume_id: Optional[str] = None
+    resume_version: Optional[int] = None
+    cover_letter_id: Optional[str] = None
+    cover_letter_version: Optional[int] = None
+    submit: bool = False            # True = also start the automated apply now
+    platform: Optional[str] = None  # override adapter selection
+
+
+class BatchApplyResult(BaseModel):
+    job_id: str
+    application_id: str = ""
+    created: bool = False     # added to the pipeline (or reused an existing draft)
+    reused: bool = False      # matched an existing draft for this job instead of duplicating
+    submitted: bool = False   # the automated apply succeeded
+    requires_manual: bool = False
+    fallback_url: str = ""
+    message: str = ""
+    error: str = ""
+
+
+class BatchApplyOut(BaseModel):
+    results: list[BatchApplyResult] = Field(default_factory=list)
+    created: int = 0
+    submitted: int = 0
+    manual: int = 0
+    failed: int = 0
+
+
 class StatusUpdate(BaseModel):
     status: ApplicationStatus
 
