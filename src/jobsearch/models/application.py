@@ -29,6 +29,12 @@ class Application(DomainModel):
     id: str = Field(default_factory=lambda: new_id("app_"))
     user_id: str
     job_posting_id: str
+    #: Denormalized job identity, captured at apply time so the application keeps its
+    #: company/title/link even if the job posting is later consolidated or pruned —
+    #: and so an orphaned application can be re-pointed to a surviving posting.
+    job_company: str = ""
+    job_title: str = ""
+    job_url: str = ""
     resume_id: Optional[str] = None
     #: Which saved VERSION of the résumé/cover letter was used for this application,
     #: so "which jobs a version was applied to" is answerable. 0 = the doc had no

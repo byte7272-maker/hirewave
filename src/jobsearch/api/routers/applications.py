@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
@@ -37,10 +38,41 @@ def _owned(state: StateDep, user_id: str, application_id: str) -> Application:
     return app
 
 
+def _norm_ident(s: str) -> str:
+    return re.sub(r"\W+", " ", (s or "").lower()).strip()
+
+
+def _resolve_job(state: StateDep, app: Application):
+    """The application's job, made resilient to a stale/removed job_posting_id:
+    - when the job exists, backfill the app's denormalized identity once (so it
+      survives future consolidation/pruning);
+    - when it's gone, re-point the app to a surviving posting matched on
+      company+title (recovers an orphaned card). Returns the job or None."""
+    job = state.jobs.get(app.job_posting_id)
+    if job is not None:
+        if not app.job_company and (job.company or job.title):
+            app.job_company, app.job_title, app.job_url = job.company, job.title, (job.url or "")
+            state.applications.add(app)
+        return job
+    if app.job_company or app.job_title:  # orphaned → find the surviving posting
+        key = (_norm_ident(app.job_company), _norm_ident(app.job_title))
+        match = next(
+            (j for j in state.jobs.all()
+             if (j.company or j.title) and (_norm_ident(j.company), _norm_ident(j.title)) == key),
+            None,
+        )
+        if match is not None:
+            app.job_posting_id = match.id
+            app.updated_at = utcnow()
+            state.applications.add(app)
+            return match
+    return None
+
+
 def _out(state: StateDep, app: Application) -> ApplicationOut:
     """Attach the job's display fields (company, title, logo) to the application so
     an application card can render without a second fetch per row."""
-    job = state.jobs.get(app.job_posting_id)
+    job = _resolve_job(state, app)
     return ApplicationOut(
         **app.model_dump(),
         job=JobCard.from_job(job) if job is not None else None,
@@ -82,8 +114,13 @@ def _build_or_reuse_application(
             existing.cover_letter_id, existing.cover_letter_version = cover_letter_id, c_ver
         existing.updated_at = utcnow()
         return state.applications.add(existing), True
+    job = state.jobs.get(job_posting_id)
     app = Application(
         user_id=user_id, job_posting_id=job_posting_id,
+        # Capture the job's identity so the application survives the posting being
+        # consolidated/pruned and can be re-pointed later.
+        job_company=(job.company if job else ""), job_title=(job.title if job else ""),
+        job_url=((job.url or "") if job else ""),
         resume_id=resume_id, resume_version=r_ver,
         cover_letter_id=cover_letter_id, cover_letter_version=c_ver,
     )

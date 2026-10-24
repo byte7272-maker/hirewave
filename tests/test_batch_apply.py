@@ -82,3 +82,31 @@ def test_batch_reports_unknown_job():
     h = _auth(client)
     out = client.post("/api/v1/applications/batch", headers=h, json={"job_ids": ["nope"]}).json()
     assert out["failed"] == 1 and out["results"][0]["error"] == "job not found"
+
+
+def test_orphaned_application_recovers_identity_and_repoints():
+    """An application whose job posting was pruned keeps its company/title and gets
+    re-pointed to a surviving posting for the same role (card recovers)."""
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _resume(client, h)
+    job_id = _job(client, h, "Director of IT", "Acme Corp")
+    client.post("/api/v1/applications/batch", headers=h, json={"job_ids": [job_id], "resume_id": rid})
+    app_id = client.get("/api/v1/applications", headers=h).json()[0]["id"]
+
+    # The application captured the job's identity at apply time.
+    app = client.get(f"/api/v1/applications/{app_id}", headers=h).json()
+    assert app["job"]["company"] == "Acme Corp" and app["job_company"] == "Acme Corp"
+
+    # Prune the original posting (consolidated/removed) -> the app is now orphaned.
+    state.jobs.delete(job_id)
+    orphaned = client.get(f"/api/v1/applications/{app_id}", headers=h).json()
+    # Identity is retained even though the posting is gone.
+    assert orphaned["job_company"] == "Acme Corp"
+
+    # A surviving posting for the same role exists under a NEW id -> card recovers.
+    new_id = _job(client, h, "Director of IT", "Acme Corp")
+    recovered = client.get(f"/api/v1/applications/{app_id}", headers=h).json()
+    assert recovered["job"] is not None and recovered["job"]["company"] == "Acme Corp"
+    assert recovered["job_posting_id"] == new_id  # re-pointed to the survivor
