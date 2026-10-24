@@ -46,8 +46,28 @@ def persona_id_for(name: str) -> str:
 
 def avatar_for(name: str, *, gender: str = "neutral") -> str:
     """A deterministic, free avatar image URL for a persona (DiceBear). The same
-    name always yields the same face, so a persona looks consistent everywhere."""
+    name always yields the same face, so a persona looks consistent everywhere.
+    This is the *fallback* — see :func:`resolve_avatar` for the realistic-image path."""
     return f"https://api.dicebear.com/9.x/avataaars/svg?seed={quote(name)}"
+
+
+def resolve_avatar(
+    name: str, *, gender: str = "neutral", explicit_url: str = "", persona_id: str = "",
+    settings: Optional[Settings] = None,
+) -> str:
+    """The persona's avatar image, in priority order so illustrated avatars can be
+    swapped for realistic ones without code changes:
+      1. an explicit ``avatar_url`` on the persona record,
+      2. a realistic image from ``JOBSEARCH_PERSONA_AVATARS`` (by name or id),
+      3. the generated illustrated fallback.
+    Point the env map at real photos/renders when you have them."""
+    if explicit_url:
+        return explicit_url
+    try:
+        overrides = (settings or get_settings()).persona_avatars or {}
+    except Exception:  # noqa: BLE001 - never let avatar lookup break persona build
+        overrides = {}
+    return overrides.get(name) or overrides.get(persona_id) or avatar_for(name, gender=gender)
 
 
 # Built-in interviewer gallery — shown on the persona page when the user hasn't
@@ -70,7 +90,7 @@ _DEFAULT_PERSONAS: list[dict] = [
      "difficulty": "hard", "gender": "female", "voice": "crisp",
      "bio": "A detail-oriented technical lead who probes deep into your decisions, trade-offs, and how things actually work under the hood."},
     {"name": "Jordan Blake", "role": "VP of Engineering", "style": "skeptical",
-     "difficulty": "hard", "gender": "neutral", "voice": "firm",
+     "difficulty": "hard", "gender": "female", "voice": "firm",
      "bio": "A skeptical senior leader who presses for evidence, challenges your claims, and expects depth and composure under pressure."},
 ]
 
@@ -109,8 +129,11 @@ def _to_persona(raw: dict) -> Optional[InterviewerPersona]:
         gender=gender,
         voice=str(raw.get("voice", "")),
         voice_id=str(raw.get("voice_id", "")),
-        # Fall back to a generated avatar so every persona has an image.
-        avatar_url=str(raw.get("avatar_url", "")) or avatar_for(name, gender=gender),
+        # Realistic image when configured (JOBSEARCH_PERSONA_AVATARS), else generated.
+        avatar_url=resolve_avatar(
+            name, gender=gender, explicit_url=str(raw.get("avatar_url", "")),
+            persona_id=str(raw.get("id", "")) or persona_id_for(name),
+        ),
         video_url=str(raw.get("video_url", "")),
     )
 

@@ -384,7 +384,7 @@ _OPENAI_GALLERY_VOICE = {
     "Priya Nair": "shimmer",     # female, bright
     "Marcus Chen": "onyx",       # male, deep
     "Dr. Elena Rossi": "coral",  # female, expressive (was 'fable' — that reads male)
-    "Jordan Blake": "alloy",     # neutral, firm
+    "Jordan Blake": "sage",      # female (her avatar reads female) — a distinct 4th female voice
 }
 # Gender fallback for dynamic personas — keyed by the persona's gender/avatar so a
 # neutral name never gets an opposite-gender voice.
@@ -408,6 +408,7 @@ ANSWER_VOICE_CATALOG = [
     {"voice_id": "nova", "label": "Warm", "gender": "female"},
     {"voice_id": "shimmer", "label": "Bright", "gender": "female"},
     {"voice_id": "coral", "label": "Expressive", "gender": "female"},
+    {"voice_id": "sage", "label": "Gentle", "gender": "female"},
     {"voice_id": "alloy", "label": "Neutral", "gender": "neutral"},
 ]
 # Default neural voice when the user picks only a gender.

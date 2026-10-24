@@ -192,3 +192,29 @@ def test_every_persona_voice_matches_its_gender():
         assert vid, f"{name} got no voice"
         if gender in ("male", "female"):
             assert vg in (gender, "neutral"), f"{name} ({gender}) got {vid} ({vg})"
+
+
+def test_jordan_blake_is_female_with_a_distinct_female_voice():
+    from jobsearch.api.routers.interview import _VOICE_GENDER, _server_voice_for
+    from jobsearch.config import Settings
+    from jobsearch.engines.interview.persona_library import default_personas
+
+    jordan = next(p for p in default_personas() if p.name == "Jordan Blake")
+    assert jordan.gender == "female"  # matches her avatar
+    vid = _server_voice_for(jordan, Settings(tts_provider="openai", tts_api_key="k"))
+    assert _VOICE_GENDER.get(vid) == "female"
+    # distinct from the other built-in female personas' voices
+    others = {"nova", "shimmer", "coral"}
+    assert vid not in others
+
+
+def test_realistic_avatar_override_replaces_generated():
+    from jobsearch.config import Settings
+    from jobsearch.engines.interview.persona_library import resolve_avatar
+
+    s = Settings(persona_avatars={"Jordan Blake": "https://cdn.example.com/jordan.png"})
+    assert resolve_avatar("Jordan Blake", gender="female", settings=s) == "https://cdn.example.com/jordan.png"
+    # an explicit per-record url still wins over the override map
+    assert resolve_avatar("Jordan Blake", explicit_url="https://x/explicit.png", settings=s) == "https://x/explicit.png"
+    # no override → the generated fallback
+    assert "dicebear" in resolve_avatar("Someone New", settings=Settings())

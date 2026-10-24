@@ -189,6 +189,12 @@ class Settings(BaseSettings):
     #   question_bank:    {"<style>": [{category, question}, ...], ...}
     persona_library_path: str = Field(default="", validation_alias="JOBSEARCH_PERSONA_LIBRARY")
     question_bank_path: str = Field(default="", validation_alias="JOBSEARCH_QUESTION_BANK")
+    # Drop-in path to REPLACE the generated (illustrated) avatars with realistic
+    # images without redefining the whole persona library: a JSON object mapping a
+    # persona's name (or id) to an image URL. e.g. {"Jordan Blake": "https://cdn/.../jordan.png"}.
+    # An explicit avatar_url on a persona record still wins; this overrides the
+    # generated fallback for the built-in gallery.
+    persona_avatars: dict[str, str] = Field(default_factory=dict, validation_alias="JOBSEARCH_PERSONA_AVATARS")
 
     # --- LinkedIn profile import (user-directed) ---------------------------
     # "mock" = deterministic demo profile (offline default — the whole import
