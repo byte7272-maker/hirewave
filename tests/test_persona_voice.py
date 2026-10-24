@@ -171,3 +171,24 @@ def test_voice_prefs_owner_scoped():
 def test_voice_prefs_require_auth():
     client = _client()
     assert client.get("/api/v1/interview/voices").status_code == 401
+
+
+def test_every_persona_voice_matches_its_gender():
+    """A persona must never speak in an opposite-gender voice (e.g. a female persona
+    mapped to the male-sounding 'fable')."""
+    from jobsearch.api.routers.interview import _VOICE_GENDER, _server_voice_for
+    from jobsearch.config import Settings
+
+    class _P:
+        def __init__(self, name, gender):
+            self.name, self.gender, self.voice_id = name, gender, ""
+
+    s = Settings(tts_provider="openai", tts_api_key="k")
+    cases = [("Maya Patel", "female"), ("Priya Nair", "female"), ("Dr. Elena Rossi", "female"),
+             ("Devon Clark", "male"), ("Marcus Chen", "male"), ("Jordan Blake", "neutral")]
+    for name, gender in cases:
+        vid = _server_voice_for(_P(name, gender), s)
+        vg = _VOICE_GENDER.get(vid)
+        assert vid, f"{name} got no voice"
+        if gender in ("male", "female"):
+            assert vg in (gender, "neutral"), f"{name} ({gender}) got {vid} ({vg})"

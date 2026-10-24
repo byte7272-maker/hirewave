@@ -374,16 +374,28 @@ def _voice_id(user_id: str, persona_id: str) -> str:
 
 
 # Distinct OpenAI TTS voices per built-in persona so they don't all sound alike.
-# The six stock voices (universally available on the OpenAI TTS models).
+# IMPORTANT: the voice's perceived gender must match the persona's gender/avatar.
+# OpenAI voice genders — female: nova, shimmer, coral, sage; male: echo, onyx,
+# fable, ash, ballad, verse; neutral/androgynous: alloy. (fable sounds male, so it
+# must never be a female persona's voice.)
 _OPENAI_GALLERY_VOICE = {
     "Devon Clark": "echo",       # male, warm
     "Maya Patel": "nova",        # female, warm
-    "Priya Nair": "shimmer",     # female, measured
+    "Priya Nair": "shimmer",     # female, bright
     "Marcus Chen": "onyx",       # male, deep
-    "Dr. Elena Rossi": "fable",  # female, crisp/expressive
+    "Dr. Elena Rossi": "coral",  # female, expressive (was 'fable' — that reads male)
     "Jordan Blake": "alloy",     # neutral, firm
 }
-_OPENAI_BY_GENDER = {"male": "onyx", "female": "shimmer", "neutral": "alloy"}
+# Gender fallback for dynamic personas — keyed by the persona's gender/avatar so a
+# neutral name never gets an opposite-gender voice.
+_OPENAI_BY_GENDER = {"male": "onyx", "female": "nova", "neutral": "alloy"}
+# The voices we treat as each gender, so a mapping can be sanity-checked against the
+# persona's gender (never serve a male voice to a female persona/avatar, etc.).
+_VOICE_GENDER = {
+    "nova": "female", "shimmer": "female", "coral": "female", "sage": "female",
+    "echo": "male", "onyx": "male", "fable": "male", "ash": "male", "ballad": "male", "verse": "male",
+    "alloy": "neutral",
+}
 
 # --- the ANSWER voice: a single, user-picked voice for reading the suggested /
 # "ideal" answers aloud (separate from the interviewer personas). Kept simple:
@@ -395,7 +407,7 @@ ANSWER_VOICE_CATALOG = [
     {"voice_id": "onyx", "label": "Deep", "gender": "male"},
     {"voice_id": "nova", "label": "Warm", "gender": "female"},
     {"voice_id": "shimmer", "label": "Bright", "gender": "female"},
-    {"voice_id": "fable", "label": "Expressive", "gender": "female"},
+    {"voice_id": "coral", "label": "Expressive", "gender": "female"},
     {"voice_id": "alloy", "label": "Neutral", "gender": "neutral"},
 ]
 # Default neural voice when the user picks only a gender.
@@ -404,15 +416,20 @@ _ANSWER_VOICE_BY_GENDER = {"male": "echo", "female": "nova", "neutral": "alloy"}
 
 def _server_voice_for(persona: InterviewerPersona, settings) -> str:
     """A concrete neural voice id for a persona, so each interviewer sounds
-    distinct. An explicit persona.voice_id always wins; otherwise, when the
-    active TTS provider is OpenAI, map to a distinct stock voice (by name for the
-    built-in gallery, else by gender). Other providers get no auto-mapping."""
+    distinct AND matches the persona's gender/avatar. An explicit persona.voice_id
+    always wins; otherwise, when the active TTS provider is OpenAI, map to a distinct
+    stock voice by name — but if that voice's gender disagrees with the persona's
+    (e.g. a female persona mapped to a male-sounding voice), fall back to a
+    gender-appropriate voice so a persona never speaks in the opposite gender."""
     if persona.voice_id:
         return persona.voice_id
     if getattr(settings, "tts_provider", "none") == "openai":
-        return _OPENAI_GALLERY_VOICE.get(persona.name) or _OPENAI_BY_GENDER.get(
-            persona.gender, "alloy"
-        )
+        pg = persona.gender if persona.gender in ("male", "female", "neutral") else "neutral"
+        vid = _OPENAI_GALLERY_VOICE.get(persona.name, "")
+        # Keep the named voice only when its gender matches the persona/avatar.
+        if vid and (pg == "neutral" or _VOICE_GENDER.get(vid) in (pg, "neutral")):
+            return vid
+        return _OPENAI_BY_GENDER.get(pg, "alloy")
     return ""
 
 
