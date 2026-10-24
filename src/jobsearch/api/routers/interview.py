@@ -421,13 +421,21 @@ def _voice_id(user_id: str, persona_id: str) -> str:
 # OpenAI voice genders — female: nova, shimmer, coral, sage; male: echo, onyx,
 # fable, ash, ballad, verse; neutral/androgynous: alloy. (fable sounds male, so it
 # must never be a female persona's voice.)
+# Voice per persona — matched to the persona's PHOTO gender, spread across the
+# distinct neural voices (female: nova/shimmer/coral/sage · male: onyx/echo/ash).
 _OPENAI_GALLERY_VOICE = {
-    "Devon Clark": "echo",       # male, warm
-    "Maya Patel": "nova",        # female, warm
-    "Priya Nair": "shimmer",     # female, bright
+    "Devon Clark": "nova",       # female, warm
+    "Maya Patel": "shimmer",     # female, bright
+    "Priya Nair": "coral",       # female, expressive
     "Marcus Chen": "onyx",       # male, deep
-    "Dr. Elena Rossi": "coral",  # female, expressive (was 'fable' — that reads male)
-    "Jordan Blake": "sage",      # female (her avatar reads female) — a distinct 4th female voice
+    "Dr. Elena Rossi": "sage",   # female, gentle
+    "Jordan Blake": "nova",      # female, warm
+    "Cam Reed": "shimmer",       # female, bright
+    "Lina Moreno": "coral",      # female, expressive
+    "Mia Torres": "sage",        # female, gentle
+    "Jalen Mendez": "echo",      # male, warm
+    "Ananya Desai": "nova",      # female, warm
+    "Kael Vance": "ash",         # male, firm
 }
 # Gender fallback for dynamic personas — keyed by the persona's gender/avatar so a
 # neutral name never gets an opposite-gender voice.

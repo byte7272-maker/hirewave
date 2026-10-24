@@ -134,6 +134,21 @@ def create_app(
     for router in _ROUTERS:
         app.include_router(router)
 
+    # Serve bundled static assets (e.g. interviewer persona photos) so the frontend
+    # can render them by absolute URL.
+    try:
+        import mimetypes as _mt
+        from pathlib import Path as _Path
+
+        from fastapi.staticfiles import StaticFiles
+
+        _mt.add_type("image/webp", ".webp")  # serve persona photos with a real image type
+        _static_dir = _Path(__file__).resolve().parent.parent / "static"
+        if _static_dir.is_dir():
+            app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+    except Exception:  # noqa: BLE001 - static assets are optional; never block boot
+        pass
+
     @app.get("/health", tags=["meta"])
     def health() -> dict:
         s: AppState = app.state.jobsearch

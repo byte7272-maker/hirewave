@@ -44,6 +44,20 @@ def persona_id_for(name: str) -> str:
     return "persona_" + hashlib.md5(name.strip().lower().encode()).hexdigest()[:12]
 
 
+# Where the bundled persona photos are served from (the API's /static mount). Set
+# JOBSEARCH_ASSET_BASE to override if the backend is reached at a different origin.
+import os as _os
+
+_ASSET_BASE = _os.environ.get(
+    "JOBSEARCH_ASSET_BASE", "https://hirewave-production-3db3.up.railway.app"
+).rstrip("/")
+
+
+def _photo(slug: str) -> str:
+    """Absolute URL of a bundled interviewer photo."""
+    return f"{_ASSET_BASE}/static/personas/{slug}.webp"
+
+
 def avatar_for(name: str, *, gender: str = "neutral") -> str:
     """A deterministic, free avatar image URL for a persona (DiceBear). The same
     name always yields the same face, so a persona looks consistent everywhere.
@@ -73,25 +87,40 @@ def resolve_avatar(
 # Built-in interviewer gallery — shown on the persona page when the user hasn't
 # supplied their own JOBSEARCH_PERSONA_LIBRARY. A deliberate mix of difficulty
 # (easy → hard) and style so the candidate can pick a warm-up or a grilling.
+# Per-role bio + style so the two interviewers of each role read consistently.
+_RECRUITER = "A friendly recruiter running a relaxed first-round screen — expect conversational, get-to-know-you questions with no pressure."
+_HM = "A warm, encouraging hiring manager who puts candidates at ease and focuses on your strengths and potential."
+_HR = "A structured HR director who runs a professional, by-the-book interview covering your background, motivations, and fit."
+_EM = "A behavioral interviewer who digs into your stories: how you collaborate, handle conflict, and lead through ambiguity."
+_TL = "A detail-oriented technical lead who probes deep into your decisions, trade-offs, and how things actually work under the hood."
+_VP = "A skeptical senior leader who presses for evidence, challenges your claims, and expects depth and composure under pressure."
+
+# Gender matches each persona's PHOTO (so the voice, picked by gender, matches too).
 _DEFAULT_PERSONAS: list[dict] = [
-    {"name": "Devon Clark", "role": "Recruiter", "style": "friendly",
-     "difficulty": "easy", "gender": "male", "voice": "warm",
-     "bio": "A friendly recruiter running a relaxed first-round screen — expect conversational, get-to-know-you questions with no pressure."},
-    {"name": "Maya Patel", "role": "Hiring Manager", "style": "friendly",
-     "difficulty": "easy", "gender": "female", "voice": "warm",
-     "bio": "A warm, encouraging hiring manager who puts candidates at ease and focuses on your strengths and potential."},
-    {"name": "Priya Nair", "role": "HR Director", "style": "formal",
-     "difficulty": "normal", "gender": "female", "voice": "measured",
-     "bio": "A structured HR director who runs a professional, by-the-book interview covering your background, motivations, and fit."},
-    {"name": "Marcus Chen", "role": "Engineering Manager", "style": "behavioral",
-     "difficulty": "normal", "gender": "male", "voice": "warm",
-     "bio": "A behavioral interviewer who digs into your stories: how you collaborate, handle conflict, and lead through ambiguity."},
-    {"name": "Dr. Elena Rossi", "role": "Technical Lead", "style": "technical",
-     "difficulty": "hard", "gender": "female", "voice": "crisp",
-     "bio": "A detail-oriented technical lead who probes deep into your decisions, trade-offs, and how things actually work under the hood."},
-    {"name": "Jordan Blake", "role": "VP of Engineering", "style": "skeptical",
-     "difficulty": "hard", "gender": "female", "voice": "firm",
-     "bio": "A skeptical senior leader who presses for evidence, challenges your claims, and expects depth and composure under pressure."},
+    {"name": "Devon Clark", "role": "Recruiter", "style": "friendly", "difficulty": "easy",
+     "gender": "female", "voice": "warm", "bio": _RECRUITER, "avatar_url": _photo("devon_clark")},
+    {"name": "Maya Patel", "role": "Hiring Manager", "style": "friendly", "difficulty": "easy",
+     "gender": "female", "voice": "warm", "bio": _HM, "avatar_url": _photo("maya_patel")},
+    {"name": "Priya Nair", "role": "HR Director", "style": "formal", "difficulty": "normal",
+     "gender": "female", "voice": "measured", "bio": _HR, "avatar_url": _photo("priya_nair")},
+    {"name": "Marcus Chen", "role": "Engineering Manager", "style": "behavioral", "difficulty": "normal",
+     "gender": "male", "voice": "warm", "bio": _EM, "avatar_url": _photo("marcus_chen")},
+    {"name": "Dr. Elena Rossi", "role": "Technical Lead", "style": "technical", "difficulty": "hard",
+     "gender": "female", "voice": "crisp", "bio": _TL, "avatar_url": _photo("elena_rossi")},
+    {"name": "Jordan Blake", "role": "VP of Engineering", "style": "skeptical", "difficulty": "hard",
+     "gender": "female", "voice": "firm", "bio": _VP, "avatar_url": _photo("jordan_blake")},
+    {"name": "Cam Reed", "role": "Recruiter", "style": "friendly", "difficulty": "easy",
+     "gender": "female", "voice": "warm", "bio": _RECRUITER, "avatar_url": _photo("cam_reed")},
+    {"name": "Lina Moreno", "role": "Hiring Manager", "style": "friendly", "difficulty": "easy",
+     "gender": "female", "voice": "warm", "bio": _HM, "avatar_url": _photo("lina_moreno")},
+    {"name": "Mia Torres", "role": "HR Director", "style": "formal", "difficulty": "normal",
+     "gender": "female", "voice": "measured", "bio": _HR, "avatar_url": _photo("mia_torres")},
+    {"name": "Jalen Mendez", "role": "Engineering Manager", "style": "behavioral", "difficulty": "normal",
+     "gender": "male", "voice": "warm", "bio": _EM, "avatar_url": _photo("jalen_mendez")},
+    {"name": "Ananya Desai", "role": "Technical Lead", "style": "technical", "difficulty": "hard",
+     "gender": "female", "voice": "crisp", "bio": _TL, "avatar_url": _photo("ananya_desai")},
+    {"name": "Kael Vance", "role": "VP of Engineering", "style": "skeptical", "difficulty": "hard",
+     "gender": "male", "voice": "firm", "bio": _VP, "avatar_url": _photo("kael_vance")},
 ]
 
 

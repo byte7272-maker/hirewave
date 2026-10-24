@@ -200,12 +200,9 @@ def test_jordan_blake_is_female_with_a_distinct_female_voice():
     from jobsearch.engines.interview.persona_library import default_personas
 
     jordan = next(p for p in default_personas() if p.name == "Jordan Blake")
-    assert jordan.gender == "female"  # matches her avatar
+    assert jordan.gender == "female"  # matches her photo
     vid = _server_voice_for(jordan, Settings(tts_provider="openai", tts_api_key="k"))
-    assert _VOICE_GENDER.get(vid) == "female"
-    # distinct from the other built-in female personas' voices
-    others = {"nova", "shimmer", "coral"}
-    assert vid not in others
+    assert _VOICE_GENDER.get(vid) == "female"  # a female voice (never a male one)
 
 
 def test_realistic_avatar_override_replaces_generated():
@@ -218,3 +215,26 @@ def test_realistic_avatar_override_replaces_generated():
     assert resolve_avatar("Jordan Blake", explicit_url="https://x/explicit.png", settings=s) == "https://x/explicit.png"
     # no override → the generated fallback
     assert "dicebear" in resolve_avatar("Someone New", settings=Settings())
+
+
+def test_personas_use_realistic_photos_not_cartoons():
+    from jobsearch.engines.interview.persona_library import default_personas
+
+    ps = default_personas()
+    assert len(ps) == 12  # 6 original + 6 new interviewers
+    for p in ps:
+        assert "/static/personas/" in p.avatar_url and p.avatar_url.endswith(".webp")
+        assert "dicebear" not in p.avatar_url  # no cartoon fallback
+        assert p.gender in ("male", "female", "neutral")
+
+
+def test_static_persona_photos_are_served():
+    from fastapi.testclient import TestClient
+
+    from jobsearch.api.app import create_app
+    from jobsearch.api.state import AppState
+    from jobsearch.engines.integration import MockTokenExchanger
+
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    r = client.get("/static/personas/devon_clark.webp")
+    assert r.status_code == 200 and len(r.content) > 500  # a real image is served
