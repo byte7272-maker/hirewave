@@ -30,6 +30,16 @@ from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResu
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
+def _clear_sample_jobs(state: StateDep, user_id: str) -> None:
+    """Remove the user's seeded sample postings once real jobs arrive. Best-effort."""
+    try:
+        from jobsearch.engines.demo_seed import clear_sample_jobs
+
+        clear_sample_jobs(state, user_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _visible(state: StateDep, job: JobPosting) -> bool:
     # Verification is a rebuildable cache — recompute on a miss (e.g. after a
     # restart where jobs were loaded from the DB but the cache is cold).
@@ -109,7 +119,11 @@ def matches(
     selected = {c.strip() for c in categories.split(",") if c.strip()}
     if not selected:
         selected = set(profile.preferences.job_categories)
-    visible = [j for j in state.jobs.all() if _visible(state, j)]
+    # Sample/demo postings only ever appear in their owner's matches.
+    visible = [
+        j for j in state.jobs.all()
+        if _visible(state, j) and (not getattr(j, "is_sample", False) or getattr(j, "owner_id", "") == user.id)
+    ]
     # Lazily (re)classify jobs whose category predates the current classifier, so
     # the category focus works on the whole pool (self-heals on read, once).
     for j in visible:
@@ -151,6 +165,7 @@ def matches(
                 source_logo=r.job.source_logo,
                 source_url=r.job.source_url,
                 category=r.job.category,
+                is_sample=getattr(r.job, "is_sample", False),
                 salary_range=r.job.salary_range,
                 salary_display=r.job.salary_display,
                 company_logo=r.job.company_logo,
@@ -173,7 +188,10 @@ _EXPORT_COLUMNS = [
 
 def _export_rows(state: StateDep, user_id: str, ids: Optional[set[str]]) -> list[dict]:
     profile = state.profiles.get(user_id) or UserProfile(user_id=user_id)
-    visible = [j for j in state.jobs.all() if _visible(state, j)]
+    visible = [
+        j for j in state.jobs.all()
+        if _visible(state, j) and (not getattr(j, "is_sample", False) or getattr(j, "owner_id", "") == user_id)
+    ]
     ranked = state.matching.rank(profile, visible, limit=len(visible) or 1)
     rows: list[dict] = []
     for r in ranked:
@@ -248,6 +266,8 @@ def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
         state.jobs.add(job)
         state.verifications[job.id] = state.verification.verify(job)
         ingested += 1
+    if ingested:
+        _clear_sample_jobs(state, _user.id)
     return {"ingested": ingested, "total": len(state.jobs.all())}
 
 
@@ -269,6 +289,8 @@ def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: Current
         raw.append(d)
     srcs = {d.get("source_platform") for d in raw if d.get("source_platform")} or {body.source or "extension"}
     result = state.aggregator.ingest(raw, sources=srcs)
+    if result.ingested:  # real jobs arrived — clear the seeded sample matches
+        _clear_sample_jobs(state, _user.id)
     return AggregationOut(
         found=result.found, ingested=result.ingested, duplicates=result.duplicates,
         hidden=result.hidden, sources=result.sources, job_ids=result.job_ids,

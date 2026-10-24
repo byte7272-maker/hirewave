@@ -53,6 +53,13 @@ def run_search(body: JobSearchRunRequest, user: CurrentUser, state: StateDep) ->
     _record_search(state, user.id, body.role, body.location, body.remote)  # remember it
     query = JobQuery(role=body.role, location=body.location, remote=body.remote)
     result = state.aggregator.search(query, sources_filter=set(body.sources) if body.sources else None)
+    if result.ingested:  # real jobs arrived — clear the seeded sample matches
+        try:
+            from jobsearch.engines.demo_seed import clear_sample_jobs
+
+            clear_sample_jobs(state, user.id)
+        except Exception:  # noqa: BLE001
+            pass
     out = _out(result)
     # If the user enabled draft-prep, auto-prepare drafts for new strong matches.
     if result.ingested and state.assistant.has(user.id, "draft_prep"):

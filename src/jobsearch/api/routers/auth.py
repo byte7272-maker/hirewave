@@ -71,6 +71,14 @@ def register(body: RegisterRequest, state: StateDep) -> UserOut:
     )
     state.users.add(user)
     state.profiles.add(UserProfile(user_id=user.id))
+    # Seed clearly-labelled sample data so a new account isn't empty; it's replaced
+    # the moment the user adds a real résumé / cover letter / ingests real jobs.
+    try:
+        from jobsearch.engines.demo_seed import seed_demo_data
+
+        seed_demo_data(state, user.id)
+    except Exception:  # noqa: BLE001 - seeding is best-effort; never block signup
+        pass
     return UserOut(id=user.id, email=user.email, full_name=user.full_name, location=user.location)
 
 

@@ -2291,3 +2291,24 @@ A clean session: the **question**, one **answer input** with a single Record/Sto
 Frontend layout/consolidation over the existing endpoints (`/interview/suggest-answer`, `/refine-answer`, `/tts`, mock `reply`). Null-safe; global P0 rules apply. Don't remove functionality — relocate the rarely-used controls; just stop them crowding the primary flow.
 
 Acceptance: in a live interview the user sees one answer input, a single Submit, and an obvious way to get + refine an AI suggestion; Pause/Re-record/Sensitivity/duplicate-finish buttons no longer crowd the bar (moved to a ⋯ menu or removed); and nothing about executing the AI prompt is ambiguous.
+
+---
+
+## P42 — Marquee: a clear trash control to delete a version (in the preview + full-size view)
+
+Deleting a résumé/cover-letter version is hard to find. Put an obvious **trash icon** right on the version **preview** card and in the **full-size / zoom** view, so a user can remove a version in one click. Backend is LIVE.
+
+### Endpoints (live)
+- Résumé: `DELETE /api/v1/resumes/{id}/versions/{version}` — removes one saved version (keeps at least one; if the active version is deleted, the newest remaining becomes active).
+- Cover letter: `DELETE /api/v1/cover-letters/{id}/versions/{version}`.
+
+### UX
+1. **On each marquee preview card**, show a small **trash icon** (top-right corner, visible on hover/focus, always visible on touch). Clicking asks a tiny inline confirm ("Delete v{n}?") then calls the delete endpoint and removes the card; the rail re-centers on the current version.
+2. **In the full-size / zoom ("Read full size") view**, show the same trash control in the toolbar alongside the existing actions, so a user reviewing a version can delete it without leaving.
+3. **Guard rails:** never allow deleting the **last remaining** version (hide/disable the trash with a tooltip "Keep at least one version"). After deleting the active version, reflect the new active version in the preview immediately (the API picks the newest remaining).
+4. Keep the existing "Delete this version" action too, but the trash icon is the primary, obvious affordance. Undo isn't required (deletion is explicit + confirmed), but a brief toast ("Deleted v{n}") is nice.
+
+### Scope
+UI over the live delete endpoints; applies to both résumé and cover-letter marquees (P29/P33 toggle decides which). Null-safe; global P0 rules apply.
+
+Acceptance: a trash icon appears on every version preview and in the full-size view; clicking it (with a quick confirm) deletes that version and updates the rail/preview; the last remaining version can't be deleted; works for both résumés and cover letters.

@@ -185,6 +185,7 @@ class MatchOut(BaseModel):
     #: board search for this role so the user can still go straight to the source.
     source_url: str = ""
     category: str = ""  # broad category (Engineering, Data & Analytics, …)
+    is_sample: bool = False  # a seeded demo match — UI should badge it "Sample"
     #: Salary: structured range + a ready-to-display string ("$90k - $130k"); the
     #: string is empty when no salary is known.
     salary_range: Optional[SalaryRange] = None

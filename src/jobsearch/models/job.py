@@ -117,6 +117,8 @@ def company_logo_from(domain: str) -> str:
 class JobPosting(DomainModel):
     id: str = Field(default_factory=lambda: new_id("job_"))
     source_platform: str = ""  # e.g. "linkedin", "indeed", "greenhouse"
+    is_sample: bool = False  # a seeded demo posting (shown only to its owner until real jobs arrive)
+    owner_id: str = ""  # for a sample posting, the user it belongs to; "" = a real, shared posting
     external_id: str = ""
     title: str = ""
     company: str = ""

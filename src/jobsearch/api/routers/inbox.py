@@ -104,6 +104,13 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
     if email_postings:
         res = state.aggregator.ingest(email_postings, sources={"email"})
         ingested += res.ingested - res.hidden
+    if ingested > 0:  # real jobs arrived — clear the seeded sample matches
+        try:
+            from jobsearch.engines.demo_seed import clear_sample_jobs
+
+            clear_sample_jobs(state, user.id)
+        except Exception:  # noqa: BLE001
+            pass
     # Route progress-kind email (application/interview/offer/rejection) into the
     # applications tracker — one-way, no reply.
     routing = state.application_router.route(user.id, [c for c, _ in job])

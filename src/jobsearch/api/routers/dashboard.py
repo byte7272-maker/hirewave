@@ -28,7 +28,8 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     profile = state.profiles.get(uid) or UserProfile(user_id=uid)
 
     # --- matches (ranked over the user's visible, verified jobs) -------------
-    visible = [j for j in state.jobs.all() if _visible(state, j)]
+    # Seeded sample postings don't count toward dashboard progress.
+    visible = [j for j in state.jobs.all() if _visible(state, j) and not getattr(j, "is_sample", False)]
     ranked = state.matching.rank(profile, visible, limit=100) if visible else []
     strong = [r for r in ranked if r.score >= _STRONG_MATCH]
     top = ranked[0] if ranked else None
@@ -65,7 +66,7 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
         for n in notes
     ]
 
-    resume_count = len(state.resumes.find(user_id=uid))
+    resume_count = sum(1 for r in state.resumes.find(user_id=uid) if not getattr(r, "is_sample", False))
     return {
         "matches": {
             "total": len(ranked),
@@ -91,7 +92,7 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
             "interviews_this_week": interviews_this_week,
         },
         "resumes": resume_count,
-        "cover_letters": len(state.cover_letters.find(user_id=uid)),
+        "cover_letters": sum(1 for c in state.cover_letters.find(user_id=uid) if not getattr(c, "is_sample", False)),
         "highlights": len(state.experience.list_for(uid)),
         "saved_jobs": len(state.saved_jobs.find(user_id=uid)),
         "saved_searches": len(state.saved_searches_repo.find(user_id=uid)),

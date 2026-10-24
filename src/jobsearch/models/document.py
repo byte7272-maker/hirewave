@@ -96,6 +96,7 @@ class Resume(DomainModel):
     board_sync: dict = Field(default_factory=dict)
     approved: bool = False  # human-in-the-loop gate
     archived: bool = False  # hidden from the main list, kept on the Archived shelf
+    is_sample: bool = False  # a seeded demo document; replaced when the user adds a real one
     flagged: bool = False  # marked "needs attention" by the user
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -191,6 +192,7 @@ class CoverLetter(DomainModel):
     board_sync: dict = Field(default_factory=dict)
     approved: bool = False  # human-in-the-loop gate
     archived: bool = False  # hidden from the main list, kept on the Archived shelf
+    is_sample: bool = False  # a seeded demo document; replaced when the user adds a real one
     flagged: bool = False  # marked "needs attention" by the user
     generated_at: datetime = Field(default_factory=utcnow)
 

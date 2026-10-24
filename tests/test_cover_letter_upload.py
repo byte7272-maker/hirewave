@@ -219,6 +219,9 @@ def test_cover_letters_owner_scoped_and_auth():
         headers=ha,
         files={"file": ("c.txt", b"A's private cover letter text", "text/plain")},
     ).json()
-    assert client.get("/api/v1/cover-letters", headers=hb).json() == []
+    # B never sees A's letter (B only has its own seeded sample, not A's real one).
+    b_list = client.get("/api/v1/cover-letters", headers=hb).json()
+    assert all(c["id"] != cl["id"] for c in b_list)
+    assert all(c["is_sample"] for c in b_list)
     assert client.get(f"/api/v1/cover-letters/{cl['id']}/file", headers=hb).status_code == 404
     assert client.delete(f"/api/v1/cover-letters/{cl['id']}", headers=hb).status_code == 404

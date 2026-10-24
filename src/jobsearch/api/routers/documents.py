@@ -196,6 +196,19 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     setattr(doc, text_attr, new_content)
 
 
+def _clear_samples(state: StateDep, user_id: str, kind: str) -> None:
+    """Remove seeded sample docs of a kind once the user adds a real one. Best-effort."""
+    try:
+        from jobsearch.engines.demo_seed import clear_sample_cover_letters, clear_sample_resumes
+
+        if kind == "resume":
+            clear_sample_resumes(state, user_id)
+        elif kind == "cover_letter":
+            clear_sample_cover_letters(state, user_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _seed_original_version(doc, *, text_attr: str) -> None:
     """Seed the 'Original' version (v1) from the document's current text at creation
     time, so an uploaded/generated doc shows a version in the marquee immediately
@@ -315,7 +328,9 @@ async def upload_resume(
         data, filename=filename, content_type=resume.content_type
     )[:20000]
     _seed_original_version(resume, text_attr="rendered_text")  # show an "Original" in the marquee at once
-    return ensure_resume_grade(state, state.resumes.add(resume))
+    saved = ensure_resume_grade(state, state.resumes.add(resume))
+    _clear_samples(state, user.id, "resume")  # a real résumé replaces the seeded sample
+    return saved
 
 
 @router.get("/resumes/{resume_id}/file")
@@ -1358,7 +1373,9 @@ def generate_cover_letter(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
     cl = state.generation.generate_cover_letter(profile, job, resume=resume, tone=body.tone)
     _seed_original_version(cl, text_attr="content")  # generated letter is its Original version
-    return state.cover_letters.add(cl)
+    saved = state.cover_letters.add(cl)
+    _clear_samples(state, user.id, "cover_letter")
+    return saved
 
 
 @router.post(
@@ -1403,7 +1420,9 @@ async def upload_cover_letter(
     state.documents.put(cl.id, data, content_type=content_type)
     cl.file_url = f"/api/v1/cover-letters/{cl.id}/file"
     _seed_original_version(cl, text_attr="content")  # show an "Original" in the marquee at once
-    return ensure_cover_letter_grade(state, state.cover_letters.add(cl))
+    saved = ensure_cover_letter_grade(state, state.cover_letters.add(cl))
+    _clear_samples(state, user.id, "cover_letter")  # a real letter replaces the seeded sample
+    return saved
 
 
 def ensure_cover_letter_grade(state: StateDep, cl: CoverLetter) -> CoverLetter:

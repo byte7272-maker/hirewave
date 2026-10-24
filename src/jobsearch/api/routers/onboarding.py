@@ -34,9 +34,11 @@ _VALID_STATUS = {"completed", "dismissed", "started"}
 
 
 def _detect(state, user_id: str) -> dict[str, bool]:
-    """Auto-detected completion per step from the user's real data."""
+    """Auto-detected completion per step from the user's real data. Seeded sample
+    documents don't count — a user with only samples hasn't onboarded yet."""
     profile = state.profiles.get(user_id)
-    profile_ready = bool(state.resumes.find(user_id=user_id)) or bool(
+    real_resumes = [r for r in state.resumes.find(user_id=user_id) if not getattr(r, "is_sample", False)]
+    profile_ready = bool(real_resumes) or bool(
         profile and (profile.headline or profile.skills)
     )
     searched = bool(state.saved_searches_repo.find(user_id=user_id)) or bool(
