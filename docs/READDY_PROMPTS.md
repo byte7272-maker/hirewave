@@ -2190,3 +2190,25 @@ For a **browser voice** (`source: "browser"`), show the device voice's own name 
 Pure labeling in the UI from data already returned by the API. Null-safe; global P0 rules apply.
 
 Acceptance: every persona card and voice control shows the voice's real name (Coral, Sage, etc.); no card shows the generic "Neural voice"; and a voice id the UI hasn't seen before still renders a capitalized name rather than the generic fallback.
+
+---
+
+## P38 — Refine a suggested answer: tell the AI how to improve it + points to emphasize
+
+After getting a suggested answer, the user should be able to **refine/recalculate** it with a quick instruction and optional topics to work in (e.g. "make it more concise", "emphasize my leadership", "add the AWS migration and the 40% cost savings") — without retyping the question. Backend is LIVE.
+
+### Endpoint (new)
+- `POST /api/v1/interview/refine-answer` `{ question, answer, instruction, points?: string[], resume_id?, job_posting_id? }` → same shape as suggest-answer: `{ question, category, answer, tips[], answer_seconds }`.
+  - `answer` = the current draft to rework; `instruction` = how to change it; `points` = topics to emphasize (worked in only where the résumé supports them).
+  - Stays grounded in the user's résumé (defaults to their most-recent one); never fabricates. 400 if question or instruction is empty.
+
+### UX — a refine control under each suggested-answer card
+1. Below a generated answer (next to Edit / Save / Try again), add **"Refine"**: a small input — "Tell the AI how to improve it" — with a send button. On submit, `POST /refine-answer` with the current `question` + the shown `answer` + the typed `instruction`, then replace the card's answer with the result (keep the previous draft one step back for Undo).
+2. **Quick instruction chips** for one-tap refinements: "More concise", "More detail", "Emphasize leadership", "More confident tone", "Use STAR", "Add numbers/metrics". Tapping a chip sends it as the instruction.
+3. **Points to emphasize:** an optional "Add a point…" field that collects a short list (chips the user can add/remove) sent as `points[]` — so the user can push the AI to include specific achievements or topics.
+4. Show a subtle working state; on return, the answer updates in place, keeps its category/timing/tips, and can be re-refined again (iterative). Everything is still groundable + saveable (`/saved-answers`) and readable in the answer voice (P36).
+
+### Scope
+UI over the live endpoint; iterative refine with Undo; null-safe; global P0 rules apply.
+
+Acceptance: under any suggested answer the user can type an instruction (or tap a chip) and add points to emphasize, get a reworked answer in place that reflects them while staying grounded in the résumé, refine again iteratively, and undo to the previous draft.

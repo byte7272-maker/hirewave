@@ -158,6 +158,56 @@ class InterviewEngine:
         q.suggested_answer = self._answer(q, profile, job, context)
         return q
 
+    def refine(
+        self,
+        question_text: str,
+        current_answer: str,
+        instruction: str,
+        *,
+        profile: UserProfile,
+        resume: Optional[Resume] = None,
+        job: Optional[JobPosting] = None,
+        experience_context: str = "",
+        points: Optional[list[str]] = None,
+    ) -> InterviewQuestion:
+        """Rework an existing suggested answer per the user's instruction and any
+        points they want emphasized, staying grounded in the résumé/profile (never
+        fabricating). Returns an ``InterviewQuestion`` with the refined
+        ``suggested_answer`` and the inferred category."""
+        document_text = (resume.rendered_text if resume else "").strip()
+        extra = (experience_context or "").strip()
+        base = document_text or profile.to_context_text()
+        context = f"{base}\n\n{extra}" if extra else base
+        category = infer_category(question_text)
+        q = InterviewQuestion(
+            category=category, question=question_text,
+            tips=_CATEGORY_TIPS.get(category, ""),
+        )
+        pts = [p.strip() for p in (points or []) if p and p.strip()]
+        pts_block = (
+            "\n\nPoints the candidate wants to emphasize (work these in naturally, "
+            "only if the résumé/profile supports them):\n" + "\n".join(f"- {p}" for p in pts)
+            if pts else ""
+        )
+        top_skills = ", ".join(profile.skills[:6])
+        prompt = (
+            f"Role: {job.title if job and job.title else 'the target role'}\n"
+            f"Company: {job.company if job and job.company else 'the company'}\n"
+            f"Candidate: {profile.headline or 'the candidate'}\n"
+            f"Top skills: {top_skills}\n"
+            f"Question ({q.category.value}): {q.question}\n\n"
+            f"Candidate résumé / profile:\n{context[:4000]}\n\n"
+            f"Current draft answer:\n{(current_answer or '').strip()[:2000]}\n\n"
+            f"Refinement instruction: {instruction.strip()}{pts_block}\n\n"
+            "Rewrite the answer to satisfy the instruction and emphasize those points, "
+            "staying grounded ONLY in the résumé/profile above — never invent employers, "
+            "titles, metrics, or experience. Keep it natural and spoken. Write the answer only."
+        )
+        q.suggested_answer = self.llm.complete(
+            prompt, system=_COACH_SYSTEM, max_tokens=500
+        ).strip()
+        return q
+
     # -- question derivation ------------------------------------------------
     def _derive_questions(
         self, profile: UserProfile, job: Optional[JobPosting]

@@ -15,6 +15,7 @@ from jobsearch.api.schemas import (
     PersonaVoiceUpdate,
     SaveAnswerRequest,
     SavedAnswerOut,
+    RefineAnswerRequest,
     SuggestAnswerRequest,
     SuggestedAnswerOut,
     TtsRequest,
@@ -233,6 +234,40 @@ def suggest_answer(
     coached = state.interview.coach(
         question, profile, resume=resume, job=job,
         experience_context=state.experience.context_text(user.id),
+    )
+    return SuggestedAnswerOut(
+        question=coached.question,
+        category=coached.category.value,
+        answer=coached.suggested_answer,
+        tips=coached.tips,
+        answer_seconds=suggested_answer_seconds(coached.category),
+    )
+
+
+@router.post("/refine-answer", response_model=SuggestedAnswerOut)
+def refine_answer(
+    body: RefineAnswerRequest, user: CurrentUser, state: StateDep
+) -> SuggestedAnswerOut:
+    """Refine/recalculate an existing suggested answer: apply the user's instruction
+    (e.g. 'make it more concise', 'emphasize my leadership') and work in any topics/
+    points they want highlighted — staying grounded in their résumé, never invented."""
+    question = (body.question or "").strip()
+    instruction = (body.instruction or "").strip()
+    if not question or not instruction:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "a question and an instruction are required")
+    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+    resume = state.resumes.get(body.resume_id) if body.resume_id else None
+    if body.resume_id and (resume is None or resume.user_id != user.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    if resume is None:  # default to the user's most-recent résumé so it stays grounded
+        mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
+        resume = mine[-1] if mine else None
+    job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
+    if body.job_posting_id and job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    coached = state.interview.refine(
+        question, body.answer, instruction, profile=profile, resume=resume, job=job,
+        experience_context=state.experience.context_text(user.id), points=body.points,
     )
     return SuggestedAnswerOut(
         question=coached.question,

@@ -53,6 +53,30 @@ def test_suggest_answer_grounds_in_resume_without_an_explicit_id():
     assert "[" not in ans and "]" not in ans
 
 
+def test_refine_answer_applies_instruction_and_points():
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/resumes/upload", headers=h, files={"file": (
+        "cv.md", b"# Me\n## Experience\n- Led the ACME migration at Globex, saved 40%", "text/markdown")})
+    r = client.post("/api/v1/interview/refine-answer", headers=h, json={
+        "question": "Tell me about a project you led.",
+        "answer": "I led a project once.",
+        "instruction": "Make it concrete and emphasize the cost savings.",
+        "points": ["the 40% cost savings", "my ownership"],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["answer"].strip() and "[" not in body["answer"]
+    assert body["answer_seconds"] > 0
+
+
+def test_refine_answer_requires_question_and_instruction():
+    client = _client()
+    h = _auth(client)
+    assert client.post("/api/v1/interview/refine-answer", headers=h,
+                       json={"question": "Q", "answer": "a", "instruction": " "}).status_code == 400
+
+
 def test_suggest_answer_requires_a_question():
     client = _client()
     h = _auth(client)

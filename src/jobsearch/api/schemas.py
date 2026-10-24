@@ -521,6 +521,18 @@ class SuggestAnswerRequest(BaseModel):
     job_posting_id: Optional[str] = None  # tailor to this target job
 
 
+class RefineAnswerRequest(BaseModel):
+    """Refine an existing suggested answer: an instruction (e.g. 'make it more
+    concise', 'emphasize leadership') plus optional topics/points to work in."""
+
+    question: str
+    answer: str                           # the current draft to rework
+    instruction: str                      # how to change it
+    points: list[str] = Field(default_factory=list)  # topics/points to emphasize
+    resume_id: Optional[str] = None
+    job_posting_id: Optional[str] = None
+
+
 class SuggestedAnswerOut(BaseModel):
     """A suggested answer the UI can transcribe into the card, plus technique tips."""
 
