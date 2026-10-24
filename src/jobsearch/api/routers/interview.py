@@ -97,6 +97,9 @@ def _resolve(body, user, state):
     resume = state.resumes.get(body.resume_id) if body.resume_id else None
     if body.resume_id and (resume is None or resume.user_id != user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    if resume is None:  # default to the user's most-recent résumé so questions tailor
+        mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
+        resume = mine[-1] if mine else None
     job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
     if body.job_posting_id and job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
@@ -219,6 +222,11 @@ def suggest_answer(
     resume = state.resumes.get(body.resume_id) if body.resume_id else None
     if body.resume_id and (resume is None or resume.user_id != user.id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
+    if resume is None:
+        # Ground in the user's most-recent résumé by default, so the answer isn't a
+        # generic placeholder when the caller doesn't pass a specific resume_id.
+        mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
+        resume = mine[-1] if mine else None
     job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
     if body.job_posting_id and job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")

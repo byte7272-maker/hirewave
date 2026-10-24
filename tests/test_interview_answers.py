@@ -35,6 +35,24 @@ def test_suggest_answer_returns_grounded_reply_without_a_session():
     assert "tips" in body
 
 
+def test_suggest_answer_grounds_in_resume_without_an_explicit_id():
+    """Even when the caller passes no resume_id, the answer should be grounded in the
+    user's résumé (not a generic bracketed placeholder)."""
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/resumes/upload", headers=h, files={"file": (
+        "cv.md",
+        b"# Jordan\n## Experience\n- Led the ACME-9000 migration at Globex, cutting costs 40%",
+        "text/markdown")})
+    body = client.post("/api/v1/interview/suggest-answer", headers=h,
+                       json={"question": "Tell me about a project you led."}).json()
+    ans = body["answer"]
+    assert ans.strip()
+    # The offline coach echoes the résumé context, so grounded content appears and
+    # there are no unfilled bracket placeholders.
+    assert "[" not in ans and "]" not in ans
+
+
 def test_suggest_answer_requires_a_question():
     client = _client()
     h = _auth(client)
