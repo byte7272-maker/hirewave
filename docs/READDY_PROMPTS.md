@@ -2245,3 +2245,23 @@ Per job: ✅ Submitted · ⚠️ Needs a manual finish ("Open on {board}" → `f
 UI (a reusable dialog) over the live endpoints — one `batch` call does add + attach + optional submit. Null-safe (no résumé yet → prompt to add/generate one; no connected board → offer Connect). Global P0 rules apply.
 
 Acceptance: from a match/saved/detail card or a multi-select, one "Apply" opens a popup that, in ≤3 choices, adds the job(s) to the pipeline with a résumé (and optional cover letter) and can start the automated apply on each site; grouped actions apply the same choices to many jobs with per-job results; re-running doesn't create duplicate drafts; and a disconnected board offers Connect instead of erroring.
+
+---
+
+## P40 — Fix the interview session header: show the interviewer's avatar (remove the broken banner)
+
+In a live practice interview, the interviewer **doesn't appear** — the session header shows a broken-image icon and a nearly-empty bar. Cause: the header uses a hardcoded, dead background image (`https://public.readdy.ai/ai/img_res/…​.webp`, which 404s / `naturalWidth:0`) as a full-bleed banner, and the interviewer's **name/role text is white** for that (now-missing) dark background, so it's invisible on the white fallback. The persona's real avatar (`avatar_url`) loads fine but is small and lost behind the broken banner. Backend is correct — this is layout only.
+
+### Fix
+1. **Remove the broken AI-image banner** (`public.readdy.ai/ai/img_res/*` as the header background). Do not reference that URL.
+2. **Make the persona's avatar the header's focus:** render `persona.avatar_url` (from `GET /api/v1/interview/personas` — the mock session's persona) as a clear, appropriately-sized avatar (e.g. 56–72px, rounded), with an `onerror` fallback to the persona's `initials` in a colored circle so it never shows a broken-image icon.
+3. **Fix text contrast:** the interviewer's **name** (e.g. "Devon Clark"), **role** ("Recruiter"), the difficulty badge ("Easy"), and the current **voice** (P37 label) must use normal foreground colors on the card background — not white — so they're clearly legible. Lay them out next to the avatar (avatar · name/role/voice · difficulty badge · End interview).
+4. Apply the same header treatment anywhere the active interviewer is shown during the session.
+
+### Realistic avatars (forward-looking)
+The avatar comes from `persona.avatar_url`, which the backend already lets you override with real images (set `JOBSEARCH_PERSONA_AVATARS` or a per-persona `avatar_url`). So once realistic images are configured, this same header shows them with no further UI change — just keep rendering `avatar_url`.
+
+### Scope
+Frontend layout/CSS only: drop the dead banner image, render the persona avatar with an initials fallback, and fix the header text contrast. Null-safe; global P0 rules apply.
+
+Acceptance: starting a practice interview shows the interviewer's avatar and their name/role/voice/difficulty clearly in the header; there is no broken-image icon and no invisible white-on-white text; if an avatar URL fails, a clean initials circle shows instead.
