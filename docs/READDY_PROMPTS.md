@@ -2110,3 +2110,30 @@ When a user updates their résumé here, the copies on their connected boards (L
 UI over the live endpoints; no client-side automation. Null-safe (no connected boards → "Connect a board to keep your documents in sync"). Global P0 rules apply.
 
 Acceptance: each connected board shows whether the current résumé/cover letter is live there; drifted boards offer a deep link + steps and a "Mark as synced" that clears the drift; unsupported ATS boards are shown honestly with a reason; and saving a new document version re-flags the boards as needing an update.
+
+---
+
+## P35 — Interview: surface "Suggest an answer", give every interviewer its own voice, and let users customize voices
+
+Three gaps in the interview section: (a) the **"Suggest an answer"** helper (a model answer grounded in the user's résumé) isn't visible anywhere; (b) **every interviewer speaks in the same voice** — even the female personas sound male; (c) there's **no way to change an interviewer's voice**. All backends are LIVE (OpenAI neural TTS confirmed working with distinct voices).
+
+### A. "Suggest an answer" — show it wherever a question appears
+On any interview question — the question bank, prep questions, and the live mock session — add a **"Suggest an answer"** action.
+- Call `POST /api/v1/interview/suggest-answer { question, resume_id?, job_posting_id? }` → `{ question, category, answer, tips[], answer_seconds }`.
+- **Visibly print (transcribe) the `answer` into the card**, with the `tips` as short bullets and `answer_seconds` as a "~Ns spoken" hint. It's a model of what the user could say / the general direction — framed that way, not as "the" answer.
+- **Save to a library:** a "Save answer" button → `POST /api/v1/interview/saved-answers { question, answer, ... }`; list via `GET /interview/saved-answers`; delete via `DELETE /interview/saved-answers/{id}`. A "My answers" view lets the user read and reuse them to learn good phrasing.
+- In the live mock, offer it as a non-cheating study aid (e.g. after the user answers, or behind a "show a model answer" toggle) — the user still speaks their own answer.
+
+### B. Each interviewer speaks in its OWN voice
+- On entering the interview, fetch `GET /api/v1/interview/voices` → now returns one row **per persona** `{ persona_id, source, voice_id, voice_uri, rate, pitch, lang }` (the effective voice, defaults included). Build a `personaId → voice` map.
+- When speaking an interviewer line, use **that persona's** voice: if `source: "server"` and `voice_id`, call `POST /api/v1/interview/tts { text, voice: voice_id }` and play the returned audio; if `source: "browser"`, speak with `speechSynthesis` using `voice_uri`/`rate`/`pitch`. Never speak every persona with one default voice.
+- Female personas (Maya, Priya, Dr. Elena Rossi) must use their female neural voices (nova/shimmer/fable), males (Devon, Marcus) male (echo/onyx), so the voice matches the persona.
+
+### C. Let users customize an interviewer's voice
+- A **voice picker** per persona: choose among the neural voices (alloy, echo, fable, nova, onyx, shimmer) or a browser voice, with a **Preview** button (`POST /interview/tts` with a sample line).
+- Save via `PUT /api/v1/interview/personas/{persona_id}/voice { source, voice_id | voice_uri, rate?, pitch?, lang? }`; reset via `DELETE /api/v1/interview/personas/{persona_id}/voice` (falls back to the derived default). Optionally upload a custom clip: `POST /interview/personas/{persona_id}/voice/upload`.
+
+### Scope
+UI over live endpoints; `GET /interview/media/capabilities` (`{tts, video, voice_clone}`) gates what to show (hide neural options when `tts:false`, fall back to browser voices). Null-safe; global P0 rules apply.
+
+Acceptance: every question offers "Suggest an answer" that prints a résumé-grounded model answer + tips into the card and can be saved to a re-readable library; in a mock, each interviewer speaks in its own voice and female personas no longer sound male; and a user can change and preview any interviewer's voice and have it persist.

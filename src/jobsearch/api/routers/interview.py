@@ -417,9 +417,16 @@ def _default_voice(user_id: str, persona: InterviewerPersona, settings=None) -> 
 
 @router.get("/voices", response_model=list[PersonaVoice])
 def list_voice_prefs(user: CurrentUser, state: StateDep) -> list[PersonaVoice]:
-    """Every persona-voice the user has saved (empty when they've customized none).
-    The client overlays these on the persona gallery."""
-    return state.persona_voices.find(user_id=user.id)
+    """The EFFECTIVE voice for every persona — the user's saved choice when present,
+    otherwise a distinct default derived from the persona (gender/name → a different
+    neural voice each). Returning the full set means the client speaks each
+    interviewer in its own voice instead of falling back to one shared default when
+    nothing is customized."""
+    saved = {v.persona_id: v for v in state.persona_voices.find(user_id=user.id)}
+    return [
+        saved.get(p.id) or _default_voice(user.id, p, state.settings)
+        for p in state.persona_library.all()
+    ]
 
 
 @router.get("/personas/{persona_id}/voice", response_model=PersonaVoice)

@@ -43,7 +43,11 @@ def _client():
 def test_default_voice_is_derived():
     client = _client()
     h = _auth(client)
-    assert client.get("/api/v1/interview/voices", headers=h).json() == []  # none saved
+    # /voices now returns the EFFECTIVE voice for every persona (derived defaults when
+    # none saved) so the client speaks each interviewer distinctly.
+    allv = client.get("/api/v1/interview/voices", headers=h).json()
+    personas = client.get("/api/v1/interview/personas", headers=h).json()
+    assert len(allv) == len(personas) and {v["persona_id"] for v in allv} == {p["id"] for p in personas}
     pid = _first_persona_id(client, h)
     v = client.get(f"/api/v1/interview/personas/{pid}/voice", headers=h).json()
     assert v["persona_id"] == pid
@@ -82,9 +86,10 @@ def test_set_browser_voice_and_persist():
     assert v["voice_uri"] == "Google US English"
     assert v["rate"] == 2.0  # clamped from 5.0 → max 2.0
     assert v["pitch"] == 1.2
-    # persisted + listed
+    # persisted + listed: the saved pref overlays the per-persona defaults.
     lst = client.get("/api/v1/interview/voices", headers=h).json()
-    assert len(lst) == 1 and lst[0]["persona_id"] == pid
+    saved = next(v for v in lst if v["persona_id"] == pid)
+    assert saved["voice_uri"] == "Google US English"
 
 
 def test_invalid_source_rejected():
@@ -145,7 +150,9 @@ def test_reset_voice_pref():
     pid = _first_persona_id(client, h)
     client.put(f"/api/v1/interview/personas/{pid}/voice", headers=h, json={"voice_uri": "X"})
     assert client.delete(f"/api/v1/interview/personas/{pid}/voice", headers=h).status_code == 204
-    assert client.get("/api/v1/interview/voices", headers=h).json() == []
+    # Reset → that persona falls back to its derived default (not the custom "X").
+    back = next(v for v in client.get("/api/v1/interview/voices", headers=h).json() if v["persona_id"] == pid)
+    assert back.get("voice_uri", "") != "X"
 
 
 def test_voice_prefs_owner_scoped():
@@ -154,8 +161,9 @@ def test_voice_prefs_owner_scoped():
     hb = _auth(client, "b@demo.com")
     pid = _first_persona_id(client, ha)
     client.put(f"/api/v1/interview/personas/{pid}/voice", headers=ha, json={"voice_uri": "A-voice"})
-    # B has none of A's prefs
-    assert client.get("/api/v1/interview/voices", headers=hb).json() == []
+    # B sees per-persona defaults, never A's customization.
+    bvoices = client.get("/api/v1/interview/voices", headers=hb).json()
+    assert all(v.get("voice_uri", "") != "A-voice" for v in bvoices)
     # and B can't read A's uploaded clip (none uploaded → 404 either way)
     assert client.get(f"/api/v1/interview/personas/{pid}/voice/audio", headers=hb).status_code == 404
 
