@@ -2137,3 +2137,29 @@ On any interview question — the question bank, prep questions, and the live mo
 UI over live endpoints; `GET /interview/media/capabilities` (`{tts, video, voice_clone}`) gates what to show (hide neural options when `tts:false`, fall back to browser voices). Null-safe; global P0 rules apply.
 
 Acceptance: every question offers "Suggest an answer" that prints a résumé-grounded model answer + tips into the card and can be saved to a re-readable library; in a mock, each interviewer speaks in its own voice and female personas no longer sound male; and a user can change and preview any interviewer's voice and have it persist.
+
+---
+
+## P36 — A simple "answer voice" picker for the suggested-answer readout
+
+The suggested answer (P35's "Suggest an answer" — the model of the user's ideal answer) should be readable aloud in a voice the **user picks themselves**, simply: male/female plus a few voice styles, usable in a couple of taps. This is one per-user voice, separate from the interviewer personas. Backend is LIVE.
+
+### Endpoints (live)
+- `GET /api/v1/interview/answer-voice/catalog` → `{ tts, voices: [ { voice_id, label, gender } ] }` — the selectable voices (e.g. male: Warm/Deep; female: Warm/Bright/Expressive; neutral: Neutral). `tts:false` → hide neural options, use browser voices.
+- `GET /api/v1/interview/answer-voice` → the current choice `{ voice_id, source, voice_uri, rate, pitch, lang }` (a sensible default before the user picks).
+- `PUT /api/v1/interview/answer-voice` — three easy ways:
+  - **Just a gender:** `{ "gender": "male" | "female" | "neutral" }` → we pick a good neural voice.
+  - **Exact style:** `{ "voice_id": "nova" }` from the catalog.
+  - **Browser voice:** `{ "source": "browser", "voice_uri": "...", "rate": 1.1 }`.
+
+### UX — keep it one-glance simple
+1. In the interview section (near the suggested-answer card and/or in settings), a small **"Answer voice"** control: a **Male / Female** segmented toggle, then **2–3 style chips** for that gender (from the catalog's `label`s). One tap each.
+2. A **Preview** (▶) button speaks a sample line in the chosen voice — `POST /api/v1/interview/tts { text: "Here's how I'd answer that.", voice: <voice_id> }`, play the audio. For a browser voice, use `speechSynthesis` with the saved `voice_uri`/`rate`.
+3. Selecting a chip immediately `PUT`s the choice (optimistic) and shows a check — no separate save step.
+4. **Use it everywhere the suggested answer is read aloud:** when the user plays a suggested answer, speak it with the answer voice (`/tts` with its `voice_id`, or browser voice). Never reuse an interviewer persona's voice for the answer readout.
+5. Default is fine out of the box (a clear, warm voice) so the feature works before the user touches it.
+
+### Scope
+UI over the live endpoints; `catalog.tts` gates neural vs browser voices; null-safe; global P0 rules apply. This is the answer readout only — interviewer voices stay P35.
+
+Acceptance: a user can set the answer-readout voice in a tap or two (pick male/female, then a style), preview it, have it persist, and hear suggested answers read in that voice; with TTS off it falls back to a browser voice cleanly.

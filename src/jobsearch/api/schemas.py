@@ -590,6 +590,7 @@ class PersonaVoiceUpdate(BaseModel):
     rate: Optional[float] = None  # 0.5-2.0
     pitch: Optional[float] = None  # 0-2
     voice_id: Optional[str] = None  # server neural voice id
+    gender: Optional[str] = None  # male | female | neutral — picks a default neural voice when voice_id is omitted
 
 
 class TtsRequest(BaseModel):

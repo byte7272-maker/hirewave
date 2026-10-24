@@ -385,6 +385,22 @@ _OPENAI_GALLERY_VOICE = {
 }
 _OPENAI_BY_GENDER = {"male": "onyx", "female": "shimmer", "neutral": "alloy"}
 
+# --- the ANSWER voice: a single, user-picked voice for reading the suggested /
+# "ideal" answers aloud (separate from the interviewer personas). Kept simple:
+# male/female/neutral + a short style label. Stored per user under a sentinel id.
+_ANSWER_VOICE_ID = "answer"
+_DEFAULT_ANSWER_VOICE = "nova"  # a clear, warm default the user can change in one tap
+ANSWER_VOICE_CATALOG = [
+    {"voice_id": "echo", "label": "Warm", "gender": "male"},
+    {"voice_id": "onyx", "label": "Deep", "gender": "male"},
+    {"voice_id": "nova", "label": "Warm", "gender": "female"},
+    {"voice_id": "shimmer", "label": "Bright", "gender": "female"},
+    {"voice_id": "fable", "label": "Expressive", "gender": "female"},
+    {"voice_id": "alloy", "label": "Neutral", "gender": "neutral"},
+]
+# Default neural voice when the user picks only a gender.
+_ANSWER_VOICE_BY_GENDER = {"male": "echo", "female": "nova", "neutral": "alloy"}
+
 
 def _server_voice_for(persona: InterviewerPersona, settings) -> str:
     """A concrete neural voice id for a persona, so each interviewer sounds
@@ -427,6 +443,60 @@ def list_voice_prefs(user: CurrentUser, state: StateDep) -> list[PersonaVoice]:
         saved.get(p.id) or _default_voice(user.id, p, state.settings)
         for p in state.persona_library.all()
     ]
+
+
+@router.get("/answer-voice/catalog")
+def answer_voice_catalog(user: CurrentUser, state: StateDep) -> dict:
+    """The simple, selectable voices for reading suggested answers aloud, grouped by
+    gender with a short style label. ``tts`` says whether neural voices are available
+    (else the client uses browser voices)."""
+    return {"tts": state.speech.enabled, "voices": ANSWER_VOICE_CATALOG}
+
+
+def _default_answer_voice(user_id: str, settings) -> PersonaVoice:
+    vid = _DEFAULT_ANSWER_VOICE if getattr(settings, "tts_provider", "none") == "openai" else ""
+    return PersonaVoice(
+        id=_voice_id(user_id, _ANSWER_VOICE_ID), user_id=user_id, persona_id=_ANSWER_VOICE_ID,
+        source=VoiceSource.SERVER if vid else VoiceSource.BROWSER, voice_id=vid, lang="en-US",
+    )
+
+
+@router.get("/answer-voice", response_model=PersonaVoice)
+def get_answer_voice(user: CurrentUser, state: StateDep) -> PersonaVoice:
+    """The user's chosen voice for the suggested-answer readout, or a sensible default."""
+    saved = state.persona_voices.get(_voice_id(user.id, _ANSWER_VOICE_ID))
+    return saved or _default_answer_voice(user.id, state.settings)
+
+
+@router.put("/answer-voice", response_model=PersonaVoice)
+def set_answer_voice(body: PersonaVoiceUpdate, user: CurrentUser, state: StateDep) -> PersonaVoice:
+    """Pick the answer-readout voice. Simplest path: send just ``gender`` (male/
+    female/neutral) and we choose a good neural voice; or send an exact ``voice_id``
+    from the catalog, or a browser voice (``source: browser`` + ``voice_uri``)."""
+    pref = state.persona_voices.get(_voice_id(user.id, _ANSWER_VOICE_ID)) or _default_answer_voice(
+        user.id, state.settings)
+    data = body.model_dump(exclude_unset=True)
+    gender = (data.pop("gender", None) or "").strip().lower()
+    if gender and not data.get("voice_id"):
+        data["voice_id"] = _ANSWER_VOICE_BY_GENDER.get(gender, _DEFAULT_ANSWER_VOICE)
+        data.setdefault("source", "server")
+    if data.get("source") is not None:
+        try:
+            pref.source = VoiceSource(data.pop("source"))
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid voice source") from exc
+    if data.get("rate") is not None:
+        pref.rate = max(0.5, min(2.0, float(data.pop("rate"))))
+    if data.get("pitch") is not None:
+        pref.pitch = max(0.0, min(2.0, float(data.pop("pitch"))))
+    for field in ("voice_uri", "lang", "voice_id"):
+        if data.get(field) is not None:
+            setattr(pref, field, str(data[field]))
+    # A concrete neural voice_id implies a server voice.
+    if pref.voice_id and pref.source == VoiceSource.BROWSER and not pref.voice_uri:
+        pref.source = VoiceSource.SERVER
+    pref.updated_at = utcnow()
+    return state.persona_voices.add(pref)
 
 
 @router.get("/personas/{persona_id}/voice", response_model=PersonaVoice)
