@@ -2086,3 +2086,27 @@ In addition to the toggle above the preview (P29), render the **same** segmented
 Frontend state wiring only — point the marquee's data source at the active document's version endpoints and add the second toggle instance. No new backend; reuse the live résumé and cover-letter version routes. Null-safe (missing/!200 → empty-but-labeled rail, not a spinner or the other type's data).
 
 Acceptance: with the toggle on **Cover letter**, the versions marquee shows the **cover letter's** versions (heading says "cover letter", cards render cover-letter version content + P28 linkage), and flipping back to **Résumé** restores the résumé rail and its prior selection; a toggle sits in/above the marquee card and stays in sync with the one above the preview; and a just-uploaded cover letter shows its Original version in the rail rather than staying on the résumé's.
+
+---
+
+## P34 — Keep your résumé & cover letter in sync across the job boards
+
+When a user updates their résumé here, the copies on their connected boards (LinkedIn, Indeed, …) go stale. Give them a clear "Sync to boards" panel that shows, per connected board, whether the current version is live there and how to update it. Backend is LIVE; honest about what each board supports.
+
+### Endpoints (live)
+- `GET /api/v1/documents/board-sync` (optional `?resume_id=&cover_letter_id=`) → `{ resume_id, cover_letter_id, drifted, automation_live, boards: [ { board, label, doc_type, supported, auto, active_version, live_version, in_sync, drifted, manage_url, steps[], reason } ] }`.
+  - One row per connected board × document type it can hold. `supported:false` (e.g. Greenhouse, Workday — pure per-application ATS) carries a `reason` and should render as "No profile résumé to sync."
+  - `drifted:true` = the board's copy is an older version (or none). `in_sync:true` = up to date. `live_version` is the version currently on that board (null = never synced).
+- `POST /api/v1/documents/board-sync` `{ board, doc_type: "resume"|"cover_letter", resume_id?, cover_letter_id? }` → records that the board now holds the active version (call it after the user updates it on the board). Returns the refreshed row. 400 for an unsupported board.
+
+### UX — a "Sync to boards" card (Documents or Settings → Integrations)
+1. **One row per connected board** with its logo, the document type, and a status pill: **In sync** (green), **Needs update — v{active} vs v{live or "none"}** (amber), or **Not supported here** (muted, with the reason).
+2. **Update action** on a drifted row → open `manage_url` in a new tab and show the numbered `steps`. When the user confirms they updated it (a "Mark as synced" button), POST board-sync and flip the row to In sync.
+3. If `automation_live` is true, offer a one-click **"Sync automatically"** on `auto:true` rows (the backend push); otherwise show the guided manual flow. (Automated push is gated on the browser-automation runtime — until then it's guided.)
+4. A header summary: "{drifted} board(s) out of date" with a single "Review" that expands the list; nothing when everything's in sync.
+5. Re-check drift whenever the user saves a new résumé/cover-letter version (the active version changes → rows go amber until re-synced).
+
+### Scope
+UI over the live endpoints; no client-side automation. Null-safe (no connected boards → "Connect a board to keep your documents in sync"). Global P0 rules apply.
+
+Acceptance: each connected board shows whether the current résumé/cover letter is live there; drifted boards offer a deep link + steps and a "Mark as synced" that clears the drift; unsupported ATS boards are shown honestly with a reason; and saving a new document version re-flags the boards as needing an update.

@@ -55,6 +55,7 @@ from jobsearch.api.schemas import (
     VersionUsageOut,
 )
 from jobsearch.models.common import utcnow
+from jobsearch.engines.board_sync import BOARD_PROFILE_SYNC, board_supports, sync_status_for
 from jobsearch.models import DocumentVersion
 from jobsearch.models import (
     CoverLetter,
@@ -1790,3 +1791,93 @@ def revise_cover_letter(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
+# --- keep résumé / cover letter in sync across the job boards -----------------
+def _connected_boards(state: StateDep, user_id: str) -> set[str]:
+    """Boards the user is connected to (an active browser session or an OAuth
+    connection) that keep a syncable profile document."""
+    boards: set[str] = set()
+    try:
+        for s in state.sessions.list_for(user_id):
+            if getattr(s, "status", "") == "active":
+                boards.add(s.provider)
+    except Exception:  # noqa: BLE001 - sessions are best-effort
+        pass
+    try:
+        for c in state.integration.list_connections(user_id):
+            boards.add(c.get("provider", ""))
+    except Exception:  # noqa: BLE001
+        pass
+    return {b for b in boards if b in BOARD_PROFILE_SYNC}
+
+
+def _primary_doc(repo, user_id: str, doc_id: str):
+    """The chosen document, or the user's most-recent one of that kind."""
+    if doc_id:
+        d = repo.get(doc_id)
+        return d if (d is not None and d.user_id == user_id) else None
+    mine = [d for d in repo.find(user_id=user_id) if not getattr(d, "archived", False)]
+    return mine[-1] if mine else None
+
+
+def _board_rows(state: StateDep, user_id: str, resume, cover_letter) -> list[dict]:
+    rows: list[dict] = []
+    for board in sorted(_connected_boards(state, user_id)):
+        if resume is not None and board_supports(board, "resume"):
+            rows.append(sync_status_for(
+                board, "resume", active_version=resume.active_version,
+                synced=(resume.board_sync or {}).get(board)))
+        if cover_letter is not None and board_supports(board, "cover_letter"):
+            rows.append(sync_status_for(
+                board, "cover_letter", active_version=cover_letter.active_version,
+                synced=(cover_letter.board_sync or {}).get(board)))
+    return rows
+
+
+@router.get("/documents/board-sync")
+def board_sync_status(
+    user: CurrentUser, state: StateDep,
+    resume_id: str = Query(""), cover_letter_id: str = Query(""),
+) -> dict:
+    """Per connected board: is your résumé / cover letter up to date there, which
+    version is live, and how to update it. Boards with no reusable profile document
+    (pure per-application ATS) are reported as unsupported, not pretended."""
+    resume = _primary_doc(state.resumes, user.id, resume_id)
+    cover_letter = _primary_doc(state.cover_letters, user.id, cover_letter_id)
+    rows = _board_rows(state, user.id, resume, cover_letter)
+    return {
+        "resume_id": resume.id if resume else "",
+        "cover_letter_id": cover_letter.id if cover_letter else "",
+        "boards": rows,
+        "drifted": sum(1 for r in rows if r["drifted"]),
+        # Automated push runs only when the browser-automation runtime is live; else
+        # the rows carry manual steps + a deep link.
+        "automation_live": state.settings.automation_mode == "live",
+    }
+
+
+@router.post("/documents/board-sync")
+def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
+    """Record that a board now holds the current version of a document (after the
+    user updated it, or an automated push did), so drift tracking stays accurate.
+    Body: {board, doc_type: 'resume'|'cover_letter', resume_id?, cover_letter_id?}."""
+    board = str(body.get("board", "")).strip().lower()
+    doc_type = str(body.get("doc_type", "resume")).strip().lower()
+    if doc_type not in ("resume", "cover_letter"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "doc_type must be 'resume' or 'cover_letter'")
+    if not board_supports(board, doc_type):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{board} can't sync a {doc_type} profile document")
+    if doc_type == "resume":
+        doc = _primary_doc(state.resumes, user.id, str(body.get("resume_id", "")))
+        repo = state.resumes
+    else:
+        doc = _primary_doc(state.cover_letters, user.id, str(body.get("cover_letter_id", "")))
+        repo = state.cover_letters
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{doc_type} not found")
+    doc.board_sync = {**(doc.board_sync or {}), board: {
+        "version": doc.active_version, "at": utcnow().isoformat(), "status": "synced"}}
+    repo.add(doc)
+    return sync_status_for(board, doc_type, active_version=doc.active_version,
+                           synced=doc.board_sync[board])

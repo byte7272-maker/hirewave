@@ -63,6 +63,23 @@ class AggregationResult:
     matched_job_ids: list[str] = field(default_factory=list)
 
 
+def _absorb_richer(existing: JobPosting, incoming: JobPosting) -> None:
+    """When a re-seen posting carries a fuller body than what we stored — e.g. the
+    browser extension captured the full job description client-side on a page the
+    server can't fetch — upgrade the stored description/requirements in place so the
+    detail isn't lost to de-duplication."""
+    inc = (incoming.description or "").strip()
+    cur = (existing.description or "").strip()
+    inc_placeholder = "surfaced from a" in inc.lower()
+    cur_placeholder = "surfaced from a" in cur.lower() or not cur
+    # Take the incoming body when it's meaningfully fuller, or when it replaces a
+    # placeholder/empty one with real content.
+    if inc and not inc_placeholder and (len(inc) > len(cur) + 40 or cur_placeholder):
+        existing.description = inc[:8000]
+    if incoming.requirements and not existing.requirements:
+        existing.requirements = list(incoming.requirements)
+
+
 def _norm_key(job: JobPosting) -> str:
     parts = f"{job.title} {job.company} {job.location}".lower()
     return re.sub(r"\s+", " ", parts).strip()
@@ -177,6 +194,7 @@ class JobAggregator:
             if same_board is not None:
                 same_board.times_seen += 1
                 same_board.last_seen_at = utcnow()
+                _absorb_richer(same_board, job)  # a re-pull may carry the full JD now
                 self.jobs.add(same_board)
                 result.duplicates += 1
                 result.matched_job_ids.append(same_board.id)
@@ -194,6 +212,7 @@ class JobAggregator:
                     twin.consolidated_sources.append(job.source_platform)
                 twin.times_seen += 1
                 twin.last_seen_at = utcnow()
+                _absorb_richer(twin, job)  # keep the fullest description across boards
                 self.jobs.add(twin)
                 result.duplicates += 1
                 result.matched_job_ids.append(twin.id)

@@ -55,3 +55,23 @@ def test_external_ingest_is_provider_agnostic_and_dedupes():
 def test_external_ingest_requires_auth():
     client = _client()
     assert client.post("/api/v1/jobs/ingest-external", json={"jobs": _JOBS}).status_code == 401
+
+
+def test_repull_upgrades_a_thin_jobs_description():
+    """A first pull from a list page has no description; a later pull from the job's
+    detail page carries the full JD. De-dup must UPGRADE the stored job's description
+    rather than keep the thin one (so the extension's client-side capture lands)."""
+    client = _client()
+    h = _auth(client)
+    thin = {"source_platform": "linkedin", "external_id": "li-9", "title": "Platform Lead",
+            "company": "Globex", "url": "https://www.linkedin.com/jobs/view/9"}
+    client.post("/api/v1/jobs/ingest-external", headers=h, json={"source": "linkedin", "jobs": [thin]})
+    jid = next(m["job_id"] for m in client.get("/api/v1/jobs/matches", headers=h).json() if m["company"] == "Globex")
+    assert (client.get(f"/api/v1/jobs/{jid}", headers=h).json()["description"] or "") == ""
+
+    full = {**thin, "description": "We are hiring a Platform Lead to own our Kubernetes fleet across regions, "
+            "lead incident response, and mentor engineers. Requires deep AWS, Terraform, Python and Go experience."}
+    out = client.post("/api/v1/jobs/ingest-external", headers=h, json={"source": "linkedin", "jobs": [full]}).json()
+    assert out["duplicates"] == 1 and out["ingested"] == 0  # still de-duped, not a new row
+    upgraded = client.get(f"/api/v1/jobs/{jid}", headers=h).json()
+    assert "Kubernetes fleet" in upgraded["description"]  # the full JD now lands

@@ -91,6 +91,9 @@ class Resume(DomainModel):
     #: Version history — several tailored variants the user can switch between.
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (rendered_text is the doc)
+    #: Which version of this doc is currently live on each external board, so we can
+    #: flag drift and keep providers in sync. {board: {"version": int, "at": iso, "status": str}}.
+    board_sync: dict = Field(default_factory=dict)
     approved: bool = False  # human-in-the-loop gate
     archived: bool = False  # hidden from the main list, kept on the Archived shelf
     flagged: bool = False  # marked "needs attention" by the user
@@ -184,6 +187,8 @@ class CoverLetter(DomainModel):
     #: Version history — several tailored variants the user can switch between.
     versions: list[DocumentVersion] = Field(default_factory=list)
     active_version: int = 0  # 0 = no explicit history yet (content is the doc)
+    #: Which version of this doc is live on each external board (see Resume.board_sync).
+    board_sync: dict = Field(default_factory=dict)
     approved: bool = False  # human-in-the-loop gate
     archived: bool = False  # hidden from the main list, kept on the Archived shelf
     flagged: bool = False  # marked "needs attention" by the user
