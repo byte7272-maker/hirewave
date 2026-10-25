@@ -23,8 +23,19 @@ from jobsearch.api.schemas import (
 )
 from jobsearch.engines.interview import suggested_answer_seconds
 from jobsearch.engines.interview.engine import infer_category
-from jobsearch.engines.interview.scripts import known_line_ids, line_id_for_text
-from jobsearch.engines.interview.clip_builder import build_clips, clip_key, status_for
+from jobsearch.engines.interview.scripts import (
+    known_line_ids,
+    line_id_for_text,
+    mock_script,
+)
+from jobsearch.engines.interview.clip_builder import (
+    build_clips,
+    clip_key,
+    resolve_clip_url,
+    set_placeholder_mode,
+    status_for,
+    store_clip,
+)
 from jobsearch.engines.interview.heygen import build_heygen_client
 from jobsearch.models import (
     CustomVoice,
@@ -422,11 +433,17 @@ def render_video(body: AvatarVideoRequest, user: CurrentUser, state: StateDep) -
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "text is empty")
 
-    # 1) A cached talking-head clip for a fixed question?
+    # 1) A clip for a fixed question — a real stored clip, or the placeholder.
     persona_id = str((body.persona or {}).get("id") or "")
     line_id = line_id_for_text(text)
-    if persona_id and line_id and state.documents.get(clip_key(persona_id, line_id)) is not None:
-        return {"video_url": _clip_url(persona_id, line_id), "source": "prerendered"}
+    if persona_id and line_id:
+        url = resolve_clip_url(
+            state.documents, persona_id, line_id,
+            clip_url_fn=_clip_url, placeholder_url=_placeholder_url(),
+        )
+        if url:
+            real = state.documents.get(clip_key(persona_id, line_id)) is not None
+            return {"video_url": url, "source": "prerendered" if real else "placeholder"}
 
     # 2) A live video provider?
     if state.avatar_video.enabled:
@@ -442,6 +459,11 @@ def render_video(body: AvatarVideoRequest, user: CurrentUser, state: StateDep) -
 def _clip_url(persona_id: str, line_id: str) -> str:
     """Absolute URL of a stored clip, so the client can use it as a <video> src."""
     return f"{_asset_base()}/api/v1/interview/clip/{persona_id}/{line_id}"
+
+
+def _placeholder_url() -> str:
+    """The bundled stand-in clip (served from /static) used before real clips exist."""
+    return f"{_asset_base()}/static/clips/placeholder.mp4"
 
 
 def _parse_lines(lines: str) -> list[str]:
@@ -516,6 +538,92 @@ def get_avatar_clip(persona_id: str, line_id: str, state: StateDep) -> Response:
         media_type=ctype or "video/mp4",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+#: Video formats accepted for a manually-rendered clip upload.
+_VIDEO_TYPES = {"video/mp4", "video/webm", "video/quicktime"}
+
+
+@router.put("/clip/{persona_id}/{line_id}", response_model=None)
+async def upload_avatar_clip(
+    persona_id: str,
+    line_id: str,
+    user: CurrentUser,
+    state: StateDep,
+    file: UploadFile = File(...),
+) -> dict:
+    """Upload a clip you rendered yourself (e.g. in the HeyGen studio) for a persona's
+    fixed question — no API key needed. Replaces any existing clip for that line."""
+    _persona_or_404(state, persona_id)
+    if line_id not in set(known_line_ids()):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"unknown line id: {line_id}; valid: {', '.join(known_line_ids())}",
+        )
+    ctype = (file.content_type or "").split(";")[0].strip().lower()
+    if ctype not in _VIDEO_TYPES:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "unsupported video format; use mp4, webm, or mov",
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")
+    if len(data) > state.settings.max_upload_bytes:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
+        )
+    store_clip(state.documents, persona_id, line_id, data, origin="uploaded", content_type=ctype)
+    return {"persona_id": persona_id, "line_id": line_id, "bytes": len(data), "origin": "uploaded"}
+
+
+@router.delete("/clip/{persona_id}/{line_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_avatar_clip(persona_id: str, line_id: str, user: CurrentUser, state: StateDep) -> None:
+    """Remove a stored clip (falls back to the placeholder or photo + TTS again)."""
+    state.documents.delete(clip_key(persona_id, line_id))
+
+
+@router.post("/avatars/placeholder")
+def set_avatar_placeholder(user: CurrentUser, state: StateDep, on: bool = True) -> dict:
+    """Toggle placeholder mode: when on, any fixed question without a real clip plays a
+    bundled stand-in video, so the stitched interview runs end-to-end before real
+    clips exist. Real clips always take precedence; turn off once they're in."""
+    set_placeholder_mode(state.documents, on)
+    return status_for(state.persona_library.all(), state.documents)
+
+
+@router.get("/script")
+def mock_interview_script(user: CurrentUser, state: StateDep, persona_id: str) -> dict:
+    """The ordered, stitched interview for a persona: each step carries the question
+    text, whether it expects an answer, and the clip to play (a real clip, the
+    placeholder when enabled, else null → the client speaks it with photo + TTS).
+    The client plays the steps back-to-back, pausing for the candidate's answer."""
+    persona = _persona_or_404(state, persona_id)
+    steps = []
+    for step in mock_script():
+        line_id = step["line_id"]
+        clip = resolve_clip_url(
+            state.documents, persona_id, line_id,
+            clip_url_fn=_clip_url, placeholder_url=_placeholder_url(),
+        )
+        steps.append({
+            "line_id": line_id,
+            "text": step["text"],
+            "expects_answer": step["expects_answer"],
+            "clip_url": clip,
+            "has_clip": clip is not None,
+        })
+    return {
+        "persona": {
+            "id": persona.id,
+            "name": persona.name,
+            "role": persona.role,
+            "avatar_url": persona.avatar_url,
+        },
+        "tts_available": state.speech.enabled,
+        "steps": steps,
+    }
 
 
 # --- per-persona voice selection (upload / change voice per persona) ---------

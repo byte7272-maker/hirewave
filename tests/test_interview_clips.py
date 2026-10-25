@@ -199,3 +199,86 @@ def test_build_rejects_unknown_line(monkeypatch):
     )
     r = client.post("/api/v1/interview/avatars/build?lines=greeting,bogus", headers=h)
     assert r.status_code == 400 and "bogus" in r.json()["detail"]
+
+
+# --- mock-interview script + placeholder + upload ---------------------------
+def test_mock_script_sequences_fixed_questions():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    r = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    ids = [s["line_id"] for s in body["steps"]]
+    assert ids == ["greeting", "intro", "motivation", "behavioral_project",
+                   "behavioral_conflict", "behavioral_failure", "closing"]
+    # greeting is spoken, not answered; the rest expect answers
+    assert body["steps"][0]["expects_answer"] is False
+    assert all(s["expects_answer"] for s in body["steps"][1:])
+    # no clips and no placeholder yet -> client falls back to photo + TTS
+    assert all(s["clip_url"] is None and s["has_clip"] is False for s in body["steps"])
+    assert body["persona"]["id"] == pid
+
+
+def test_placeholder_mode_fills_every_step():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    assert client.post("/api/v1/interview/avatars/placeholder?on=true", headers=h).status_code == 200
+
+    body = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    assert all(s["clip_url"].endswith("/static/clips/placeholder.mp4") for s in body["steps"])
+    assert all(s["has_clip"] for s in body["steps"])
+
+    # /video serves the placeholder and labels the source
+    v = client.post(
+        "/api/v1/interview/video", headers=h,
+        json={"text": "To start, tell me about yourself and your background.", "persona": {"id": pid}},
+    ).json()
+    assert v["source"] == "placeholder" and v["video_url"].endswith("/static/clips/placeholder.mp4")
+
+    # turning it off goes back to the fallback
+    client.post("/api/v1/interview/avatars/placeholder?on=false", headers=h)
+    body2 = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    assert all(s["clip_url"] is None for s in body2["steps"])
+
+
+def test_uploaded_clip_wins_over_placeholder():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    client.post("/api/v1/interview/avatars/placeholder?on=true", headers=h)
+
+    up = client.put(
+        f"/api/v1/interview/clip/{pid}/intro", headers=h,
+        files={"file": ("intro.mp4", b"REALCLIPDATA", "video/mp4")},
+    )
+    assert up.status_code == 200 and up.json()["origin"] == "uploaded"
+
+    body = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    steps = {s["line_id"]: s for s in body["steps"]}
+    # the uploaded line points at the real clip route; others still placeholder
+    assert steps["intro"]["clip_url"].endswith(f"/clip/{pid}/intro")
+    assert steps["greeting"]["clip_url"].endswith("/static/clips/placeholder.mp4")
+
+    # the real clip serves its bytes, and status counts it as uploaded
+    served = client.get(f"/api/v1/interview/clip/{pid}/intro")
+    assert served.status_code == 200 and served.content == b"REALCLIPDATA"
+    st = client.get("/api/v1/interview/avatars/clips", headers=h).json()
+    assert st["uploaded"] == 1 and st["built"] == 1 and st["placeholder_mode"] is True
+
+
+def test_upload_clip_rejects_bad_type_and_unknown_line():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    bad_type = client.put(
+        f"/api/v1/interview/clip/{pid}/intro", headers=h,
+        files={"file": ("x.txt", b"nope", "text/plain")},
+    )
+    assert bad_type.status_code == 415
+    bad_line = client.put(
+        f"/api/v1/interview/clip/{pid}/bogus", headers=h,
+        files={"file": ("x.mp4", b"data", "video/mp4")},
+    )
+    assert bad_line.status_code == 400

@@ -51,6 +51,29 @@ def known_line_ids() -> list[str]:
     return [lid for lid, _ in FIXED_LINES]
 
 
+# The linear mock-interview script: the questions asked back-to-back, in order.
+# ``probe`` is a *contextual* follow-up (used dynamically after an answer), not a
+# standalone step, so it's excluded here.
+SCRIPT_LINE_IDS: list[str] = [
+    "greeting",
+    "intro",
+    "motivation",
+    "behavioral_project",
+    "behavioral_conflict",
+    "behavioral_failure",
+    "closing",
+]
+
+
+def mock_script() -> list[dict]:
+    """The ordered interview steps. Each: ``line_id``, ``text``, and
+    ``expects_answer`` (the greeting is spoken but not answered)."""
+    return [
+        {"line_id": lid, "text": _BY_ID[lid], "expects_answer": lid != "greeting"}
+        for lid in SCRIPT_LINE_IDS
+    ]
+
+
 def line_text(line_id: str) -> str:
     return _BY_ID.get(line_id, "")
 

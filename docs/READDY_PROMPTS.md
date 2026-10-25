@@ -2339,3 +2339,42 @@ Clips are generated server-side via HeyGen, so the HeyGen key never reaches the 
 Frontend swaps the still interviewer image for a `<video>` whenever `/video` returns a clip, with a hard fallback to the existing photo + TTS path. Null-safe; no new user controls; global P0 rules apply.
 
 Acceptance: during a mock interview, the common questions play as a short talking-head video of the chosen interviewer; job-specific questions still use photo + neural voice; if a clip is missing or fails, the session continues seamlessly on photo + TTS with no error shown.
+
+---
+
+## P44 — Stitched mock interview: play the question clips back-to-back
+
+Turn the interviewer into a continuous experience: the chosen interviewer **plays each common question as a clip, waits for the candidate's answer, then plays the next** — a stitched, sequential mock interview. Works today even before real HeyGen clips exist, via a bundled placeholder clip and a photo + TTS fallback. Backend is LIVE.
+
+### Get the script, then play it
+- `GET /api/v1/interview/script?persona_id={id}` → the ordered interview:
+  ```json
+  {
+    "persona": { "id": "...", "name": "...", "role": "...", "avatar_url": "..." },
+    "tts_available": true,
+    "steps": [
+      { "line_id": "greeting", "text": "...", "expects_answer": false, "clip_url": "<url|null>", "has_clip": true },
+      { "line_id": "intro",    "text": "...", "expects_answer": true,  "clip_url": "<url|null>", "has_clip": true },
+      ...
+    ]
+  }
+  ```
+  Steps are in order: greeting → tell-me-about-yourself → motivation → three behavioral questions → closing.
+
+### Playback loop (client)
+For each step, in order:
+1. **Show the interviewer.** If `clip_url` is set, play it as a `<video autoplay playsinline>` (it's a plain MP4; no auth header needed on the tag). If `clip_url` is `null`, show `persona.avatar_url` and speak `text` via `POST /interview/tts` (fall back to the browser voice if `tts_available` is false).
+2. **When the clip/audio ends**, if `expects_answer` is true, open the answer input (the P41 single answer flow) and wait for the candidate; "Suggest an answer" / Refine stay available. If `expects_answer` is false (the greeting), auto-advance.
+3. **After the answer is submitted**, advance to the next step. At the end, show the summary/coach.
+- Be robust: if a `<video>` errors or is a near-zero-length placeholder, don't stall — advance on `ended`/`error` or a short timeout, and never block the interview on a missing clip.
+
+### Operator note (not user-facing)
+- `POST /api/v1/interview/avatars/placeholder?on=true|false` — toggle the bundled placeholder so every question has a playable clip while you build/test; real clips always take precedence. (`?on=false` to turn off once real clips are in.)
+- `PUT /api/v1/interview/clip/{persona_id}/{line_id}` (multipart `file`, mp4/webm/mov) — upload a clip you rendered yourself (e.g. in the HeyGen studio), no API key needed; replaces that line's clip.
+- `DELETE /api/v1/interview/clip/{persona_id}/{line_id}` — remove a clip (reverts to placeholder/TTS).
+- `GET /api/v1/interview/avatars/clips` now also returns `rendered`, `uploaded`, and `placeholder_mode`.
+
+### Scope
+Frontend sequences the `/script` steps with a clip-or-TTS player and the existing answer flow; hard fallbacks so it runs with placeholders, uploaded clips, HeyGen clips, or nothing. Null-safe; global P0 rules apply.
+
+Acceptance: starting a mock interview with an interviewer plays the common questions one after another (clip or photo+TTS), pausing for the candidate's answer between questions; with placeholder mode on, every question has a playable clip; an uploaded or HeyGen clip replaces the placeholder for that question automatically; a missing or broken clip never stalls the session.

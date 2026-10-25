@@ -41,7 +41,7 @@ where = ["src"]
 # Ship bundled static assets (interviewer persona photos) inside the installed
 # package so they're served in the Docker/Railway image, not just from source.
 [tool.setuptools.package-data]
-jobsearch = ["static/personas/*.webp"]
+jobsearch = ["static/personas/*.webp", "static/clips/*.mp4"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
