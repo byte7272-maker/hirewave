@@ -46,6 +46,11 @@ for _lid, _variants in _ALIASES.items():
         _TEXT_TO_ID[_norm(_v)] = _lid
 
 
+def known_line_ids() -> list[str]:
+    """Every fixed line id, in interview order."""
+    return [lid for lid, _ in FIXED_LINES]
+
+
 def line_text(line_id: str) -> str:
     return _BY_ID.get(line_id, "")
 

@@ -2332,8 +2332,8 @@ Clips are keyed by `(persona_id, line_id)`; the backend matches the spoken text 
 
 ### Operator note (not user-facing)
 Clips are generated server-side via HeyGen, so the HeyGen key never reaches the browser:
-- `GET /api/v1/interview/avatars/clips` → `{ total, built, remaining }` (how many persona × question clips exist).
-- `POST /api/v1/interview/avatars/build?limit=N` → renders up to N missing clips per call (call until `remaining` is 0); **501** if `HEYGEN_API_KEY` isn't set, **400** if `JOBSEARCH_HEYGEN_VOICE_ID` isn't set. This is an admin action, not a user button.
+- `GET /api/v1/interview/avatars/clips` → `{ total, built, remaining }` (how many persona × question clips exist). Add `?lines=greeting,intro` to scope the count to specific questions.
+- `POST /api/v1/interview/avatars/build?limit=N` → renders up to N missing clips per call (call until `remaining` is 0); **501** if `HEYGEN_API_KEY` isn't set, **400** if `JOBSEARCH_HEYGEN_VOICE_ID` isn't set. Add `?lines=greeting,intro` to render only certain questions (a cheap starter set before committing to the full library). This is an admin action, not a user button.
 
 ### Scope
 Frontend swaps the still interviewer image for a `<video>` whenever `/video` returns a clip, with a hard fallback to the existing photo + TTS path. Null-safe; no new user controls; global P0 rules apply.

@@ -23,7 +23,7 @@ from jobsearch.api.schemas import (
 )
 from jobsearch.engines.interview import suggested_answer_seconds
 from jobsearch.engines.interview.engine import infer_category
-from jobsearch.engines.interview.scripts import line_id_for_text
+from jobsearch.engines.interview.scripts import known_line_ids, line_id_for_text
 from jobsearch.engines.interview.clip_builder import build_clips, clip_key, status_for
 from jobsearch.engines.interview.heygen import build_heygen_client
 from jobsearch.models import (
@@ -444,19 +444,41 @@ def _clip_url(persona_id: str, line_id: str) -> str:
     return f"{_asset_base()}/api/v1/interview/clip/{persona_id}/{line_id}"
 
 
+def _parse_lines(lines: str) -> list[str]:
+    """Validate a comma-separated ``lines`` filter against the known fixed-line ids.
+    Empty/blank means all lines. Raises 400 on an unknown id."""
+    ids = [s.strip() for s in (lines or "").split(",") if s.strip()]
+    if not ids:
+        return []
+    known = set(known_line_ids())
+    bad = [i for i in ids if i not in known]
+    if bad:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"unknown line id(s): {', '.join(bad)}; valid: {', '.join(known_line_ids())}",
+        )
+    return ids
+
+
 @router.get("/avatars/clips")
-def avatar_clip_status(user: CurrentUser, state: StateDep) -> dict:
-    """How many persona × fixed-question clips are pre-rendered so far."""
-    return status_for(state.persona_library.all(), state.documents)
+def avatar_clip_status(user: CurrentUser, state: StateDep, lines: str = "") -> dict:
+    """How many persona × question clips are pre-rendered so far. Pass ``lines`` (a
+    comma-separated list of line ids) to scope the count to specific questions."""
+    line_ids = _parse_lines(lines)
+    return status_for(state.persona_library.all(), state.documents, line_ids or None)
 
 
 @router.post("/avatars/build")
-def build_avatar_clips(user: CurrentUser, state: StateDep, limit: int = 4) -> dict:
+def build_avatar_clips(
+    user: CurrentUser, state: StateDep, limit: int = 4, lines: str = ""
+) -> dict:
     """Pre-render the fixed interviewer questions as talking-head clips (HeyGen).
 
     Generates up to ``limit`` missing clips per call so the request can't hang on a
-    long render queue — call repeatedly until ``remaining`` is 0. 501 when no HeyGen
-    key is configured (set ``HEYGEN_API_KEY`` in the backend)."""
+    long render queue — call repeatedly until ``remaining`` is 0. Pass ``lines`` (e.g.
+    ``greeting,intro``) to render only certain questions — handy as a cheap starter
+    set before committing to the full library. 501 when no HeyGen key is configured
+    (set ``HEYGEN_API_KEY`` in the backend)."""
     client = build_heygen_client(state.settings)
     if client is None:
         raise HTTPException(
@@ -469,6 +491,7 @@ def build_avatar_clips(user: CurrentUser, state: StateDep, limit: int = 4) -> di
             status.HTTP_400_BAD_REQUEST,
             "set JOBSEARCH_HEYGEN_VOICE_ID to a HeyGen voice id first",
         )
+    line_ids = _parse_lines(lines)
     return build_clips(
         client,
         state.persona_library.all(),
@@ -476,6 +499,7 @@ def build_avatar_clips(user: CurrentUser, state: StateDep, limit: int = 4) -> di
         _static_dir(),
         voice_id=voice,
         limit=max(1, min(limit, 50)),
+        line_ids=line_ids or None,
     )
 
 

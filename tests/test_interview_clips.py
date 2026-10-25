@@ -163,3 +163,39 @@ def test_build_endpoint_needs_voice_id(monkeypatch):
     h = _auth(client)
     r = client.post("/api/v1/interview/avatars/build", headers=h)
     assert r.status_code == 400 and "voice id" in r.json()["detail"].lower()
+
+
+def test_build_subset_only_renders_requested_lines(monkeypatch):
+    state, client = _app(Settings(heygen_voice_id="v_test"))
+    h = _auth(client)
+    monkeypatch.setattr(
+        "jobsearch.api.routers.interview.build_heygen_client", lambda s=None: MockHeyGenClient()
+    )
+    n_personas = len(state.persona_library.all())
+    r = client.post("/api/v1/interview/avatars/build?lines=greeting,intro&limit=50", headers=h)
+    assert r.status_code == 200
+    rep = r.json()
+    # scoped total = personas × 2 requested lines, and all get built in one call
+    assert rep["total"] == n_personas * 2
+    assert rep["built"] == n_personas * 2 and rep["remaining"] == 0
+
+    # only greeting+intro clips exist; the other fixed lines were not rendered
+    pid = state.persona_library.all()[0].id
+    assert state.documents.get(clip_key(pid, "greeting")) is not None
+    assert state.documents.get(clip_key(pid, "closing")) is None
+
+    # scoped status matches; full status still shows the rest outstanding
+    scoped = client.get("/api/v1/interview/avatars/clips?lines=greeting,intro", headers=h).json()
+    assert scoped["remaining"] == 0 and scoped["total"] == n_personas * 2
+    full = client.get("/api/v1/interview/avatars/clips", headers=h).json()
+    assert full["built"] == n_personas * 2 and full["remaining"] > 0
+
+
+def test_build_rejects_unknown_line(monkeypatch):
+    _, client = _app(Settings(heygen_voice_id="v_test"))
+    h = _auth(client)
+    monkeypatch.setattr(
+        "jobsearch.api.routers.interview.build_heygen_client", lambda s=None: MockHeyGenClient()
+    )
+    r = client.post("/api/v1/interview/avatars/build?lines=greeting,bogus", headers=h)
+    assert r.status_code == 400 and "bogus" in r.json()["detail"]

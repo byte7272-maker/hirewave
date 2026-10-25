@@ -11,9 +11,18 @@ to photo + neural TTS.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from .scripts import FIXED_LINES
+
+
+def _select_lines(line_ids: Optional[Iterable[str]]):
+    """The (line_id, text) pairs to build, filtered to ``line_ids`` when given
+    (order preserved from FIXED_LINES). None/empty means every fixed line."""
+    if not line_ids:
+        return list(FIXED_LINES)
+    wanted = set(line_ids)
+    return [(lid, text) for lid, text in FIXED_LINES if lid in wanted]
 
 
 def clip_key(persona_id: str, line_id: str) -> str:
@@ -40,12 +49,14 @@ def _photo_bytes(static_dir: Path, slug: str) -> Optional[bytes]:
         return None
 
 
-def status_for(personas, documents) -> dict:
-    """How many of the (persona × fixed-line) clips already exist."""
-    total = len(personas) * len(FIXED_LINES)
+def status_for(personas, documents, line_ids: Optional[Iterable[str]] = None) -> dict:
+    """How many of the (persona × line) clips already exist. Scoped to ``line_ids``
+    when given, so a subset build reports progress over just those questions."""
+    lines = _select_lines(line_ids)
+    total = len(personas) * len(lines)
     have = 0
     for p in personas:
-        for line_id, _ in FIXED_LINES:
+        for line_id, _ in lines:
             if documents.get(clip_key(p.id, line_id)) is not None:
                 have += 1
     return {"total": total, "built": have, "remaining": total - have}
@@ -59,13 +70,18 @@ def build_clips(
     *,
     voice_id: str,
     limit: int = 4,
+    line_ids: Optional[Iterable[str]] = None,
 ) -> dict:
     """Generate up to ``limit`` missing clips this call (so a request can't hang on a
     long render queue). Re-run until ``remaining`` is 0. Returns a progress report.
 
+    ``line_ids`` restricts which fixed questions to render (e.g. just the greeting +
+    intro as a cheap starter set); None renders all of them.
+
     ``client`` is a HeyGen client (see :mod:`heygen`); ``documents`` is the durable
     store (``get(id)``/``put(id, bytes, content_type=)``).
     """
+    lines = _select_lines(line_ids)
     built = 0
     errors: list[str] = []
     tp_cache: dict[str, str] = {}
@@ -91,7 +107,7 @@ def build_clips(
         return tp
 
     for persona in personas:
-        for line_id, text in FIXED_LINES:
+        for line_id, text in lines:
             if built >= limit:
                 break
             if documents.get(clip_key(persona.id, line_id)) is not None:
@@ -112,7 +128,7 @@ def build_clips(
         if built >= limit:
             break
 
-    report = status_for(personas, documents)
+    report = status_for(personas, documents, line_ids)
     report["built_this_call"] = built
     report["errors"] = errors
     return report
