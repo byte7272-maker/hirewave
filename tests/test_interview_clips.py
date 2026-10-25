@@ -268,6 +268,53 @@ def test_uploaded_clip_wins_over_placeholder():
     assert st["uploaded"] == 1 and st["built"] == 1 and st["placeholder_mode"] is True
 
 
+def test_clip_caption_override_on_upload_and_endpoint():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+
+    # caption supplied at upload time
+    up = client.put(
+        f"/api/v1/interview/clip/{pid}/behavioral_project", headers=h,
+        files={"file": ("clip.mp4", b"MP4", "video/mp4")},
+        data={"caption": "What's the most exciting thing you've been working on lately?"},
+    )
+    assert up.status_code == 200
+    assert up.json()["caption"].startswith("What's the most exciting")
+
+    # /script shows the override as the caption, keeps canonical text, flags it
+    body = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    step = next(s for s in body["steps"] if s["line_id"] == "behavioral_project")
+    assert step["caption"].startswith("What's the most exciting")
+    assert step["has_custom_caption"] is True
+    assert "challenging project" in step["text"].lower()  # canonical text preserved
+    # a step without a custom caption falls back to the canonical text
+    greeting = next(s for s in body["steps"] if s["line_id"] == "greeting")
+    assert greeting["caption"] == greeting["text"] and greeting["has_custom_caption"] is False
+
+    # the caption endpoint can change it, and blank clears it
+    client.put(f"/api/v1/interview/clip/{pid}/behavioral_project/caption", headers=h,
+               json={"caption": "Tell me about your current project."})
+    body2 = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    assert next(s for s in body2["steps"] if s["line_id"] == "behavioral_project")["caption"] == "Tell me about your current project."
+    client.put(f"/api/v1/interview/clip/{pid}/behavioral_project/caption", headers=h, json={"caption": ""})
+    body3 = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    cleared = next(s for s in body3["steps"] if s["line_id"] == "behavioral_project")
+    assert cleared["has_custom_caption"] is False and "challenging project" in cleared["caption"].lower()
+
+
+def test_deleting_clip_clears_caption():
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    client.put(f"/api/v1/interview/clip/{pid}/intro", headers=h,
+               files={"file": ("c.mp4", b"MP4", "video/mp4")}, data={"caption": "Who are you?"})
+    client.delete(f"/api/v1/interview/clip/{pid}/intro", headers=h)
+    body = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    step = next(s for s in body["steps"] if s["line_id"] == "intro")
+    assert step["has_custom_caption"] is False
+
+
 def test_upload_clip_rejects_bad_type_and_unknown_line():
     state, client = _app()
     h = _auth(client)

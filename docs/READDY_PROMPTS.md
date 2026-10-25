@@ -2353,13 +2353,14 @@ Turn the interviewer into a continuous experience: the chosen interviewer **play
     "persona": { "id": "...", "name": "...", "role": "...", "avatar_url": "..." },
     "tts_available": true,
     "steps": [
-      { "line_id": "greeting", "text": "...", "expects_answer": false, "clip_url": "<url|null>", "has_clip": true },
-      { "line_id": "intro",    "text": "...", "expects_answer": true,  "clip_url": "<url|null>", "has_clip": true },
+      { "line_id": "greeting", "text": "...", "caption": "...", "has_custom_caption": false, "expects_answer": false, "clip_url": "<url|null>", "has_clip": true },
+      { "line_id": "intro",    "text": "...", "caption": "...", "has_custom_caption": false, "expects_answer": true,  "clip_url": "<url|null>", "has_clip": true },
       ...
     ]
   }
   ```
   Steps are in order: greeting → tell-me-about-yourself → motivation → three behavioral questions → closing.
+  **Display `caption`, not `text`.** `caption` is what to show on screen for the step — it equals the canonical `text` unless a clip has a custom caption (its actual spoken wording), in which case `caption` is that override (`has_custom_caption: true`). Always render `caption`.
 
 ### Playback loop (client)
 For each step, in order:
@@ -2370,7 +2371,8 @@ For each step, in order:
 
 ### Operator note (not user-facing)
 - `POST /api/v1/interview/avatars/placeholder?on=true|false` — toggle the bundled placeholder so every question has a playable clip while you build/test; real clips always take precedence. (`?on=false` to turn off once real clips are in.)
-- `PUT /api/v1/interview/clip/{persona_id}/{line_id}` (multipart `file`, mp4/webm/mov) — upload a clip you rendered yourself (e.g. in the HeyGen studio), no API key needed; replaces that line's clip.
+- `PUT /api/v1/interview/clip/{persona_id}/{line_id}` (multipart `file`, mp4/webm/mov; optional `caption` field) — upload a clip you rendered yourself (e.g. in the HeyGen studio), no API key needed; replaces that line's clip. `caption` overrides the on-screen text for this clip (its actual spoken wording).
+- `PUT /api/v1/interview/clip/{persona_id}/{line_id}/caption` (JSON `{ "caption": "..." }`, blank clears) — set/clear a clip's on-screen caption without re-uploading.
 - `DELETE /api/v1/interview/clip/{persona_id}/{line_id}` — remove a clip (reverts to placeholder/TTS).
 - `GET /api/v1/interview/avatars/clips` now also returns `rendered`, `uploaded`, and `placeholder_mode`.
 

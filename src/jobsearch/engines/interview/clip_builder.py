@@ -33,6 +33,10 @@ def _meta_key(persona_id: str, line_id: str) -> str:
     return f"ivclipmeta:{persona_id}:{line_id}"
 
 
+def _caption_key(persona_id: str, line_id: str) -> str:
+    return f"ivclipcap:{persona_id}:{line_id}"
+
+
 def _tp_key(persona_id: str) -> str:
     return f"ivtp:{persona_id}"
 
@@ -56,6 +60,22 @@ def clip_origin(documents, persona_id: str, line_id: str) -> str:
         return ""
     m = documents.get(_meta_key(persona_id, line_id))
     return (m[0].decode("utf-8", "ignore").strip() if m else "") or "rendered"
+
+
+def set_caption(documents, persona_id: str, line_id: str, caption: str) -> None:
+    """Store (or clear, when blank) a per-clip caption — the words the clip actually
+    speaks — to display instead of the canonical question text."""
+    caption = (caption or "").strip()
+    if caption:
+        documents.put(_caption_key(persona_id, line_id), caption.encode("utf-8"), content_type="text/plain")
+    else:
+        documents.delete(_caption_key(persona_id, line_id))
+
+
+def get_caption(documents, persona_id: str, line_id: str) -> str:
+    """The custom caption for a clip, or "" when none is set."""
+    c = documents.get(_caption_key(persona_id, line_id))
+    return c[0].decode("utf-8", "ignore").strip() if c else ""
 
 
 def set_placeholder_mode(documents, on: bool) -> None:

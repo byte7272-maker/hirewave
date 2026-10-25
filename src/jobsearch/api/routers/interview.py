@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Body, File, Form, HTTPException, Response, UploadFile, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.models.common import utcnow
@@ -31,7 +31,9 @@ from jobsearch.engines.interview.scripts import (
 from jobsearch.engines.interview.clip_builder import (
     build_clips,
     clip_key,
+    get_caption,
     resolve_clip_url,
+    set_caption,
     set_placeholder_mode,
     status_for,
     store_clip,
@@ -443,7 +445,11 @@ def render_video(body: AvatarVideoRequest, user: CurrentUser, state: StateDep) -
         )
         if url:
             real = state.documents.get(clip_key(persona_id, line_id)) is not None
-            return {"video_url": url, "source": "prerendered" if real else "placeholder"}
+            return {
+                "video_url": url,
+                "source": "prerendered" if real else "placeholder",
+                "caption": get_caption(state.documents, persona_id, line_id) or text,
+            }
 
     # 2) A live video provider?
     if state.avatar_video.enabled:
@@ -551,9 +557,13 @@ async def upload_avatar_clip(
     user: CurrentUser,
     state: StateDep,
     file: UploadFile = File(...),
+    caption: str = Form(""),
 ) -> dict:
     """Upload a clip you rendered yourself (e.g. in the HeyGen studio) for a persona's
-    fixed question — no API key needed. Replaces any existing clip for that line."""
+    fixed question — no API key needed. Replaces any existing clip for that line.
+
+    Optional ``caption`` overrides the on-screen question text for this clip, so the
+    displayed wording matches what the clip actually says."""
     _persona_or_404(state, persona_id)
     if line_id not in set(known_line_ids()):
         raise HTTPException(
@@ -575,13 +585,36 @@ async def upload_avatar_clip(
             f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
         )
     store_clip(state.documents, persona_id, line_id, data, origin="uploaded", content_type=ctype)
-    return {"persona_id": persona_id, "line_id": line_id, "bytes": len(data), "origin": "uploaded"}
+    if caption.strip():
+        set_caption(state.documents, persona_id, line_id, caption)
+    return {
+        "persona_id": persona_id, "line_id": line_id, "bytes": len(data),
+        "origin": "uploaded", "caption": get_caption(state.documents, persona_id, line_id),
+    }
+
+
+@router.put("/clip/{persona_id}/{line_id}/caption")
+def set_avatar_clip_caption(
+    persona_id: str, line_id: str, user: CurrentUser, state: StateDep,
+    caption: str = Body("", embed=True),
+) -> dict:
+    """Set (or clear, when blank) the on-screen caption for a clip — the words it
+    actually speaks — shown instead of the canonical question text."""
+    _persona_or_404(state, persona_id)
+    if line_id not in set(known_line_ids()):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"unknown line id: {line_id}; valid: {', '.join(known_line_ids())}",
+        )
+    set_caption(state.documents, persona_id, line_id, caption)
+    return {"persona_id": persona_id, "line_id": line_id, "caption": get_caption(state.documents, persona_id, line_id)}
 
 
 @router.delete("/clip/{persona_id}/{line_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_avatar_clip(persona_id: str, line_id: str, user: CurrentUser, state: StateDep) -> None:
-    """Remove a stored clip (falls back to the placeholder or photo + TTS again)."""
+    """Remove a stored clip and its caption (falls back to placeholder / photo + TTS)."""
     state.documents.delete(clip_key(persona_id, line_id))
+    set_caption(state.documents, persona_id, line_id, "")
 
 
 @router.post("/avatars/placeholder")
@@ -607,9 +640,14 @@ def mock_interview_script(user: CurrentUser, state: StateDep, persona_id: str) -
             state.documents, persona_id, line_id,
             clip_url_fn=_clip_url, placeholder_url=_placeholder_url(),
         )
+        override = get_caption(state.documents, persona_id, line_id)
         steps.append({
             "line_id": line_id,
             "text": step["text"],
+            # What to show on screen: the clip's own caption when set, else the
+            # canonical question text.
+            "caption": override or step["text"],
+            "has_custom_caption": bool(override),
             "expects_answer": step["expects_answer"],
             "clip_url": clip,
             "has_clip": clip is not None,
