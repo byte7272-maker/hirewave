@@ -102,7 +102,7 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
     # aggregator against anything the parser already ingested).
     email_postings = [p for c, _ in job if (p := email_to_posting(c))]
     if email_postings:
-        res = state.aggregator.ingest(email_postings, sources={"email"})
+        res = state.aggregator.ingest(email_postings, sources={"email"}, owner_id=user.id)
         ingested += res.ingested - res.hidden
     if ingested > 0:  # real jobs arrived — clear the seeded sample matches
         try:

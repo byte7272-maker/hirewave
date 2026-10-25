@@ -79,7 +79,7 @@ class SavedSearchEngine:
     def run(self, search: SavedSearch, *, now: Optional[datetime] = None) -> AggregationResult:
         query = JobQuery(role=search.role, location=search.location, remote=search.remote)
         sources_filter = set(search.sources) or None
-        result = self.aggregator.search(query, sources_filter=sources_filter)
+        result = self.aggregator.search(query, sources_filter=sources_filter, owner_id=search.user_id)
 
         search.last_run_at = now or utcnow()
         search.last_new_count = result.ingested - result.hidden

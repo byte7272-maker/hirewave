@@ -31,19 +31,9 @@ router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
 def _match_pool(state: StateDep, user_id: str) -> list[JobPosting]:
-    """The postings to rank into a user's matches. A fresh account that still has its
-    seeded sample jobs (i.e. hasn't ingested any real jobs of its own yet) sees ONLY
-    those samples — not the shared pool of everyone else's postings. Once it ingests
-    real jobs the samples are cleared and it sees the real pool (minus other users'
-    samples)."""
-    all_jobs = state.jobs.all()
-    own_samples = [
-        j for j in all_jobs
-        if getattr(j, "is_sample", False) and getattr(j, "owner_id", "") == user_id
-    ]
-    if own_samples:
-        return own_samples
-    return [j for j in all_jobs if not getattr(j, "is_sample", False)]
+    """A user's own private pool of postings — only the jobs they ingested/pulled/
+    forwarded (plus their seeded samples until they ingest). Never other users'."""
+    return [j for j in state.jobs.all() if getattr(j, "owner_id", "") == user_id]
 
 
 def _clear_sample_jobs(state: StateDep, user_id: str) -> None:
@@ -77,7 +67,7 @@ def list_jobs(
     include_hidden: bool = False,
 ) -> list[JobPosting]:
     results = []
-    for job in state.jobs.all():
+    for job in _match_pool(state, _user.id):  # only the user's own postings
         if title and title.lower() not in job.title.lower():
             continue
         if location and location.lower() not in job.location.lower():
@@ -273,6 +263,7 @@ def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
     ingested = 0
     for item in body.jobs:
         job = JobPosting(**item.model_dump())
+        job.owner_id = _user.id  # private per-user pool
         state.jobs.add(job)
         state.verifications[job.id] = state.verification.verify(job)
         ingested += 1
@@ -298,7 +289,7 @@ def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: Current
             d["source_platform"] = body.source
         raw.append(d)
     srcs = {d.get("source_platform") for d in raw if d.get("source_platform")} or {body.source or "extension"}
-    result = state.aggregator.ingest(raw, sources=srcs)
+    result = state.aggregator.ingest(raw, sources=srcs, owner_id=_user.id)
     if result.ingested:  # real jobs arrived — clear the seeded sample matches
         _clear_sample_jobs(state, _user.id)
     return AggregationOut(
@@ -306,6 +297,21 @@ def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: Current
         hidden=result.hidden, sources=result.sources, job_ids=result.job_ids,
         matched_job_ids=result.matched_job_ids,
     )
+
+
+@router.post("/claim-unowned")
+def claim_unowned(state: StateDep, user: CurrentUser) -> dict:
+    """One-time migration: assign every ownerless (legacy, pre-ownership) posting to
+    the calling user's private pool. Jobs ingested before per-user ownership had no
+    owner; the account that ran the original searches claims them. Idempotent — once
+    claimed there are no ownerless jobs left for anyone else to take."""
+    claimed = 0
+    for j in state.jobs.all():
+        if not getattr(j, "owner_id", "") and not getattr(j, "is_sample", False):
+            j.owner_id = user.id
+            state.jobs.add(j)
+            claimed += 1
+    return {"claimed": claimed}
 
 
 @router.post("/enrich-descriptions")
@@ -328,7 +334,7 @@ def enrich_descriptions(
 
     wanted = {s.strip() for s in job_ids.split(",") if s.strip()}
     candidates = [
-        j for j in state.jobs.all()
+        j for j in _match_pool(state, _user.id)  # only the user's own postings
         if _visible(state, j) and needs_jd(j) and (not wanted or j.id in wanted)
     ]
     checked = enriched = 0

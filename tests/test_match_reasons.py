@@ -68,6 +68,7 @@ def test_matches_endpoint_returns_reasons_and_breakdown():
     ))
     state.jobs.add(JobPosting(
         source_platform="linkedin", title="Senior Backend Engineer", company="Globex",
+        owner_id=uid,  # the user's own posting (private per-user pool)
         location="Remote", remote=True,
         description="Senior Backend Engineer building Python microservices with FastAPI on AWS and Kubernetes.",
         requirements=["Python", "FastAPI", "AWS", "Kubernetes"],

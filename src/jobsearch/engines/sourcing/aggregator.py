@@ -121,7 +121,7 @@ class JobAggregator:
         self.verifications = verifications
 
     @staticmethod
-    def _to_job(raw: dict) -> JobPosting:
+    def _to_job(raw: dict, owner_id: str = "") -> JobPosting:
         sr = raw.get("salary_range")
         salary = SalaryRange(**sr) if isinstance(sr, dict) and sr else None
         title = str(raw.get("title", ""))
@@ -135,6 +135,7 @@ class JobAggregator:
         return JobPosting(
             source_platform=str(raw.get("source_platform", "")),
             external_id=str(raw.get("external_id", "")),
+            owner_id=owner_id,  # the user this posting belongs to (private per-user pool)
             title=title,
             company=str(raw.get("company", "")),
             company_domain=str(raw.get("company_domain", "")),
@@ -158,22 +159,27 @@ class JobAggregator:
             application_email=str(raw.get("application_email", "")),
         )
 
-    def ingest(self, raw: list[dict], *, sources: Optional[set[str]] = None) -> AggregationResult:
+    def ingest(
+        self, raw: list[dict], *, sources: Optional[set[str]] = None, owner_id: str = ""
+    ) -> AggregationResult:
         """Normalize → dedupe → verify → store a batch of raw postings (shared by
         the multi-site search and the email-alert import). See the module docstring
-        for the same-board / cross-board / identical-re-post policy."""
+        for the same-board / cross-board / identical-re-post policy.
+
+        ``owner_id`` scopes the postings (and de-duplication) to one user's private
+        pool, so two users ingesting the same job each keep their own copy."""
         used = sources or {str(r.get("source_platform") or "unknown") for r in raw}
 
         # Within-batch, collapse only *same-source* exact dupes (a board returning a
         # posting twice). Cross-source same-job postings are kept and linked below.
         batch: dict[tuple, JobPosting] = {}
         for r in raw:
-            job = self._to_job(r)
+            job = self._to_job(r, owner_id=owner_id)
             skey = (job.source_platform, job.external_id or _norm_key(job))
             batch.setdefault(skey, job)
 
-        # Index what's already stored: same-source dup lookup + cross-board groups.
-        stored = self.jobs.all()
+        # Index what's already stored FOR THIS OWNER — dedup never crosses users.
+        stored = [j for j in self.jobs.all() if getattr(j, "owner_id", "") == owner_id]
         by_src_key: dict[tuple, JobPosting] = {}
         by_ext: dict[tuple, JobPosting] = {}
         groups: dict[str, list[JobPosting]] = {}
@@ -247,7 +253,9 @@ class JobAggregator:
                 groups.setdefault(gk, []).append(job)
         return result
 
-    def search(self, query: JobQuery, *, sources_filter: Optional[set[str]] = None) -> AggregationResult:
+    def search(
+        self, query: JobQuery, *, sources_filter: Optional[set[str]] = None, owner_id: str = ""
+    ) -> AggregationResult:
         raw: list[dict] = []
         used: set[str] = set()
         for src in self.sources:
@@ -256,4 +264,4 @@ class JobAggregator:
             for r in src.search(query):
                 raw.append(r)
                 used.add(str(r.get("source_platform") or src.name))
-        return self.ingest(raw, sources=used)
+        return self.ingest(raw, sources=used, owner_id=owner_id)

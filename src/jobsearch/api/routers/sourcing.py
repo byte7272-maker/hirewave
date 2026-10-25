@@ -62,7 +62,8 @@ def run_search(body: JobSearchRunRequest, user: CurrentUser, state: StateDep) ->
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "role is required")
     _record_search(state, user.id, body.role, body.location, body.remote)  # remember it
     query = JobQuery(role=body.role, location=body.location, remote=body.remote)
-    result = state.aggregator.search(query, sources_filter=set(body.sources) if body.sources else None)
+    result = state.aggregator.search(
+        query, sources_filter=set(body.sources) if body.sources else None, owner_id=user.id)
     if result.ingested:  # real jobs arrived — clear the seeded sample matches
         _clear_user_samples(state, user.id)
     out = _out(result)
@@ -134,7 +135,8 @@ async def import_email(
             f"file exceeds {state.settings.max_upload_bytes // (1024 * 1024)} MB limit",
         )
     alert = parse_job_alert(data)
-    result = state.aggregator.ingest(alert.postings, sources={alert.source} if alert.source else None)
+    result = state.aggregator.ingest(
+        alert.postings, sources={alert.source} if alert.source else None, owner_id=user.id)
     if result.ingested:
         _clear_user_samples(state, user.id)
     return EmailImportOut(source=alert.source, parsed=len(alert.postings), result=_out(result))

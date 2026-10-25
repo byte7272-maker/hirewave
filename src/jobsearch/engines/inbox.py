@@ -58,7 +58,7 @@ class InboxEngine:
     def receive(self, user_id: str, raw: bytes | str) -> tuple[InboxMessage, AggregationResult]:
         alert = parse_job_alert(raw)
         result = self.aggregator.ingest(
-            alert.postings, sources={alert.source} if alert.source else None
+            alert.postings, sources={alert.source} if alert.source else None, owner_id=user_id
         )
         if result.ingested:  # real jobs arrived — clear this user's seeded samples
             self._clear_sample_jobs(user_id)
