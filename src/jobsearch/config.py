@@ -21,7 +21,7 @@ EmbeddingProviderName = Literal["openai", "mock"]
 AutomationMode = Literal["simulate", "live"]
 OAuthMode = Literal["mock", "live"]
 ExposureProviderName = Literal["mock", "hibp"]
-MediaProviderName = Literal["none", "http"]
+MediaProviderName = Literal["none", "http", "heygen"]
 TtsProviderName = Literal["none", "http", "elevenlabs", "openai"]
 VoiceCloneProviderName = Literal["none", "mock", "elevenlabs"]
 
@@ -182,6 +182,10 @@ class Settings(BaseSettings):
     avatar_url: str = ""
     avatar_api_key: str = Field(default="", validation_alias="JOBSEARCH_AVATAR_API_KEY")
     avatar_timeout_seconds: float = 60.0
+    # HeyGen pre-rendered interviewer clips: set the key (avatar_provider="heygen"),
+    # then build the clip library once with POST /interview/avatars/build.
+    heygen_api_key: str = Field(default="", validation_alias="HEYGEN_API_KEY")
+    heygen_voice_id: str = ""  # optional HeyGen voice id; blank = per-persona neutral default
     # User-directed content libraries — JSON files you own and edit. Blank =
     # the built-in generator / question templates.
     #   persona_library: [{name, role, company, style, gender, voice, voice_id,

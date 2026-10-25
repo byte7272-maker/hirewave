@@ -23,6 +23,9 @@ from jobsearch.api.schemas import (
 )
 from jobsearch.engines.interview import suggested_answer_seconds
 from jobsearch.engines.interview.engine import infer_category
+from jobsearch.engines.interview.scripts import line_id_for_text
+from jobsearch.engines.interview.clip_builder import build_clips, clip_key, status_for
+from jobsearch.engines.interview.heygen import build_heygen_client
 from jobsearch.models import (
     CustomVoice,
     InterviewDifficulty,
@@ -40,6 +43,23 @@ from jobsearch.models import (
 )
 
 router = APIRouter(prefix="/api/v1/interview", tags=["interview"])
+
+
+def _static_dir():
+    """On-disk directory of bundled static assets (persona photos live here)."""
+    from pathlib import Path
+
+    return Path(__file__).resolve().parent.parent.parent / "static"
+
+
+def _asset_base() -> str:
+    """Origin the backend is reached at, for building absolute clip URLs. Matches
+    the persona-library asset base so clips and photos share an origin."""
+    import os
+
+    return os.environ.get(
+        "JOBSEARCH_ASSET_BASE", "https://hirewave-production-3db3.up.railway.app"
+    ).rstrip("/")
 
 #: Audio formats a browser <audio> element can reliably play. Uploaded persona
 #: voice clips must be one of these so playback is compatible everywhere.
@@ -392,16 +412,86 @@ def synthesize_tts(body: TtsRequest, user: CurrentUser, state: StateDep) -> Resp
 
 @router.post("/video")
 def render_video(body: AvatarVideoRequest, user: CurrentUser, state: StateDep) -> dict:
-    """Talking-head clip URL for an interviewer line via the configured source.
-    501 when unconfigured — the client uses its animated avatar instead."""
-    if not state.avatar_video.enabled:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "no neural-video source configured")
-    if not body.text.strip():
+    """Talking-head clip URL for an interviewer line.
+
+    Prefers a *pre-rendered* clip (HeyGen, built ahead of time) when the line is one
+    of the fixed common questions for this persona — that's instant and realistic.
+    Otherwise it falls back to a configured live video source, and finally 501 (the
+    client then speaks the line with the persona photo + neural TTS)."""
+    text = (body.text or "").strip()
+    if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "text is empty")
-    url = state.avatar_video.render(persona=body.persona, text=body.text)
-    if not url:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "video source did not return a clip")
-    return {"video_url": url}
+
+    # 1) A cached talking-head clip for a fixed question?
+    persona_id = str((body.persona or {}).get("id") or "")
+    line_id = line_id_for_text(text)
+    if persona_id and line_id and state.documents.get(clip_key(persona_id, line_id)) is not None:
+        return {"video_url": _clip_url(persona_id, line_id), "source": "prerendered"}
+
+    # 2) A live video provider?
+    if state.avatar_video.enabled:
+        url = state.avatar_video.render(persona=body.persona, text=text)
+        if not url:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "video source did not return a clip")
+        return {"video_url": url, "source": "live"}
+
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "no neural-video source configured")
+
+
+# --- pre-rendered interviewer clips (HeyGen talking-head library) ------------
+def _clip_url(persona_id: str, line_id: str) -> str:
+    """Absolute URL of a stored clip, so the client can use it as a <video> src."""
+    return f"{_asset_base()}/api/v1/interview/clip/{persona_id}/{line_id}"
+
+
+@router.get("/avatars/clips")
+def avatar_clip_status(user: CurrentUser, state: StateDep) -> dict:
+    """How many persona × fixed-question clips are pre-rendered so far."""
+    return status_for(state.persona_library.all(), state.documents)
+
+
+@router.post("/avatars/build")
+def build_avatar_clips(user: CurrentUser, state: StateDep, limit: int = 4) -> dict:
+    """Pre-render the fixed interviewer questions as talking-head clips (HeyGen).
+
+    Generates up to ``limit`` missing clips per call so the request can't hang on a
+    long render queue — call repeatedly until ``remaining`` is 0. 501 when no HeyGen
+    key is configured (set ``HEYGEN_API_KEY`` in the backend)."""
+    client = build_heygen_client(state.settings)
+    if client is None:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED,
+            "HeyGen is not configured — set HEYGEN_API_KEY in the backend",
+        )
+    voice = getattr(state.settings, "heygen_voice_id", "")
+    if not voice:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "set JOBSEARCH_HEYGEN_VOICE_ID to a HeyGen voice id first",
+        )
+    return build_clips(
+        client,
+        state.persona_library.all(),
+        state.documents,
+        _static_dir(),
+        voice_id=voice,
+        limit=max(1, min(limit, 50)),
+    )
+
+
+@router.get("/clip/{persona_id}/{line_id}")
+def get_avatar_clip(persona_id: str, line_id: str, state: StateDep) -> Response:
+    """Serve a pre-rendered talking-head clip (public: generic question video, no
+    personal data) so a plain <video src> can play it."""
+    stored = state.documents.get(clip_key(persona_id, line_id))
+    if stored is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "clip not rendered")
+    data, ctype = stored
+    return Response(
+        content=data,
+        media_type=ctype or "video/mp4",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 # --- per-persona voice selection (upload / change voice per persona) ---------

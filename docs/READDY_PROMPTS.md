@@ -2312,3 +2312,30 @@ Deleting a résumé/cover-letter version is hard to find. Put an obvious **trash
 UI over the live delete endpoints; applies to both résumé and cover-letter marquees (P29/P33 toggle decides which). Null-safe; global P0 rules apply.
 
 Acceptance: a trash icon appears on every version preview and in the full-size view; clicking it (with a quick confirm) deletes that version and updates the rail/preview; the last remaining version can't be deleted; works for both résumés and cover letters.
+
+---
+
+## P43 — Interviewers ask the common questions as realistic talking-head video
+
+Make the interviewer feel like a real person: when the interviewer asks one of the **fixed common questions** (greeting, "tell me about yourself", "what are you looking for", the three behavioral prompts, the universal probe, and the closing), play a **pre-rendered talking-head video clip** of that persona speaking the line — instead of a still photo. For any other (job- or résumé-specific) question, keep the current behavior: show the persona photo and speak the line with neural TTS. Backend is LIVE.
+
+### How it works (client)
+For every interviewer line, the client already knows the persona and the text. Ask the backend for a clip:
+
+- `POST /api/v1/interview/video` with `{ "text": "<the interviewer line>", "persona": { "id": "<persona_id>" } }`.
+  - **200** → `{ "video_url": "<absolute url>", "source": "prerendered" | "live" }`. Render the interviewer as a `<video autoplay playsinline>` pointed at `video_url` (it's a plain MP4 at `/api/v1/interview/clip/{persona_id}/{line_id}`, served publicly — no auth header needed on the `<video>` tag). When the clip ends, freeze on the persona photo.
+  - **501** (no video for this line) → fall back to the **persona photo + `POST /interview/tts`** audio exactly as today.
+- Don't block the session waiting on video: if the clip 404s or stalls, drop back to photo + TTS. The photo (`persona.avatar_url`) is always the safe baseline.
+
+### Persona ↔ clip
+Clips are keyed by `(persona_id, line_id)`; the backend matches the spoken text to the right fixed `line_id` automatically (exact, alias, or substring), so the client only needs to send the **text + persona id** — no line ids to track. A persona only has clips once they've been pre-rendered on the backend (see operator note), so always keep the photo+TTS fallback wired.
+
+### Operator note (not user-facing)
+Clips are generated server-side via HeyGen, so the HeyGen key never reaches the browser:
+- `GET /api/v1/interview/avatars/clips` → `{ total, built, remaining }` (how many persona × question clips exist).
+- `POST /api/v1/interview/avatars/build?limit=N` → renders up to N missing clips per call (call until `remaining` is 0); **501** if `HEYGEN_API_KEY` isn't set, **400** if `JOBSEARCH_HEYGEN_VOICE_ID` isn't set. This is an admin action, not a user button.
+
+### Scope
+Frontend swaps the still interviewer image for a `<video>` whenever `/video` returns a clip, with a hard fallback to the existing photo + TTS path. Null-safe; no new user controls; global P0 rules apply.
+
+Acceptance: during a mock interview, the common questions play as a short talking-head video of the chosen interviewer; job-specific questions still use photo + neural voice; if a clip is missing or fails, the session continues seamlessly on photo + TTS with no error shown.
