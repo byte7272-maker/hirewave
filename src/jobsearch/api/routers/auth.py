@@ -8,10 +8,11 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
 
-from jobsearch.api.deps import StateDep
+from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.firebase_auth import FirebaseAuthError
 from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.api.schemas import (
+    DeleteAccountRequest,
     FirebaseAuthRequest,
     LoginRequest,
     RefreshRequest,
@@ -140,6 +141,48 @@ def logout(body: RefreshRequest, state: StateDep) -> None:
         state.revoked_jti.add(payload["jti"])
     except TokenError:
         pass  # already invalid — nothing to revoke
+
+
+# Per-user repositories to wipe on account deletion (best-effort per repo).
+_USER_SCOPED_REPOS = (
+    "profiles", "resumes", "cover_letters", "applications", "notifications",
+    "mock_interviews", "saved_answers", "monitored_identifiers", "exposure_findings",
+    "experience_highlights", "persona_voices", "custom_voices", "onboarding",
+    "saved_searches_repo", "saved_jobs", "auto_apply_grants", "screener_answers",
+)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(body: DeleteAccountRequest, user: CurrentUser, state: StateDep) -> None:
+    """Permanently delete the signed-in account and its data. Password accounts must
+    confirm with their password. This is irreversible."""
+    full = state.users.get(user.id)
+    if full is not None and full.hashed_password and not verify_password(body.password, full.hashed_password):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "password confirmation required")
+    uid = user.id
+    for repo_name in _USER_SCOPED_REPOS:
+        repo = getattr(state, repo_name, None)
+        if repo is None:
+            continue
+        try:
+            for rec in list(repo.find(user_id=uid)):
+                repo.delete(rec.id)
+        except Exception:  # noqa: BLE001 - never let one repo block the wipe
+            pass
+    # The user's own sample/seeded postings (owner-scoped).
+    try:
+        for j in list(state.jobs.all()):
+            if getattr(j, "owner_id", "") == uid:
+                state.jobs.delete(j.id)
+    except Exception:  # noqa: BLE001
+        pass
+    # Connected provider tokens + browser sessions.
+    for prov in Provider:
+        try:
+            state.integration.revoke(uid, prov)
+        except Exception:  # noqa: BLE001
+            pass
+    state.users.delete(uid)
 
 
 # --- Sign in with Google (OIDC login) --------------------------------------

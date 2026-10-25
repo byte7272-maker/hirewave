@@ -51,6 +51,10 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str = ""  # confirm with the account password (required for password accounts)
+
+
 class FirebaseAuthRequest(BaseModel):
     # The Firebase ID token from the frontend after the user signs in with
     # Firebase Auth (email / Google / …). We verify it and issue our own session.

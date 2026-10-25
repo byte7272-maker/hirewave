@@ -67,3 +67,18 @@ def test_sample_jobs_are_scoped_to_their_owner():
     a_sample_ids = {m["job_id"] for m in client.get("/api/v1/jobs/matches", headers=ha).json()}
     b_sample_ids = {m["job_id"] for m in client.get("/api/v1/jobs/matches", headers=hb).json()}
     assert a_sample_ids.isdisjoint(b_sample_ids)
+
+
+def test_delete_account_wipes_user_and_data():
+    client = _client()
+    h = _reg(client, "del@x.com")
+    # seeded + a real upload
+    client.post("/api/v1/resumes/upload", headers=h,
+                files={"file": ("cv.md", b"# Real", "text/markdown")})
+    assert client.request("DELETE", "/api/v1/auth/me", headers=h, json={"password": "wrong"}).status_code == 403
+    assert client.request("DELETE", "/api/v1/auth/me", headers=h, json={"password": "supersecret"}).status_code == 204
+    # token no longer resolves to a user
+    assert client.get("/api/v1/resumes", headers=h).status_code == 401
+    # the email is free again
+    assert client.post("/api/v1/auth/register",
+                       json={"email": "del@x.com", "password": "supersecret", "full_name": "X"}).status_code == 201
