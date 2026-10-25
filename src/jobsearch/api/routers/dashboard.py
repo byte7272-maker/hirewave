@@ -12,7 +12,7 @@ from datetime import timedelta
 from fastapi import APIRouter
 
 from jobsearch.api.deps import CurrentUser, StateDep
-from jobsearch.api.routers.jobs import _visible
+from jobsearch.api.routers.jobs import _match_pool, _visible
 from jobsearch.models import UserProfile
 from jobsearch.models.common import utcnow
 
@@ -28,8 +28,9 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     profile = state.profiles.get(uid) or UserProfile(user_id=uid)
 
     # --- matches (ranked over the user's visible, verified jobs) -------------
-    # Seeded sample postings don't count toward dashboard progress.
-    visible = [j for j in state.jobs.all() if _visible(state, j) and not getattr(j, "is_sample", False)]
+    # Fresh accounts (only sample jobs) count 0 real matches; seeded samples never
+    # count toward dashboard progress.
+    visible = [j for j in _match_pool(state, uid) if _visible(state, j) and not getattr(j, "is_sample", False)]
     ranked = state.matching.rank(profile, visible, limit=100) if visible else []
     strong = [r for r in ranked if r.score >= _STRONG_MATCH]
     top = ranked[0] if ranked else None

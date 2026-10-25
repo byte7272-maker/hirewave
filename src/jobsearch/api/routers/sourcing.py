@@ -25,6 +25,16 @@ from jobsearch.models import SavedSearch, UserProfile
 router = APIRouter(prefix="/api/v1/job-search", tags=["job-search"])
 
 
+def _clear_user_samples(state, user_id: str) -> None:
+    """Drop the user's seeded sample postings once real jobs arrive. Best-effort."""
+    try:
+        from jobsearch.engines.demo_seed import clear_sample_jobs
+
+        clear_sample_jobs(state, user_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _record_search(state: StateDep, user_id: str, role: str, location: str, remote) -> None:
     """Remember the searched role on the user's profile (best-effort)."""
     profile = state.profiles.get(user_id) or UserProfile(user_id=user_id)
@@ -54,12 +64,7 @@ def run_search(body: JobSearchRunRequest, user: CurrentUser, state: StateDep) ->
     query = JobQuery(role=body.role, location=body.location, remote=body.remote)
     result = state.aggregator.search(query, sources_filter=set(body.sources) if body.sources else None)
     if result.ingested:  # real jobs arrived — clear the seeded sample matches
-        try:
-            from jobsearch.engines.demo_seed import clear_sample_jobs
-
-            clear_sample_jobs(state, user.id)
-        except Exception:  # noqa: BLE001
-            pass
+        _clear_user_samples(state, user.id)
     out = _out(result)
     # If the user enabled draft-prep, auto-prepare drafts for new strong matches.
     if result.ingested and state.assistant.has(user.id, "draft_prep"):
@@ -130,6 +135,8 @@ async def import_email(
         )
     alert = parse_job_alert(data)
     result = state.aggregator.ingest(alert.postings, sources={alert.source} if alert.source else None)
+    if result.ingested:
+        _clear_user_samples(state, user.id)
     return EmailImportOut(source=alert.source, parsed=len(alert.postings), result=_out(result))
 
 
@@ -169,6 +176,8 @@ def run_saved(search_id: str, user: CurrentUser, state: StateDep) -> Aggregation
     result = state.saved_search.run_now(search_id, user.id)
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "saved search not found")
+    if result.ingested:
+        _clear_user_samples(state, user.id)
     return _out(result)
 
 

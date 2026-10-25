@@ -73,6 +73,11 @@ def test_matches_endpoint_returns_reasons_and_breakdown():
         requirements=["Python", "FastAPI", "AWS", "Kubernetes"],
         salary_range=SalaryRange(minimum=160_000, maximum=210_000),
     ))
+    # Drop the seeded sample jobs so this user ranks against the real pool (as if
+    # they'd ingested their own jobs).
+    for j in list(state.jobs.all()):
+        if getattr(j, "is_sample", False):
+            state.jobs.delete(j.id)
     data = client.get("/api/v1/jobs/matches", headers=h).json()
     assert data, "should return at least one match"
     top = data[0]

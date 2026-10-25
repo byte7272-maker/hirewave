@@ -30,6 +30,22 @@ from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResu
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
+def _match_pool(state: StateDep, user_id: str) -> list[JobPosting]:
+    """The postings to rank into a user's matches. A fresh account that still has its
+    seeded sample jobs (i.e. hasn't ingested any real jobs of its own yet) sees ONLY
+    those samples — not the shared pool of everyone else's postings. Once it ingests
+    real jobs the samples are cleared and it sees the real pool (minus other users'
+    samples)."""
+    all_jobs = state.jobs.all()
+    own_samples = [
+        j for j in all_jobs
+        if getattr(j, "is_sample", False) and getattr(j, "owner_id", "") == user_id
+    ]
+    if own_samples:
+        return own_samples
+    return [j for j in all_jobs if not getattr(j, "is_sample", False)]
+
+
 def _clear_sample_jobs(state: StateDep, user_id: str) -> None:
     """Remove the user's seeded sample postings once real jobs arrive. Best-effort."""
     try:
@@ -119,11 +135,8 @@ def matches(
     selected = {c.strip() for c in categories.split(",") if c.strip()}
     if not selected:
         selected = set(profile.preferences.job_categories)
-    # Sample/demo postings only ever appear in their owner's matches.
-    visible = [
-        j for j in state.jobs.all()
-        if _visible(state, j) and (not getattr(j, "is_sample", False) or getattr(j, "owner_id", "") == user.id)
-    ]
+    # Fresh accounts see only their sample matches; others see the real pool.
+    visible = [j for j in _match_pool(state, user.id) if _visible(state, j)]
     # Lazily (re)classify jobs whose category predates the current classifier, so
     # the category focus works on the whole pool (self-heals on read, once).
     for j in visible:
@@ -188,10 +201,7 @@ _EXPORT_COLUMNS = [
 
 def _export_rows(state: StateDep, user_id: str, ids: Optional[set[str]]) -> list[dict]:
     profile = state.profiles.get(user_id) or UserProfile(user_id=user_id)
-    visible = [
-        j for j in state.jobs.all()
-        if _visible(state, j) and (not getattr(j, "is_sample", False) or getattr(j, "owner_id", "") == user_id)
-    ]
+    visible = [j for j in _match_pool(state, user_id) if _visible(state, j)]
     ranked = state.matching.rank(profile, visible, limit=len(visible) or 1)
     rows: list[dict] = []
     for r in ranked:

@@ -60,6 +60,8 @@ class InboxEngine:
         result = self.aggregator.ingest(
             alert.postings, sources={alert.source} if alert.source else None
         )
+        if result.ingested:  # real jobs arrived — clear this user's seeded samples
+            self._clear_sample_jobs(user_id)
         titles = ", ".join(p["title"] for p in alert.postings[:3])
         msg = InboxMessage(
             user_id=user_id,
@@ -79,6 +81,13 @@ class InboxEngine:
                 message=f"{visible} new role(s) from a forwarded {alert.source} alert",
             ))
         return msg, result
+
+    def _clear_sample_jobs(self, user_id: str) -> None:
+        """Drop the user's seeded sample postings once real jobs arrive (so a fresh
+        account's sample matches are replaced by the real ones)."""
+        for j in list(self.aggregator.jobs.all()):
+            if getattr(j, "is_sample", False) and getattr(j, "owner_id", "") == user_id:
+                self.aggregator.jobs.delete(j.id)
 
     def sync(self, user_id: str, raws: list[bytes | str]) -> tuple[list[InboxMessage], int]:
         """Receive a batch of raw emails (e.g. pulled from Gmail). Returns the
