@@ -2378,3 +2378,21 @@ For each step, in order:
 Frontend sequences the `/script` steps with a clip-or-TTS player and the existing answer flow; hard fallbacks so it runs with placeholders, uploaded clips, HeyGen clips, or nothing. Null-safe; global P0 rules apply.
 
 Acceptance: starting a mock interview with an interviewer plays the common questions one after another (clip or photo+TTS), pausing for the candidate's answer between questions; with placeholder mode on, every question has a playable clip; an uploaded or HeyGen clip replaces the placeholder for that question automatically; a missing or broken clip never stalls the session.
+
+---
+
+## P45 — Fix: dialogs render off-screen / un-interactable on the dashboard (portal modals to body)
+
+**Bug (reproduced live on `/dashboard/interview`):** clicking an interviewer's **Voice** / preview button opens the "Voice — {name}" dialog, but only a dimmed backdrop shows — the dialog panel renders ~800px *below* the viewport and can't be interacted with. This affects **any modal on the dashboard**, not just this one.
+
+**Root cause (confirmed by inspection):** the modal's overlay is `<div class="fixed inset-0 z-50 flex items-center justify-center">`, but it is **rendered inline inside the page tree**, not portaled to `<body>`. An ancestor on these pages has a CSS `transform` (the `animate-fade-in-up` / `animate-pop` entrance wrappers). A `transform` (also `filter`, `backdrop-filter`, `perspective`, `will-change`, `contain`) on an ancestor makes **that element the containing block for `position: fixed` descendants instead of the viewport**. So `fixed inset-0` stretched to the full-height page container (measured 896×1760 at top 231) and `items-center` centered the panel at ~y820 — off-screen — while the backdrop still covered the screen and swallowed clicks. Verified fix: re-parenting the same overlay to `document.body` made it 1024×768 at (0,0) and the panel centered in view.
+
+**The fix — render modals in a portal to `document.body`:**
+1. Every modal/dialog/overlay (the Voice/voice-preview dialog, upload-clip dialog, confirm dialogs, the version zoom/preview, any `fixed inset-0` overlay) must be rendered via a React portal to `document.body` (e.g. `ReactDOM.createPortal(<Overlay/>, document.body)`), so no transformed/animated ancestor can trap its `position: fixed`.
+2. Do **not** place a `position: fixed` overlay as a descendant of an `animate-fade-in-up`, `animate-pop`, or any element with `transform`/`filter`/`backdrop-filter`/`will-change`/`contain`. If a portal isn't used, the overlay must have **no** transformed/filtered ancestor between it and `<body>`.
+3. Standard overlay contract: overlay = `fixed inset-0 z-50 flex items-center justify-center p-4` with a backdrop; panel = `w-full max-w-md max-h-[90vh] overflow-y-auto`; a visible **Close (×)**, close on backdrop-click and on **Esc**; lock body scroll (`overflow:hidden`) while open and restore on close; `role="dialog"` + `aria-modal="true"` + focus trap.
+4. Keep the entrance animation on the **panel** (fine), but the fixed **overlay** itself must sit at the portal root, not inside a transformed box.
+
+**Scope:** frontend only; no backend change. Apply to all dashboard dialogs (audit every `fixed inset-0` overlay). Global P0 rules apply.
+
+Acceptance: on `/dashboard/interview`, clicking **Voice**/preview on any interviewer opens a dialog **centered in the viewport**, fully visible and interactive (dropdown, Preview, Save, Upload, Reset, Close) regardless of scroll position; Esc and backdrop-click close it; the page behind doesn't scroll while it's open; and the same holds for every other dashboard modal.
