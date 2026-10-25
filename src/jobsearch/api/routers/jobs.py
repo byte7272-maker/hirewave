@@ -419,6 +419,18 @@ def get_job(job_id: str, state: StateDep, _user: CurrentUser) -> JobPosting:
     return job
 
 
+@router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_job(job_id: str, state: StateDep, user: CurrentUser) -> None:
+    """Remove a posting from the user's matches. Only the owner can delete it; also
+    cleans up the verification cache and any bookmark of it."""
+    job = state.jobs.get(job_id)
+    if job is None or getattr(job, "owner_id", "") != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+    state.jobs.delete(job_id)
+    state.verifications.pop(job_id, None)
+    state.saved_jobs.delete(_saved_id(user.id, job_id))  # drop a bookmark if any
+
+
 @router.get("/{job_id}/verification", response_model=VerificationResult)
 def get_verification(job_id: str, state: StateDep, _user: CurrentUser) -> VerificationResult:
     job = state.jobs.get(job_id)

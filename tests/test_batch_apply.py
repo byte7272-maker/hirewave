@@ -110,3 +110,17 @@ def test_orphaned_application_recovers_identity_and_repoints():
     recovered = client.get(f"/api/v1/applications/{app_id}", headers=h).json()
     assert recovered["job"] is not None and recovered["job"]["company"] == "Acme Corp"
     assert recovered["job_posting_id"] == new_id  # re-pointed to the survivor
+
+
+def test_delete_job_is_owner_scoped():
+    client = _client()
+    ha = _auth(client)
+    client.post("/api/v1/auth/register", json={"email": "other@x.com", "password": "supersecret", "full_name": "O"})
+    ob = client.post("/api/v1/auth/login", json={"email": "other@x.com", "password": "supersecret"}).json()
+    hb = {"Authorization": f"Bearer {ob['access_token']}"}
+    jid = _job(client, ha, "Data Engineer", "Acme")
+    # a non-owner can't delete it
+    assert client.delete(f"/api/v1/jobs/{jid}", headers=hb).status_code == 404
+    # the owner can, and it leaves their matches
+    assert client.delete(f"/api/v1/jobs/{jid}", headers=ha).status_code == 204
+    assert not any(m["company"] == "Acme" for m in client.get("/api/v1/jobs/matches", headers=ha).json())
