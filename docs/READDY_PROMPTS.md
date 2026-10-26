@@ -2427,3 +2427,27 @@ Verified live: the stitched interview now works (submit advances, and a persona'
 **Fix:** in the interview session, render each step's **`caption`** from `GET /interview/script` as the on-screen question, not `text`. `caption` already equals `text` when there's no override, so this is safe for every step — just swap the field the question label binds to. (`has_custom_caption` is available if you ever want to style overridden ones differently; not required.)
 
 Acceptance: the question shown on screen matches what the clip actually says — Devon's project step reads "What's the most exciting thing you've been working on lately…" while every non-clip step is unchanged.
+
+---
+
+## P48 — Fix "Sign in with Google" (login succeeds, then bounces to the landing/generic page)
+
+**Bug:** signing in with Google authenticates successfully but the user lands back on the public landing page, not the dashboard — most visible on mobile. **Root cause (verified live):** it's a *server-side* Google OAuth flow. The backend finishes auth and redirects the browser to **`https://hlrtlg.readdy.co/auth/login`** with the session tokens in the URL **fragment**:
+
+```
+https://hlrtlg.readdy.co/auth/login#access_token=<JWT>&refresh_token=<JWT>&token_type=bearer
+```
+
+(On failure it's `…/auth/login#error=<reason>`.) **The `/auth/login` page never reads this fragment** — tested with a token in the hash: it was left in the URL, nothing was stored, and no redirect happened. So the user ends up unauthenticated and gets bounced to the public site. This is not mobile-specific in the code; it breaks wherever Google sign-in is used (desktop email/password still works, which is why it looks mobile-only).
+
+**Fix — consume the OAuth fragment on return.** On the auth-return page, on first mount (before any "not logged in → redirect" guard runs), parse `window.location.hash`:
+- If it contains `access_token`: store the session **exactly as the email-login flow does** — the app reads these localStorage keys:
+  - `localStorage.setItem('hw_access', <access_token>)`
+  - `localStorage.setItem('hw_refresh', <refresh_token>)`
+  then clear the fragment with `history.replaceState(null, '', location.pathname)` and redirect to **`/dashboard`** (or the saved `returnTo` if you keep one).
+- If it contains `error`: show that message on the login form (don't redirect to the landing page).
+- Run this synchronously on load so it works on the first paint on mobile (no race with an auth guard that would otherwise redirect first).
+
+**Recommended (more robust):** add a dedicated **`/auth/callback`** route whose only job is the parse-store-redirect above (no marketing content, no auth guard). Then the backend redirect target can point there. If you add it, tell me and I'll have the backend `JOBSEARCH_LOGIN_SUCCESS_REDIRECT` set to `https://hlrtlg.readdy.co/auth/callback`. (Until then, handling the fragment on `/auth/login` fixes it with no backend change.)
+
+Acceptance: "Continue with Google" on mobile and desktop lands the user on **`/dashboard`** signed in; the tokens are stored under `hw_access`/`hw_refresh`; the URL fragment is cleared; and an OAuth `#error=…` shows a message on the login page instead of bouncing to the landing page.
