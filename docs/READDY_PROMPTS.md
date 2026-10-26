@@ -2412,7 +2412,7 @@ Clicking **Submit answer** shows *"Could not send your answer"* and the intervie
 
 ### Fix — decouple advancement from the reply
 - **`/script` drives the questions and the order; the step index drives advancement.** On **submit**, call `/mock/{id}/reply` only to record the answer and get scoring/coaching (vocabulary, transcript). On a **2xx**, increment to the **next `/script` step** and render it (its `clip_url` as `<video>` or photo+`/tts`, showing `caption`). Do **not** try to parse the "next question" out of the reply response, and do **not** block advancing on TTS/video — advance first, then load media.
-- Show *"Could not send your answer"* **only** on an actual network error or a non-2xx from `/reply`.
+- Show *"Could not send your answer"* **only** on an actual network error or a non-2xx from `/reply` — **except** treat **409** as "session already complete," not an error: the mock engine caps its own question count, so once it's reached, later `/reply` calls return 409 while the `/script` still has steps left. On a 409 (or when the script steps are exhausted), finish the interview gracefully. `/script` is the source of truth for the question list; `/mock/reply` is best-effort scoring only.
 - Keep the greeting auto-advance (when a step's `expects_answer` is false).
 
 ### Verify (with this seeded case)
