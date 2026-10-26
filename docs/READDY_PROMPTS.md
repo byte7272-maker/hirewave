@@ -2417,3 +2417,13 @@ Clicking **Submit answer** shows *"Could not send your answer"* and the intervie
 
 ### Verify (with this seeded case)
 Start an interview with **Devon Clark** and answer through: greeting → *tell me about yourself* → *what are you looking for* → the question **`behavioral_project`**, which has a real uploaded clip **and** caption. At that step, `/video` returns 200 and the interviewer should play a **talking-head `<video>`** with the caption "What's the most exciting thing you've been working on lately…". Earlier steps have no clip and should show photo + Nova TTS. Submitting any answer must advance with no error.
+
+---
+
+## P47 — Interview: show the clip's caption, not the canonical question text
+
+Verified live: the stitched interview now works (submit advances, and a persona's clip plays as video). One gap remains — when a step has a **custom caption**, the UI still displays the canonical `text`. Example: Devon Clark's `behavioral_project` plays a video whose caption is *"What's the most exciting thing you've been working on lately, and what's the biggest challenge you've faced?"*, but the on-screen question still reads *"Tell me about a challenging project you worked on and how you approached it."*
+
+**Fix:** in the interview session, render each step's **`caption`** from `GET /interview/script` as the on-screen question, not `text`. `caption` already equals `text` when there's no override, so this is safe for every step — just swap the field the question label binds to. (`has_custom_caption` is available if you ever want to style overridden ones differently; not required.)
+
+Acceptance: the question shown on screen matches what the clip actually says — Devon's project step reads "What's the most exciting thing you've been working on lately…" while every non-clip step is unchanged.
