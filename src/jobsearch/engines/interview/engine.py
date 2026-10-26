@@ -100,6 +100,46 @@ _BEHAVIORAL = [
 ]
 
 
+def role_context(job: Optional[JobPosting]) -> str:
+    """A concise target-role brief for prompts — title, company, seniority, top
+    requirements, and a trimmed description — so questions and answers tailor to the
+    actual role, not just its title. "" when there is no target job."""
+    if job is None:
+        return ""
+    bits: list[str] = []
+    if job.title:
+        bits.append(f"Title: {job.title}")
+    if job.company:
+        bits.append(f"Company: {job.company}")
+    if getattr(job, "seniority", ""):
+        bits.append(f"Seniority: {job.seniority}")
+    reqs = [r.strip() for r in (job.requirements or []) if r and r.strip()][:8]
+    if reqs:
+        bits.append("Key requirements:\n- " + "\n- ".join(reqs))
+    desc = (job.description or "").strip()
+    if desc:
+        bits.append("Role description:\n" + desc[:700])
+    return "\n".join(bits)
+
+
+def role_questions(job: Optional[JobPosting], limit: int = 2) -> list[str]:
+    """Deterministic role-specific interview questions derived from the target job,
+    so the displayed interview includes questions tailored to the role (not just the
+    generic common ones). Empty when there is no target job."""
+    if job is None or limit <= 0:
+        return []
+    title = (job.title or "this role").strip()
+    reqs = [r.strip().rstrip(".") for r in (job.requirements or []) if r and r.strip()]
+    qs: list[str] = []
+    if reqs:
+        qs.append(f"This role calls for {reqs[0]}. Tell me about a time you put that to work.")
+    if len(reqs) > 1:
+        qs.append(f"What makes you a strong fit for {title} — especially around {reqs[1]}?")
+    else:
+        qs.append(f"What makes you a strong fit for the {title} role specifically?")
+    return qs[:limit]
+
+
 class InterviewEngine:
     def __init__(self, llm: Optional[LLMProvider] = None) -> None:
         self.llm = llm or build_llm()
@@ -196,18 +236,20 @@ class InterviewEngine:
             if pts else ""
         )
         top_skills = ", ".join(profile.skills[:6])
+        role = role_context(job)
         prompt = (
-            f"Role: {job.title if job and job.title else 'the target role'}\n"
-            f"Company: {job.company if job and job.company else 'the company'}\n"
-            f"Candidate: {profile.headline or 'the candidate'}\n"
+            (f"TARGET ROLE (keep the answer tailored to this role):\n{role}\n\n"
+             if role else "")
+            + f"Candidate: {profile.headline or 'the candidate'}\n"
             f"Top skills: {top_skills}\n"
             f"Question ({q.category.value}): {q.question}\n\n"
             f"Candidate résumé / profile:\n{context[:4000]}\n\n"
             f"Current draft answer:\n{(current_answer or '').strip()[:2000]}\n\n"
             f"Refinement instruction: {instruction.strip()}{pts_block}\n\n"
             "Rewrite the answer to satisfy the instruction and emphasize those points, "
-            "staying grounded ONLY in the résumé/profile above — never invent employers, "
-            "titles, metrics, or experience. Keep it natural and spoken. Write the answer only."
+            "keeping it relevant to the target role, and staying grounded ONLY in the "
+            "résumé/profile above — never invent employers, titles, metrics, or "
+            "experience. Keep it natural and spoken. Write the answer only."
         )
         q.suggested_answer = self.llm.complete(
             prompt, system=_COACH_SYSTEM, max_tokens=500
@@ -298,13 +340,18 @@ class InterviewEngine:
         context: str,
     ) -> str:
         top_skills = ", ".join(profile.skills[:6])
+        role = role_context(job)
         prompt = (
-            f"Role: {job.title if job and job.title else 'the target role'}\n"
-            f"Company: {job.company if job and job.company else 'the company'}\n"
-            f"Candidate: {profile.headline or 'the candidate'}\n"
+            (f"TARGET ROLE (tailor the answer to what this role needs):\n{role}\n\n"
+             if role else "")
+            + f"Candidate: {profile.headline or 'the candidate'}\n"
             f"Top skills: {top_skills}\n"
             f"Question ({q.category.value}): {q.question}\n\n"
             f"Candidate résumé / profile:\n{context[:4000]}\n\n"
-            "Write the suggested answer only."
+            + ("Tailor the answer to this role: surface the candidate's real résumé "
+               "experience most relevant to the role's requirements above, and mirror "
+               "the role's language where it is honest to do so. Never claim skills or "
+               "experience that aren't in the résumé.\n" if role else "")
+            + "Write the suggested answer only."
         )
         return self.llm.complete(prompt, system=_COACH_SYSTEM, max_tokens=300).strip()

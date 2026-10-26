@@ -209,15 +209,50 @@ def test_mock_script_sequences_fixed_questions():
     r = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h)
     assert r.status_code == 200
     body = r.json()
-    ids = [s["line_id"] for s in body["steps"]]
-    assert ids == ["greeting", "intro", "motivation", "behavioral_project",
-                   "behavioral_conflict", "behavioral_failure", "closing"]
+    # the common (non-role-specific) questions, in order
+    fixed = [s for s in body["steps"] if not s["role_specific"]]
+    assert [s["line_id"] for s in fixed] == [
+        "greeting", "intro", "motivation", "behavioral_project",
+        "behavioral_conflict", "behavioral_failure", "closing",
+    ]
     # greeting is spoken, not answered; the rest expect answers
-    assert body["steps"][0]["expects_answer"] is False
-    assert all(s["expects_answer"] for s in body["steps"][1:])
+    assert fixed[0]["expects_answer"] is False
+    assert all(s["expects_answer"] for s in fixed[1:])
+    # a seeded account has a sample target role -> tailored, with role questions appended
+    assert body["tailored_to"] is not None
+    role_steps = [s for s in body["steps"] if s["role_specific"]]
+    assert role_steps and all(
+        s["expects_answer"] and s["line_id"].startswith("role_") for s in role_steps
+    )
     # no clips and no placeholder yet -> client falls back to photo + TTS
     assert all(s["clip_url"] is None and s["has_clip"] is False for s in body["steps"])
     assert body["persona"]["id"] == pid
+
+
+def test_script_tailors_to_target_role():
+    from jobsearch.models import JobPosting
+    state, client = _app()
+    h = _auth(client)
+    pid = state.persona_library.all()[0].id
+    # a fresh account with NO jobs -> no tailoring, just the common questions
+    for j in list(state.jobs.all()):
+        state.jobs.delete(j.id)
+    body = client.get(f"/api/v1/interview/script?persona_id={pid}", headers=h).json()
+    assert body["tailored_to"] is None
+    assert all(not s["role_specific"] for s in body["steps"])
+
+    # add a real owned job and point the script at it -> role-specific questions appear
+    uid = state.user_by_email("c@d.com").id
+    job = JobPosting(title="Staff ML Engineer", company="Acme",
+                     requirements=["LLM evaluation", "distributed training"],
+                     owner_id=uid)
+    state.jobs.add(job)
+    body = client.get(
+        f"/api/v1/interview/script?persona_id={pid}&job_posting_id={job.id}", headers=h
+    ).json()
+    assert body["tailored_to"]["title"] == "Staff ML Engineer"
+    role_qs = [s["text"] for s in body["steps"] if s["role_specific"]]
+    assert role_qs and any("LLM evaluation" in q for q in role_qs)
 
 
 def test_placeholder_mode_fills_every_step():

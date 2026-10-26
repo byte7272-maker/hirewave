@@ -22,7 +22,7 @@ from jobsearch.api.schemas import (
     VocabularyRequest,
 )
 from jobsearch.engines.interview import suggested_answer_seconds
-from jobsearch.engines.interview.engine import infer_category
+from jobsearch.engines.interview.engine import infer_category, role_questions
 from jobsearch.engines.interview.scripts import (
     known_line_ids,
     line_id_for_text,
@@ -109,11 +109,12 @@ def generate_prep(
         if resume is None or resume.user_id != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "resume not found")
 
-    job = None
     if body.job_posting_id:
         job = state.jobs.get(body.job_posting_id)
         if job is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    else:  # tailor the prep to the user's target role by default
+        job = _resolve_target_job(state, user)
 
     experience_context = state.experience.context_text(user.id)
     return state.interview.generate(
@@ -126,6 +127,24 @@ def generate_prep(
 
 
 # --- mock interview trainer -------------------------------------------------
+def _resolve_target_job(state, user, explicit_id: str = ""):
+    """The role the interview should tailor to. An explicit ``job_posting_id`` wins;
+    otherwise default to the user's strongest target in their own pool (best match
+    score, else most recently added) so questions and answers tailor to a real role
+    even when the client doesn't pass one. Returns None only when the user has no
+    jobs. Callers validate an explicit id separately (404)."""
+    if explicit_id:
+        return state.jobs.get(explicit_id)
+    pool = [j for j in state.jobs.all() if getattr(j, "owner_id", "") == user.id]
+    real = [j for j in pool if not getattr(j, "is_sample", False)] or pool
+    if not real:
+        return None
+    scored = [j for j in real if j.match_score is not None]
+    if scored:
+        return max(scored, key=lambda j: j.match_score)
+    return real[-1]  # repos append, so the last is the most-recently added
+
+
 def _resolve(body, user, state):
     profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
     resume = state.resumes.get(body.resume_id) if body.resume_id else None
@@ -134,9 +153,12 @@ def _resolve(body, user, state):
     if resume is None:  # default to the user's most-recent résumé so questions tailor
         mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
         resume = mine[-1] if mine else None
-    job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
-    if body.job_posting_id and job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    if body.job_posting_id:
+        job = state.jobs.get(body.job_posting_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    else:  # tailor to the user's target role by default
+        job = _resolve_target_job(state, user)
     return profile, resume, job
 
 
@@ -261,9 +283,12 @@ def suggest_answer(
         # generic placeholder when the caller doesn't pass a specific resume_id.
         mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
         resume = mine[-1] if mine else None
-    job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
-    if body.job_posting_id and job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    if body.job_posting_id:
+        job = state.jobs.get(body.job_posting_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    else:  # tailor to the user's target role by default
+        job = _resolve_target_job(state, user)
     coached = state.interview.coach(
         question, profile, resume=resume, job=job,
         experience_context=state.experience.context_text(user.id),
@@ -295,9 +320,12 @@ def refine_answer(
     if resume is None:  # default to the user's most-recent résumé so it stays grounded
         mine = [r for r in state.resumes.find(user_id=user.id) if not getattr(r, "archived", False)]
         resume = mine[-1] if mine else None
-    job = state.jobs.get(body.job_posting_id) if body.job_posting_id else None
-    if body.job_posting_id and job is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    if body.job_posting_id:
+        job = state.jobs.get(body.job_posting_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    else:  # tailor to the user's target role by default
+        job = _resolve_target_job(state, user)
     coached = state.interview.refine(
         question, body.answer, instruction, profile=profile, resume=resume, job=job,
         experience_context=state.experience.context_text(user.id), points=body.points,
@@ -627,12 +655,26 @@ def set_avatar_placeholder(user: CurrentUser, state: StateDep, on: bool = True) 
 
 
 @router.get("/script")
-def mock_interview_script(user: CurrentUser, state: StateDep, persona_id: str) -> dict:
+def mock_interview_script(
+    user: CurrentUser, state: StateDep, persona_id: str, job_posting_id: str = ""
+) -> dict:
     """The ordered, stitched interview for a persona: each step carries the question
     text, whether it expects an answer, and the clip to play (a real clip, the
     placeholder when enabled, else null → the client speaks it with photo + TTS).
-    The client plays the steps back-to-back, pausing for the candidate's answer."""
+    The client plays the steps back-to-back, pausing for the candidate's answer.
+
+    Tailored to a target role: an explicit ``job_posting_id`` wins, else the user's
+    strongest target in their pool. When a role resolves, role-specific questions
+    (derived from the role's requirements) are appended after the common ones, and
+    the role is returned so the UI can show what the interview is tailored to."""
     persona = _persona_or_404(state, persona_id)
+    if job_posting_id:
+        job = state.jobs.get(job_posting_id)
+        if job is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "job posting not found")
+    else:
+        job = _resolve_target_job(state, user)
+
     steps = []
     for step in mock_script():
         line_id = step["line_id"]
@@ -651,6 +693,25 @@ def mock_interview_script(user: CurrentUser, state: StateDep, persona_id: str) -
             "expects_answer": step["expects_answer"],
             "clip_url": clip,
             "has_clip": clip is not None,
+            "role_specific": False,
+        })
+    # Role-tailored questions (no pre-rendered clip of their own → photo + TTS, or
+    # the placeholder when placeholder mode is on), appended after the common ones.
+    for i, text in enumerate(role_questions(job), start=1):
+        rid = f"role_{i}"
+        clip = resolve_clip_url(
+            state.documents, persona_id, rid,
+            clip_url_fn=_clip_url, placeholder_url=_placeholder_url(),
+        )
+        steps.append({
+            "line_id": rid,
+            "text": text,
+            "caption": text,
+            "has_custom_caption": False,
+            "expects_answer": True,
+            "clip_url": clip,
+            "has_clip": clip is not None,
+            "role_specific": True,
         })
     return {
         "persona": {
@@ -660,6 +721,9 @@ def mock_interview_script(user: CurrentUser, state: StateDep, persona_id: str) -
             "avatar_url": persona.avatar_url,
         },
         "tts_available": state.speech.enabled,
+        "tailored_to": (
+            {"id": job.id, "title": job.title, "company": job.company} if job else None
+        ),
         "steps": steps,
     }
 

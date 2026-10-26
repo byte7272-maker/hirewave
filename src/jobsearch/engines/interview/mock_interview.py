@@ -333,7 +333,9 @@ class MockInterviewTrainer:
             )
         prompt = (
             f"Role being interviewed for: {job.title if job and job.title else 'the role'}\n"
-            f"Candidate's last answer: {last_answer or '(none yet)'}\n"
+            + (f"Key role requirements: {', '.join(job.requirements[:5])}\n"
+               if job and job.requirements else "")
+            + f"Candidate's last answer: {last_answer or '(none yet)'}\n"
             f"Next question to ask: {question or '(none — closing)'}\n\n"
             "Write your interviewer turn."
         )

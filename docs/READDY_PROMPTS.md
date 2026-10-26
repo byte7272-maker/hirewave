@@ -2451,3 +2451,25 @@ https://hlrtlg.readdy.co/auth/login#access_token=<JWT>&refresh_token=<JWT>&token
 **Recommended (more robust):** add a dedicated **`/auth/callback`** route whose only job is the parse-store-redirect above (no marketing content, no auth guard). Then the backend redirect target can point there. If you add it, tell me and I'll have the backend `JOBSEARCH_LOGIN_SUCCESS_REDIRECT` set to `https://hlrtlg.readdy.co/auth/callback`. (Until then, handling the fragment on `/auth/login` fixes it with no backend change.)
 
 Acceptance: "Continue with Google" on mobile and desktop lands the user on **`/dashboard`** signed in; the tokens are stored under `hw_access`/`hw_refresh`; the URL fragment is cleared; and an OAuth `#error=…` shows a message on the login page instead of bouncing to the landing page.
+
+---
+
+## P49 — Tailor the interview to a specific role (questions + answers)
+
+The interview now tailors to a **target role**: the questions and the AI suggested answers are grounded in the role's requirements, not just generic. Backend is LIVE and already defaults sensibly — this prompt surfaces and controls it in the UI.
+
+### What the backend now does
+- **Suggested answers** (`/interview/suggest-answer`, `/refine-answer`), **prep** (`/interview/prep`), and the **mock interview** (`/interview/mock/start`) all tailor to a target role. Pass `job_posting_id` to target a specific role; omit it and the backend defaults to the user's **strongest target** (best-match job in their pool). Answers emphasize the résumé experience most relevant to the role's requirements (never inventing anything).
+- **`GET /interview/script?persona_id=…`** now also accepts **`&job_posting_id=…`** and returns:
+  - `tailored_to`: `{ id, title, company }` of the role the interview is tailored to (or `null` when the user has no jobs).
+  - extra **role-specific steps** appended after the common questions, each flagged `role_specific: true` (e.g. "This role calls for <requirement>. Tell me about a time you put that to work."). They have no pre-rendered clip, so they play as photo + TTS like any other non-clip step.
+
+### UI
+1. **Show what it's tailored to.** On the interview screen, when `script.tailored_to` is set, show a small line such as **"Tailored for {title} at {company}"** near the interviewer. When it's `null`, show nothing special (generic interview).
+2. **Let the user choose the role.** Add a lightweight role picker (dropdown of the user's matches/applications) on the start screen. When a role is chosen, pass its id as `job_posting_id` to **`/interview/script`** and **`/interview/mock/start`** (and optionally to `/suggest-answer` / `/refine-answer`) so both questions and answers tailor to that exact role. Default selection = the backend default (just omit the param).
+3. **Render role-specific steps** exactly like the others — they already arrive in `script.steps` in order with `role_specific: true`; no special handling needed beyond an optional subtle "role-specific" tag.
+
+### Scope
+Frontend selects/passes `job_posting_id` and displays `tailored_to`; everything else is backend. Null-safe (no jobs → generic interview, `tailored_to: null`). Global P0 rules apply.
+
+Acceptance: picking a role (or relying on the default) makes the interview show "Tailored for {role}", appends role-specific questions after the common ones, and the AI suggested answers reference that role's requirements while staying grounded in the résumé.
