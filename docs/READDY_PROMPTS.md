@@ -2401,21 +2401,19 @@ Acceptance: on `/dashboard/interview`, clicking **Voice**/preview on any intervi
 
 ---
 
-## P46 — Live bug report: interview is broken on `/dashboard/interview` (submit fails, no video, dialog off-screen)
+## P46 — Blocking bug: can't submit an answer in the mock interview (`/dashboard/interview`)
 
-Tested on the **published** site logged in as a real user. Three issues — all frontend; the backend is verified healthy (the endpoints below return correct data). P43, P44, and P45 did **not** take effect in the current build; please apply all three, and fix the submit regression.
+Re-tested on the **published** site logged in as a real user, after P44/P45 were published. **P45 (dialog) and P44 (video flow) are now confirmed working** — the Voice dialog opens centered, and the session calls `GET /interview/script` + `POST /interview/video` (the greeting correctly falls back to photo+TTS when `/video` returns 501). **One blocking bug remains and stops the whole interview**, so the video question is never reached.
 
-### 1. Blocking: answers can't be submitted
-In a mock interview, clicking **Submit answer** shows *"Could not send your answer"* and the interview **stays on the same question**. But the backend call `POST /api/v1/interview/mock/{session_id}/reply` actually returns **HTTP 200** with the updated session object (including the next question). The frontend is treating this success as a failure.
-- **Fix:** on a 200 from `/mock/{id}/reply`, read the response and advance to the next question; only show "Could not send your answer" on an actual network error / non-2xx. Do **not** block advancing on any secondary call (TTS/video) — advance first, then load media.
+### The bug — submitting an answer errors and never advances
+Clicking **Submit answer** shows *"Could not send your answer"* and the interview **stays on the same question**, even though `POST /api/v1/interview/mock/{session_id}/reply` returns **HTTP 200** (verified: request `{"answer":"…","response_seconds":N}` → 200 with a valid `MockInterviewSession`: `status:"active"`, `turns`, `plan`, `asked`, …).
 
-### 2. Interviewer never shows video (P43/P44 not wired)
-The interview session has **no `<video>` element** and never calls `GET /api/v1/interview/script` or `GET /api/v1/interview/video`. It's still the photo + TTS `/mock/reply` flow only.
-- **Fix (P44):** drive the session from `GET /api/v1/interview/script?persona_id=…`; for each step, if `clip_url` is set play it as a `<video autoplay playsinline>` (plain MP4, no auth header), else show `persona.avatar_url` + `POST /interview/tts`. Display `caption` (not `text`). Advance on the answer (or auto-advance when `expects_answer` is false). Concrete test case already seeded: **Devon Clark → `behavioral_project`** has a real uploaded clip **and** a custom caption, so that question should play a talking-head video with the caption "What's the most exciting thing you've been working on lately…".
+**Root cause:** the questions are displayed from `GET /interview/script` (the fixed 7-step script), but answers are submitted to `POST /mock/{id}/reply` (the separate mock engine). The two aren't reconciled, so after a successful reply the frontend can't figure out the "next question" and throws the error instead of advancing.
 
-### 3. Voice/preview dialog renders off-screen (P45 not applied)
-Measured on the live page: the dialog overlay (`div.fixed.inset-0…items-center justify-center`) is **not portaled** — it's 11 levels deep in the page, and an ancestor (`animate-fade-in-up`) has a `transform`, which becomes the containing block for the `position: fixed` overlay. The overlay is therefore sized **1097×1623** (the page container) instead of the **1225×815** viewport, so the panel centers off the bottom and its controls are below the fold.
-- **Fix (P45):** render every modal via a portal to `document.body` so no transformed ancestor traps `position: fixed`. See P45 for the full overlay contract.
+### Fix — decouple advancement from the reply
+- **`/script` drives the questions and the order; the step index drives advancement.** On **submit**, call `/mock/{id}/reply` only to record the answer and get scoring/coaching (vocabulary, transcript). On a **2xx**, increment to the **next `/script` step** and render it (its `clip_url` as `<video>` or photo+`/tts`, showing `caption`). Do **not** try to parse the "next question" out of the reply response, and do **not** block advancing on TTS/video — advance first, then load media.
+- Show *"Could not send your answer"* **only** on an actual network error or a non-2xx from `/reply`.
+- Keep the greeting auto-advance (when a step's `expects_answer` is false).
 
-### Acceptance
-Submitting an answer advances to the next question with no error; a persona with an uploaded/rendered clip plays it as a `<video>` with its caption while others fall back to photo+TTS; the Voice dialog opens centered in the viewport and fully interactive.
+### Verify (with this seeded case)
+Start an interview with **Devon Clark** and answer through: greeting → *tell me about yourself* → *what are you looking for* → the question **`behavioral_project`**, which has a real uploaded clip **and** caption. At that step, `/video` returns 200 and the interviewer should play a **talking-head `<video>`** with the caption "What's the most exciting thing you've been working on lately…". Earlier steps have no clip and should show photo + Nova TTS. Submitting any answer must advance with no error.
