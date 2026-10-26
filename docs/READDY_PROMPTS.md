@@ -2398,3 +2398,24 @@ Acceptance: starting a mock interview with an interviewer plays the common quest
 **Scope:** frontend only; no backend change. Apply to all dashboard dialogs (audit every `fixed inset-0` overlay). Global P0 rules apply.
 
 Acceptance: on `/dashboard/interview`, clicking **Voice**/preview on any interviewer opens a dialog **centered in the viewport**, fully visible and interactive (dropdown, Preview, Save, Upload, Reset, Close) regardless of scroll position; Esc and backdrop-click close it; the page behind doesn't scroll while it's open; and the same holds for every other dashboard modal.
+
+---
+
+## P46 — Live bug report: interview is broken on `/dashboard/interview` (submit fails, no video, dialog off-screen)
+
+Tested on the **published** site logged in as a real user. Three issues — all frontend; the backend is verified healthy (the endpoints below return correct data). P43, P44, and P45 did **not** take effect in the current build; please apply all three, and fix the submit regression.
+
+### 1. Blocking: answers can't be submitted
+In a mock interview, clicking **Submit answer** shows *"Could not send your answer"* and the interview **stays on the same question**. But the backend call `POST /api/v1/interview/mock/{session_id}/reply` actually returns **HTTP 200** with the updated session object (including the next question). The frontend is treating this success as a failure.
+- **Fix:** on a 200 from `/mock/{id}/reply`, read the response and advance to the next question; only show "Could not send your answer" on an actual network error / non-2xx. Do **not** block advancing on any secondary call (TTS/video) — advance first, then load media.
+
+### 2. Interviewer never shows video (P43/P44 not wired)
+The interview session has **no `<video>` element** and never calls `GET /api/v1/interview/script` or `GET /api/v1/interview/video`. It's still the photo + TTS `/mock/reply` flow only.
+- **Fix (P44):** drive the session from `GET /api/v1/interview/script?persona_id=…`; for each step, if `clip_url` is set play it as a `<video autoplay playsinline>` (plain MP4, no auth header), else show `persona.avatar_url` + `POST /interview/tts`. Display `caption` (not `text`). Advance on the answer (or auto-advance when `expects_answer` is false). Concrete test case already seeded: **Devon Clark → `behavioral_project`** has a real uploaded clip **and** a custom caption, so that question should play a talking-head video with the caption "What's the most exciting thing you've been working on lately…".
+
+### 3. Voice/preview dialog renders off-screen (P45 not applied)
+Measured on the live page: the dialog overlay (`div.fixed.inset-0…items-center justify-center`) is **not portaled** — it's 11 levels deep in the page, and an ancestor (`animate-fade-in-up`) has a `transform`, which becomes the containing block for the `position: fixed` overlay. The overlay is therefore sized **1097×1623** (the page container) instead of the **1225×815** viewport, so the panel centers off the bottom and its controls are below the fold.
+- **Fix (P45):** render every modal via a portal to `document.body` so no transformed ancestor traps `position: fixed`. See P45 for the full overlay contract.
+
+### Acceptance
+Submitting an answer advances to the next question with no error; a persona with an uploaded/rendered clip plays it as a `<video>` with its caption while others fall back to photo+TTS; the Voice dialog opens centered in the viewport and fully interactive.
