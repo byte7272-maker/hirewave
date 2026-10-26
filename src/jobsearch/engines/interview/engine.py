@@ -75,7 +75,13 @@ _COACH_SYSTEM = (
     "candidate's résumé/profile — never invent employers, job titles, metrics, "
     "dates, or skills the candidate does not have. For behavioral questions use the "
     "STAR structure (Situation, Task, Action, Result). If the résumé lacks a "
-    "relevant example, say so briefly and suggest what kind of example to prepare."
+    "relevant example, say so briefly and suggest what kind of example to prepare. "
+    "Vary your opening: do NOT begin by restating the candidate's current title and "
+    "employer (avoid formulaic 'In my role as X at Y…' / 'As a …, I…' starts). Open "
+    "each answer differently — lead with the specific situation, a concrete result, a "
+    "relevant skill, or the motivation the question is really asking about — and draw "
+    "on a different experience or project rather than reusing the same example every "
+    "time."
 )
 
 _BEHAVIORAL = [
