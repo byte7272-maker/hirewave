@@ -2364,10 +2364,11 @@ Turn the interviewer into a continuous experience: the chosen interviewer **play
 
 ### Playback loop (client)
 For each step, in order:
-1. **Show the interviewer.** If `clip_url` is set, play it as a `<video autoplay playsinline>` (it's a plain MP4; no auth header needed on the tag). If `clip_url` is `null`, show `persona.avatar_url` and speak `text` via `POST /interview/tts` (fall back to the browser voice if `tts_available` is false).
+1. **Show the interviewer** in a prominent frame positioned next to the answer recorder (see P52 for placement). If `clip_url` is set, play it as a `<video autoplay playsinline>` (it's a plain MP4; no auth header needed on the tag). If `clip_url` is `null`, show `persona.avatar_url` and speak `text` via `POST /interview/tts` (fall back to the browser voice if `tts_available` is false).
 2. **When the clip/audio ends**, if `expects_answer` is true, open the answer input (the P41 single answer flow) and wait for the candidate; "Suggest an answer" / Refine stay available. If `expects_answer` is false (the greeting), auto-advance.
 3. **After the answer is submitted**, advance to the next step. At the end, show the summary/coach.
-- Be robust: if a `<video>` errors or is a near-zero-length placeholder, don't stall — advance on `ended`/`error` or a short timeout, and never block the interview on a missing clip.
+- **Don't snap the clip away.** When a `<video>` clip ends, **hold its last frame** (or fade back to the persona photo) and show a small **"▶ Replay"** control on the frame, so a short (~5s) clip isn't gone before the candidate notices it. Replay re-plays the same `clip_url`.
+- Be robust: if a `<video>` errors or is a near-zero-length placeholder, don't stall the *interview* — the answer flow still opens on `ended`/`error` or a short timeout, and never block on a missing clip (but still hold the frame / show Replay where a real clip existed).
 
 ### Operator note (not user-facing)
 - `POST /api/v1/interview/avatars/placeholder?on=true|false` — toggle the bundled placeholder so every question has a playable clip while you build/test; real clips always take precedence. (`?on=false` to turn off once real clips are in.)
