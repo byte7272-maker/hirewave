@@ -2529,3 +2529,21 @@ Right now only **Devon Clark** has a real clip (placeholder mode is off), so onl
 Temporary frontend affordance over the live `/script` + `/clip` endpoints. Null-safe; global P0 rules apply. Easy to remove once the in-session video is prominent enough.
 
 Acceptance: from `/dashboard/interview`, clicking **"Preview video"** on Devon Clark plays her talking-head clip (with audio) immediately, without starting a full interview; interviewers without a clip clearly say so.
+
+---
+
+## P52 — Put the interviewer's face/video where the user is actually looking (by the recorder)
+
+The talking-head video is easy to miss because of **layout**, not wiring: the interviewer avatar is a small thumbnail in the **top header**, while the user's attention is on the **answer recorder lower down**. When a clip plays up top, nobody's looking there. Move the interviewer's face/video down next to the question + answer flow so it's front-and-center. Frontend-only.
+
+### What to change
+1. **Relocate the interviewer avatar/video into the main question→answer column**, directly above the question text and the recorder/answer input — the spot the user naturally watches while listening and preparing to answer. Remove (or shrink to a tiny label) the avatar in the top header; keep the name / role / difficulty / "Tailored for {role}" as a compact caption under the face.
+2. **Make it prominent.** Render the avatar/video as a sizable panel (roughly 220–320px wide, 16:9 or portrait as the clip dictates), not a 150px thumbnail, so when the clip plays the talking head is obvious.
+3. **Same element plays photo and video.** When the current step has a `clip_url`, play it there as `<video autoplay playsinline>` (with sound); when it doesn't, show `persona.avatar_url` and speak via TTS — all in the *same* prominent frame. Show a clear **"Speaking…"** state on it.
+4. **Don't snap away.** When a clip ends, **hold the last frame** (or return to the photo with a subtle fade) and show a small **"▶ Replay"** control on the frame, so a short clip isn't gone before the user notices it.
+5. Keep the recorder/answer controls directly **below** this frame so face → question → answer read top-to-bottom in one focused column.
+
+### Scope
+Frontend layout/placement only, over the existing `/script` + `/video` data (each step already carries `clip_url` / `caption`). Null-safe; works with photo+TTS, uploaded clips, placeholder mode, or nothing. Global P0 rules apply.
+
+Acceptance: during an interview the interviewer's face sits right by the answer recorder (one focused column, face → question → answer); when a question has a clip it plays there prominently with sound and a Replay control; the user doesn't have to look to the top of the page to notice the video.
