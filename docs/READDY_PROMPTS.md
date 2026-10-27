@@ -2473,3 +2473,31 @@ The interview now tailors to a **target role**: the questions and the AI suggest
 Frontend selects/passes `job_posting_id` and displays `tailored_to`; everything else is backend. Null-safe (no jobs → generic interview, `tailored_to: null`). Global P0 rules apply.
 
 Acceptance: picking a role (or relying on the default) makes the interview show "Tailored for {role}", appends role-specific questions after the common ones, and the AI suggested answers reference that role's requirements while staying grounded in the résumé.
+
+---
+
+## P50 — Interview controls: make mode/difficulty, transcription, and answer timing clear
+
+Reproduced live on the Devon Clark session. The interview controls work but are hard to find and inconsistent. All frontend; no backend change.
+
+### 1. "Easy" looks like a control but isn't; mode toggles are hidden
+The green **"Easy"** pill (difficulty) sits next to real buttons but does nothing when clicked — users tap it expecting to switch mode/difficulty. Meanwhile **Practice mode** / **Hands-free** / **Interviewer voice** live behind an unlabeled **⋮** three-dot icon ("Session options"), which users don't discover — so "switching to practice mode doesn't work" (they never find the toggle). Practice mode actually works and changes the whole panel once toggled.
+- **Fix:** surface the session controls as a visible, labeled row/segmented control (e.g. a **"Mode: Interview | Practice"** switch and a clearly-labeled **Options** button), not a bare ⋮. Give the "Easy" chip a clear treatment: either make it a real **Difficulty** selector (relabel to "Difficulty: Easy" and let the user change it — restart/apply as needed), or render it as plainly non-interactive text so it doesn't look tappable.
+
+### 2. Show Practice mode is ON persistently
+When Practice mode is on, show an unmistakable persistent indicator near the interviewer (e.g. a **"Practice mode"** badge), not only the changed panel. The current ⋮ menu state (On/Off) is hidden once the menu closes.
+
+### 3. One clear, consistently-named transcription control
+Speech-to-text is exposed under three different names depending on mode: **"Record"** (interview mode), **"Start listening"** (practice mode), and **"Hands-free answering" / "Mic auto-start"** (auto). Users can't tell which one transcribes their spoken answer into the box.
+- **Fix:** use **one consistent label everywhere** for voice input, e.g. a mic button labeled **"Speak answer"** (and **"Stop"** while active) with an obvious on/listening state, plus a short helper "Your words appear in the box — edit before sending." Keep a single **auto-listen** toggle (the hands-free/mic-auto-start concept) with one name, shown in the same place in both modes.
+
+### 4. Natural pause before the answer starts (not a wait)
+After the interviewer finishes the question, the gap before the user can answer / before auto-listen opens the mic feels like a **wait period**. Make it a **natural conversational pause of ~0.6–1s** after the question audio ends, then open the mic (when auto-listen is on) with a clear **"Your turn"** cue. Don't block on anything after the audio ends; if auto-listen is off, enable the answer box immediately when the question finishes.
+
+### Also verify (possible bug)
+In Practice mode the question appeared to **auto-advance (intro → motivation) without an answer being submitted**. Confirm questions only advance on the user's action (Done/Submit) or the greeting's auto-advance — not on a timer while the candidate is still preparing.
+
+### Scope
+Frontend only. Null-safe; global P0 rules apply. Don't remove functionality — relabel/relocate for clarity and fix the timing.
+
+Acceptance: the mode and difficulty are obvious and labeled (no dead-looking "Easy" pill); Practice mode shows a clear persistent ON indicator; voice input is one consistently-named control with an obvious listening state; and after a question the answer flow starts on a short natural pause, not a long wait.
