@@ -2504,3 +2504,28 @@ Reproduced: while on the **intro** question, turning **Practice mode** on sent t
 Frontend only. Null-safe; global P0 rules apply. Don't remove functionality — relabel/relocate for clarity, fix the timing, and fix the toggle so it never restarts the session.
 
 Acceptance: the mode and difficulty are obvious and labeled (no dead-looking "Easy" pill); Practice mode shows a clear persistent ON indicator and **stays on without restarting the interview**; voice input is one consistently-named control with an obvious listening state that never auto-submits ambient noise; and after a question the answer flow starts on a short natural pause, not a long wait.
+
+---
+
+## P51 — TEMPORARY: a visible "Preview interviewer video" link on the Practice interviews page
+
+The talking-head video is currently hard to find — it only plays on the 4th question for ~5s and only for an interviewer that has a clip. Add a **temporary, clearly visible** way to preview it from the Practice interviews area, so it's easy to see without running a whole interview. Backend is LIVE; frontend-only.
+
+### Where
+On each interviewer card in **"Choose your interviewer"** (`/dashboard/interview`), add a visible link/button, e.g. **"▶ Preview video"**, next to **Voice** / **Start interview**. (Optional: also show it in the live session header.) Mark it clearly temporary — e.g. a small dashed **"Preview (temp)"** tag — so it's trivial to remove later.
+
+### Behavior
+On click, for that persona `P`:
+1. `GET /api/v1/interview/script?persona_id={P}` → find the first step whose `clip_url` is set (`has_clip: true`).
+2. Play that `clip_url` in a small inline `<video autoplay playsinline controls>` (with sound) — either inside the card or in a lightweight modal (portal to `document.body`, per P45, so it isn't clipped). Show the step's `caption` under it.
+3. If no step has a clip, show **"No video yet for this interviewer."**
+
+The clip is a plain public MP4 — no auth header is needed on the `<video>` tag.
+
+### Note
+Right now only **Devon Clark** has a real clip (placeholder mode is off), so only her card will play a preview; the others will say "No video yet." (If placeholder mode is turned on, every interviewer's preview will play the bundled stand-in clip.)
+
+### Scope
+Temporary frontend affordance over the live `/script` + `/clip` endpoints. Null-safe; global P0 rules apply. Easy to remove once the in-session video is prominent enough.
+
+Acceptance: from `/dashboard/interview`, clicking **"Preview video"** on Devon Clark plays her talking-head clip (with audio) immediately, without starting a full interview; interviewers without a clip clearly say so.
