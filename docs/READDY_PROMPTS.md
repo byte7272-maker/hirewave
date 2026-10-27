@@ -2494,10 +2494,13 @@ Speech-to-text is exposed under three different names depending on mode: **"Reco
 ### 4. Natural pause before the answer starts (not a wait)
 After the interviewer finishes the question, the gap before the user can answer / before auto-listen opens the mic feels like a **wait period**. Make it a **natural conversational pause of ~0.6–1s** after the question audio ends, then open the mic (when auto-listen is on) with a clear **"Your turn"** cue. Don't block on anything after the audio ends; if auto-listen is off, enable the answer box immediately when the question finishes.
 
-### Also verify (possible bug)
-In Practice mode the question appeared to **auto-advance (intro → motivation) without an answer being submitted**. Confirm questions only advance on the user's action (Done/Submit) or the greeting's auto-advance — not on a timer while the candidate is still preparing.
+### 5. Toggling Practice mode restarts the interview from the greeting (confirmed bug)
+Reproduced: while on the **intro** question, turning **Practice mode** on sent the interview back to the **greeting** ("Hi, thanks for joining me today…"), which then auto-advanced to intro again. So toggling a session option **discards the current question and any progress** and restarts — which is why switching to Practice mode "doesn't work" for the user (they were mid-question, it jumped back to the start, and looked like nothing applied). The mode toggle itself was also flaky (appeared to revert to Off in one run).
+- **Fix:** toggling Practice mode / Hands-free / Interviewer voice must **apply in place**, preserving the current question and the conversation so far — never restart the session or reset to the greeting. The toggle must also persist (stay on until the user turns it off), including across the normal question-to-question advance.
+- **Not a bug (verified):** there is **no timer-based auto-advance** — with no input the interview stayed on the same question for 90s+. Questions should continue to advance only on the user's Submit/Done (or the greeting's one-time auto-advance). The earlier "auto-advance" was this reset-to-greeting, not a spontaneous skip.
+- **Related caution:** Hands-free's own description is "opens the mic when the question ends **and sends on a pause**" — combined with ambient room noise this can transcribe stray audio and **auto-submit an answer the user didn't give**, skipping a question. Keep auto-listen opt-in (not the default), require a clear end-of-speech, and show what will be sent before sending.
 
 ### Scope
-Frontend only. Null-safe; global P0 rules apply. Don't remove functionality — relabel/relocate for clarity and fix the timing.
+Frontend only. Null-safe; global P0 rules apply. Don't remove functionality — relabel/relocate for clarity, fix the timing, and fix the toggle so it never restarts the session.
 
-Acceptance: the mode and difficulty are obvious and labeled (no dead-looking "Easy" pill); Practice mode shows a clear persistent ON indicator; voice input is one consistently-named control with an obvious listening state; and after a question the answer flow starts on a short natural pause, not a long wait.
+Acceptance: the mode and difficulty are obvious and labeled (no dead-looking "Easy" pill); Practice mode shows a clear persistent ON indicator and **stays on without restarting the interview**; voice input is one consistently-named control with an obvious listening state that never auto-submits ambient noise; and after a question the answer flow starts on a short natural pause, not a long wait.
