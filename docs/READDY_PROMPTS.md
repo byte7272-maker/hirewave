@@ -2603,3 +2603,42 @@ Read **`GET /api/v1/auth/me/plan`**. It returns:
 ### Scope & acceptance
 Frontend Simple experience (default for free, toggle for paid) over the existing engines; backend adds plan/limits enforcement separately.
 Acceptance: a non-technical user, using big obvious controls and step-by-step guides, can add/update a résumé, get AI help, write a cover letter, see a few matches, practice an interview (with voice choice), and be guided to connect **one** email and use **limited** auto-apply — with remaining-count indicators, friendly upgrade prompts at the free caps, the approval gate always intact, and no auto-apply beyond the limit.
+
+---
+
+## P54 — Upgrade screen ("what you get with Full")
+
+The friendly place the free-tier limit prompts lead to: a simple, reassuring page that shows what the free plan includes, what the full version unlocks, and where the user currently stands. Designed for the same older / non-technical audience as P53 — plain words, big buttons, no pressure. Reads the live plan; no billing yet, so the call to action is a waitlist, not a checkout.
+
+### Where it's reached from
+- The **Upgrade** card/button on the Simple home.
+- Every **limit-reached** moment: when an action returns **HTTP 402** `{"detail": {"error": "free_limit_reached", "resource": "...", "message": "..."}}`, show the `message` inline (a calm banner, not a blocker) with a **"See what Full unlocks"** button that opens this screen **scrolled to / highlighting the matching `resource` row**.
+- Hidden for paid/tester accounts (they're unlimited) — show the **Simple⇄Full toggle** instead.
+
+### Data
+Read **`GET /api/v1/auth/me/plan`**. Use `limits` + `remaining` to show "you've used N of M" per row. If `unlimited` is true, don't show this screen (show the toggle).
+
+### Layout (simple + reassuring)
+1. **Headline**: "You're on the Free plan" + one plain line: "Free gets you started. Upgrade when you want to do more — your data and your approvals always stay with you."
+2. **A single clear comparison** — two columns, **Free** vs **Full**, big readable rows (one line each), with the user's current usage shown on the Free side:
+
+   | | Free (you) | Full |
+   |---|---|---|
+   | Résumés | up to 5 *(N used)* | Unlimited |
+   | Cover letters | up to 5 *(N used)* | Unlimited |
+   | Job matches | 10 a day | Unlimited |
+   | Connected email/accounts | up to 3 | Unlimited + inbox auto-import |
+   | Auto-applies | 5 a day · 10 a week | Unlimited |
+   | Jobs gathered for you | 25 a month | Unlimited |
+   | Interview practice | Yes (voice included) | Yes + personas, difficulty, video |
+   | Dashboard & inbox | Simple view | Full dashboard, kanban & inbox |
+   | View | Simple | **Switch between Simple & Full anytime** |
+
+   (Pull the Free numbers from `limits`, not hard-coded, so they track the backend.)
+3. **Reassurance strip** (plain, large): "Human approval before anything is sent · We never store your password · Cancel anytime."
+4. **Primary button**: since paid plans aren't live yet, **"Notify me when Full is available"** (join the upgrade waitlist) — on click, a simple confirmation ("We'll email you — no payment needed now."). A secondary **"Keep using Free"** closes back to where they were. No fake checkout / card fields.
+
+### Scope
+Frontend only, over `GET /auth/me/plan` and the existing waitlist/contact capture. Plain language, big controls, never a dead end. Global P0 rules apply.
+
+Acceptance: hitting any free cap shows a calm inline message and a one-tap path to this screen (highlighting the right row); the screen shows Free (with the user's usage) vs Full in one simple comparison, with reassurances and a waitlist CTA (no payment); paid/tester users never see it (they see the Simple⇄Full toggle instead).
