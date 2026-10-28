@@ -51,6 +51,20 @@ def test_tester_email_is_unlimited_and_can_toggle():
     assert snap["can_toggle_full"] is True and snap["limits"] is None
 
 
+def test_gmail_accounts_are_testers_by_default():
+    # Default tester domain is gmail.com, so anyone on Gmail gets the full app + toggle.
+    _, c = _app()
+    h = _auth(c, email="someone@gmail.com")
+    snap = c.get("/api/v1/auth/me/plan", headers=h).json()
+    assert snap["plan"] == "tester" and snap["unlimited"] is True and snap["can_toggle_full"] is True
+
+
+def test_non_gmail_account_is_free():
+    _, c = _app()
+    h = _auth(c, email="person@example.com")
+    assert c.get("/api/v1/auth/me/plan", headers=h).json()["plan"] == "free"
+
+
 def test_enforcement_flag_off_means_unlimited():
     _, c = _app(Settings(plan_limits_enforced=False))
     h = _auth(c)

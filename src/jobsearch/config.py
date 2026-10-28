@@ -192,10 +192,18 @@ class Settings(BaseSettings):
     # app and the Simple⇄Full toggle, never the caps.
     plan_limits_enforced: bool = True
     tester_emails_raw: str = Field(default="", validation_alias="JOBSEARCH_TESTER_EMAILS")
+    #: Email domains whose accounts are testers (full app + Simple⇄Full toggle, no
+    #: caps). Defaults to gmail.com, so anyone signing in with a Gmail account gets
+    #: the full experience during testing. Comma-separated.
+    tester_domains_raw: str = Field(default="gmail.com", validation_alias="JOBSEARCH_TESTER_DOMAINS")
 
     @property
     def tester_emails(self) -> list[str]:
         return [e.strip().lower() for e in self.tester_emails_raw.split(",") if e.strip()]
+
+    @property
+    def tester_domains(self) -> list[str]:
+        return [d.strip().lower().lstrip("@") for d in self.tester_domains_raw.split(",") if d.strip()]
     # User-directed content libraries — JSON files you own and edit. Blank =
     # the built-in generator / question templates.
     #   persona_library: [{name, role, company, style, gender, voice, voice_id,

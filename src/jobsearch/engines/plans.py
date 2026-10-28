@@ -26,12 +26,21 @@ FREE_LIMITS: dict[str, int] = {
 }
 
 
-def effective_plan(user, tester_emails: Optional[list[str]] = None) -> str:
-    """The plan that actually applies to a user. A tester email always wins, so real
-    test accounts get the full app no matter what's stored on them."""
+def effective_plan(
+    user,
+    tester_emails: Optional[list[str]] = None,
+    tester_domains: Optional[list[str]] = None,
+) -> str:
+    """The plan that actually applies to a user. A tester email or a tester email
+    *domain* (e.g. gmail.com) always wins, so real test accounts get the full app no
+    matter what's stored on them."""
     email = (getattr(user, "email", "") or "").strip().lower()
-    if email and email in {e.strip().lower() for e in (tester_emails or [])}:
-        return TESTER
+    if email:
+        if email in {e.strip().lower() for e in (tester_emails or [])}:
+            return TESTER
+        domain = email.rsplit("@", 1)[-1] if "@" in email else ""
+        if domain and domain in {d.strip().lower().lstrip("@") for d in (tester_domains or [])}:
+            return TESTER
     plan = (getattr(user, "plan", "") or FREE).strip().lower()
     return plan if plan in (FREE, PAID, TESTER) else FREE
 

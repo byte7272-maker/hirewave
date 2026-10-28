@@ -24,7 +24,8 @@ def _settings(state):
 def effective_plan(state, user) -> str:
     s = _settings(state)
     testers = getattr(s, "tester_emails", []) if s else []
-    return plans.effective_plan(user, testers)
+    domains = getattr(s, "tester_domains", []) if s else []
+    return plans.effective_plan(user, testers, domains)
 
 
 def _enforced(state) -> bool:
