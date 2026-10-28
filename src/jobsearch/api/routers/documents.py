@@ -465,6 +465,8 @@ def incorporate_resume_ideas(
     professional bullets — returns the structured JSON Resume + markdown to save,
     same shape as improve-structured. Read-only preview (accept via .../versions).
     Numbers not present in the résumé OR the supplied points are flagged."""
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.notes or "", *(body.ideas or []))
     from jobsearch.models.resume_schema import find_new_metrics, resume_data_to_markdown
 
     resume = get_resume(resume_id, user, state)
@@ -516,6 +518,8 @@ def suggest_resume_edits(
     """Paste any data (notes, a job description, feedback, raw work data) and the AI
     compares it to the résumé and proposes specific add/remove/reword edits to review —
     nothing is changed. Approve the ones you want, then POST them to /apply-edits."""
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.context or "")
     resume = get_resume(resume_id, user, state)
     if not body.context.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste some text for the AI to work from")
@@ -613,6 +617,8 @@ def ai_edit_resume(
     could be applied, the résumé is returned unchanged (no new version). 400 on an empty
     instruction. Returns the résumé (re-render from it); a higher ``active_version`` than
     before means the edit was applied."""
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.content or "", body.instruction or "")
     resume = get_resume(resume_id, user, state)
     if not body.instruction.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
@@ -650,6 +656,8 @@ def ai_edit_cover_letter(
     résumé ``/ai-edit`` behaviour, for cover letters. Saves the result as a new active
     version (undo = switch back); 400 on an empty instruction; nothing matched -> no new
     version. A higher ``active_version`` means the edit was applied."""
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.content or "", body.instruction or "")
     cl = get_cover_letter(cover_letter_id, user, state)
     if not body.instruction.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
@@ -900,6 +908,8 @@ def improve_resume_structured(
     ``/resumes/{id}/versions``."""
     from jobsearch.models.resume_schema import find_new_metrics, resume_data_to_markdown
 
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.content or "")
     resume = get_resume(resume_id, user, state)
     # Improve exactly what's on screen: if the editor sent its live content (with any
     # points the user just typed), improve that instead of the last-saved résumé. Use

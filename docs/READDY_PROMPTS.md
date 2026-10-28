@@ -2642,3 +2642,28 @@ Read **`GET /api/v1/auth/me/plan`**. Use `limits` + `remaining` to show "you've 
 Frontend only, over `GET /auth/me/plan` and the existing waitlist/contact capture. Plain language, big controls, never a dead end. Global P0 rules apply.
 
 Acceptance: hitting any free cap shows a calm inline message and a one-tap path to this screen (highlighting the right row); the screen shows Free (with the user's usage) vs Full in one simple comparison, with reassurances and a waitlist CTA (no payment); paid/tester users never see it (they see the Simple⇄Full toggle instead).
+
+---
+
+## P55 — Simple résumé experience: visual, a document viewer, proper AI editing (never the raw text editor)
+
+The free/Simple résumé screen is currently too plain — a mocked default user, no pictures, no way to actually see the résumé. Make it a warm, visual, AI-first résumé experience. Supersedes P53's résumé bullet for the Simple view. Frontend over existing endpoints + `GET /auth/me/plan`.
+
+### Must
+1. **Show the résumé — a real document viewer.** Render the user's résumé as a clean, readable document (the same rendered preview used elsewhere), front and center. Read-only, nicely formatted, with fit-width / zoom / "Read full size". The seeded sample résumé renders here too, so a brand-new account immediately *sees* a résumé, not an empty box.
+2. **Never expose the raw text / markdown editor by default.** It must stay hidden in the Simple view — not behind an obvious toggle, just not present. Editing happens through AI (below) and simple guided fields; the power editor is a Full-only tool.
+3. **A proper AI experience + résumé editing.** This is the point of the screen:
+   - A big, obvious **"Improve with AI"** that rewrites/strengthens the whole résumé (`POST /resumes/{id}/improve-structured`) and shows a clear **before → after** in the viewer with **Keep / Undo**.
+   - A simple **"Ask AI to change it"** box for targeted changes (`POST /resumes/{id}/ai-edit`) — apply immediately, Undo = previous version.
+   - **Tailor to a role** in one tap (uses the target role; see P49) so the résumé speaks to the job.
+   - Add-your-own-wins: a friendly "Tell us what you did" input that folds the user's points in (`POST /resumes/{id}/incorporate`), AI-polished.
+   - Every AI change lands in the **viewer** with Keep/Undo — the user never edits raw text.
+4. **Make it lively, not dull.** Use the product's illustrations/iconography, the person's name, a friendly avatar/illustration, an **ATS/strength meter** and **match score** as simple visuals, encouraging microcopy, and warm empty/success states. No bare grey boxes.
+
+### Free caps (show, don't surprise)
+Read `GET /auth/me/plan`. On free, show remaining in plain words — e.g. **"18 AI edits left today"** (`remaining.ai_edits_today`) near the AI buttons. When an AI action returns **HTTP 402** (`detail.error = "free_limit_reached"`, `resource` = `ai_edits` or `ai_input`), show the friendly `detail.message` inline with a link to the upgrade screen (P54) — never a raw error. For `ai_input` (text too long), nudge: "shorten this or upgrade." Paid/tester: no caps, no counters.
+
+### Scope
+Frontend for the Simple view, over existing résumé endpoints (`improve-structured`, `ai-edit`, `incorporate`, tailor) + `/auth/me/plan`. The raw editor stays hidden on Simple. Null-safe; global P0 rules apply.
+
+Acceptance: the Simple résumé screen shows the actual résumé in a clean viewer with visuals (never an empty/dull box and never the raw text editor); the user improves it entirely through obvious AI actions with before→after + Keep/Undo; AI-edit remaining is shown and free caps surface as friendly upgrade prompts, not errors.

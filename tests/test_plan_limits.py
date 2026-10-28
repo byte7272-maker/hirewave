@@ -95,6 +95,30 @@ def test_reaping_capped_for_free():
     assert snap["remaining"]["reaped_month"] == 0
 
 
+def test_ai_edit_count_capped_for_free(monkeypatch):
+    import jobsearch.engines.plans as plans_mod
+    monkeypatch.setitem(plans_mod.FREE_LIMITS, "ai_edits_per_day", 2)
+    _, c = _app()
+    h = _auth(c)
+    rid = c.post("/api/v1/resumes/upload", headers=h,
+                 files={"file": ("r.txt", b"Python engineer. Led teams and improved delivery.", "text/plain")}).json()["id"]
+    for _ in range(2):
+        r = c.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "make it more concise"})
+        assert r.status_code == 200, r.text
+    r = c.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "shorten it"})
+    assert r.status_code == 402 and r.json()["detail"]["resource"] == "ai_edits"
+
+
+def test_ai_input_size_capped_for_free():
+    _, c = _app()
+    h = _auth(c)
+    rid = c.post("/api/v1/resumes/upload", headers=h,
+                 files={"file": ("r.txt", b"Python engineer.", "text/plain")}).json()["id"]
+    r = c.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h,
+               json={"instruction": "tighten", "content": "x" * 13000})
+    assert r.status_code == 402 and r.json()["detail"]["resource"] == "ai_input"
+
+
 def test_resume_cap_for_free():
     _, c = _app()
     h = _auth(c)

@@ -23,6 +23,8 @@ FREE_LIMITS: dict[str, int] = {
     "autoapplies_per_day": 5,
     "autoapplies_per_week": 10,
     "reaped_per_month": 25,
+    "ai_edits_per_day": 20,     # AI résumé/cover-letter edits a free user may run per day
+    "ai_input_chars": 12000,    # max characters of text per AI edit on free
 }
 
 

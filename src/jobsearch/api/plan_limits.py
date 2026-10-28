@@ -144,6 +144,65 @@ def autoapply_remaining(state, user) -> Optional[int]:
     return max(0, min(day_left, week_left))
 
 
+def _ai_ledger_key(user) -> str:
+    return f"aiedits:{user.id}"
+
+
+def _ai_edits_today(state, user) -> int:
+    """Count a free user's AI edits in the last 24h (ledger in the document store)."""
+    try:
+        stored = state.documents.get(_ai_ledger_key(user))
+    except Exception:  # noqa: BLE001 - no store -> can't count, treat as 0
+        return 0
+    if stored is None:
+        return 0
+    import json
+    try:
+        stamps = json.loads(stored[0].decode("utf-8", "ignore"))
+    except Exception:  # noqa: BLE001 - corrupt ledger
+        return 0
+    cutoff = utcnow().timestamp() - 24 * 3600
+    return sum(1 for t in stamps if isinstance(t, (int, float)) and t >= cutoff)
+
+
+def _record_ai_edit(state, user) -> None:
+    import json
+    key = _ai_ledger_key(user)
+    try:
+        stored = state.documents.get(key)
+        stamps = json.loads(stored[0].decode("utf-8", "ignore")) if stored else []
+    except Exception:  # noqa: BLE001
+        stamps = []
+    cutoff = utcnow().timestamp() - 24 * 3600
+    stamps = [t for t in stamps if isinstance(t, (int, float)) and t >= cutoff]
+    stamps.append(utcnow().timestamp())
+    try:
+        state.documents.put(key, json.dumps(stamps).encode("utf-8"), content_type="application/json")
+    except Exception:  # noqa: BLE001 - best effort
+        pass
+
+
+def consume_ai_edit(state, user) -> None:
+    """Enforce + record one AI résumé/cover-letter edit. 402 when the free daily cap
+    is reached. No-op for paid/tester (or when enforcement is off)."""
+    if not _is_free(state, user):
+        return
+    cap = plans.FREE_LIMITS["ai_edits_per_day"]
+    if _ai_edits_today(state, user) >= cap:
+        _deny("ai_edits", f"You've used your {cap} AI edits for today. Upgrade for unlimited AI editing.")
+    _record_ai_edit(state, user)
+
+
+def enforce_ai_input(state, user, *texts: str) -> None:
+    """Cap the size of text a free user can send to an AI edit in one request."""
+    if not _is_free(state, user):
+        return
+    cap = plans.FREE_LIMITS["ai_input_chars"]
+    total = sum(len(t or "") for t in texts)
+    if total > cap:
+        _deny("ai_input", f"That's too much text for the free plan ({total} of {cap} characters). Shorten it or upgrade.")
+
+
 def matches_cap(state, user) -> Optional[int]:
     """Max matches a free user may be shown; None = unlimited."""
     return plans.FREE_LIMITS["matches_per_day"] if _is_free(state, user) else None
@@ -183,5 +242,7 @@ def snapshot(state, user) -> dict:
             "autoapplies_week": max(0, L["autoapplies_per_week"] - _autoapplies_week(state, user)),
             "matches_per_day": L["matches_per_day"],
             "reaped_month": max(0, L["reaped_per_month"] - _reaped_month(state, user)),
+            "ai_edits_today": max(0, L["ai_edits_per_day"] - _ai_edits_today(state, user)),
+            "ai_input_chars": L["ai_input_chars"],
         },
     }
