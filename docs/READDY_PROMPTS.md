@@ -2548,3 +2548,46 @@ The talking-head video is easy to miss because of **layout**, not wiring: the in
 Frontend layout/placement only, over the existing `/script` + `/video` data (each step already carries `clip_url` / `caption`). Null-safe; works with photo+TTS, uploaded clips, placeholder mode, or nothing. Global P0 rules apply.
 
 Acceptance: during an interview the interviewer's face sits right by the answer recorder (one focused column, face → question → answer); when a question has a clip it plays there prominently with sound and a Replay control; the user doesn't have to look to the top of the page to notice the video.
+
+---
+
+## P53 — "Simple" experience: a free, guided, minimal version of the site
+
+A thin, friendly version of the product that is genuinely useful for free and dead-simple for **older / non-technical users** — minimal controls, no complicated setup, big obvious buttons, and step-by-step guides. It still lets people feel the core value (matches, tailored résumé/cover letter, interview practice) and, with an easy guided wizard, connect email and use **limited** auto-apply.
+
+### Delivery
+- **Default for free accounts** — free users land in Simple.
+- **Simple ⇄ Full toggle for paid users** — paid can switch to Simple too (it doubles as a "simplify the app" mode). Free users stay in Simple; "Full" features show a friendly upgrade prompt.
+
+### Design principles (older / non-technical first)
+- **One task per screen**, one clear **primary button**; no dense dashboards, kanban, tabs, or jargon.
+- **Big labeled buttons** (text, not icon-only), large fonts, high contrast, generous spacing.
+- **Linear guided flows** ("Step 1 of 3", Back / Next / "I'll do this later"), with plain-language reassurance at each step.
+- **Plain words**: "Add your résumé" not "Upload document"; no acronyms (ATS, OAuth, etc.) in the UI.
+- Never a dead end — every limit leads to a friendly next step or upgrade.
+
+### Simple Home — a few big cards
+1. **My Résumé** — create / upload / improve with AI.
+2. **Cover Letter** — let AI write/tailor one.
+3. **My Matches** — a few jobs picked for you (read-only taste).
+4. **Practice Interview** — answer a question, get friendly feedback (choose the interviewer's voice).
+5. **Connect & Auto-Apply** — easy guided setup (limited on free).
+6. **Upgrade** — what the full version adds.
+
+### Features (each a simple guided flow)
+1. **Résumé (create/update)** — "Add your résumé": upload a file **or** build one with a short guided form. One big **"Improve with AI"** button rewrites/strengthens it; simple manual edit; preview; save. Free = **one résumé**. Hide the version marquee / design chooser / structured tools (those are Full).
+2. **Cover letter** — one button **"Write my cover letter"**, confirm the role, AI drafts it, simple edit, save. (Allowed on free.)
+3. **Matches (read-only)** — a short ranked list (free cap, e.g. **10 / month**) with a plain "why this fits" line. **Apply** opens the auto-apply wizard (limited) — never silently applies.
+4. **Practice interview** — one friendly interviewer, one question at a time, speak **or** type, get simple feedback. **Voice change is allowed** (pick the interviewer's voice). Hide personas / difficulty / modes / video setup (Full).
+5. **Connect email + limited auto-apply — the key easy wizard.** A step-by-step, plain-language guide to connect **one** email and turn on auto-apply, each step explained with reassurance ("We ask your permission before anything is sent. We never store your password."). The **human-approval gate stays** — nothing goes out without a clear OK. Free limits: **1 email source**, a small monthly cap on jobs gathered ("reaped") and on auto-applies (e.g. **~5 / month**). Everything shows remaining counts in plain words ("3 of 5 auto-applies left this month").
+6. **Limits & upgrade** — when a free user hits any cap (matches, auto-applies, email sources, a 2nd résumé, advanced interview), show a friendly **"You've reached your free limit — upgrade to do more"** with a short what-you-get list. Calm, not pushy.
+
+### Hidden on free / Simple (until upgrade, or the Full toggle for paid)
+Inbox management, multiple email sources / connectors, dashboards & kanban, bulk/grouped apply, verification deep-dive, résumé version marquee & design system, advanced interview (personas, difficulty, modes, video setup beyond voice).
+
+### Backend note (separate task, not Readdy)
+Free-tier **limits need real enforcement** — there is no plan/tier concept server-side yet. The UI should read a `plan` + `limits/usage` object (e.g. `{ plan, matches_left, autoapplies_left, email_sources_max, resumes_max }`) and show remaining counts + upgrade prompts. I will add the plan/limits enforcement on the backend; the UI just reflects it and gates the "Full" actions.
+
+### Scope & acceptance
+Frontend Simple experience (default for free, toggle for paid) over the existing engines; backend adds plan/limits enforcement separately.
+Acceptance: a non-technical user, using big obvious controls and step-by-step guides, can add/update a résumé, get AI help, write a cover letter, see a few matches, practice an interview (with voice choice), and be guided to connect **one** email and use **limited** auto-apply — with remaining-count indicators, friendly upgrade prompts at the free caps, the approval gate always intact, and no auto-apply beyond the limit.
