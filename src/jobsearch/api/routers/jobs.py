@@ -9,6 +9,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
+from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AggregationOut,
@@ -136,6 +137,10 @@ def matches(
             state.jobs.add(j)
     if selected:
         visible = [j for j in visible if (j.category or "Other") in selected]
+    # Free plan: show at most the daily matches cap.
+    cap = plan_limits.matches_cap(state, user)
+    if cap is not None:
+        limit = cap if limit is None else min(limit, cap)
     ranked = state.matching.rank(profile, visible, limit=limit, min_score=min_score)
     out = []
     for r in ranked:
@@ -261,7 +266,9 @@ def ingest(body: IngestRequest, state: StateDep, _user: CurrentUser) -> dict:
     """Store postings and verify each (admin/internal use). Does NOT de-duplicate —
     prefer ``/ingest-external`` for client/browser pulls that may repeat."""
     ingested = 0
-    for item in body.jobs:
+    rem = plan_limits.reap_remaining(state, _user)
+    items = body.jobs if rem is None else body.jobs[: max(0, rem)]
+    for item in items:
         job = JobPosting(**item.model_dump())
         job.owner_id = _user.id  # private per-user pool
         state.jobs.add(job)
@@ -282,8 +289,10 @@ def ingest_external(body: ExternalIngestRequest, state: StateDep, _user: Current
     Each job carries its own ``source_platform`` (e.g. "linkedin"); ``source`` is a
     fallback applied to any job that doesn't set one. Returns what was ingested vs.
     skipped as duplicates."""
+    rem = plan_limits.reap_remaining(state, _user)
+    src_items = body.jobs if rem is None else body.jobs[: max(0, rem)]
     raw: list[dict] = []
-    for item in body.jobs:
+    for item in src_items:
         d = item.model_dump()
         if not d.get("source_platform") and body.source:
             d["source_platform"] = body.source

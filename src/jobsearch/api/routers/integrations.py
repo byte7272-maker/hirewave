@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import RedirectResponse
 
+from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     ConnectResponse,
@@ -31,6 +32,7 @@ def _provider(raw: str) -> Provider:
 
 @router.post("/connect/{provider}", response_model=ConnectResponse)
 def connect(provider: str, user: CurrentUser, state: StateDep) -> ConnectResponse:
+    plan_limits.enforce_connect_source(state, user)
     prov = _provider(provider)
     try:
         req = state.integration.build_authorization_request(prov)

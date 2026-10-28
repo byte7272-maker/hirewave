@@ -167,6 +167,10 @@ class User(DomainModel):
     full_name: str = ""
     phone: str = ""  # used to fill application forms; never fabricated
     location: str = ""
+    #: Billing/access tier: "free" (the Simple experience + caps), "paid" (full app,
+    #: no caps), or "tester" (full app, no caps). Testers are also resolved from
+    #: ``settings.tester_emails`` regardless of this stored value.
+    plan: str = "free"
     #: Unique token in the user's personal forwarding address
     #: (jobs+<token>@<inbox_domain>). Generated lazily on first use.
     inbox_token: str = ""

@@ -186,6 +186,16 @@ class Settings(BaseSettings):
     # then build the clip library once with POST /interview/avatars/build.
     heygen_api_key: str = Field(default="", validation_alias="HEYGEN_API_KEY")
     heygen_voice_id: str = ""  # optional HeyGen voice id; blank = per-persona neutral default
+    # Free-tier plan limits (the Simple experience). Enforced only for the "free"
+    # plan; "paid"/"tester" are unlimited. Testers are also identified by email via
+    # JOBSEARCH_TESTER_EMAILS (comma-separated) so real test accounts get the full
+    # app and the Simple⇄Full toggle, never the caps.
+    plan_limits_enforced: bool = True
+    tester_emails_raw: str = Field(default="", validation_alias="JOBSEARCH_TESTER_EMAILS")
+
+    @property
+    def tester_emails(self) -> list[str]:
+        return [e.strip().lower() for e in self.tester_emails_raw.split(",") if e.strip()]
     # User-directed content libraries — JSON files you own and edit. Blank =
     # the built-in generator / question templates.
     #   persona_library: [{name, role, company, style, gender, voice, voice_id,

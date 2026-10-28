@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import HTMLResponse
 
+from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     CoverLetterGenerateRequest,
@@ -279,6 +280,7 @@ def _reuse_suggestion(versions, job) -> VersionReuseSuggestion:
 # --- resumes ----------------------------------------------------------------
 @router.post("/resumes/generate", response_model=Resume, status_code=status.HTTP_201_CREATED)
 def generate_resume(body: ResumeGenerateRequest, user: CurrentUser, state: StateDep) -> Resume:
+    plan_limits.enforce_new_resume(state, user)
     job = _require_job(state, body.job_posting_id)
     profile = _profile(state, user.id)
     # Version bumps per (user, job).
@@ -299,6 +301,7 @@ async def upload_resume(
     target_role: str = Form(""),
 ) -> Resume:
     """Upload the user's own résumé file (PDF/DOCX/MD/TXT) to use in applications."""
+    plan_limits.enforce_new_resume(state, user)
     data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")
@@ -1366,6 +1369,7 @@ def delete_resume(resume_id: str, user: CurrentUser, state: StateDep) -> None:
 def generate_cover_letter(
     body: CoverLetterGenerateRequest, user: CurrentUser, state: StateDep
 ) -> CoverLetter:
+    plan_limits.enforce_new_cover_letter(state, user)
     job = _require_job(state, body.job_posting_id)
     profile = _profile(state, user.id)
     resume = state.resumes.get(body.resume_id) if body.resume_id else None
@@ -1390,6 +1394,7 @@ async def upload_cover_letter(
 ) -> CoverLetter:
     """Upload the user's own cover-letter file (PDF/DOCX/MD/TXT). Optionally tie it
     to a job and résumé; leave those blank for a generic letter."""
+    plan_limits.enforce_new_cover_letter(state, user)
     data = await file.read()
     if not data:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty file")

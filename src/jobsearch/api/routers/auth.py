@@ -152,6 +152,16 @@ _USER_SCOPED_REPOS = (
 )
 
 
+@router.get("/me/plan")
+def my_plan(user: CurrentUser, state: StateDep) -> dict:
+    """The signed-in user's plan, whether they're capped, whether they can switch
+    between the Simple and Full views, and (for free) the limits + remaining counts.
+    The Simple UI reads this to show remaining counts and gate the Full features."""
+    from jobsearch.api import plan_limits
+
+    return plan_limits.snapshot(state, user)
+
+
 @router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
 def delete_account(body: DeleteAccountRequest, user: CurrentUser, state: StateDep) -> None:
     """Permanently delete the signed-in account and its data. Password accounts must

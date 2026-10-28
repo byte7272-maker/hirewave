@@ -187,7 +187,10 @@ def _auth(client: TestClient) -> dict:
 def test_matches_are_not_capped_at_20():
     # The matches endpoint returns every match by default (no 20-result cap); an
     # explicit ?limit= still trims. Regression guard for the removed default cap.
-    client = _client()
+    # Unlimited plan so the free 10/day matches cap doesn't mask the behavior.
+    from jobsearch.config import Settings
+    client = TestClient(create_app(state=AppState(
+        settings=Settings(plan_limits_enforced=False), exchanger=MockTokenExchanger())))
     h = _auth(client)
     jobs = [
         {

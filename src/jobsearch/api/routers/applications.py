@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
 
+from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     ApplicationCreate,
@@ -203,6 +204,7 @@ def submit(
     application_id: str, body: SubmitRequest, user: CurrentUser, state: StateDep
 ) -> SubmitResponse:
     app = _owned(state, user.id, application_id)
+    plan_limits.enforce_autoapply(state, user)
     try:
         result = _submit_core(state, user, app, platform=body.platform or "")
     except _NeedsDocsError as exc:
@@ -232,6 +234,8 @@ def batch_apply(body: BatchApplyRequest, user: CurrentUser, state: StateDep) -> 
     succeeded, what needs a manual finish, and what failed. Idempotent: a job already
     in Draft is updated, not duplicated."""
     out = BatchApplyOut()
+    # Free plan: cap how many of this batch actually auto-submit (None = unlimited).
+    submit_allowance = plan_limits.autoapply_remaining(state, user) if body.submit else None
     for jid in dict.fromkeys(body.job_ids):  # de-dup the input list, keep order
         if not jid or state.jobs.get(jid) is None:
             out.results.append(BatchApplyResult(job_id=jid, error="job not found"))
@@ -245,9 +249,16 @@ def batch_apply(body: BatchApplyRequest, user: CurrentUser, state: StateDep) -> 
         )
         res = BatchApplyResult(job_id=jid, application_id=app.id, created=not reused, reused=reused)
         out.created += 1
+        if body.submit and submit_allowance is not None and submit_allowance <= 0:
+            # Added to the pipeline, but the free auto-apply cap is reached.
+            res.message = "Added to your pipeline. You've reached your free auto-apply limit — upgrade to auto-apply to more."
+            out.results.append(res)
+            continue
         if body.submit:
             try:
                 r = _submit_core(state, user, app, platform=body.platform or "")
+                if submit_allowance is not None and r.success:
+                    submit_allowance -= 1
                 res.submitted = r.success
                 res.requires_manual = r.requires_manual
                 res.fallback_url = r.fallback_url or ""

@@ -2585,8 +2585,20 @@ A thin, friendly version of the product that is genuinely useful for free and de
 ### Hidden on free / Simple (until upgrade, or the Full toggle for paid)
 Inbox management, multiple email sources / connectors, dashboards & kanban, bulk/grouped apply, verification deep-dive, résumé version marquee & design system, advanced interview (personas, difficulty, modes, video setup beyond voice).
 
-### Backend note (separate task, not Readdy)
-Free-tier **limits need real enforcement** — there is no plan/tier concept server-side yet. The UI should read a `plan` + `limits/usage` object (e.g. `{ plan, matches_left, autoapplies_left, email_sources_max, resumes_max }`) and show remaining counts + upgrade prompts. I will add the plan/limits enforcement on the backend; the UI just reflects it and gates the "Full" actions.
+### Backend note — plan + limits are now LIVE
+Read **`GET /api/v1/auth/me/plan`**. It returns:
+```json
+{ "plan": "free|paid|tester", "unlimited": false, "can_toggle_full": false,
+  "simple_default": true,
+  "limits": { "resumes": 5, "cover_letters": 5, "matches_per_day": 10,
+              "email_sources": 3, "autoapplies_per_day": 5, "autoapplies_per_week": 10,
+              "reaped_per_month": 25 },
+  "remaining": { "resumes": 5, "cover_letters": 5, "email_sources": 3,
+                 "autoapplies_today": 5, "autoapplies_week": 10, "matches_per_day": 10,
+                 "reaped_month": 25 } }
+```
+- `unlimited: true` (paid/tester) → `limits`/`remaining` are `null`; `can_toggle_full: true` (show the Simple⇄Full toggle). Free → `can_toggle_full: false`, locked to Simple.
+- Use `remaining` to show "N left" and, when a limit is hit, the friendly upgrade prompt. The backend **also enforces** every cap and returns **HTTP 402** with `{"detail": {"error": "free_limit_reached", "resource": "...", "message": "..."}}` when exceeded — show that message. Matches are capped to 10 (the list simply returns ≤10 on free); reaping/auto-apply are capped server-side.
 
 ### Scope & acceptance
 Frontend Simple experience (default for free, toggle for paid) over the existing engines; backend adds plan/limits enforcement separately.
