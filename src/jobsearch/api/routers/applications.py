@@ -232,6 +232,10 @@ def application_activity(application_id: str, user: CurrentUser, state: StateDep
     app = _owned(state, user.id, application_id)
     resume = state.resumes.get(app.resume_id) if app.resume_id else None
     cover = state.cover_letters.get(app.cover_letter_id) if app.cover_letter_id else None
+    posting = state.jobs.get(app.job_posting_id)  # may be None if pruned/consolidated
+    # The best link to check this application on the provider site: the direct posting
+    # url when known, else a board search for the role.
+    source_url = (getattr(posting, "source_url", "") if posting else "") or app.job_url
     steps = [
         {
             "at": ev.get("at"),
@@ -242,7 +246,13 @@ def application_activity(application_id: str, user: CurrentUser, state: StateDep
     ]
     return {
         "application_id": app.id,
-        "job": {"title": app.job_title, "company": app.job_company, "url": app.job_url},
+        "job": {
+            "title": app.job_title, "company": app.job_company, "url": app.job_url,
+            # Open on the provider to check the outcome (direct posting, else board search).
+            "source_url": source_url,
+            "source_display": getattr(posting, "source_display", "") if posting else "",
+            "source_logo": getattr(posting, "source_logo", "") if posting else "",
+        },
         "status": app.status.value,
         "resume": (
             {"id": app.resume_id, "version": app.resume_version,

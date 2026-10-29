@@ -2826,3 +2826,24 @@ Add a prominent **"Listen"** mode to interview prep for hands-free, repeat pract
 ### Scope & acceptance
 Frontend over the existing TTS / answer-voice / suggest-answer / script endpoints; mobile-first; one obvious control, no clusters. Null-safe; global P0 rules apply.
 Acceptance: the résumé summary has a prominent "Listen to your summary" control (not buried); interview prep has an obvious **Listen** mode that reads each question and its suggested answer aloud with Play/Pause/Next/Replay and a Repeat/loop, usable one-handed on a phone and comfortable to listen to the same Q&A repeatedly; the user can pick the voice; it uses their role-tailored answers; and it respects the free caps.
+
+---
+
+## P63 — Source logo + direct link on dashboard matches and in auto-apply
+
+Users should always be able to see where a job came from and click straight to it. Two gaps:
+
+### 1. Dashboard top matches: show the source logo + a direct link (backend updated)
+The dashboard's "Today's top matches" show neither the **source board logo** nor a **direct link**. The data is now there:
+- `GET /api/v1/dashboard/summary` → `matches.top_matches[]` (and `matches.top`) each include: `company_logo`, **`source_logo`**, **`source_display`** ("Indeed"), **`source_url`** (the best link — direct posting, else a board search), and `url`.
+- Render each top match with the **source board logo + name** (e.g. a small Indeed/LinkedIn badge) and make the card/"View" open **`source_url`** in a new tab (`rel="noopener"`). Use `company_logo` for the company mark and `source_logo` for the board attribution; fall back to initials/an inbox badge when a logo is empty.
+- The Matches page already exposes the same fields (`MatchOut.source_logo/source_url/source_display`) — make the dashboard consistent with it.
+
+### 2. Auto-apply: give the user a link to the provider to check the outcome
+After an application is prepared/submitted, the user should be able to **open it on the source site** (Indeed/LinkedIn/…) to check the outcome themselves.
+- `GET /api/v1/applications/{id}/activity` → `job.source_url` (+ `source_display`, `source_logo`) is the link. Also available as `job_url` on the application.
+- In the apply queue, the pipeline, and the activity timeline (P61), add a clear **"Open on {source_display}"** / **"Check on the site"** link that opens `source_url` in a new tab. Show it in both Simple and Full.
+
+### Scope & acceptance
+Frontend over `/dashboard/summary` and `/applications/{id}/activity` (backend fields are live). Null-safe (missing logo → initials/badge; missing link → hide the button). Global P0 rules apply.
+Acceptance: each dashboard top match shows the source board logo + name and opens the real posting (or a board search) in a new tab; every application offers a clear "open on the provider" link to check the outcome, in both Simple and Full.

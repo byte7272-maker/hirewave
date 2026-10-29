@@ -80,15 +80,25 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     ]
 
     resume_count = sum(1 for r in state.resumes.find(user_id=uid) if not getattr(r, "is_sample", False))
+    def _card(r):
+        j = r.job
+        return {
+            "job_id": j.id, "title": j.title, "company": j.company,
+            "company_logo": j.company_logo,
+            # The board this came from (logo + nicely-cased name) and the best link to
+            # open it: the direct posting url when known, else a board search.
+            "source_logo": j.source_logo, "source_display": j.source_display,
+            "source_slug": j.source_slug,
+            "url": j.url, "source_url": j.source_url,
+            "score": r.score,
+        }
+
     return {
         "matches": {
             "total": len(ranked),
             "strong": len(strong),
-            "top": (
-                {"job_id": top.job.id, "title": top.job.title, "company": top.job.company,
-                 "company_logo": top.job.company_logo, "url": top.job.url, "score": top.score}
-                if top else None
-            ),
+            "top": _card(top) if top else None,
+            "top_matches": [_card(r) for r in ranked[:5]],
         },
         "applications": {
             "total": len(apps),

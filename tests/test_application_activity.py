@@ -33,6 +33,8 @@ def test_activity_logs_steps_and_documents_used():
                  json={"job_posting_id": job.id, "resume_id": rid}).json()
 
     act = c.get(f"/api/v1/applications/{app['id']}/activity", headers=h).json()
+    # a link to check the outcome on the provider site is present
+    assert "source_url" in act["job"]
     # which document was used
     assert act["resume"]["name"] == "my_resume.txt" and act["resume"]["version"] == 1
     assert act["cover_letter"] is None
