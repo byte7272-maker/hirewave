@@ -64,3 +64,7 @@ def test_status_change_emails_only_with_consent(monkeypatch):
     assert len(cap.sent) == 1
     assert cap.sent[0]["to"] == "n@x.com"
     assert cap.sent[0]["subject"].startswith("Application update")
+
+    # a status change also records in-app activity, so the dashboard isn't empty
+    activity = c.get("/api/v1/dashboard/summary", headers=h).json()["recent_activity"]
+    assert activity and any("interviewing" in a["message"].lower() for a in activity)

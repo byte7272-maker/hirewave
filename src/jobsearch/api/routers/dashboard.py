@@ -26,6 +26,18 @@ _WEEKLY_TARGET = 5  # default weekly application goal (drives the progress bar)
 def summary(user: CurrentUser, state: StateDep) -> dict:
     uid = user.id
     profile = state.profiles.get(uid) or UserProfile(user_id=uid)
+    # Rank against the user's latest résumé (as the Matches page does) so the "strong
+    # matches" count reflects what they actually see there, not the bare profile.
+    mine = [
+        r for r in state.resumes.find(user_id=uid)
+        if not getattr(r, "archived", False) and not getattr(r, "is_sample", False)
+    ]
+    if mine:
+        try:
+            from jobsearch.api.routers.jobs import _matching_profile
+            profile = _matching_profile(state, uid, mine[-1].id)
+        except Exception:  # noqa: BLE001 - fall back to the bare profile
+            pass
 
     # --- matches (ranked over the user's visible, verified jobs) -------------
     # Fresh accounts (only sample jobs) count 0 real matches; seeded samples never

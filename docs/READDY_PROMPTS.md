@@ -2761,3 +2761,20 @@ Add a clear **opt-in toggle**: "**Email me when my application status changes**"
 ### Scope & acceptance
 Frontend over existing endpoints + the new consent endpoint. Null-safe; global P0 rules apply.
 Acceptance: the Simple toggle switches between **`/simple`** and the full dashboard (never the extension page); before any auto-apply is sent the user sees a **rendered preview** of the exact résumé/cover letter + destination and must approve; prepared applications can be **approved in batch** with per-item results; and an **off-by-default** "email me on status changes" toggle controls real status emails via the consent endpoint.
+
+---
+
+## P60 — Dark mode in the Simple view + real dashboard activity/meters
+
+### 1. Add the dark/light toggle to the Simple view
+The full app has a dark-mode toggle but the **Simple view (`/simple`) doesn't**. Add the same dark/light toggle to the Simple header — a clear, single control (sun/moon with a label is fine for the non-technical audience), applying the app's existing dark theme. Persist the choice (localStorage) and keep it consistent with the Full view's theme. One obvious control; no cluster.
+
+### 2. Dashboard "Recent activity" + meters must be real (backend is real)
+The dashboard's **Recent activity was blank** because no activity existed to show — the backend now records in-app notifications on real actions (applications prepared, status changes, submits), so there's data to render. Make sure the dashboard reads it:
+- **Recent activity** = `GET /api/v1/dashboard/summary` → `recent_activity[]` (`{type, message, at, read}`), newest first. Render these rows (not a hardcoded/mock list). If truly empty, show a calm empty state ("No activity yet — it'll show up here as you apply and interview.").
+- **All meters come from `/dashboard/summary`** and are real: `matches.total` / `matches.strong`, `applications.{total,submitted,interviewing,offered}`, `interviews`, `weekly_goal`, `resumes`, `cover_letters`, `saved_jobs`, `connected_apps`, `unread_notifications`. Do **not** hardcode numbers. "Strong matches" now ranks against the user's latest résumé (so it matches what the Matches page shows).
+- Re-fetch `/summary` on load and after actions (applying, status changes) so the numbers and activity stay current.
+
+### Scope & acceptance
+Frontend over `/dashboard/summary` + a theme toggle. Null-safe; global P0 rules apply.
+Acceptance: the Simple view has a working dark/light toggle that persists; the dashboard's Recent activity shows real recorded events (or a calm empty state) and every meter reflects `/dashboard/summary` — no mock numbers; strong-match count matches the Matches page.

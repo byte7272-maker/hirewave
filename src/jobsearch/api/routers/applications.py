@@ -12,6 +12,23 @@ from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines.email_sender import build_email_sender
 
 
+def _record_activity(state, user, message: str, ntype=None) -> None:
+    """Add an in-app notification so the dashboard's Recent activity reflects real
+    actions. Best-effort; never breaks the request."""
+    from jobsearch.models.notification import Notification, NotificationType
+    try:
+        state.notifications.add(Notification(
+            user_id=user.id, type=ntype or NotificationType.SYSTEM, message=message,
+        ))
+    except Exception:  # noqa: BLE001 - activity logging is best-effort
+        pass
+
+
+def _app_label(app) -> str:
+    role = app.job_title or "your application"
+    return f"{role} at {app.job_company}" if app.job_company else role
+
+
 def _notify_status(state, user, app) -> None:
     """Email the user an application-status update — only with their consent
     (``notify_status_email``). Best-effort; never breaks the request."""
@@ -236,6 +253,8 @@ def submit(
     except RateLimitError as exc:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
     if result.success:
+        from jobsearch.models.notification import NotificationType
+        _record_activity(state, user, f"Applied to {_app_label(app)}", NotificationType.APPLICATION_SUBMITTED)
         _notify_status(state, user, app)
     return SubmitResponse(
         success=result.success,
@@ -294,6 +313,8 @@ def batch_apply(body: BatchApplyRequest, user: CurrentUser, state: StateDep) -> 
                 res.requires_manual = True
                 out.manual += 1
         out.results.append(res)
+    if out.created:
+        _record_activity(state, user, f"Prepared {out.created} application(s) for your review")
     return out
 
 
@@ -308,6 +329,7 @@ def update_status(
     app.record_event("status_manual_update", status=body.status.value)
     saved = state.applications.add(app)  # persist the mutation
     if changed:
+        _record_activity(state, user, f"{_app_label(saved)} → {saved.status.value}")
         _notify_status(state, user, saved)
     return _out(state, saved)
 
