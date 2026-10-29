@@ -2722,3 +2722,20 @@ Exact structure and interaction for the résumé screen, top to bottom. Frontend
 ### Scope & acceptance
 Frontend over résumé endpoints (`improve-structured`, `ai-edit`, `incorporate`, experience/highlights) + `/auth/me/plan`. Raw text editor stays hidden (P55). Null-safe; global P0 rules apply.
 Acceptance: the collapsed **AI summary** (with read/voice) sits above the render; the render is the centerpiece; **"Auto-improve my résumé" (with best bullets)** is the clear primary control directly beneath it; tapping any part of the résumé opens a mobile-friendly editing bubble (inline or AI rewrite) with Keep/Undo; AI rewrites respect the free AI-edit cap; a prominent, easy-to-find **Switch to Full** toggle is present for those who can switch; and **no pricing appears anywhere** — the plan simply reads "Free".
+
+---
+
+## P58 — Landing page: remove pricing / "paid plans coming soon" (it's free)
+
+The public marketing page (`/`) still has a **Pricing** section and "Paid plans coming soon — pricing to be announced" copy. Remove all pricing and future-paid-plan language — the product is simply **free** right now. Frontend only; no backend.
+
+### Changes
+- **Remove the "PRICING" section heading and any paid-plan framing** ("Paid plans coming soon", "pricing to be announced", "Free forever" tier card as a *pricing* comparison, dollar amounts, "Pro/Premium"). No price tables, no tiers.
+- If you keep a short section there, make it a plain **"It's free"** statement — e.g. "Free to use — no card, no catch." — with the existing **Request early access** call to action. No mention of future paid plans.
+- **Nav / footer:** remove any **"Pricing"** menu/footer link.
+- **FAQ:** the "What does it cost?" answer becomes simply **"It's free to use."** (drop "paid plans coming soon").
+- Don't list specific plan caps as marketing numbers here (they'd drift from the app). Keep it to "free."
+
+### Scope & acceptance
+Frontend copy/section removal on the landing page only; app behavior unchanged. Global P0 rules apply.
+Acceptance: the landing page has **no pricing section, no price amounts, no "paid plans / coming soon" language, and no "Pricing" nav/footer link**; any cost mention simply says it's free; the Request-early-access CTA remains.
