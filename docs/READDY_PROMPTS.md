@@ -2806,3 +2806,23 @@ Simple is a **simpler presentation of the same product — not a reduced one**. 
 ### Scope & acceptance
 Frontend over `/applications/{id}/activity` + existing endpoints; the activity log is backend-live. Null-safe; global P0 rules apply.
 Acceptance: any application shows a one-tap, plain-English activity log listing the AI's steps and the exact résumé/cover-letter version used, in both Simple and Full; and every useful feature available in Full is also available (simply presented) in Simple — Simple differs only in presentation and the account's caps, never by withholding a useful capability.
+
+---
+
+## P62 — Make listening prominent: résumé summary read-aloud + an interview "Listen" mode
+
+Audio is a first-class, mobile-friendly way to use the app — surface it, don't bury it. All backend already exists (`/interview/tts`, `/interview/answer-voice`, `/interview/suggest-answer`, `/interview/script`, the read-aloud voice switch).
+
+### 1. Advertise the résumé summary read-aloud (currently under-featured)
+The résumé summary's **Read aloud + voice** (P57) is too hidden. Make it an **obvious, inviting control** — a clear **"▶ Listen to your summary"** button (with the voice picker nearby), prominently placed near the summary, not tucked inside a collapsed link. Play/pause, scrubbing optional, and it reads the AI summary via `/interview/tts` (or the read-aloud switch) in the chosen voice.
+
+### 2. Interview "Listen" mode — hear the questions AND the answers, on mobile, on repeat
+Add a prominent **"Listen"** mode to interview prep for hands-free, repeat practice (great on a phone, commuting, etc.):
+- For the chosen interviewer, it plays each common question aloud (the persona's clip audio or `/interview/tts`), then reads the **suggested answer** aloud (`/interview/suggest-answer` → `/interview/answer-voice` or `/tts`), then moves to the next — a continuous **Question → Answer** audio walkthrough.
+- **Mobile-first, repeatable controls:** big **Play / Pause**, **Previous / Next**, **Replay this one**, and a **Repeat** (loop the current Q&A, or loop the whole set) so a user can listen to the same question/answer over and over. Keep playing with the screen off / app backgrounded where the browser allows (use a persistent audio element; show a simple now-playing line: "Q2 · tell me about yourself").
+- Let the user pick the **voice** (reuse the existing per-persona/answer voice picker). Works with the user's own tailored suggested answers (role-aware, per P49) so they're rehearsing *their* answers, not generic ones.
+- Honor the free **AI-edit / suggest caps** where suggested answers are generated; cache generated answers so replaying doesn't re-spend.
+
+### Scope & acceptance
+Frontend over the existing TTS / answer-voice / suggest-answer / script endpoints; mobile-first; one obvious control, no clusters. Null-safe; global P0 rules apply.
+Acceptance: the résumé summary has a prominent "Listen to your summary" control (not buried); interview prep has an obvious **Listen** mode that reads each question and its suggested answer aloud with Play/Pause/Next/Replay and a Repeat/loop, usable one-handed on a phone and comfortable to listen to the same Q&A repeatedly; the user can pick the voice; it uses their role-tailored answers; and it respects the free caps.
