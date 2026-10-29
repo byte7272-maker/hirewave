@@ -2873,3 +2873,26 @@ Make sure every application (apply queue, pipeline, and the P61 activity timelin
 ### Scope & acceptance
 Frontend over `/dashboard/summary`, `/users/me` (+ the email-notifications PUT), and `/applications/{id}/activity`. Null-safe (logo fails → text/initials; no link → hide). Global P0 rules apply.
 Acceptance: dashboard matches show the actual **source board logo image** (with a text-badge/initials fallback) and link to the posting; Settings and the pipeline have an **off-by-default** "email me on status changes" toggle wired to the consent endpoint; and every application has an "open on the provider" link — all in both Simple and Full.
+
+---
+
+## P65 — Loop / repeat for the AI read-aloud (summary + full interview Q&A)
+
+Let users put the audio on repeat for hands-free, on-the-go study (extends P62). Frontend only; uses the existing TTS / answer-voice endpoints.
+
+### A clear "Loop" control on both players
+Add an obvious **Loop / Repeat** toggle (a loop icon with an on/off state, plus a short label) to:
+1. **The résumé summary read-aloud (P62 "Listen to your summary").** When Loop is on, the summary audio **restarts automatically** when it ends and keeps playing until the user stops it.
+2. **The interview "Listen" mode (full Q&A walkthrough).** Provide two loop choices so it's clear:
+   - **Repeat all** — when the last question→answer finishes, start again from the first (loop the whole set).
+   - **Repeat one** — loop just the current question + its suggested answer over and over (for drilling a single one).
+   A simple cycle on the loop button is fine (Off → Repeat all → Repeat one → Off), with the current mode clearly labeled.
+
+### Behavior
+- **Keeps going on its own** until the user pauses/stops — including with the screen off / app backgrounded where the browser allows (persistent audio element). Show a now-playing line (e.g. "Looping · Q2 · tell me about yourself").
+- **Don't re-spend on replays:** cache generated TTS audio and suggested answers so looping replays the cached audio and never re-calls the AI (respects the free caps).
+- Mobile-first: the Loop control is a big, obvious tap target next to Play/Pause; persist the user's loop choice.
+
+### Scope & acceptance
+Frontend over the existing TTS / suggest-answer / answer-voice endpoints. Null-safe; global P0 rules apply.
+Acceptance: the summary player has a Loop toggle that replays the summary continuously until stopped; the interview Listen mode has a Loop control with Repeat-all and Repeat-one, each clearly labeled; looping plays cached audio (no extra AI spend) and keeps playing hands-free on a phone until the user stops it.
