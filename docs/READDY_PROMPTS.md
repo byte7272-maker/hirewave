@@ -2778,3 +2778,31 @@ The dashboard's **Recent activity was blank** because no activity existed to sho
 ### Scope & acceptance
 Frontend over `/dashboard/summary` + a theme toggle. Null-safe; global P0 rules apply.
 Acceptance: the Simple view has a working dark/light toggle that persists; the dashboard's Recent activity shows real recorded events (or a calm empty state) and every meter reflects `/dashboard/summary` — no mock numbers; strong-match count matches the Matches page.
+
+---
+
+## P61 — Auto-apply activity log + Simple/Full feature parity
+
+### 1. "What the AI did" — an easy application activity log (backend LIVE)
+Every application has a plain-English log of the steps the AI took to apply and **exactly which résumé/cover letter version it used**. Surface it conveniently.
+- **Endpoint:** `GET /api/v1/applications/{id}/activity` →
+  ```json
+  { "application_id": "...", "status": "...",
+    "job": { "title": "...", "company": "...", "url": "..." },
+    "resume": { "name": "Williams, Bayete, IT Director.docx", "version": 34 },
+    "cover_letter": { "name": "...", "version": 2 }  // or null,
+    "steps": [ { "at": "…ISO…", "label": "Prepared your application", "detail": {…} },
+               { "at": "…", "label": "Started applying via indeed" },
+               { "at": "…", "label": "Submitted via indeed" } ] }
+  ```
+- **UI:** from each application (in the pipeline, the apply queue, and the Simple "My applications"), a clear **"See what we did"** / activity link opens a simple **timeline** of the `steps` (newest or oldest-first, your call — be consistent), with the **résumé & cover-letter name + version** shown at the top ("Applied with Résumé v34, no cover letter"). Plain language, one tap to open, easy to close. This must be present in **both Simple and Full**.
+
+### 2. Simple and Full must have the same useful features
+Simple is a **simpler presentation of the same product — not a reduced one**. Every genuinely useful capability in Full is also reachable in Simple (just with big, obvious, one-task-at-a-time controls and fewer things on screen):
+- résumé create/update + AI editing, cover letters, matches, **auto-apply with the approval gate + this activity log**, interview practice (with voice), connect email, status notifications, dark mode.
+- The only differences are **presentation** (Simple: guided, uncluttered, mobile-first) and the **free-tier caps** (which apply to the account tier, not the view). Nothing useful is hidden from Simple just because it's Simple; what's hidden is power-user *complexity* (raw editor, dense dashboards, bulk tooling) — and even those have a simple equivalent (e.g. AI editing instead of the raw editor).
+- A user switching Simple⇄Full should find the same features, same data, same account — only the layout changes.
+
+### Scope & acceptance
+Frontend over `/applications/{id}/activity` + existing endpoints; the activity log is backend-live. Null-safe; global P0 rules apply.
+Acceptance: any application shows a one-tap, plain-English activity log listing the AI's steps and the exact résumé/cover-letter version used, in both Simple and Full; and every useful feature available in Full is also available (simply presented) in Simple — Simple differs only in presentation and the account's caps, never by withholding a useful capability.

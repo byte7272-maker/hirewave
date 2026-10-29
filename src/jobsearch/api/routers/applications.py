@@ -162,6 +162,10 @@ def _build_or_reuse_application(
         resume_id=resume_id, resume_version=r_ver,
         cover_letter_id=cover_letter_id, cover_letter_version=c_ver,
     )
+    app.record_event(
+        "prepared", resume_version=r_ver, cover_letter_version=c_ver,
+        platform=(job.source_platform if job else ""),
+    )
     return state.applications.add(app), False
 
 
@@ -192,6 +196,67 @@ def list_applications(
 @router.get("/{application_id}", response_model=ApplicationOut)
 def get_application(application_id: str, user: CurrentUser, state: StateDep) -> ApplicationOut:
     return _out(state, _owned(state, user.id, application_id))
+
+
+#: Human-readable labels for the audit-trail actions the apply flow records.
+_ACTIVITY_LABELS = {
+    "prepared": "Prepared your application",
+    "submit_attempt": "Started the automated apply",
+    "submit_success": "Submitted your application",
+    "submit_failed": "Couldn't auto-submit — needs a manual finish",
+    "status_manual_update": "Status updated",
+    "needs_approval": "Waiting for your approval",
+    "approved": "You approved it",
+}
+
+
+def _step_label(ev: dict) -> str:
+    action = ev.get("action", "")
+    platform, st = ev.get("platform"), ev.get("status")
+    if action == "submit_attempt" and platform:
+        return f"Started applying via {platform}"
+    if action == "submit_success" and platform:
+        return f"Submitted via {platform}"
+    if action == "submit_failed" and platform:
+        return f"Couldn't auto-submit via {platform} — finish manually"
+    if action == "status_manual_update" and st:
+        return f"Status set to {st}"
+    return _ACTIVITY_LABELS.get(action) or (action.replace("_", " ").capitalize() or "Update")
+
+
+@router.get("/{application_id}/activity")
+def application_activity(application_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """A plain-English timeline of what happened on this application — the steps the
+    AI took to apply and exactly which résumé/cover letter version it used. Easy for
+    the user to review in both the Simple and Full views."""
+    app = _owned(state, user.id, application_id)
+    resume = state.resumes.get(app.resume_id) if app.resume_id else None
+    cover = state.cover_letters.get(app.cover_letter_id) if app.cover_letter_id else None
+    steps = [
+        {
+            "at": ev.get("at"),
+            "label": _step_label(ev),
+            "detail": {k: v for k, v in ev.items() if k not in ("action", "at")},
+        }
+        for ev in (app.audit_trail or [])
+    ]
+    return {
+        "application_id": app.id,
+        "job": {"title": app.job_title, "company": app.job_company, "url": app.job_url},
+        "status": app.status.value,
+        "resume": (
+            {"id": app.resume_id, "version": app.resume_version,
+             "name": (getattr(resume, "original_filename", "") or getattr(resume, "target_role", "")
+                      or "Résumé") if resume else None}
+            if app.resume_id else None
+        ),
+        "cover_letter": (
+            {"id": app.cover_letter_id, "version": app.cover_letter_version,
+             "name": (getattr(cover, "title", "") or "Cover letter") if cover else None}
+            if app.cover_letter_id else None
+        ),
+        "steps": steps,
+    }
 
 
 class _NeedsDocsError(RuntimeError):
