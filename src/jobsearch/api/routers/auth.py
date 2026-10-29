@@ -80,7 +80,10 @@ def register(body: RegisterRequest, state: StateDep) -> UserOut:
         seed_demo_data(state, user.id)
     except Exception:  # noqa: BLE001 - seeding is best-effort; never block signup
         pass
-    return UserOut(id=user.id, email=user.email, full_name=user.full_name, location=user.location)
+    return UserOut(
+        id=user.id, email=user.email, full_name=user.full_name, location=user.location,
+        notify_status_email=user.notify_status_email,
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

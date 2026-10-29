@@ -9,6 +9,26 @@ from fastapi import APIRouter, HTTPException, status
 
 from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
+from jobsearch.engines.email_sender import build_email_sender
+
+
+def _notify_status(state, user, app) -> None:
+    """Email the user an application-status update — only with their consent
+    (``notify_status_email``). Best-effort; never breaks the request."""
+    if not getattr(user, "notify_status_email", False) or not getattr(user, "email", ""):
+        return
+    role = app.job_title or "your application"
+    company = f" at {app.job_company}" if app.job_company else ""
+    try:
+        build_email_sender(state.settings).send(
+            to=user.email,
+            subject=f"Application update: {role}{company}",
+            body=(f"Your application for {role}{company} is now: {app.status.value}.\n\n"
+                  "You're receiving this because you turned on status emails. "
+                  "Turn them off anytime in Settings."),
+        )
+    except Exception:  # noqa: BLE001 - notifications are best-effort
+        pass
 from jobsearch.api.schemas import (
     ApplicationCreate,
     ApplicationOut,
@@ -215,6 +235,8 @@ def submit(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except RateLimitError as exc:
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(exc)) from exc
+    if result.success:
+        _notify_status(state, user, app)
     return SubmitResponse(
         success=result.success,
         platform=result.platform,
@@ -280,10 +302,14 @@ def update_status(
     application_id: str, body: StatusUpdate, user: CurrentUser, state: StateDep
 ) -> ApplicationOut:
     app = _owned(state, user.id, application_id)
+    changed = app.status != body.status
     app.status = body.status
     app.updated_at = utcnow()
     app.record_event("status_manual_update", status=body.status.value)
-    return _out(state, state.applications.add(app))  # persist the mutation
+    saved = state.applications.add(app)  # persist the mutation
+    if changed:
+        _notify_status(state, user, saved)
+    return _out(state, saved)
 
 
 @router.delete("/{application_id}", status_code=status.HTTP_204_NO_CONTENT)

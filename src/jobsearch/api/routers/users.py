@@ -20,9 +20,16 @@ def _profile(state: StateDep, user_id: str) -> UserProfile:
     return prof
 
 
+def _user_out(user) -> UserOut:
+    return UserOut(
+        id=user.id, email=user.email, full_name=user.full_name, location=user.location,
+        notify_status_email=getattr(user, "notify_status_email", False),
+    )
+
+
 @router.get("/me", response_model=UserOut)
 def get_me(user: CurrentUser) -> UserOut:
-    return UserOut(id=user.id, email=user.email, full_name=user.full_name, location=user.location)
+    return _user_out(user)
 
 
 @router.put("/me", response_model=UserOut)
@@ -34,7 +41,16 @@ def update_me(body: ProfileUpdate, user: CurrentUser, state: StateDep) -> UserOu
     state.profiles.add(prof)  # persist the mutation
     user.updated_at = utcnow()
     state.users.add(user)
-    return UserOut(id=user.id, email=user.email, full_name=user.full_name, location=user.location)
+    return _user_out(user)
+
+
+@router.put("/me/email-notifications", response_model=UserOut)
+def set_email_notifications(user: CurrentUser, state: StateDep, enabled: bool) -> UserOut:
+    """Opt in/out of emailed application-status updates (consent, off by default)."""
+    user.notify_status_email = bool(enabled)
+    user.updated_at = utcnow()
+    state.users.add(user)
+    return _user_out(user)
 
 
 @router.get("/me/profile", response_model=UserProfile)

@@ -84,6 +84,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     location: str
+    notify_status_email: bool = False
 
 
 class ProfileUpdate(BaseModel):

@@ -171,6 +171,9 @@ class User(DomainModel):
     #: no caps), or "tester" (full app, no caps). Testers are also resolved from
     #: ``settings.tester_emails`` regardless of this stored value.
     plan: str = "free"
+    #: Opt-in consent to email the user when an application's status changes. Off by
+    #: default — we only email status updates once the user turns this on.
+    notify_status_email: bool = False
     #: Unique token in the user's personal forwarding address
     #: (jobs+<token>@<inbox_domain>). Generated lazily on first use.
     inbox_token: str = ""

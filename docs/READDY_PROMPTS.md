@@ -2739,3 +2739,25 @@ The public marketing page (`/`) still has a **Pricing** section and "Paid plans 
 ### Scope & acceptance
 Frontend copy/section removal on the landing page only; app behavior unchanged. Global P0 rules apply.
 Acceptance: the landing page has **no pricing section, no price amounts, no "paid plans / coming soon" language, and no "Pricing" nav/footer link**; any cost mention simply says it's free; the Request-early-access CTA remains.
+
+---
+
+## P59 — Fixes: Simple toggle target, review-before-send preview, batch approvals, status-email consent
+
+### 1. Fix the Simple⇄Full toggle target (bug)
+"**Switch to the Simple version**" currently navigates to **`/extension`** (the public marketing page). It must open the **Simple dashboard at `/simple`**. From Simple, "**Switch to Full view**" goes to **`/dashboard`**. Fix the href/handler on both. (Verified: the Simple experience lives at `/simple`; the toggle just points to the wrong URL.)
+
+### 2. Review-before-send preview of the application
+Before an auto-apply is actually submitted (the approval step), show the user a **rendered preview of the exact application** they're approving: the **résumé** (the chosen version, rendered as a document) + the **cover letter** if any + **where it's headed** (company / role / platform). Then **Approve & send** or **Skip**. Nothing is sent until they approve on this preview. Use the existing résumé/cover-letter render endpoints.
+
+### 3. Batch approvals
+Prepared applications in the pipeline can be reviewed/approved **in batch**: select several (or "Approve all"), each showing its preview, and send the approved set in one action (`POST /applications/batch` already supports batching; submission still honors the per-application approval gate). Show **per-item results** (sent / needs manual / skipped).
+
+### 4. Emailed status updates — with consent (backend LIVE)
+Add a clear **opt-in toggle**: "**Email me when my application status changes**" — in Settings and/or near the pipeline, **off by default (consent required)**.
+- Read it from **`GET /api/v1/users/me`** → `notify_status_email`; set it with **`PUT /api/v1/users/me/email-notifications?enabled=true|false`**.
+- When on, the backend emails the user on status changes (submitted, interviewing, offered, …). Plain copy: "We'll email you at {email} when a job's status changes. Turn off anytime."
+
+### Scope & acceptance
+Frontend over existing endpoints + the new consent endpoint. Null-safe; global P0 rules apply.
+Acceptance: the Simple toggle switches between **`/simple`** and the full dashboard (never the extension page); before any auto-apply is sent the user sees a **rendered preview** of the exact résumé/cover letter + destination and must approve; prepared applications can be **approved in batch** with per-item results; and an **off-by-default** "email me on status changes" toggle controls real status emails via the consent endpoint.
