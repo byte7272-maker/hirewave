@@ -2696,3 +2696,25 @@ Right after sign-in the greeting shows a generic/placeholder name before the rea
 ### Scope & acceptance
 Frontend over `/auth/me/plan` + `/users/me`. Null-safe; global P0 rules apply.
 Acceptance: the Simple view is comfortable one-handed on a phone (single column, big tap targets, no button clusters, no sideways scroll); users who can switch see a prominent, clearly-labeled "Switch to Full view" control they can't miss (hidden for free); and the sign-in greeting always shows the user's real first name (or a nameless greeting while loading / if unknown) — never a generic placeholder.
+
+---
+
+## P57 — Résumé Workspace layout + click-to-edit bubbles (refines P55)
+
+Exact structure and interaction for the résumé screen, top to bottom. Frontend only, over existing endpoints + `GET /auth/me/plan`.
+
+### Vertical order (top → bottom)
+1. **Résumé summary — collapsed link at the top.** A one-line **"AI summary ▸"** collapsible, **collapsed by default**, sitting *above* the résumé render. Expanding it reveals the AI overview, with **Read aloud + voice controls** right there (the app's existing TTS play/pause + voice picker, e.g. `/interview/tts` or the read-aloud switch). It does not push the résumé down when collapsed.
+2. **Résumé render** — the document viewer (P55), the visual centerpiece.
+3. **AI functions & prompts — directly beneath the render.** All AI actions live here, right under the document:
+   - **Primary button (the one users can't miss): "Auto-improve my résumé."** One tap runs the AI improvement **and folds in the user's best saved/"reaped" bullets** (their strongest highlights/experience) — `POST /resumes/{id}/improve-structured` plus the user's experience highlights / `incorporate`. Show before→after in the render with **Keep / Undo**. This is the biggest, most obvious control on the screen.
+   - Secondary: **Ask AI to change it** (`/ai-edit`), **Tailor to role** (P49). Keep these smaller/below the primary.
+
+### Click-to-edit bubble (direct manipulation)
+- **Clicking directly on the résumé** (a bullet, a line, a heading) opens a small **inline editing bubble** anchored to that element: edit the text inline **or** "Rewrite with AI" that one piece (`/ai-edit` with a targeted instruction, or a span rewrite). Apply → the render updates with Keep/Undo.
+- **Mobile-friendly:** on phones the bubble is a **bottom sheet** (full-width, big tap targets, easy dismiss), not a tiny floating popover; on desktop it's a compact popover by the clicked element. No crowding.
+- **Tier-limited:** each AI rewrite from a bubble counts against the free **AI-edit cap** (`/auth/me/plan` → `remaining.ai_edits_today`); when the cap is hit, the bubble shows the friendly 402 message + the upgrade link (P54). Plain (non-AI) inline text edits aren't capped.
+
+### Scope & acceptance
+Frontend over résumé endpoints (`improve-structured`, `ai-edit`, `incorporate`, experience/highlights) + `/auth/me/plan`. Raw text editor stays hidden (P55). Null-safe; global P0 rules apply.
+Acceptance: the collapsed **AI summary** (with read/voice) sits above the render; the render is the centerpiece; **"Auto-improve my résumé" (with best bullets)** is the clear primary control directly beneath it; tapping any part of the résumé opens a mobile-friendly editing bubble (inline or AI rewrite) with Keep/Undo; AI rewrites respect the free AI-edit cap.
