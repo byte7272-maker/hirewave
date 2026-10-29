@@ -2847,3 +2847,29 @@ After an application is prepared/submitted, the user should be able to **open it
 ### Scope & acceptance
 Frontend over `/dashboard/summary` and `/applications/{id}/activity` (backend fields are live). Null-safe (missing logo → initials/badge; missing link → hide the button). Global P0 rules apply.
 Acceptance: each dashboard top match shows the source board logo + name and opens the real posting (or a board search) in a new tab; every application offers a clear "open on the provider" link to check the outcome, in both Simple and Full.
+
+---
+
+## P64 — Fix two gaps: render the source LOGO image + place the status-email consent toggle
+
+Live test found the backend data/endpoints are present but two things aren't shown. Frontend only; no backend change.
+
+### 1. Render the source board **logo as an image** (not just the board name)
+On the dashboard top matches (and anywhere a match shows), the board is shown as text ("Via Indeed") but the **source logo image isn't rendered** (0 `<img>` from `source_logo`). Fix:
+- Use **`source_logo`** (from `GET /dashboard/summary` → `matches.top` / `matches.top_matches[]`, and `MatchOut.source_logo` on the Matches page) as a small **`<img>` board badge** next to the match. It's a real icon URL (e.g. `https://icons.duckduckgo.com/ip3/indeed.com.ico`).
+- Use **`company_logo`** as the company mark (left of the title).
+- **Fallbacks:** if `source_logo` is empty or the image 404s (`onerror`), show the **`source_display`** text badge ("Indeed") — or an "inbox" badge for inbox-sourced; if `company_logo` fails, show the company initials. Never a broken-image icon.
+- The match/card and its "View" open **`source_url`** in a new tab (`rel="noopener"`) — you already render these links; keep them.
+
+### 2. Place the "Email me when my application status changes" consent toggle
+The consent endpoint is live but there's **no toggle in the UI**. Add it:
+- **In Settings** (a "Notifications" row) **and** near the **applications/pipeline** (a small "Get status emails" switch).
+- **Off by default.** Read the current value from **`GET /api/v1/users/me`** → `notify_status_email`; write with **`PUT /api/v1/users/me/email-notifications?enabled=true|false`**.
+- Plain copy: "Email me at {email} when a job's status changes." + "Off anytime." Show the user's email so they know where it goes.
+
+### 3. (Reinforce) "Open on the provider" link on each application
+Make sure every application (apply queue, pipeline, and the P61 activity timeline) has a clear **"Open on {source_display}"** link that opens **`GET /applications/{id}/activity` → `job.source_url`** in a new tab, so the user can check the outcome on Indeed/LinkedIn/…. Present in both Simple and Full.
+
+### Scope & acceptance
+Frontend over `/dashboard/summary`, `/users/me` (+ the email-notifications PUT), and `/applications/{id}/activity`. Null-safe (logo fails → text/initials; no link → hide). Global P0 rules apply.
+Acceptance: dashboard matches show the actual **source board logo image** (with a text-badge/initials fallback) and link to the posting; Settings and the pipeline have an **off-by-default** "email me on status changes" toggle wired to the consent endpoint; and every application has an "open on the provider" link — all in both Simple and Full.
