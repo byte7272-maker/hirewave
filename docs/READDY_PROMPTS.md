@@ -2608,7 +2608,7 @@ Acceptance: a non-technical user, using big obvious controls and step-by-step gu
 
 ## P54 — Upgrade screen ("what you get with Full")
 
-The friendly place the free-tier limit prompts lead to: a simple, reassuring page that shows what the free plan includes, what the full version unlocks, and where the user currently stands. Designed for the same older / non-technical audience as P53 — plain words, big buttons, no pressure. Reads the live plan; no billing yet, so the call to action is a waitlist, not a checkout.
+The friendly place the free-tier limit prompts lead to: a simple, reassuring page that shows what the free plan includes, what the full version unlocks, and where the user currently stands. Designed for the same older / non-technical audience as P53 — plain words, big buttons, no pressure. Reads the live plan. **Do not mention paid plans, pricing, waitlists, or "coming soon" anywhere** — when the user asks to upgrade, just flash a short message that it's not available yet.
 
 ### Where it's reached from
 - The **Upgrade** card/button on the Simple home.
@@ -2636,12 +2636,12 @@ Read **`GET /api/v1/auth/me/plan`**. Use `limits` + `remaining` to show "you've 
 
    (Pull the Free numbers from `limits`, not hard-coded, so they track the backend.)
 3. **Reassurance strip** (plain, large): "Human approval before anything is sent · We never store your password · Cancel anytime."
-4. **Primary button**: since paid plans aren't live yet, **"Notify me when Full is available"** (join the upgrade waitlist) — on click, a simple confirmation ("We'll email you — no payment needed now."). A secondary **"Keep using Free"** closes back to where they were. No fake checkout / card fields.
+4. **Primary button**: **"Unlock Full"** — on click, **flash a short toast: "Full is not available yet — you'll keep everything you've done."** and stay on the page. No waitlist, no email capture, no pricing, no checkout, no "coming soon." A secondary **"Keep using Free"** closes back to where they were.
 
 ### Scope
-Frontend only, over `GET /auth/me/plan` and the existing waitlist/contact capture. Plain language, big controls, never a dead end. Global P0 rules apply.
+Frontend only, over `GET /auth/me/plan`. Plain language, big controls, never a dead end. **No mention of paid plans / pricing / waitlist / coming-soon** anywhere in the app — the only response to an upgrade attempt is the brief "not available yet" flash. Global P0 rules apply.
 
-Acceptance: hitting any free cap shows a calm inline message and a one-tap path to this screen (highlighting the right row); the screen shows Free (with the user's usage) vs Full in one simple comparison, with reassurances and a waitlist CTA (no payment); paid/tester users never see it (they see the Simple⇄Full toggle instead).
+Acceptance: hitting any free cap shows a calm inline message and a one-tap path to this screen (highlighting the right row); the screen shows Free (with the user's usage) vs Full in one simple comparison; tapping Unlock Full flashes "not available yet" and nothing else (no pricing/waitlist); paid/tester users never see it (they see the Simple⇄Full toggle instead).
 
 ---
 
@@ -2667,3 +2667,32 @@ Read `GET /auth/me/plan`. On free, show remaining in plain words — e.g. **"18 
 Frontend for the Simple view, over existing résumé endpoints (`improve-structured`, `ai-edit`, `incorporate`, tailor) + `/auth/me/plan`. The raw editor stays hidden on Simple. Null-safe; global P0 rules apply.
 
 Acceptance: the Simple résumé screen shows the actual résumé in a clean viewer with visuals (never an empty/dull box and never the raw text editor); the user improves it entirely through obvious AI actions with before→after + Keep/Undo; AI-edit remaining is shown and free caps surface as friendly upgrade prompts, not errors.
+
+---
+
+## P56 — Simple version: mobile-first, one obvious "Switch to Full", real name on sign-in
+
+Three fixes to the Simple experience. Frontend only.
+
+### 1. Mobile-first (no clusters)
+The Simple view must be excellent on a phone:
+- **Single column**, big readable text, generous spacing, **no horizontal scroll** at 360–400px wide.
+- **No clusters of buttons or crowded menus.** One clear **primary action per screen**; group everything else behind a single plain "More" if truly needed. Replace any row of small buttons with a few **big, stacked, tappable cards/buttons** (full-width, ≥48px tall, text labels — not icon-only).
+- Primary actions sit where a thumb reaches (lower on the screen); nothing important crammed into tiny top-corner icons.
+- The Simple home's few big cards (P53) stack vertically and fill the width on mobile.
+
+### 2. One obvious "Switch to Full" control (fix: easily missed)
+For users who can switch (`GET /auth/me/plan` → `can_toggle_full: true`, i.e. paid/tester), the Simple⇄Full toggle is currently too subtle and gets missed. Make it **impossible to miss**:
+- A **clearly-labeled button with icon + text** — "**Switch to Full view**" (and "Switch to Simple" when in Full) — in a **consistent, prominent spot** (e.g. the top bar, or a full-width bar under the header on mobile), **high-contrast / accent-colored**, never hidden inside a ⋯ menu.
+- Persist the choice per user (localStorage is fine) so it sticks across visits.
+- Free users (`can_toggle_full: false`) don't see it at all.
+
+### 3. Greet with the real name (fix: generic greeting on sign-in)
+Right after sign-in the greeting shows a generic/placeholder name before the real one loads. Fix:
+- Greet using the signed-in user's real name from **`GET /api/v1/users/me`** (`full_name` → first name). Backend returns it correctly (verified), so **never show a generic/mock name**.
+- While the name is still loading, show a **nameless** greeting ("Welcome back" / "Good morning") — then fill in the name when it arrives. No flash of a generic or wrong name.
+- If `full_name` is genuinely empty, use the email's name part, else just the nameless greeting.
+
+### Scope & acceptance
+Frontend over `/auth/me/plan` + `/users/me`. Null-safe; global P0 rules apply.
+Acceptance: the Simple view is comfortable one-handed on a phone (single column, big tap targets, no button clusters, no sideways scroll); users who can switch see a prominent, clearly-labeled "Switch to Full view" control they can't miss (hidden for free); and the sign-in greeting always shows the user's real first name (or a nameless greeting while loading / if unknown) — never a generic placeholder.
