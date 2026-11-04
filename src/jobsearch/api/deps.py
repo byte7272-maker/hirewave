@@ -38,6 +38,14 @@ def get_current_user(
     user = state.users.get(payload["sub"])
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user no longer exists")
+    # Attribute any AI calls made while serving this request to this user (for the
+    # admin cost dashboard). Best-effort; background work stays unattributed ("system").
+    try:
+        from jobsearch.analytics import ai_usage
+
+        ai_usage.set_actor(user.id)
+    except Exception:  # noqa: BLE001 - metering must never block auth
+        pass
     return user
 
 

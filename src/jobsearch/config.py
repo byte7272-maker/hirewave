@@ -186,16 +186,18 @@ class Settings(BaseSettings):
     # then build the clip library once with POST /interview/avatars/build.
     heygen_api_key: str = Field(default="", validation_alias="HEYGEN_API_KEY")
     heygen_voice_id: str = ""  # optional HeyGen voice id; blank = per-persona neutral default
-    # Free-tier plan limits (the Simple experience). Enforced only for the "free"
-    # plan; "paid"/"tester" are unlimited. Testers are also identified by email via
-    # JOBSEARCH_TESTER_EMAILS (comma-separated) so real test accounts get the full
-    # app and the Simple⇄Full toggle, never the caps.
+    # Account tiers (tester / trial / free). Enforcement is global; testers are
+    # unlimited, a new account gets a `trial_days` full trial, then falls to free.
+    # The admin API is the main way to designate testers; the allowlists below are
+    # optional overrides (comma-separated). Default empty — no domain is auto-tester.
     plan_limits_enforced: bool = True
+    #: How many days a brand-new account keeps the full experience before dropping to
+    #: the free baseline (0 disables the trial → new accounts are free immediately).
+    trial_days: int = Field(default=30, validation_alias="JOBSEARCH_TRIAL_DAYS")
     tester_emails_raw: str = Field(default="", validation_alias="JOBSEARCH_TESTER_EMAILS")
-    #: Email domains whose accounts are testers (full app + Simple⇄Full toggle, no
-    #: caps). Defaults to gmail.com, so anyone signing in with a Gmail account gets
-    #: the full experience during testing. Comma-separated.
-    tester_domains_raw: str = Field(default="gmail.com", validation_alias="JOBSEARCH_TESTER_DOMAINS")
+    #: Email domains whose accounts are testers (full app, no caps). Optional override —
+    #: empty by default; prefer the admin API to designate testers. Comma-separated.
+    tester_domains_raw: str = Field(default="", validation_alias="JOBSEARCH_TESTER_DOMAINS")
 
     @property
     def tester_emails(self) -> list[str]:
@@ -204,6 +206,51 @@ class Settings(BaseSettings):
     @property
     def tester_domains(self) -> list[str]:
         return [d.strip().lower().lstrip("@") for d in self.tester_domains_raw.split(",") if d.strip()]
+
+    # --- Admin dashboard -----------------------------------------------------
+    #: Emails of users who may see the in-app Admin dashboard (operator analytics).
+    #: Comma-separated; set via the JOBSEARCH_ADMIN_EMAILS Railway variable. Empty =
+    #: nobody sees it (safe by default). This gates the session-based /admin/analytics*
+    #: endpoints — separate from the header-token admin API (JOBSEARCH_ADMIN_TOKEN).
+    admin_emails_raw: str = Field(default="", validation_alias="JOBSEARCH_ADMIN_EMAILS")
+    #: Projected monthly price per plan tier, for the dashboard's revenue model (the app
+    #: is free today; this is a what-if projection). "tier:price" pairs, comma-separated.
+    plan_prices_raw: str = Field(
+        default="free:0,trial:0,tester:0", validation_alias="JOBSEARCH_PLAN_PRICES"
+    )
+    #: Estimated AI cost rates (USD per 1K tokens) for the dashboard's AI-cost model.
+    #: Tokens are *estimated* from text length (no real metering), so these are planning
+    #: numbers; tune to your provider/model. Defaults are a mid-tier ballpark.
+    ai_cost_input_per_1k: float = Field(
+        default=0.003, validation_alias="JOBSEARCH_AI_COST_INPUT_PER_1K"
+    )
+    ai_cost_output_per_1k: float = Field(
+        default=0.015, validation_alias="JOBSEARCH_AI_COST_OUTPUT_PER_1K"
+    )
+
+    @property
+    def admin_emails(self) -> list[str]:
+        return [e.strip().lower() for e in self.admin_emails_raw.split(",") if e.strip()]
+
+    def is_admin_email(self, email: str) -> bool:
+        return bool(email) and email.strip().lower() in self.admin_emails
+
+    @property
+    def plan_prices(self) -> dict[str, float]:
+        out: dict[str, float] = {}
+        for pair in self.plan_prices_raw.split(","):
+            if ":" not in pair:
+                continue
+            tier, _, price = pair.partition(":")
+            tier = tier.strip().lower()
+            try:
+                out[tier] = float(price.strip())
+            except ValueError:
+                continue
+        return out
+
+    def plan_price(self, tier: str) -> float:
+        return self.plan_prices.get((tier or "").strip().lower(), 0.0)
     # User-directed content libraries — JSON files you own and edit. Blank =
     # the built-in generator / question templates.
     #   persona_library: [{name, role, company, style, gender, voice, voice_id,

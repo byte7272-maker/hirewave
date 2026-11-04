@@ -366,8 +366,8 @@ def batch_apply(body: BatchApplyRequest, user: CurrentUser, state: StateDep) -> 
         res = BatchApplyResult(job_id=jid, application_id=app.id, created=not reused, reused=reused)
         out.created += 1
         if body.submit and submit_allowance is not None and submit_allowance <= 0:
-            # Added to the pipeline, but the free auto-apply cap is reached.
-            res.message = "Added to your pipeline. You've reached your free auto-apply limit — upgrade to auto-apply to more."
+            # Added to the pipeline, but the auto-apply cap is reached for now.
+            res.message = "Added to your pipeline. That's your auto-applies for now — they'll refresh soon, or you can submit it yourself."
             out.results.append(res)
             continue
         if body.submit:

@@ -1216,9 +1216,9 @@ class ResumeAssistant:
                 "work[{name,position,startDate,endDate,summary,highlights[]}], "
                 "education[{institution,area,studyType,startDate,endDate}], "
                 "skills[{name,keywords[]}]. Use empty strings/arrays when unknown. Do NOT invent "
-                "anything not in the text.\n\nResume:\n" + text[:4000],
+                "anything not in the text.\n\nResume:\n" + text,
                 system="You extract structured data from resumes and output only JSON.",
-                max_tokens=1600,
+                max_tokens=4000,
             )
             data = json.loads(_extract_json(out))
             parsed = ResumeData.model_validate(data)
@@ -1268,9 +1268,9 @@ class ResumeAssistant:
                 "date or 'Present', past tense for previous roles), quantify impact, and tighten the summary. "
                 "Use ONLY facts already "
                 "present -- never invent employers, titles, dates, metrics, or skills." + focus + points + reqs +
-                "\n\nResume:\n" + text[:4000],
+                "\n\nResume:\n" + text,
                 system="You improve resumes and output only valid JSON Resume JSON.",
-                max_tokens=2000,
+                max_tokens=4000,
             )
             data = json.loads(_extract_json(out))
             parsed = ResumeData.model_validate(data)
@@ -1310,9 +1310,9 @@ class ResumeAssistant:
                 "tense (present tense for the current role, past tense for previous roles). Use "
                 "ONLY facts already in the resume PLUS the candidate's additional points -- never invent "
                 "employers, titles, dates, metrics, or skills beyond what is stated." + focus + ideas + reqs +
-                "\n\nResume:\n" + text[:4000],
+                "\n\nResume:\n" + text,
                 system="You improve resumes, incorporate the candidate's own notes, and output only valid JSON Resume JSON.",
-                max_tokens=2000,
+                max_tokens=4000,
             )
             data = json.loads(_extract_json(out))
             parsed = ResumeData.model_validate(data)
@@ -1563,9 +1563,9 @@ class ResumeAssistant:
                 "For remove/reword, 'before' MUST be copied verbatim from the résumé so it can be "
                 "located. Use ONLY facts present in the résumé or the notes — never invent employers, "
                 "titles, dates, metrics, or skills. Return ONLY the JSON array (max 20)." + reqs + avoid_block +
-                "\n\nRésumé:\n" + text[:4000] + "\n\nPasted notes:\n" + ctx[:6000],
+                "\n\nRésumé:\n" + text + "\n\nPasted notes:\n" + ctx,
                 system="You suggest precise, verifiable résumé edits that complement the résumé and output only a JSON array.",
-                max_tokens=1600,
+                max_tokens=2400,
             )
             edits = _coerce_edits(json.loads(_extract_json_array(out)))
         except Exception:  # noqa: BLE001 - no guessing on failure
@@ -1625,7 +1625,7 @@ class ResumeAssistant:
         doc = kind if kind in ("resume", "cover letter") else "resume"
         try:
             out = self.llm.complete(
-                f"Apply ONLY this instruction to the {doc}, changing nothing else: \"" + instruction[:500]
+                f"Apply ONLY this instruction to the {doc}, changing nothing else: \"" + instruction
                 + "\". Return the minimal set of edits as a JSON array; each item: {\"action\":\"add\"|"
                 "\"remove\"|\"reword\", \"section\":<the section it's in>, \"before\":<the EXACT "
                 f"existing {doc} text to change, copied verbatim; empty for add>, \"after\":<the new text; "
@@ -1634,13 +1634,52 @@ class ResumeAssistant:
                 "'before' MUST be copied verbatim so it can be located. Use ONLY facts already present (plus "
                 "wording the instruction explicitly provides) - never invent facts. Return ONLY the JSON "
                 "array." + reqs +
-                f"\n\n{doc.capitalize()}:\n" + text[:4000],
+                f"\n\n{doc.capitalize()}:\n" + text,
                 system=f"You make precise, minimal {doc} edits and output only a JSON array.",
-                max_tokens=900,
+                max_tokens=1400,
             )
             return _coerce_edits(json.loads(_extract_json_array(out)))
         except Exception:  # noqa: BLE001 - no guessing on failure
             return []
+
+    def apply_instruction_text(
+        self, text: str, instruction: str, *, job: Optional[JobPosting] = None, kind: str = "resume"
+    ) -> str:
+        """Apply a free-text instruction to the WHOLE document and return the full revised
+        text. This is the fallback for ``/ai-edit`` when targeted edits can't be located, so
+        a user's instruction is never silently ignored. Preserves every other section/line
+        verbatim; uses only facts present (plus wording the instruction supplies). Returns
+        the revised text, or "" on failure (caller then leaves the document unchanged)."""
+        text = (text or "").strip()
+        instruction = (instruction or "").strip()
+        if not text or not instruction:
+            return ""
+        doc = kind if kind in ("resume", "cover letter") else "resume"
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nTarget role: " + (job.title or "") + " - " + ", ".join(job.requirements[:10])
+        try:
+            out = self.premium.complete(
+                f"Apply this instruction to the {doc} and return the COMPLETE revised {doc}. "
+                "Preserve EVERY section and every other line exactly as-is (same content, same "
+                "order, same wording) except where the instruction requires a change — do not "
+                "drop, shorten, summarize, or reorder unrelated content. Use ONLY facts already "
+                "present (plus wording the instruction explicitly provides); never invent "
+                "employers, titles, dates, metrics, or skills. Return ONLY the full revised "
+                f"{doc} text — no commentary, no code fences.\n\nInstruction: " + instruction + reqs +
+                f"\n\n{doc.capitalize()}:\n" + text,
+                system=f"You revise a {doc} per one instruction and output only the full revised document.",
+                max_tokens=4000,
+            )
+            out = (out or "").strip()
+            if out.startswith("```"):  # strip an accidental code fence
+                lines = out.split("\n")[1:]
+                if lines and lines[-1].strip().startswith("```"):
+                    lines = lines[:-1]
+                out = "\n".join(lines).strip()
+            return out
+        except Exception:  # noqa: BLE001 - no guessing on failure
+            return ""
 
     def incorporate_cover_letter(
         self, cover_letter: CoverLetter, points: list[str], *, instruction: str = "",

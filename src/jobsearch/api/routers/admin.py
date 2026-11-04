@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import re
 import secrets
+from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, status
+from pydantic import BaseModel
 
 from jobsearch.api.deps import StateDep
 from jobsearch.api.schemas import InviteOut, MintInviteRequest
+from jobsearch.engines import plans
 from jobsearch.models import ResumeTemplate, SignupInvite
+from jobsearch.models.common import utcnow
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -148,3 +153,132 @@ def prune_seed_jobs(
         "dry_run": not confirm,
         "sample": [f"{(j.title or '?')} @ {(j.company or '?')}" for j in targets[:20]],
     }
+
+
+# --- account-type control (designate testers / trial / free at scale) -------
+# The operator control for account tiers: set one account or a whole group, instead of
+# hand-editing env allowlists. ``type`` is tester | trial | free | auto ("" = auto, i.e.
+# trial-while-new then free). Gated by the admin token like everything else here.
+_VALID_TYPES = {"tester", "trial", "free"}
+
+
+class SetAccountTypeRequest(BaseModel):
+    type: str
+    email: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class BulkAccountTypeRequest(BaseModel):
+    type: str
+    #: Selection (combine freely). None/empty on all three = every account.
+    domain: Optional[str] = None            # e.g. "acme.com" (exact email domain)
+    signup_before: Optional[str] = None     # ISO date/datetime: accounts created before it
+    emails: Optional[list[str]] = None      # explicit list
+
+
+def _normalize_type(raw: str) -> str:
+    t = (raw or "").strip().lower()
+    if t in ("auto", "", "none", "default"):
+        return ""  # the AUTO sentinel
+    if t in _VALID_TYPES:
+        return t
+    raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                        "type must be one of: tester, trial, free, auto")
+
+
+def _effective(state, user) -> str:
+    s = state.settings
+    return plans.effective_tier(
+        user,
+        trial_days=getattr(s, "trial_days", plans.DEFAULT_TRIAL_DAYS),
+        tester_emails=getattr(s, "tester_emails", []),
+        tester_domains=getattr(s, "tester_domains", []),
+    )
+
+
+def _acct(user) -> dict:
+    return {"email": user.email, "stored_type": (user.plan or "auto")}
+
+
+def _parse_dt(raw: str) -> datetime:
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bad date: {raw}") from exc
+
+
+@router.post("/accounts/type")
+def set_account_type(
+    body: SetAccountTypeRequest, state: StateDep, x_admin_token: str = Header("")
+) -> dict:
+    """Set one account's type (by email or user_id)."""
+    _require_admin(state, x_admin_token)
+    new_type = _normalize_type(body.type)
+    user = None
+    if body.user_id:
+        user = state.users.get(body.user_id)
+    elif body.email:
+        user = state.user_by_email(body.email)
+    else:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide email or user_id")
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "account not found")
+    user.plan = new_type
+    user.updated_at = utcnow()
+    state.users.add(user)
+    return {**_acct(user), "effective_type": _effective(state, user)}
+
+
+@router.post("/accounts/bulk-type")
+def bulk_set_account_type(
+    body: BulkAccountTypeRequest, state: StateDep, x_admin_token: str = Header("")
+) -> dict:
+    """Set a whole group's type in one call: by domain, signup-before date, an explicit
+    email list, or (no filter) everyone. Use this to grandfather early users as testers
+    without tagging accounts one by one."""
+    _require_admin(state, x_admin_token)
+    new_type = _normalize_type(body.type)
+    domain = (body.domain or "").strip().lower().lstrip("@")
+    before = _parse_dt(body.signup_before) if body.signup_before else None
+    wanted = {e.strip().lower() for e in (body.emails or []) if e.strip()}
+
+    updated = 0
+    for u in state.users.all():
+        email = (u.email or "").lower()
+        if domain and not email.endswith("@" + domain):
+            continue
+        if wanted and email not in wanted:
+            continue
+        if before is not None:
+            created = getattr(u, "created_at", None)
+            try:
+                if created is None or not created < before:
+                    continue
+            except TypeError:  # tz mismatch
+                if created is None or not created.replace(tzinfo=None) < before.replace(tzinfo=None):
+                    continue
+        u.plan = new_type
+        u.updated_at = utcnow()
+        state.users.add(u)
+        updated += 1
+    return {"updated": updated, "type": new_type or "auto"}
+
+
+@router.get("/accounts")
+def list_accounts(
+    state: StateDep, x_admin_token: str = Header(""),
+    effective_type: str = "", limit: int = 200,
+) -> list[dict]:
+    """List accounts with their stored override and current effective tier. Optionally
+    filter by effective tier (tester / trial / free)."""
+    _require_admin(state, x_admin_token)
+    want = (effective_type or "").strip().lower()
+    out: list[dict] = []
+    for u in sorted(state.users.all(), key=lambda x: getattr(x, "created_at", utcnow())):
+        row = {**_acct(u), "effective_type": _effective(state, u)}
+        if want and row["effective_type"] != want:
+            continue
+        out.append(row)
+        if len(out) >= max(1, limit):
+            break
+    return out

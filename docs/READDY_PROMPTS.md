@@ -2896,3 +2896,97 @@ Add an obvious **Loop / Repeat** toggle (a loop icon with an on/off state, plus 
 ### Scope & acceptance
 Frontend over the existing TTS / suggest-answer / answer-voice endpoints. Null-safe; global P0 rules apply.
 Acceptance: the summary player has a Loop toggle that replays the summary continuously until stopped; the interview Listen mode has a Loop control with Repeat-all and Repeat-one, each clearly labeled; looping plays cached audio (no extra AI spend) and keeps playing hands-free on a phone until the user stops it.
+
+---
+
+## P66 — Carry the P64 fixes into the Simple view (source logo + status-email toggle)
+
+P64 shipped in the **Full** experience but not the **Simple** one. A live test (authenticated) found two gaps in Simple — this closes them. **Frontend only; no backend change.** The same fields and endpoints P64 used are already LIVE; Simple just isn't rendering them. Match the existing Simple look (large tap targets, one accent color, plain copy, mobile-first, dark-mode aware).
+
+### 1. Show the source board on `/simple/matches` (logo image + text fallback)
+Today each Simple match card shows only the title, company, a "Worth a look" tag, **Apply**, and a "Read the job" link — the **board isn't surfaced at all** (0 `<img>`, no text badge), even though `source_logo` is a real icon URL. Fix, mirroring P64 #1:
+- Render **`source_logo`** (from the Matches payload / `MatchOut.source_logo`, e.g. `https://icons.duckduckgo.com/ip3/indeed.com.ico`) as a small **`<img>` board badge** on each Simple match card.
+- **Fallback:** if `source_logo` is empty or the image 404s (`onerror`), show the **`source_display`** text badge ("Indeed" / an "inbox" badge for inbox-sourced). **Never** a broken-image icon, and never *nothing* — the user should always see which board it came from.
+- Keep the existing **"Read the job"** link as-is (it already opens `source_url` in a new tab with `rel="noopener"`). Optionally add the company mark (`company_logo`, else initials) to match Full, but the source badge is the required fix.
+
+### 2. Add the "status emails" consent toggle to Simple
+The consent toggle exists in Full (Settings + pipeline) but is **absent from every Simple surface** (home, matches, connect). Add one obvious, Simple-styled switch, off by default:
+- Best home: the **"Connect email & auto-apply"** area (`/simple/connect`) and/or the Simple home safety row ("Nothing is ever sent without you") — wherever a non-technical user will see it alongside the auto-apply promise.
+- **Off by default.** Read from **`GET /api/v1/users/me`** → `notify_status_email`; write with **`PUT /api/v1/users/me/email-notifications?enabled=true|false`** (same endpoint Full uses — already verified wired).
+- Plain copy, showing the address: "Email me at {email} when a job's status changes." + "Off anytime." Big tap target; reflect the saved state immediately.
+
+### 3. (Confirm) "Open on the provider" in Simple applications/activity
+Wherever Simple lists applications or the auto-apply activity (the P61 timeline in its Simple form), make sure each item has the same clear **"Open on {source_display}"** / "Read the job" link to `job.source_url` (from `GET /applications/{id}/activity`) in a new tab, so a Simple user can still check the outcome on Indeed/LinkedIn/…. If no such list is surfaced in Simple yet, add a minimal read-only one.
+
+### Scope & acceptance
+Frontend over the same Matches payload, `/users/me` (+ the email-notifications PUT), and `/applications/{id}/activity` that P64 used. Null-safe (logo fails → text/initials; no link → hide). Global P0 rules apply.
+Acceptance: `/simple/matches` cards show the **source board logo image** (with a `source_display` text/inbox fallback, never blank); the Simple view has an **off-by-default "email me on status changes"** toggle wired to the consent endpoint and showing the user's address; and Simple applications/activity each link out to the provider — so P64 now holds in **both** Simple and Full.
+
+---
+
+## P67 — BUG: users can't delete a résumé or cover letter (give every document an easy, obvious Delete)
+
+A tester reported he **can't delete a résumé draft from his list.** The backend is fine — the problem is the UI never exposes a whole-document delete. **Frontend only; the endpoints below are already LIVE.**
+
+**Root cause:** today the only trash control is the **version** trash in the Versions marquee (P42 / P2.1), which deletes *a version within a document* and is **hidden/disabled when only one version remains** (the API 400s otherwise). A fresh **draft** résumé has a single version, so it has **no delete affordance at all** — there is no way to remove the whole document. Deleting a *document* is a different, always-available action from deleting a *version*; this prompt adds it. Don't change or remove the version trash — keep both, and make the difference obvious ("Delete this version" vs "Delete résumé").
+
+### 1. A clear per-document Delete everywhere a document is listed or open
+Add an obvious control to **résumés and cover letters** in **all** of these places, in **both Simple and Full**:
+- **The Documents library** — on every résumé/cover-letter card, a visible **⋯ (More) menu** (or a direct trash icon) containing **Delete** and **Archive**. Not buried behind hover-only on desktop; on mobile/Simple it's a plainly labeled row in the card's menu with a big tap target.
+- **The Workspace** (open document) — in the header's **⋯ More** menu: **"Delete résumé"** / **"Delete cover letter"** (label by type). After a successful delete, **leave the Workspace**: route back to the Documents list and select another document (or show the empty state).
+- **The Simple view** — wherever Simple lists the user's résumé(s)/cover letter(s), a clearly labeled **Delete** (and **Archive**) action, same styling language as the rest of Simple.
+
+### 2. Wire it to the live endpoints
+- **Delete résumé:** `DELETE /api/v1/resumes/{id}` → **204**.
+- **Delete cover letter:** `DELETE /api/v1/cover-letters/{id}` → **204**.
+- Works for **drafts and any document regardless of version count** — it's ownership-checked only; **no plan/tier gate** (never hide Delete behind Full/upgrade; every user owns their documents). A **404** means it's already gone — treat as success and just remove the card.
+- On 204: optimistically remove the card from the list (and from the versions marquee / any open reference); show a toast **"Deleted '{name}'."** Re-fetch the list (`GET /api/v1/resumes?archived=false` / `…/cover-letters?archived=false`) to stay in sync.
+
+### 3. Confirm, because delete is permanent — and offer Archive as the safe alternative
+- **Confirm dialog** before deleting: name the document and state it's permanent — e.g. *"Delete '{name}'? This permanently removes the résumé and all its versions. This can't be undone."* Primary button **Delete** is **red** (destructive); secondary **Cancel**. (Per the P9 color rule, red is reserved for destructive actions — use it here and nowhere benign.)
+- In that same dialog, offer **"Archive instead"** — the reversible option (hides it from the main list without losing it):
+  - Archive: `PUT /api/v1/resumes/{id}` (or `…/cover-letters/{id}`) with `{ "archived": true }`; Unarchive with `{ "archived": false }`.
+  - Surface an **Archived** shelf/filter (list with `?archived=true`) with an **Unarchive** action, so archiving is clearly recoverable. Because document delete has **no server-side undo**, steer hesitant users to Archive rather than offering a fake Undo.
+- Dialogs must portal to `body` and be interactable on the dashboard (P45) — don't render the confirm off-screen.
+
+### Scope & acceptance
+Frontend over `DELETE /api/v1/resumes/{id}`, `DELETE /api/v1/cover-letters/{id}`, the `PUT …{id} { archived }` toggle, and the `?archived=` list filters — all already LIVE; **no backend change.** Null-safe, keyboard-accessible (`aria-label="Delete {name}"`), 204/404 both clear the card, global P0 rules apply.
+Acceptance: from the Documents library, the Workspace, **and** the Simple view, a user can delete **any** résumé or cover letter — **including a brand-new single-version draft** — via an obvious control; a destructive confirm names the document and offers **Archive instead**; deleting removes it from the list and (if open) returns to the library; archiving moves it to a recoverable Archived shelf; and Delete is never hidden behind a tier/upgrade.
+
+---
+
+## P68 — Admin dashboard: engagement, AI cost, and projected revenue (operator-only, in-app)
+
+An **operator analytics dashboard inside Hirewave**, visible **only to designated admins** — never to regular users. The backend is new and token/role-gated; this prompt builds the GUI over it. Match the app's design system (P9 one-accent palette, P60 dark mode). **No résumé/email/job content is ever shown — counts, timestamps, plan, and estimated AI cost/revenue only.**
+
+### 0. Gating — show the dashboard only to admins
+- On app load (for an authenticated user), call **`GET /api/v1/admin/me`** → `{ is_admin, email }`. Show the **Admin** nav entry and allow the `/admin` route **only when `is_admin === true`**. For everyone else, hide the nav and hard-redirect away from `/admin` (the data endpoints also return **403**, so never render partial data).
+- Admins are set by an operator via the **`JOBSEARCH_ADMIN_EMAILS`** Railway variable (comma-separated). The frontend never hardcodes who is admin — it always asks `/admin/me`.
+
+### 1. Overview (top of `/admin`) — `GET /api/v1/admin/analytics/overview`
+Render a row of summary cards from the response:
+- **Users** — `totals.users`, with a small per-tier breakdown from `totals.by_tier` (`tester` / `trial` / `free`).
+- **Projected revenue (MRR)** — `revenue.monthly_projected` (USD), with a by-tier mini-table from `revenue.by_tier` (`{count, price, subtotal}`). Show `revenue.note` as a caption ("projection from configurable plan prices — the app is free today") so it's never mistaken for billed revenue.
+- **AI cost (month-to-date, est.)** — `ai_cost.month_to_date_est`, with `ai_cost.ops` (number of AI calls) and the `ai_cost.rates` as a caption. Show `ai_cost.note` ("estimated — tokens approximated from text length").
+- **Margin (est.)** — `margin.monthly_est` (revenue − AI cost). Color neutral; it can be negative (fine — it's a model).
+- **Engagement** — `engagement.active_7d` / `active_30d`, `email_connected`, `active_saved_search`, and **`matches_frozen_no_feeder`** (users whose matches can't update because they have neither a connected email nor an active saved search — this directly explains "my matches aren't updating").
+- **Feature usage (MTD)** — `engagement.feature_interactions`: total interactions this month per core feature (`resumes`, `cover_letters`, `job_search`, `applications`, `interview`, `highlights`, `integrations`). Render as a small bar/row so it's obvious which features are actually used vs. ignored (an interaction = a state-changing action like an edit, a search, an apply — not a page view).
+- **System health** — from `system`: **worker** status (`worker_healthy` → green "Live" / red "Stale", with `worker_last_tick` relative time and `worker_ticks`), `scheduler_enabled` (on/off), `job_source_mode` (`mock` = demo data / `http` = live boards), `gmail_fetch_mode`. Make `worker_healthy === false` or `job_source_mode === "mock"` visually prominent (amber/red) — those are the system-level reasons matches go stale for *everyone*.
+
+### 2. Per-user table — `GET /api/v1/admin/analytics/users?tier=&limit=`
+A sortable, searchable table (search by email, filter by `tier`). One row per user from the array; columns:
+- **Email**, **Tier** (chip), **Last active** (`last_active`, relative), **Joined** (`created_at`).
+- **Engagement:** `engagement.resumes`, `cover_letters`, `applications` (+ `applications_submitted`), `matches_real` of `matches_pool`, `newest_job_age_hours` (e.g. "3h ago" / "—"), **email connected** (✓/✗), **active search** (✓/✗, with `saved_search_last_run` on hover).
+- **AI usage (MTD):** `ai.ops` and `ai.est_cost`.
+- **Feature usage (MTD):** `features` — a per-feature interaction count (`features.resumes`, `cover_letters`, `job_search`, `applications`, `interview`, `highlights`, `integrations`) plus `features.total`. Show this as a compact sparkline/mini-bar or an expandable cell so you can see, per user, **how much they actually use each core feature** (e.g. heavy résumé editing but zero job searches). Sort/filter by `features.total` to spot power users vs. dormant accounts.
+- **Revenue / margin:** `revenue_monthly`, `margin_monthly`.
+- **Flags:** render `flags[]` as chips with plain tooltips — `matches_frozen_no_feeder` → "No email or saved search → matches can't update", `no_real_jobs` → "Only sample jobs so far", `no_search_criteria` → "No target roles/categories set". These are the per-user diagnosis for the "matches not updating" complaint.
+- Sensible defaults: sort by Last active desc; highlight rows with a `matches_frozen_no_feeder` flag.
+
+### 3. Framing (so the numbers are read correctly)
+- Label the revenue and AI-cost sections clearly as **projection / estimate** (use the `note` fields). Optionally show the current assumptions (plan prices, token rates from the responses) in a small "Assumptions" expander, noting they're set via Railway env (`JOBSEARCH_PLAN_PRICES`, `JOBSEARCH_AI_COST_INPUT/OUTPUT_PER_1K`).
+- **Privacy note** in the UI: "Counts and plan only — no résumé, email, or message content is shown here, and no account is ever accessed."
+
+### Scope & acceptance
+Frontend over `GET /api/v1/admin/me`, `/admin/analytics/overview`, `/admin/analytics/users` (all **new** — deploy the backend first; they're session-gated by `JOBSEARCH_ADMIN_EMAILS`). Null-safe (missing `newest_job_age_hours` → "—"; empty tiers hidden), global P0 rules apply.
+Acceptance: an admin (email in `JOBSEARCH_ADMIN_EMAILS`) sees an **Admin** nav entry → a dashboard with overview cards (users by tier, projected MRR, estimated AI cost MTD, margin, engagement, system health) and a searchable per-user table with engagement, AI cost, revenue, and diagnostic flags; a **non-admin never sees the nav** and is blocked from `/admin` (and the API 403s); revenue/AI-cost are clearly labeled projection/estimate; and no user content is ever displayed.

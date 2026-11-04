@@ -167,10 +167,11 @@ class User(DomainModel):
     full_name: str = ""
     phone: str = ""  # used to fill application forms; never fabricated
     location: str = ""
-    #: Billing/access tier: "free" (the Simple experience + caps), "paid" (full app,
-    #: no caps), or "tester" (full app, no caps). Testers are also resolved from
-    #: ``settings.tester_emails`` regardless of this stored value.
-    plan: str = "free"
+    #: Account-type override: "tester" (full app, no caps), "free" (the capped
+    #: baseline), "trial" (full-for-now), or "" = auto — a new account is on the trial
+    #: for ``settings.trial_days`` days, then free. Operators set this via the admin API;
+    #: ``settings.tester_emails`` / ``tester_domains`` are optional allowlist overrides.
+    plan: str = ""
     #: Opt-in consent to email the user when an application's status changes. Off by
     #: default — we only email status updates once the user turns this on.
     notify_status_email: bool = False

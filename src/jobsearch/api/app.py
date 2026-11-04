@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from jobsearch.api.routers import (
     admin,
+    analytics,
     applications,
     assistant,
     auth,
@@ -69,6 +70,7 @@ _ROUTERS = [
     onboarding.router,
     reminders.router,
     admin.router,
+    analytics.router,
     templates.router,
     view_state.router,
     view_state.recent_router,
@@ -130,6 +132,32 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def _track_feature_activity(request, call_next):
+        """Record one per-feature interaction for the admin dashboard on each successful
+        state-changing request (reads/polls are ignored). Best-effort; never affects the
+        response. Decodes the bearer token itself so attribution doesn't depend on
+        contextvar propagation through the middleware stack."""
+        response = await call_next(request)
+        try:
+            if request.method in ("POST", "PUT", "PATCH", "DELETE") and 200 <= response.status_code < 300:
+                from jobsearch.analytics import feature_activity
+
+                feature = feature_activity.classify(request.url.path)
+                if feature:
+                    auth = request.headers.get("authorization", "")
+                    if auth.lower().startswith("bearer "):
+                        from jobsearch.api.security import TokenError, decode_token
+
+                        try:
+                            payload = decode_token(auth[7:].strip(), expected_type="access")
+                            feature_activity.record(app_state.documents, payload.get("sub"), feature)
+                        except TokenError:
+                            pass
+        except Exception:  # noqa: BLE001 - metering must never break a request
+            pass
+        return response
 
     for router in _ROUTERS:
         app.include_router(router)

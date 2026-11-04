@@ -681,20 +681,68 @@ def test_api_ai_edit_applies_targeted_change_immediately():
     assert client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "  "}).status_code == 400
 
 
-def test_api_ai_edit_no_match_makes_no_version():
-    class _StaleLLM:
-        name = "stale"
+def test_api_ai_edit_falls_back_to_full_rewrite_when_no_edit_matches():
+    # An instruction must never be silently ignored: when the targeted edits can't be
+    # located in the résumé, ai-edit falls back to applying the instruction as a full
+    # rewrite (so the user sees their change) rather than no-opping.
+    class _LLM:
+        name = "rw"
         def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
-            return '[{"action":"reword","before":"text that is not in the resume","after":"x","rationale":"y"}]'
+            if "JSON array" in prompt:  # the targeted-edits request: propose an unlocatable edit
+                return '[{"action":"reword","before":"nowhere in this resume","after":"x","rationale":"y"}]'
+            return "## Experience\n- Managed billing end to end, cutting costs 20%"  # the rewrite
 
     state = AppState(exchanger=MockTokenExchanger())
-    state.resume_assistant.llm = _StaleLLM()
+    state.resume_assistant.llm = _LLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
+    before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
+    body = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h,
+                       json={"instruction": "add measurable impact to the billing experience"}).json()
+    assert body["active_version"] == before + 1  # the fallback rewrite created a version
+    assert "cutting costs" in client.get(f"/api/v1/resumes/{rid}", headers=h).json()["rendered_text"]
+
+
+def test_api_ai_edit_makes_no_version_when_nothing_changes():
+    # If neither a targeted edit nor the rewrite fallback produces a change, no version
+    # is created (don't save an empty/no-op revision).
+    class _NoopLLM:
+        name = "noop"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            if "JSON array" in prompt:
+                return '[{"action":"reword","before":"nowhere in this resume","after":"x","rationale":"y"}]'
+            return "## Experience\n- Managed billing"  # rewrite returns the text unchanged
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _NoopLLM()
     client = TestClient(create_app(state=state))
     h = _auth(client)
     rid = _upload(client, h, "## Experience\n- Managed billing")["id"]
     before = client.get(f"/api/v1/resumes/{rid}", headers=h).json()["active_version"] or 0
     body = client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "do X"}).json()
-    assert body["active_version"] == before  # nothing matched -> no new version
+    assert body["active_version"] == before  # unchanged -> no new version
+
+
+def test_ai_edit_sends_the_whole_resume_no_4000_char_cutoff():
+    # A long experience section used to be truncated at 4000 chars before reaching the
+    # model, dropping later jobs. The full résumé must now be sent.
+    from jobsearch.engines.resume_assistant import ResumeAssistant
+
+    seen = {}
+
+    class _Capture:
+        name = "cap"
+
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            seen["prompt"] = prompt
+            return "[]"
+
+    marker = "ZZZ_FINAL_ROLE_MARKER"
+    long_text = "## Experience\n" + ("- Led a project and delivered results. " * 200) + "\n- " + marker
+    assert len(long_text) > 4000
+    ResumeAssistant(llm=_Capture()).targeted_edits_text(long_text, "tighten the bullets", kind="resume")
+    assert marker in seen["prompt"]  # the end of the résumé reached the model (no [:4000] cut)
 
 
 # --- deterministic formatting pass (bold / unbold / bullets) ---------------

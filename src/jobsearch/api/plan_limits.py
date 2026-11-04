@@ -1,9 +1,13 @@
-"""Free-tier limit enforcement for the Simple experience.
+"""Tiered limit enforcement (tester / trial / free).
 
-Computes usage from the repos and enforces the :mod:`jobsearch.engines.plans`
-caps. Only the ``free`` plan is capped; ``paid``/``tester`` are unlimited, and
-testers are resolved from ``settings.tester_emails`` so real test accounts always
-get the full app. Enforcement is globally gated by ``settings.plan_limits_enforced``.
+Computes usage from the repos and enforces the :mod:`jobsearch.engines.plans` caps.
+``tester`` is unlimited; ``trial`` (a new account's first ``settings.trial_days``) gets
+liberal caps; ``free`` is the tighter ongoing baseline. Enforcement is globally gated by
+``settings.plan_limits_enforced``.
+
+Design rule: these limits **never block editing a résumé or a basic AI edit**. They meter
+the cost / volume drivers (new documents, job sourcing, auto-applies, AI-edit *rate*) and
+keep even those comfortably usable. There is no "paid" tier and no upgrade messaging.
 """
 
 from __future__ import annotations
@@ -21,11 +25,19 @@ def _settings(state):
     return getattr(state, "settings", None)
 
 
-def effective_plan(state, user) -> str:
+def _tier(state, user) -> str:
     s = _settings(state)
-    testers = getattr(s, "tester_emails", []) if s else []
-    domains = getattr(s, "tester_domains", []) if s else []
-    return plans.effective_plan(user, testers, domains)
+    return plans.effective_tier(
+        user,
+        trial_days=getattr(s, "trial_days", plans.DEFAULT_TRIAL_DAYS) if s else plans.DEFAULT_TRIAL_DAYS,
+        tester_emails=getattr(s, "tester_emails", []) if s else [],
+        tester_domains=getattr(s, "tester_domains", []) if s else [],
+    )
+
+
+def effective_plan(state, user) -> str:
+    """The active tier for a user (kept for back-compat with callers/tests)."""
+    return _tier(state, user)
 
 
 def _enforced(state) -> bool:
@@ -33,11 +45,25 @@ def _enforced(state) -> bool:
     return bool(getattr(s, "plan_limits_enforced", True)) if s else True
 
 
-def _is_free(state, user) -> bool:
-    return _enforced(state) and effective_plan(state, user) == plans.FREE
+def _limits(state, user) -> Optional[dict[str, int]]:
+    """Active caps for this user, or ``None`` when unlimited / enforcement is off."""
+    if not _enforced(state):
+        return None
+    return plans.limits_for(_tier(state, user))
+
+
+def _cap(state, user, key: str) -> Optional[int]:
+    """One cap value, or ``None`` when uncapped. ``0`` also means uncapped."""
+    L = _limits(state, user)
+    if L is None:
+        return None
+    v = L.get(key)
+    return None if not v else v
 
 
 def _deny(resource: str, detail: str) -> None:
+    # ``error`` stays "free_limit_reached" for frontend compatibility; messaging is
+    # neutral (no "upgrade" / paid-plan wording).
     raise HTTPException(
         status.HTTP_402_PAYMENT_REQUIRED,
         detail={"error": "free_limit_reached", "resource": resource, "message": detail},
@@ -51,9 +77,7 @@ def _ge(ts: Optional[datetime], since: datetime) -> bool:
     try:
         return ts >= since
     except TypeError:  # mixed tz-aware/naive — compare naively
-        a = ts.replace(tzinfo=None)
-        b = since.replace(tzinfo=None)
-        return a >= b
+        return ts.replace(tzinfo=None) >= since.replace(tzinfo=None)
 
 
 def _resumes_used(state, user) -> int:
@@ -105,43 +129,46 @@ def _reaped_month(state, user) -> int:
 
 # --- enforcement (called by routers before the limited action) --------------
 def enforce_new_resume(state, user) -> None:
-    cap = plans.FREE_LIMITS["resumes"]
-    if _is_free(state, user) and _resumes_used(state, user) >= cap:
-        _deny("resumes", f"You've reached the free limit of {cap} résumés. Upgrade to add more.")
+    cap = _cap(state, user, "resumes")
+    if cap is not None and _resumes_used(state, user) >= cap:
+        _deny("resumes", f"Free accounts can keep up to {cap} résumés — archive one to add another.")
 
 
 def enforce_new_cover_letter(state, user) -> None:
-    cap = plans.FREE_LIMITS["cover_letters"]
-    if _is_free(state, user) and _cover_letters_used(state, user) >= cap:
-        _deny("cover_letters", f"You've reached the free limit of {cap} cover letters. Upgrade to add more.")
+    cap = _cap(state, user, "cover_letters")
+    if cap is not None and _cover_letters_used(state, user) >= cap:
+        _deny("cover_letters", f"Free accounts can keep up to {cap} cover letters — archive one to add another.")
 
 
 def enforce_connect_source(state, user) -> None:
-    cap = plans.FREE_LIMITS["email_sources"]
-    if _is_free(state, user) and _email_sources_used(state, user) >= cap:
-        _deny("email_sources", f"Free accounts can connect up to {cap} sources. Upgrade to connect more.")
+    cap = _cap(state, user, "email_sources")
+    if cap is not None and _email_sources_used(state, user) >= cap:
+        _deny("email_sources", f"Free accounts can connect up to {cap} email sources.")
 
 
 def enforce_autoapply(state, user) -> None:
-    """Block a single auto-apply submission when a free cap is hit."""
-    if not _is_free(state, user):
-        return
-    day_cap = plans.FREE_LIMITS["autoapplies_per_day"]
-    week_cap = plans.FREE_LIMITS["autoapplies_per_week"]
-    if _autoapplies_day(state, user) >= day_cap:
-        _deny("autoapplies", f"You've used your {day_cap} auto-applies for today. Upgrade to apply to more.")
-    if _autoapplies_week(state, user) >= week_cap:
-        _deny("autoapplies", f"You've reached the free limit of {week_cap} auto-applies this week. Upgrade for more.")
+    """Block a single auto-apply submission when a cap is hit."""
+    day_cap = _cap(state, user, "autoapplies_per_day")
+    week_cap = _cap(state, user, "autoapplies_per_week")
+    if day_cap is not None and _autoapplies_day(state, user) >= day_cap:
+        _deny("autoapplies", f"That's all {day_cap} auto-applies for today — they refresh tomorrow.")
+    if week_cap is not None and _autoapplies_week(state, user) >= week_cap:
+        _deny("autoapplies", f"That's all {week_cap} auto-applies for this week — they refresh next week.")
 
 
 def autoapply_remaining(state, user) -> Optional[int]:
     """How many auto-applies are still allowed right now (for the batch wizard).
-    None = unlimited."""
-    if not _is_free(state, user):
+    ``None`` = unlimited."""
+    day_cap = _cap(state, user, "autoapplies_per_day")
+    week_cap = _cap(state, user, "autoapplies_per_week")
+    if day_cap is None and week_cap is None:
         return None
-    day_left = plans.FREE_LIMITS["autoapplies_per_day"] - _autoapplies_day(state, user)
-    week_left = plans.FREE_LIMITS["autoapplies_per_week"] - _autoapplies_week(state, user)
-    return max(0, min(day_left, week_left))
+    options = []
+    if day_cap is not None:
+        options.append(day_cap - _autoapplies_day(state, user))
+    if week_cap is not None:
+        options.append(week_cap - _autoapplies_week(state, user))
+    return max(0, min(options))
 
 
 def _ai_ledger_key(user) -> str:
@@ -149,7 +176,7 @@ def _ai_ledger_key(user) -> str:
 
 
 def _ai_edits_today(state, user) -> int:
-    """Count a free user's AI edits in the last 24h (ledger in the document store)."""
+    """Count a user's AI edits in the last 24h (ledger in the document store)."""
     try:
         stored = state.documents.get(_ai_ledger_key(user))
     except Exception:  # noqa: BLE001 - no store -> can't count, treat as 0
@@ -183,56 +210,72 @@ def _record_ai_edit(state, user) -> None:
 
 
 def consume_ai_edit(state, user) -> None:
-    """Enforce + record one AI résumé/cover-letter edit. 402 when the free daily cap
-    is reached. No-op for paid/tester (or when enforcement is off)."""
-    if not _is_free(state, user):
+    """Record one AI résumé/cover-letter edit and enforce the per-day *rate* cap. The
+    cap is liberal (so basic AI editing always works) and absent for testers / when
+    enforcement is off."""
+    cap = _cap(state, user, "ai_edits_per_day")
+    if cap is None:
         return
-    cap = plans.FREE_LIMITS["ai_edits_per_day"]
     if _ai_edits_today(state, user) >= cap:
-        _deny("ai_edits", f"You've used your {cap} AI edits for today. Upgrade for unlimited AI editing.")
+        _deny("ai_edits", f"That's today's {cap} AI edits — they refresh tomorrow.")
     _record_ai_edit(state, user)
 
 
 def enforce_ai_input(state, user, *texts: str) -> None:
-    """Cap the size of text a free user can send to an AI edit in one request."""
-    if not _is_free(state, user):
-        return
-    cap = plans.FREE_LIMITS["ai_input_chars"]
-    total = sum(len(t or "") for t in texts)
-    if total > cap:
-        _deny("ai_input", f"That's too much text for the free plan ({total} of {cap} characters). Shorten it or upgrade.")
+    """Deliberately a no-op.
+
+    We never block an AI edit on input size — editing and basic AI must always work. Free
+    accounts are metered by résumé *word count* (see :func:`resume_word_limit`) and by the
+    daily AI-edit *rate* (:func:`consume_ai_edit`), not by rejecting a request outright.
+    Kept as a stable call site for the document routers.
+    """
+    return None
+
+
+def resume_word_limit(state, user) -> Optional[int]:
+    """Max words in a free résumé (a soft, advertised limit; ``None`` = no limit)."""
+    return _cap(state, user, "resume_words")
 
 
 def matches_cap(state, user) -> Optional[int]:
-    """Max matches a free user may be shown; None = unlimited."""
-    return plans.FREE_LIMITS["matches_per_day"] if _is_free(state, user) else None
+    """Max matches a user may be shown; ``None`` = unlimited."""
+    return _cap(state, user, "matches_per_day")
 
 
 def reap_remaining(state, user) -> Optional[int]:
-    """How many more jobs a free user may gather this month; None = unlimited."""
-    if not _is_free(state, user):
+    """How many more jobs a user may gather this month; ``None`` = unlimited."""
+    cap = _cap(state, user, "reaped_per_month")
+    if cap is None:
         return None
-    return max(0, plans.FREE_LIMITS["reaped_per_month"] - _reaped_month(state, user))
+    return max(0, cap - _reaped_month(state, user))
 
 
 # --- snapshot for GET /auth/me/plan -----------------------------------------
 def snapshot(state, user) -> dict:
-    plan = effective_plan(state, user)
-    if not _is_free(state, user):  # paid / tester / enforcement off
+    tier = _tier(state, user)
+    L = _limits(state, user)
+    trial_days = getattr(_settings(state), "trial_days", plans.DEFAULT_TRIAL_DAYS)
+    days_left = plans.trial_days_left(user, trial_days=trial_days)
+    trial = {"days_left": days_left} if tier == plans.TRIAL and days_left is not None else None
+
+    if L is None:  # tester / enforcement off
         return {
-            "plan": plan,
+            "plan": tier,
+            "tier": tier,
             "unlimited": True,
             "can_toggle_full": True,
-            "simple_default": False,
+            "simple_default": plans.simple_default(tier),
+            "trial": trial,
             "limits": None,
             "remaining": None,
         }
-    L = plans.free_limits()
     return {
-        "plan": plan,
+        "plan": tier,
+        "tier": tier,
         "unlimited": False,
-        "can_toggle_full": False,
-        "simple_default": True,
+        "can_toggle_full": plans.can_toggle_full(tier),
+        "simple_default": plans.simple_default(tier),
+        "trial": trial,
         "limits": L,
         "remaining": {
             "resumes": max(0, L["resumes"] - _resumes_used(state, user)),
@@ -243,6 +286,6 @@ def snapshot(state, user) -> dict:
             "matches_per_day": L["matches_per_day"],
             "reaped_month": max(0, L["reaped_per_month"] - _reaped_month(state, user)),
             "ai_edits_today": max(0, L["ai_edits_per_day"] - _ai_edits_today(state, user)),
-            "ai_input_chars": L["ai_input_chars"],
+            "resume_words": L["resume_words"],
         },
     }

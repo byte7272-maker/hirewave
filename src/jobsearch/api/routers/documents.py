@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import re
 from typing import Optional
@@ -329,7 +330,7 @@ async def upload_resume(
     # ATS, and interview prep. Empty for unparseable binaries → callers fall back.
     resume.rendered_text = extract_text(
         data, filename=filename, content_type=resume.content_type
-    )[:20000]
+    )[:_MAX_EXTRACT_CHARS]
     _seed_original_version(resume, text_attr="rendered_text")  # show an "Original" in the marquee at once
     saved = ensure_resume_grade(state, state.resumes.add(resume))
     _clear_samples(state, user.id, "resume")  # a real résumé replaces the seeded sample
@@ -532,16 +533,50 @@ def suggest_resume_edits(
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])
 
 
+#: Safety ceiling on extracted résumé text at ingest. High enough that no real résumé
+#: (even a long multi-page CV) is ever clipped — only guards against a pathological upload.
+_MAX_EXTRACT_CHARS = 200_000
+
+
+def _norm_for_match(s: str) -> str:
+    """Normalize for locating an edit target: drop markdown markers, collapse whitespace."""
+    return re.sub(r"\s+", " ", re.sub(r"[*_#>`\-]", "", s or "")).strip().lower()
+
+
+def _locate_before(text: str, before: str) -> Optional[str]:
+    """Return the actual slice of ``text`` an edit's ``before`` refers to. Exact substring
+    when present; otherwise the closest single line (markdown/whitespace-insensitive), so a
+    reword/remove still lands when the model's ``before`` isn't byte-identical. None if no
+    confident match (the edit is then skipped rather than hitting the wrong line)."""
+    if not before:
+        return None
+    if before in text:
+        return before
+    target = _norm_for_match(before)
+    if not target:
+        return None
+    best, best_ratio = None, 0.0
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        ratio = difflib.SequenceMatcher(None, _norm_for_match(line), target).ratio()
+        if ratio > best_ratio:
+            best, best_ratio = line, ratio
+    return best if best_ratio >= 0.8 else None
+
+
 def _apply_edit(text: str, s: EditSuggestion) -> tuple[str, bool]:
     """Apply one approved edit to the résumé text. Returns (new_text, applied)."""
     action = (s.action or "").lower()
     if action == "reword" and s.before:
-        if s.before in text:
-            return text.replace(s.before, s.after, 1), True
+        loc = _locate_before(text, s.before)
+        if loc is not None:
+            return text.replace(loc, s.after, 1), True
         return text, False
     if action == "remove" and s.before:
-        if s.before in text:
-            out = text.replace(s.before, "", 1)
+        loc = _locate_before(text, s.before)
+        if loc is not None:
+            out = text.replace(loc, "", 1)
             # tidy the blank line a full-line removal leaves behind
             return re.sub(r"\n[ \t]*\n[ \t]*\n", "\n\n", out), True
         return text, False
@@ -633,6 +668,15 @@ def ai_edit_resume(
     for e in edits:
         text, ok = _apply_edit(text, EditSuggestion(**e))
         applied += 1 if ok else 0
+    # Fallback so an instruction is never silently ignored: if no targeted edit could be
+    # located, apply the instruction as a full-document rewrite (skip for pure-formatting
+    # ops — those are deterministic and must not round-trip through the LLM).
+    if applied == 0 and not state.resume_assistant.is_formatting_instruction(body.instruction):
+        rewritten = state.resume_assistant.apply_instruction_text(
+            base.rendered_text or "", body.instruction, job=job, kind="resume"
+        )
+        if rewritten.strip() and rewritten.strip() != (base.rendered_text or "").strip():
+            text, applied = rewritten, 1
     # Apply immediately: save the result as a new active version (undo via history).
     if applied and text.strip() and text != (resume.rendered_text or ""):
         # A pure-formatting edit is fully deterministic -> use a deterministic
@@ -671,6 +715,12 @@ def ai_edit_cover_letter(
     for e in edits:
         text, ok = _apply_edit(text, EditSuggestion(**e))
         applied += 1 if ok else 0
+    if applied == 0 and not state.resume_assistant.is_formatting_instruction(body.instruction):
+        rewritten = state.resume_assistant.apply_instruction_text(
+            base_text or "", body.instruction, job=job, kind="cover letter"
+        )
+        if rewritten.strip() and rewritten.strip() != (base_text or "").strip():
+            text, applied = rewritten, 1
     if applied and text.strip() and text != (cl.content or ""):
         fmt_summary = (state.resume_assistant.format_change_summary(body.instruction, applied)
                        if state.resume_assistant.is_formatting_instruction(body.instruction) else "")
@@ -999,7 +1049,7 @@ def ensure_rendered_text(state: StateDep, resume: Resume) -> Resume:
         stored = None
     if stored:
         data, ctype = stored
-        text = extract_text(data, filename=resume.original_filename, content_type=ctype)[:20000]
+        text = extract_text(data, filename=resume.original_filename, content_type=ctype)[:_MAX_EXTRACT_CHARS]
         if text:
             resume.rendered_text = text
             state.resumes.add(resume)
@@ -1430,7 +1480,7 @@ async def upload_cover_letter(
         original_filename=filename,
         content_type=content_type,
         # Readable text for review / applications (empty for unparseable binaries).
-        content=extract_text(data, filename=filename, content_type=content_type)[:20000],
+        content=extract_text(data, filename=filename, content_type=content_type)[:_MAX_EXTRACT_CHARS],
     )
     state.documents.put(cl.id, data, content_type=content_type)
     cl.file_url = f"/api/v1/cover-letters/{cl.id}/file"

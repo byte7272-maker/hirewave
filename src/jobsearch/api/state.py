@@ -151,6 +151,22 @@ class AppState:
         # `llm` (ResumeAssistant) / fall back to `llm` (generation), i.e. no change.
         premium_configured = bool((self.settings.premium_llm_provider or "").strip())
         premium_llm = build_premium_llm(self.settings) if premium_configured else None
+        review_llm = build_review_llm(self.settings)
+        # Meter AI usage (estimated tokens) for the admin cost dashboard: wrap the shared
+        # providers once so every `complete()` records a per-user, per-month tally in the
+        # document store, attributed via the request's actor contextvar. Best-effort —
+        # metering never affects generation output.
+        from jobsearch.analytics import ai_usage
+
+        def _meter(actor, in_tokens, out_tokens, model):
+            ai_usage.record(
+                self.documents, actor=actor, in_tokens=in_tokens,
+                out_tokens=out_tokens, model=model,
+            )
+
+        llm = ai_usage.meter_llm(llm, _meter)
+        premium_llm = ai_usage.meter_llm(premium_llm, _meter)
+        review_llm = ai_usage.meter_llm(review_llm, _meter)
         embedder = build_embedder(self.settings)
         # Real OAuth token exchange in live mode; mock offline. An explicitly
         # injected exchanger (e.g. in tests) always wins.
@@ -169,7 +185,7 @@ class AppState:
         # (cheapest by default, dial up via JOBSEARCH_REVIEW_MODEL); the generative work
         # (bullet generation, evidence analysis/synthesis, rewrites) uses the premium tier.
         self.resume_assistant = ResumeAssistant(
-            llm=build_review_llm(self.settings), premium_llm=premium_llm
+            llm=review_llm, premium_llm=premium_llm
         )
         self.interview = InterviewEngine(llm=llm)
         # Interview media (voice/video) + user-directed content sources.
