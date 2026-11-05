@@ -77,7 +77,7 @@ content*. Expect a fresh review.
 
 - [ ] **`storage` justification:**
   ```
-  The storage permission persists local settings in the user's own browser (chrome.storage.local): the Project Harbor API base URL, and - if the user uses the pull-jobs or fill-form features - the Project Harbor token the user pastes, used to mint short-lived access tokens for their own account. Nothing is synced or shared; it saves the user from re-entering these.
+  The storage permission persists local settings in the user's own browser (chrome.storage.local): the Project Harbor API base URL, and - if the user enables the pull-jobs or fill-form features - the user's own Project Harbor session token, which the Project Harbor app hands to the extension when the user clicks Enable (or the user pastes as a fallback). It is used only to mint short-lived access tokens for the user's own account. Nothing is synced or shared.
   ```
 
 - [ ] **Host permission justification** ← *this field held the rejected list; overwrite it*:
