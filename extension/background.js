@@ -56,6 +56,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         return sendResponse({ ok: true, version: chrome.runtime.getManifest().version, direct: true });
       }
 
+      // One-click link: the app (on its own origin) hands the extension the user's own
+      // Project Harbor refresh token so pull/fill work with NO copy-paste. The user never
+      // sees or handles a token. Stored locally only; used to mint short-lived access
+      // tokens for the user's own account.
+      if (msg.type === "harbor-session") {
+        const patch = {};
+        if (msg.refreshToken) patch.refreshToken = msg.refreshToken;
+        if (msg.apiBase) patch.apiBase = String(msg.apiBase).replace(/\/+$/, "");
+        if (Object.keys(patch).length) await chrome.storage.local.set(patch);
+        return sendResponse({ ok: true, linked: !!msg.refreshToken });
+      }
+
       // Live-apply: the apply.js content script (on a job site) sends the form's visible
       // fields; we mint a short-lived access token from the user's stored refresh token
       // and ask the backend to map them to the user's own profile. We hold NO credential

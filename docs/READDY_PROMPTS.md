@@ -3071,8 +3071,20 @@ The résumé editor is structurally identical and works, so the bug is in **what
 Add a **Connect** (a.k.a. "Set up") item in the sidebar's existing **CONNECT** section. It opens a single **Connect hub** page that lists every setup option with a live status chip and a one-click connect/manage action:
 - **Email** — Gmail (OAuth) **and iCloud Mail** (app-specific password) **and** the forwarding address. Drive from `GET /api/v1/integrations/connected-apps`, `GET /api/v1/integrations/imap-providers`, `GET /api/v1/inbox/address`. iCloud uses the P69 connect-imap form; Gmail uses OAuth where `oauth_available`.
 - **Job sites** — LinkedIn, Indeed, Greenhouse, Workday, etc., from `connected-apps` (OAuth or connected-browser-session method, with `supports_auto_apply`/`ai_access`).
-- **Browser extension** — install/update from the **Chrome Web Store** (the same listing "Get the extension" already points to), showing connected/needs-update status from the extension heartbeat.
+- **Browser extension** — install/update from the **Chrome Web Store** (the same listing "Get the extension" already points to), showing connected/needs-update status from the extension heartbeat, **plus a one-click "Enable in this browser"** (see below).
 Each row: name · status (connected / not connected / needs attention) · action. This page is the one place that answers "how do I connect X?".
+
+### 1a. Enable the extension in ONE CLICK — the user never copies a token (required for non-technical users)
+The extension needs the user's Project Harbor session to pull jobs and fill forms. **Do NOT ask the user to find, copy, or paste a token** — that's developer-grade and will lose non-technical users. Instead, hand it to the extension automatically from the app:
+- The extension content script (on the app's own origin) already announces itself: listen for the `harbor-connect-ready` event / `document.documentElement.dataset.harborConnect` to know it's installed.
+- When installed **and** the user is signed in, show a single **"Enable in this browser"** button in the extension row (or auto-run it once). On click, `window.postMessage` to the extension:
+  ```js
+  window.postMessage({ source: "harbor-app", type: "harbor-session",
+    refreshToken: <the user's current refresh token>, apiBase: <API base> }, window.location.origin);
+  ```
+  The extension stores it locally and replies `{ ok: true, linked: true }`; show "Enabled ✓". That's the entire user action — one click, no token ever shown.
+- If the extension is **not** installed, the button becomes "Add to Chrome" → the Web Store listing; after install, auto-run the link.
+- Keep the manual paste (popup → Advanced) only as a hidden power-user fallback; never surface it in the normal flow.
 
 ### 2. Contextual entry points (small inline links, never banners)
 Surface a quiet link to the relevant Connect-hub section from where the need arises:

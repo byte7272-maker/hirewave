@@ -157,7 +157,7 @@ registration if you've never published.
 
 ## Published (Chrome Web Store)
 
-> **v1.4.0 note:** this version adds the pull-jobs and **Fill with Harbor** behaviors, which
+> **v1.4.1 note:** this version adds the pull-jobs and **Fill with Harbor** behaviors, which
 > read page content on the job-site hosts. That is a new data use, so on upload you MUST
 > overwrite the **Single purpose**, the **host permission** justification, add a **scripting**
 > justification, and update the **data-collection** answer to include *Website content* — then

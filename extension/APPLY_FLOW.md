@@ -51,7 +51,7 @@ Add a content script for the supported job sites (the hosts are already in
     "js": ["apply.js"], "run_at": "document_idle" }
 ]
 ```
-Bump `version` to `1.4.0`. No new permission *strings* are required (`scripting`/`tabs`/
+Bump `version` to `1.4.1`. No new permission *strings* are required (`scripting`/`tabs`/
 `storage` already declared), but the **justifications change** — see compliance.
 
 ## `apply.js` (new content script) — responsibilities
@@ -114,12 +114,12 @@ long tail (re-screened through the same guard). The endpoint performs **no** pag
   fill-on-user-action behaviour. Keep every free-text field **free of provider-name lists**
   (`COMPLIANCE_NOTES.md`): justify hosts as "job-site application pages the user chooses to fill,
   declared in the manifest's host_permissions."
-- You're already in **audience testing** with the 5 testers — ship 1.4.0 to them first, validate
+- You're already in **audience testing** with the 5 testers — ship 1.4.1 to them first, validate
   per provider, then promote to public.
 
 ## Build / rollout
 
-1. Add `apply.js`, bump manifest to `1.4.0`, run `build.py` → `dist/project-harbor-connect-1.4.0.zip`.
+1. Add `apply.js`, bump manifest to `1.4.1`, run `build.py` → `dist/project-harbor-connect-1.4.1.zip`.
 2. Update `STORE_LISTING.md` privacy + justifications (no provider lists).
 3. Upload to the Web Store, keep it on the tester audience, validate field-fill per provider
    (submit held), then publish.

@@ -5,9 +5,9 @@ free-text field. Provider domains live ONLY in the manifest's `host_permissions`
 (already in the zip). Rejected twice (v1.1.0, v1.1.1) for a provider list in a
 free-text field — overwrite every field below, don't just re-upload.
 
-Upload package: `extension/dist/project-harbor-connect-1.4.0.zip`
+Upload package: `extension/dist/project-harbor-connect-1.4.1.zip`
 
-**v1.4.0 adds page access on job sites** (pull jobs + "Fill with Harbor"). That's a new
+**v1.4.1 adds page access on job sites** (pull jobs + "Fill with Harbor"). That's a new
 data use: you MUST overwrite the Single purpose, the host-permission justification, ADD a
 `scripting` justification, and update the data-collection answer to include *Website
 content*. Expect a fresh review.
@@ -16,7 +16,7 @@ content*. Expect a fresh review.
 
 ## Package
 
-- [ ] **Upload new package** → `project-harbor-connect-1.4.0.zip` (manifest version 1.4.0).
+- [ ] **Upload new package** → `project-harbor-connect-1.4.1.zip` (manifest version 1.4.1).
 
 ## Store listing tab
 
@@ -70,7 +70,7 @@ content*. Expect a fresh review.
   The tabs permission is used only to read the active tab's URL to auto-detect which supported job site the user is currently on, so the correct site is pre-selected in the connect UI. No browsing history is collected, stored, or transmitted, and no other tab data is accessed. The URL is used ephemerally on the client for provider detection only.
   ```
 
-- [ ] **`scripting` justification** ← *NEW in 1.4.0*:
+- [ ] **`scripting` justification** ← *NEW in 1.4.1*:
   ```
   The scripting permission lets the extension act on the page only in response to the user's action: (1) read the job listings on the page the user is viewing to pull them into the user's own account, and (2) read the labels and types of an application form the user chooses to fill and write the user's own saved details into it. It runs only on the job-site hosts declared in the manifest, reads no other page content, and never reads password fields.
   ```
