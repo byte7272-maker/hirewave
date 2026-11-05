@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
@@ -17,6 +18,12 @@ from jobsearch.api.schemas import (
 )
 from jobsearch.engines.integration import map_claims_to_profile, parse_export_text
 from jobsearch.engines.integration.engine import IntegrationError
+from jobsearch.engines.sourcing.imap_source import (
+    IMAP_PROVIDERS,
+    imap_provider_config,
+    is_imap_provider,
+    verify_imap_login,
+)
 from jobsearch.models import Provider, UserProfile
 from jobsearch.textextract import extract_text
 
@@ -33,6 +40,12 @@ def _provider(raw: str) -> Provider:
 @router.post("/connect/{provider}", response_model=ConnectResponse)
 def connect(provider: str, user: CurrentUser, state: StateDep) -> ConnectResponse:
     plan_limits.enforce_connect_source(state, user)
+    if is_imap_provider(provider):
+        # iCloud et al. are password-based, not OAuth — there's no authorize URL.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{provider} connects with an app-specific password — POST /integrations/connect-imap",
+        )
     prov = _provider(provider)
     try:
         req = state.integration.build_authorization_request(prov)
@@ -98,6 +111,66 @@ def list_integrations(user: CurrentUser, state: StateDep) -> list[dict]:
     return state.integration.list_connections(user.id)
 
 
+# --- IMAP email connect (iCloud et al.) — app-specific password, not OAuth ----
+class ImapConnectRequest(BaseModel):
+    provider: str  # a key in IMAP_PROVIDERS, e.g. "icloud"
+    email: str
+    app_password: str
+
+
+@router.get("/imap-providers")
+def imap_providers(user: CurrentUser, state: StateDep) -> list[dict]:
+    """Mail hosts a user can connect with their own email + an app-specific password
+    (iCloud, …). The frontend renders a connect form from this (label + where to get
+    the app password); the Apple ID password itself won't work once 2FA is on."""
+    return [
+        {
+            "provider": key,
+            "label": cfg["label"],
+            "host": cfg["host"],
+            "app_password_url": cfg.get("app_password_url", ""),
+            "help": cfg.get("help", ""),
+        }
+        for key, cfg in IMAP_PROVIDERS.items()
+    ]
+
+
+@router.post("/connect-imap")
+def connect_imap(body: ImapConnectRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Connect a per-user IMAP mailbox (iCloud) with an app-specific password.
+
+    No OAuth — the password is validated with a live IMAP login (unless disabled)
+    and then stored **encrypted**, keyed to the user. Once connected it's scanned
+    and reaped for job email exactly like Gmail, feeding your matches. A user can
+    connect more than one address."""
+    plan_limits.enforce_connect_source(state, user)
+    cfg = imap_provider_config(body.provider)
+    if cfg is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"unknown IMAP provider '{body.provider}' (supported: {', '.join(IMAP_PROVIDERS)})",
+        )
+    email = (body.email or "").strip()
+    secret = (body.app_password or "").strip()
+    if not email or not secret:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "email and app password are required")
+
+    # Validate the credentials with a real IMAP login before storing, so a typo /
+    # wrong password is rejected now rather than silently fetching nothing later.
+    if state.settings.imap_verify_on_connect:
+        ok, err = verify_imap_login(
+            host=cfg["host"], port=cfg["port"], username=email, password=secret
+        )
+        if not ok:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"could not connect {cfg['label']}: {err}"
+            )
+
+    prov = _provider(body.provider)
+    rec = state.integration.connect_imap(user.id, prov, username=email, password=secret)
+    return {"connected": prov.value, "account_email": rec.account_email, "provider": prov.value}
+
+
 # Job-search sites the app knows about + whether the AI/auto-apply tool can act
 # on them. (key, display name, auto-apply supported).
 _JOB_APPS = [
@@ -109,6 +182,7 @@ _JOB_APPS = [
     ("ziprecruiter", "ZipRecruiter", False),
     ("dice", "Dice", False),
     ("gmail", "Gmail job alerts", False),
+    ("icloud", "iCloud Mail", False),
 ]
 
 
@@ -124,10 +198,13 @@ def connected_apps(user: CurrentUser, state: StateDep) -> list[dict]:
         tok = oauth.get(key)
         sess = sessions.get(key)
         method, st, connected_at, authenticated, label = "", "not_connected", None, False, ""
+        conn_method = "imap" if is_imap_provider(key) else "oauth"
         if tok and not tok["expired"]:
-            method, st, connected_at, authenticated = "oauth", "connected", tok["connected_at"], True
+            method, st, connected_at, authenticated = conn_method, "connected", tok["connected_at"], True
+            if conn_method == "imap":
+                label = tok.get("account_email", "")
         elif tok and tok["expired"]:
-            method, st, connected_at = "oauth", "expired", tok["connected_at"]
+            method, st, connected_at = conn_method, "expired", tok["connected_at"]
         elif sess is not None and sess.status == "active":
             method, st, connected_at, authenticated = "browser_session", "connected", sess.updated_at.isoformat(), True
             label = sess.label
@@ -148,6 +225,9 @@ def connected_apps(user: CurrentUser, state: StateDep) -> list[dict]:
             # the UI should NOT offer a Connect button (it would bounce off the provider's
             # error page) — point the user to email forwarding / scan instead.
             "oauth_available": state.settings.oauth_available(key),
+            # True for password-based mail hosts (iCloud) — the UI shows an app-password
+            # connect form (POST /integrations/connect-imap) instead of an OAuth button.
+            "imap_connectable": is_imap_provider(key),
         })
     return out
 

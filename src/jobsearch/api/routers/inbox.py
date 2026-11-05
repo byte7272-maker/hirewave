@@ -29,6 +29,23 @@ def _fetch_all_gmail(state, user_id: str) -> list[str]:
     return raws
 
 
+def _fetch_all_imap(state, user_id: str, provider: Provider) -> list[str]:
+    """Pull raw messages from EVERY connected IMAP inbox (iCloud, …) for this user,
+    using each stored app-specific password. Raises HTTP 400 when none is connected."""
+    from jobsearch.engines.sourcing.imap_source import build_imap_source
+
+    inboxes = state.integration.imap_inboxes(user_id, provider)
+    if not inboxes:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, f"connect {provider.value} first"
+        )
+    raws: list[str] = []
+    for email, app_password in inboxes:
+        src = build_imap_source(provider.value, username=email, password=app_password)
+        raws.extend(src.fetch(max_messages=state.settings.gmail_max_messages))
+    return raws
+
+
 @router.get("/address")
 def my_address(user: CurrentUser, state: StateDep) -> dict:
     """The user's personal forwarding address — forward job alerts here."""
@@ -73,16 +90,23 @@ def scan_job_mail(user: CurrentUser, state: StateDep, source: str = "mailbox") -
 
     ``source=mailbox`` (default) scans your **dedicated / IMAP job account** — the
     best-privacy option, since it holds only job mail. ``source=gmail`` scans your
-    connected Gmail. Every message is classified; **non-job mail is dropped before
-    anything is read in** (the privacy gate), and the job mail is categorized by kind
-    (alert / application / interview / offer / rejection / recruiter). Postings carried
-    by the job mail are ingested into your search results."""
+    connected Gmail. ``source=icloud`` scans your connected iCloud mailbox (IMAP).
+    Every message is classified; **non-job mail is dropped before anything is read
+    in** (the privacy gate), and the job mail is categorized by kind (alert /
+    application / interview / offer / rejection / recruiter). Postings carried by the
+    job mail are ingested into your search results."""
+    from jobsearch.engines.sourcing.imap_source import is_imap_provider
+
     if source == "gmail":
         raws = _fetch_all_gmail(state, user.id)
     elif source == "mailbox":
         raws = state.job_mail_source.fetch()
+    elif is_imap_provider(source):  # e.g. "icloud"
+        raws = _fetch_all_imap(state, user.id, Provider(source))
     else:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "source must be 'mailbox' or 'gmail'")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "source must be 'mailbox', 'gmail', or 'icloud'"
+        )
 
     # Privacy gate: classify first, keep ONLY job email; never read non-job mail further.
     job: list[tuple] = []

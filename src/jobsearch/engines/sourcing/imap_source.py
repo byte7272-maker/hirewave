@@ -133,3 +133,79 @@ def build_job_mail_source(settings: Optional[Settings] = None) -> JobMailSource:
             mailbox=getattr(s, "job_mailbox_folder", "INBOX"),
         )
     return MockJobMailSource()
+
+
+# --- Per-user IMAP email providers (app-specific password, NOT OAuth) ---------
+# These are consumer mail hosts a user can connect with their own address + an
+# app-specific password (generated in the provider's security settings). Unlike
+# Gmail (OAuth), there is no token exchange — the app password is stored encrypted
+# per user and used directly for IMAP login. Host/port/folder are fixed per
+# provider, so a user only supplies their email + app password.
+IMAP_PROVIDERS: dict[str, dict] = {
+    "icloud": {
+        "label": "iCloud Mail",
+        "host": "imap.mail.me.com",
+        "port": 993,
+        "folder": "INBOX",
+        # Where the user generates the app-specific password (the Apple ID password
+        # itself will NOT work for IMAP once 2FA is on).
+        "app_password_url": "https://appleid.apple.com/account/manage",
+        "help": (
+            "Sign in to appleid.apple.com → App-Specific Passwords → generate one for "
+            "Hirewave, then enter your iCloud email and that password (your normal Apple "
+            "ID password won't work)."
+        ),
+    },
+}
+
+
+def imap_provider_config(provider_key: str) -> Optional[dict]:
+    """Host/port/folder metadata for a per-user IMAP provider, or ``None`` if the
+    key isn't a known IMAP provider (e.g. it's an OAuth provider)."""
+    return IMAP_PROVIDERS.get((provider_key or "").lower())
+
+
+def is_imap_provider(provider_key: str) -> bool:
+    return (provider_key or "").lower() in IMAP_PROVIDERS
+
+
+def build_imap_source(provider_key: str, *, username: str, password: str) -> ImapJobMailSource:
+    """An :class:`ImapJobMailSource` for one user's connected IMAP mailbox, with
+    host/port/folder taken from the provider registry (iCloud, …)."""
+    cfg = imap_provider_config(provider_key) or {}
+    return ImapJobMailSource(
+        host=cfg.get("host", ""),
+        port=cfg.get("port", 993),
+        username=username,
+        password=password,
+        mailbox=cfg.get("folder", "INBOX"),
+    )
+
+
+def verify_imap_login(
+    *, host: str, port: int, username: str, password: str, timeout: float = 20.0
+) -> tuple[bool, str]:
+    """Attempt an IMAP login to confirm the credentials work, WITHOUT reading any
+    mail. Returns ``(ok, error_message)``. Used by the connect endpoint so a bad
+    email / app password is rejected immediately instead of silently storing a
+    credential that will never fetch. Network/auth failures return ``(False, msg)``;
+    they never raise."""
+    import imaplib
+
+    if not (host and username and password):
+        return False, "missing host, email, or app password"
+    conn = None
+    try:
+        conn = imaplib.IMAP4_SSL(host, port, timeout=timeout)
+        conn.login(username, password)
+        return True, ""
+    except imaplib.IMAP4.error as exc:  # auth rejected by the server
+        return False, "the email or app-specific password was not accepted"
+    except Exception as exc:  # noqa: BLE001 - DNS/TLS/timeout etc.
+        return False, f"could not reach the mail server ({type(exc).__name__})"
+    finally:
+        if conn is not None:
+            try:
+                conn.logout()
+            except Exception:  # noqa: BLE001
+                pass

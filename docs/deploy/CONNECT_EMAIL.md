@@ -1,12 +1,15 @@
 # Connecting an email account to feed job matches
 
-The app can pull job email into the match pool two ways. Both are built; they only need
+The app can pull job email into the match pool three ways. All are built; they only need
 configuration + (for A) a Google OAuth app.
 
+- **C — Per-user iCloud (IMAP, app-specific password).** Each user connects **their own**
+  iCloud inbox from the UI with their email + an Apple app-specific password. No
+  deployment-wide config, no Google app — works out of the box. Best coverage for the
+  iPhone/Mac user base. See section C.
 - **B — User-preference feed (forwarding / IMAP).** The user decides what comes in: they
-  forward job alerts to their in-app address, or connect a dedicated mailbox over IMAP,
-  and run a **Scan** (or let the schedule pull it). No Google app needed. This is the
-  default/baseline method.
+  forward job alerts to their in-app address, or the deployment connects **one** dedicated
+  mailbox over IMAP, and a **Scan** (or the schedule) pulls it. No Google app needed.
 - **A — Proactive fetch (Gmail OAuth).** The user clicks **Connect Gmail**, grants
   read-only access once, and the scheduler then fetches job email proactively. This needs
   a Google Cloud OAuth client and live mode.
@@ -58,6 +61,43 @@ shown but won't receive mail — prefer B1 for a quick setup.
 
 ---
 
+## C — iCloud Mail (per-user, app-specific password) — nothing to configure
+
+Unlike A/B, this needs **no deployment config and no Google app** — each user connects their
+own iCloud inbox from the UI. iCloud doesn't support OAuth, so the user supplies an Apple
+**app-specific password** (their normal Apple ID password won't work over IMAP once 2FA is on).
+
+**What the user does (in-app, P69 UI):**
+1. Go to **appleid.apple.com** → **Sign-In & Security → App-Specific Passwords** → generate
+   one for "Hirewave".
+2. In Hirewave's **Connect email** area, open **iCloud Mail**, enter the iCloud email + that
+   app-specific password, and connect.
+
+**What happens server-side:**
+- **`POST /api/v1/integrations/connect-imap`** `{ "provider":"icloud", "email":…, "app_password":… }`
+  does a live IMAP login to `imap.mail.me.com:993` to validate, then stores the password
+  **encrypted at rest** (same AES-GCM field as OAuth tokens), keyed to the user. A bad
+  credential returns an actionable **400** and stores nothing.
+- The mailbox is then scanned/reaped exactly like Gmail: **`POST /api/v1/inbox/scan?source=icloud`**
+  for an immediate pull, and the scheduler's per-tick reap keeps matches fresh (same privacy
+  gate — only job email is ingested). A user can connect more than one iCloud address;
+  **`DELETE /api/v1/integrations/icloud`** disconnects.
+
+**Optional config (defaults are fine):**
+```
+JOBSEARCH_IMAP_VERIFY_ON_CONNECT=true   # default; set false only to skip the live login check
+JOBSEARCH_SCHEDULER_ENABLED=true        # needed for the automatic per-tick reap (same as A3)
+```
+No host/credential vars are needed — host/port/folder for iCloud are built in, and each
+user's own password is what's used.
+
+> Discovery: **`GET /api/v1/integrations/imap-providers`** returns the connectable IMAP hosts
+> (currently iCloud) with the app-password URL + help text the UI renders. In
+> **`connected-apps`**, iCloud shows `imap_connectable:true` and, once connected,
+> `method:"imap"` with the account email.
+
+---
+
 ## A — Gmail OAuth (proactive fetch, user-approved)
 
 ### A1. Create the Google OAuth client
@@ -97,7 +137,11 @@ this on and Gmail connected, each tick pulls the user's job email into matches.
 ---
 
 ## Verify
-- `GET /api/v1/integrations/connected-apps` → gmail `oauth_available` reflects A being set.
+- `GET /api/v1/integrations/connected-apps` → gmail `oauth_available` reflects A being set;
+  icloud shows `imap_connectable:true`.
+- **C:** `POST /api/v1/integrations/connect-imap` with a valid iCloud email + app password →
+  `{connected:"icloud", account_email}`; then `POST /api/v1/inbox/scan?source=icloud` returns
+  `fetched`/`job_found`/`ingested`. A wrong password → 400 with an actionable detail.
 - **B:** `POST /api/v1/inbox/scan?source=mailbox` returns `fetched`/`job_found`/`ingested` and
   the new postings appear in `GET /api/v1/jobs/matches`.
 - **A:** after Connect, `connected-apps` shows gmail `status:"connected"`; with the scheduler

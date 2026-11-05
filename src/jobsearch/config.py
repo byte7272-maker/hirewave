@@ -319,6 +319,14 @@ class Settings(BaseSettings):
     job_mailbox_password: str = Field(default="", validation_alias="JOBSEARCH_JOB_MAILBOX_PASSWORD")
     job_mailbox_folder: str = "INBOX"
 
+    # --- Per-user IMAP mailboxes (iCloud et al., app-specific password) ------
+    # When a user connects iCloud, do a live IMAP login to validate the app
+    # password before storing it (so bad credentials are rejected immediately).
+    # Set False to skip the network check (offline/tests) and trust the input.
+    imap_verify_on_connect: bool = Field(
+        default=True, validation_alias="JOBSEARCH_IMAP_VERIFY_ON_CONNECT"
+    )
+
     # --- Outbound email (invitations) --------------------------------------
     # "mock" = record the message, don't actually send (offline default). "http"
     # = POST to your email API (SendGrid/Postmark/…). Used for invite-by-email.

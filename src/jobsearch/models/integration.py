@@ -20,6 +20,10 @@ class Provider(str, Enum):
     INDEED = "indeed"
     GREENHOUSE = "greenhouse"
     WORKDAY = "workday"
+    #: iCloud Mail, connected over IMAP with an app-specific password (not OAuth).
+    #: Stored like any other connection, but the encrypted ``access_token`` field
+    #: holds the app password rather than an OAuth bearer token.
+    ICLOUD = "icloud"
 
 
 class OAuthToken(DomainModel):

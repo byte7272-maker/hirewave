@@ -49,6 +49,39 @@ def reap_email(state: AppState) -> int:
     return ingested_total
 
 
+def reap_imap(state: AppState) -> int:
+    """Pull fresh job alerts from each user's connected IMAP mailbox(es) — iCloud —
+    on the tick, so password-based inboxes stay as current as OAuth Gmail. Same
+    privacy gate (only job email is ingested) and same best-effort contract: a bad
+    credential or unreachable server for one inbox never breaks the tick. Users with
+    no IMAP connection are skipped with no network call."""
+    from jobsearch.engines.sourcing.imap_source import IMAP_PROVIDERS, build_imap_source
+    from jobsearch.engines.sourcing.job_email import classify_job_email, raw_to_fields
+    from jobsearch.models import Provider
+
+    ingested_total = 0
+    for user in state.users.all():
+        for key in IMAP_PROVIDERS:
+            try:
+                provider = Provider(key)
+            except ValueError:
+                continue
+            for email, app_password in state.integration.imap_inboxes(user.id, provider):
+                try:
+                    src = build_imap_source(key, username=email, password=app_password)
+                    raws = src.fetch(max_messages=state.settings.gmail_max_messages)
+                    job_raws = [
+                        raw for raw in raws
+                        if classify_job_email(**{k: raw_to_fields(raw)[k] for k in ("sender", "subject", "body")}).is_job
+                    ]
+                    if job_raws:
+                        _, ingested = state.inbox.sync(user.id, job_raws)
+                        ingested_total += ingested
+                except Exception:  # noqa: BLE001 - never let one mailbox break the tick
+                    continue
+    return ingested_total
+
+
 def run_once(state: AppState) -> dict:
     # Auto-apply grants across all users (the engine spans users when user_id=None).
     runs = state.auto_apply.run_due(None)
@@ -60,8 +93,9 @@ def run_once(state: AppState) -> dict:
     for user in state.users.all():
         searches_run += len(state.saved_search.run_due(user.id))
 
-    # Reap connected email (Gmail) into the shared job pool so matches stay fresh.
-    emails_ingested = reap_email(state)
+    # Reap connected email (Gmail OAuth + iCloud IMAP) into the shared job pool so
+    # matches stay fresh from every connected inbox.
+    emails_ingested = reap_email(state) + reap_imap(state)
 
     # Out-of-band review reminders for users past their checkpoint + daily digests.
     reminders_sent = len(state.reminders.run_due_reminders())

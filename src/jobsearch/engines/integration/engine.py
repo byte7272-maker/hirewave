@@ -284,6 +284,39 @@ class IntegrationEngine:
             out.append((rec.account_email, tok))
         return out
 
+    # -- IMAP connections (app-specific password, NOT OAuth) ----------------
+    def connect_imap(
+        self, user_id: str, provider: Provider, *, username: str, password: str
+    ) -> OAuthToken:
+        """Store a per-user IMAP mailbox credential (e.g. iCloud). The app-specific
+        password is encrypted at rest in the same ``access_token`` field the OAuth
+        flow uses; there is no token exchange and no refresh token. ``username`` (the
+        email address) is kept as ``account_email`` so a user can connect several."""
+        email = (username or "").strip()
+        secret = (password or "").strip()
+        if not email or not secret:
+            raise IntegrationError("email and app-specific password are required")
+        return self.tokens.save(
+            user_id=user_id,
+            provider=provider,
+            access_token=secret,
+            account_email=email.lower(),
+        )
+
+    def imap_inboxes(self, user_id: str, provider: Provider) -> list[tuple[str, str]]:
+        """``(account_email, app_password)`` — decrypted — for **every** connected
+        IMAP inbox of a provider. The mirror of :meth:`inbox_tokens` for password-
+        based (non-OAuth) mailboxes; skips any record whose secret can't be read."""
+        out: list[tuple[str, str]] = []
+        for rec in self.tokens.list_accounts(user_id, provider):
+            revealed = self.tokens.reveal(
+                user_id, provider, account_email=rec.account_email or None
+            )
+            if not revealed or not revealed[0]:
+                continue
+            out.append((rec.account_email, revealed[0]))
+        return out
+
     # -- management ---------------------------------------------------------
     def list_connections(self, user_id: str) -> list[dict]:
         """User-facing list of connected providers/inboxes (never exposes token bytes)."""

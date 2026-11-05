@@ -2990,3 +2990,39 @@ A sortable, searchable table (search by email, filter by `tier`). One row per us
 ### Scope & acceptance
 Frontend over `GET /api/v1/admin/me`, `/admin/analytics/overview`, `/admin/analytics/users` (all **new** — deploy the backend first; they're session-gated by `JOBSEARCH_ADMIN_EMAILS`). Null-safe (missing `newest_job_age_hours` → "—"; empty tiers hidden), global P0 rules apply.
 Acceptance: an admin (email in `JOBSEARCH_ADMIN_EMAILS`) sees an **Admin** nav entry → a dashboard with overview cards (users by tier, projected MRR, estimated AI cost MTD, margin, engagement, system health) and a searchable per-user table with engagement, AI cost, revenue, and diagnostic flags; a **non-admin never sees the nav** and is blocked from `/admin` (and the API 403s); revenue/AI-cost are clearly labeled projection/estimate; and no user content is ever displayed.
+
+## P69 — Connect iCloud Mail (feed job matches from an iCloud inbox over IMAP)
+
+Let a user connect their **iCloud** mailbox so job alerts, recruiter mail, and application replies feed their matches — the same way connected Gmail does. iCloud doesn't use OAuth: the user supplies their **iCloud email + an app-specific password**, which the backend validates and stores encrypted. **Frontend only; the backend is already LIVE.** Match the app's design system (P9 one accent, P60 dark mode); mobile-first. Bearer auth on every call; apply global P0 rules (token refresh, null-safe, no infinite spinners). Verify on the **published** site, not the Readdy preview.
+
+Why this matters: today most users have **no connected email feeder**, so their matches never refresh from email. iCloud is a one-screen fix for the large iPhone/Mac user base.
+
+### 0. Where it lives
+In the existing **Connect email / Connected accounts** area (next to Gmail job alerts). Drive the list from **`GET /api/v1/integrations/connected-apps`** — any row with **`imap_connectable === true`** (iCloud) renders an **app-password connect**, not an OAuth button. Fetch the per-provider help/host from **`GET /api/v1/integrations/imap-providers`** → `[{ provider, label, host, app_password_url, help }]`.
+
+### 1. Not connected → the connect form
+- Show a card titled from `label` ("iCloud Mail") with a short line: "Connect your iCloud inbox to pull job emails into your matches."
+- A **"Connect iCloud"** button opens a small form with two fields:
+  - **iCloud email** (type=email).
+  - **App-specific password** (type=password) — with the `help` text shown inline and a link to `app_password_url` (`https://appleid.apple.com/account/manage`, open in a new tab) labeled "Create an app-specific password". Make the distinction explicit: **"Your normal Apple ID password won't work — generate an app-specific password."**
+- Submit → **`POST /api/v1/integrations/connect-imap`** with JSON `{ "provider": "icloud", "email": <email>, "app_password": <password> }`.
+  - **On 200** (`{ connected, account_email, provider }`): mark connected, show the `account_email`, close the form, and surface a **"Scan now"** affordance (step 3). Clear the password field from memory.
+  - **On 400**: show the `detail` message inline under the form (e.g. "could not connect iCloud Mail: the email or app-specific password was not accepted") and keep the form open so they can retry. Do **not** treat 400 as a generic failure — the detail is user-actionable.
+- Never store or log the app password client-side; it's write-only to the API.
+
+### 2. Connected state
+- When the row shows `authenticated === true` and `method === "imap"`, render it as **Connected** with the `account_label`/`account_email`, a **Disconnect** button, and a **Scan now** button.
+- **Disconnect** → **`DELETE /api/v1/integrations/icloud`** (optionally `?account_email=<email>` to remove just one of several). On 204, return the card to the not-connected state.
+- A user may connect **more than one** iCloud address — after a successful connect, still offer "Connect another address".
+
+### 3. Scan now (immediate pull; the scheduler also reaps it automatically)
+- **"Scan now"** → **`POST /api/v1/inbox/scan?source=icloud`**. Show a brief spinner, then a result toast from the response: `fetched`, `job_found`, `ingested` (e.g. "Scanned 23 emails — found 7 job emails, added 4 matches"). If `ingested > 0`, refresh the matches list.
+- On **400 "connect icloud first"**, send them back to the connect form (shouldn't happen from the connected state).
+- Explain once that new mail is pulled automatically on a schedule, so "Scan now" is only for an immediate refresh.
+
+### 4. Privacy copy
+Add a line matching the app's existing email-privacy framing: **"Only job-related email is read into your matches — everything else is ignored, and your password is stored encrypted and never shown again."**
+
+### Scope & acceptance
+Frontend over `GET /api/v1/integrations/imap-providers`, `GET /api/v1/integrations/connected-apps`, `POST /api/v1/integrations/connect-imap`, `DELETE /api/v1/integrations/icloud`, `POST /api/v1/inbox/scan?source=icloud` (all **LIVE** — no backend change). 
+Acceptance: an **iCloud Mail** connect card appears beside Gmail; connecting with a valid iCloud email + app-specific password succeeds and shows the connected address; a wrong password shows the server's actionable 400 detail and lets the user retry; **Scan now** reports fetched/found/ingested and refreshes matches; **Disconnect** removes it; the app-specific-password guidance (with the appleid.apple.com link) is clearly distinguished from the Apple ID password; and no password is ever displayed back or stored client-side.
