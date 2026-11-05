@@ -55,6 +55,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       if (msg.type === "harbor-ping") {
         return sendResponse({ ok: true, version: chrome.runtime.getManifest().version, direct: true });
       }
+
+      // Live-apply: the apply.js content script (on a job site) sends the form's visible
+      // fields; we mint a short-lived access token from the user's stored refresh token
+      // and ask the backend to map them to the user's own profile. We hold NO credential
+      // and perform no page action — apply.js fills the live form and the user submits.
+      if (msg.type === "harbor-field-map") {
+        const store = await chrome.storage.local.get(["refreshToken", "apiBase"]);
+        const apiBase = (store.apiBase || API_DEFAULT).replace(/\/+$/, "");
+        if (!store.refreshToken) {
+          return sendResponse({ ok: false, error: "Open Project Harbor and paste your token in the extension (Advanced) first." });
+        }
+        const tr = await fetch(apiBase + "/api/v1/auth/refresh", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: store.refreshToken }),
+        });
+        if (!tr.ok) return sendResponse({ ok: false, error: "Sign-in expired — re-paste your token in the extension." });
+        const td = await tr.json();
+        if (td.refresh_token) await chrome.storage.local.set({ refreshToken: td.refresh_token });
+        const res = await fetch(apiBase + "/api/v1/apply/field-map", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + td.access_token },
+          body: JSON.stringify({ fields: msg.fields || [], job_id: msg.job_id || "", resume_id: msg.resume_id || "" }),
+        });
+        if (!res.ok) {
+          let d = ""; try { d = (await res.json()).detail || ""; } catch (_) { d = ""; }
+          return sendResponse({ ok: false, error: `(${res.status}) ${d || "could not map this form"}` });
+        }
+        return sendResponse({ ok: true, data: await res.json() });
+      }
+
+      // Best-effort outcome ping from apply.js (what got filled) — no-op for now.
+      if (msg.type === "harbor-apply-report") {
+        return sendResponse({ ok: true });
+      }
+
       if (msg.type !== "harbor-connect") {
         return sendResponse({ ok: false, error: "unknown request" });
       }

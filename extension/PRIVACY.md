@@ -1,11 +1,11 @@
 # Project Harbor Connect — Privacy Policy
 
-_Last updated: 2026-09-28_
+_Last updated: 2026-11-05_
 
-Project Harbor Connect is a browser extension that lets you connect a job site (such as
-LinkedIn or Indeed) to your Project Harbor account so Project Harbor's assistant can act on
-that site on your behalf. This policy explains exactly what the extension accesses,
-what it sends, and what it never touches.
+Project Harbor Connect is a browser extension that lets you connect a job site to your
+Project Harbor account, pull job listings you are viewing, and — when you ask it to — fill
+an application form with your own saved details. This policy explains exactly what the
+extension accesses, what it sends, and what it never touches.
 
 ## What the extension does
 
@@ -33,6 +33,24 @@ current, short-lived session token** — used a single time for that call and **
 stored** by the extension. This replaces the manual pairing code; nothing else
 about what is read or sent changes.
 
+## Filling an application form (only when you click "Fill with Harbor")
+
+On a supported job-site application page, the extension shows a **"Fill with Harbor"**
+button. It does **nothing** until you click it. When you do, it:
+
+1. Reads the **labels and field types** of the visible application form (e.g. "Email",
+   "First name", a dropdown's options). It does **not** read password, hidden, or file
+   fields, and it does not read anything you have already typed.
+2. Sends those field descriptors over HTTPS to the Project Harbor API
+   (`POST /api/v1/apply/field-map`), which returns a plan mapping each field to **your own**
+   saved profile value. To authorize that call it mints a short-lived access token from the
+   Project Harbor token you saved in the extension.
+3. Writes those values into the live form **in your own browser tab** and highlights them.
+   It never clicks Submit — **you** review and submit. Passwords and legal/eligibility
+   questions (e.g. work authorization) are never filled; they are left blank for you.
+
+No server-side browser is used, and your job-site cookies are not involved in this path.
+
 ## What it accesses and why
 
 - **Cookies** (`cookies` permission, limited to the job-site domains listed in the
@@ -40,8 +58,12 @@ about what is read or sent changes.
 - **Active tab URL** (`tabs` permission) — only to auto-detect which supported job
   site you are on, so the correct provider is pre-selected. No browsing history is
   read or stored.
+- **Page content on supported job-site hosts** (`scripting` + those host permissions) —
+  only the labels/types of an application form, only after you click "Fill with Harbor",
+  only to fill your own details. No other page content is read.
 - **Local storage** (`storage` permission) — to remember the Project Harbor API base URL
-  you set (defaults to the production Project Harbor API). Stored only in this browser.
+  you set, and (if you choose to use job-pull / form-fill) the Project Harbor refresh token
+  you paste, so the extension can mint short-lived access tokens. Stored only in this browser.
 
 ## What it NEVER accesses
 
@@ -54,6 +76,11 @@ about what is read or sent changes.
   password.
 - Cookies or data from any site other than the supported job sites you explicitly
   connect.
+- **Form fields it is not asked to fill.** It reads an application form's labels only on
+  your "Fill with Harbor" click, never reads password/hidden/file fields, never reads your
+  existing answers, and never submits the form.
+- **Legal/eligibility answers.** Work-authorization, sponsorship, veteran/disability, and
+  consent questions are never auto-answered — they are left for you.
 
 ## What is sent, where, and how it is stored
 

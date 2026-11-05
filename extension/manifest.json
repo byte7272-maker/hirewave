@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Connect a job board to Project Harbor and pull your matches — captures your session (cookies only, never your password).",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
@@ -40,6 +40,19 @@
         "https://hirewave-production-3db3.up.railway.app/*"
       ],
       "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://*.workday.com/*",
+        "https://*.myworkday.com/*",
+        "https://*.indeed.com/*",
+        "https://*.ziprecruiter.com/*",
+        "https://*.dice.com/*",
+        "https://*.glassdoor.com/*"
+      ],
+      "js": ["apply.js"],
       "run_at": "document_idle"
     }
   ]
