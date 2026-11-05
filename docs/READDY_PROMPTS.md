@@ -3026,3 +3026,71 @@ Add a line matching the app's existing email-privacy framing: **"Only job-relate
 ### Scope & acceptance
 Frontend over `GET /api/v1/integrations/imap-providers`, `GET /api/v1/integrations/connected-apps`, `POST /api/v1/integrations/connect-imap`, `DELETE /api/v1/integrations/icloud`, `POST /api/v1/inbox/scan?source=icloud` (all **LIVE** — no backend change). 
 Acceptance: an **iCloud Mail** connect card appears beside Gmail; connecting with a valid iCloud email + app-specific password succeeds and shows the connected address; a wrong password shows the server's actionable 400 detail and lets the user retry; **Scan now** reports fetched/found/ingested and refreshes matches; **Disconnect** removes it; the app-specific-password guidance (with the appleid.apple.com link) is clearly distinguished from the Apple ID password; and no password is ever displayed back or stored client-side.
+
+## P70 — BUG: opening a cover letter's full editor crashes ("Cannot access 'Kt' before initialization")
+
+**Frontend only — the backend is fine (the data loads; this is a rendering crash).**
+
+### Reproduce
+1. Sign in → **Documents** → open a **cover letter** (e.g. from "Open cover letter" / "Open this version", route `/dashboard/documents/cover-letters/<id>`).
+2. The page hits the app's error boundary — **"Something went wrong on this page"** — with details **`ReferenceError: Cannot access 'Kt' before initialization`**. The **résumé** editor at `/dashboard/documents/resumes/<id>` opens fine; only the **cover-letter** editor route throws. Confirmed on the published site 2026-11-04.
+
+### Root cause (what to look for)
+This is a JavaScript **temporal dead zone (TDZ)** error: the **cover-letter editor page component** references a value **before it's initialized**. In the shipped bundle the crash is at the very top of that component, where a derived constant is computed from the **document "kind"/type** during render — of the shape:
+```js
+const label = KIND === 'cover_letter' ? 'A' : 'B';   // KIND here is read before it exists
+```
+The referenced binding (`KIND` / the document-kind constant / a shared constant or context) has **no local declaration in the component** — it comes from module scope — so it is in the TDZ when the component first renders. That is the fingerprint of **either**:
+- a **circular import** between the cover-letter editor module and a shared module (a constants file, a context, a helper, or the résumé editor it was branched from) — the shared module's `const`/`let` export hasn't finished initializing when the cover-letter editor renders; **or**
+- a **module-scope `const`/`let` referenced before its declaration line** inside the cover-letter editor file (e.g. a constant or `styled`/config object used above where it's defined).
+
+The résumé editor is structurally identical and works, so the bug is in **what the cover-letter editor imports / the order it declares things**, not in the shared UI.
+
+### Fix
+1. In the **cover-letter editor/workspace page component**, find the value it reads near the top (the document-kind constant / shared constant / context used to compute a label, tab set, or template — anything branched on "résumé vs cover letter") and make sure it is **declared or imported before first use**. Move any module-scope `const`/`let` **above** the component (or above its first reference).
+2. **Break the import cycle:** move every constant/enum/helper/context that **both** the résumé editor and the cover-letter editor use into its **own leaf module** that imports nothing from either editor, and import it from there in both. Neither editor should import from the other, and neither should import from a barrel/index that re-imports it back.
+3. Mirror the **résumé editor's** import structure and declaration order (it initializes the same binding in time). Do **not** paper over it by only wrapping the route in an error boundary — fix the TDZ so the editor actually renders.
+
+### Acceptance
+- Opening **any** cover letter to its full editor (`/dashboard/documents/cover-letters/<id>`) renders the editor (preview + side panel) with **no** error boundary and **no** console error (`Cannot access '…' before initialization` gone).
+- The résumé editor still opens normally; both document types render from the same shared components.
+- Switching between a résumé and a cover letter, and using Full-size/Preview, never throws.
+
+## P71 — Make setup / connection flows easy to find (a Connect hub + contextual entry points)
+
+**Frontend only; all endpoints are LIVE.** Today the setup/connection flows (email — Gmail & iCloud — job-site connections, the browser extension, and the forwarding address) are scattered and hard to find. Give them **one obvious home in the main menu** and small contextual links where users naturally look — without adding clutter or nag banners. Match the design system (P9 one accent, P60 dark mode); mobile-first; Bearer auth; global P0 rules.
+
+### 1. Main menu — a **Connect** entry (canonical home)
+Add a **Connect** (a.k.a. "Set up") item in the sidebar's existing **CONNECT** section. It opens a single **Connect hub** page that lists every setup option with a live status chip and a one-click connect/manage action:
+- **Email** — Gmail (OAuth) **and iCloud Mail** (app-specific password) **and** the forwarding address. Drive from `GET /api/v1/integrations/connected-apps`, `GET /api/v1/integrations/imap-providers`, `GET /api/v1/inbox/address`. iCloud uses the P69 connect-imap form; Gmail uses OAuth where `oauth_available`.
+- **Job sites** — LinkedIn, Indeed, Greenhouse, Workday, etc., from `connected-apps` (OAuth or connected-browser-session method, with `supports_auto_apply`/`ai_access`).
+- **Browser extension** — install/update from the **Chrome Web Store** (the same listing "Get the extension" already points to), showing connected/needs-update status from the extension heartbeat.
+Each row: name · status (connected / not connected / needs attention) · action. This page is the one place that answers "how do I connect X?".
+
+### 2. Contextual entry points (small inline links, never banners)
+Surface a quiet link to the relevant Connect-hub section from where the need arises:
+- **Résumé / cover-letter upload** screen → "Connect email to auto-import job replies" → email section.
+- **Matches empty / stale state** (the `matches_frozen_no_feeder` case) → one inline line "Connect email or a job site to keep matches updating" → Connect hub.
+- **Inbox** → a link from the existing email area to the full Connect hub.
+- **Extension**: the existing "Get the extension" / "Update extension" affordances link to the Chrome Web Store listing **and** to the hub's extension row.
+
+### 3. Onboarding re-runnable
+If a first-run onboarding wizard exists, make its "connect your accounts" step reachable **any time** from the Connect hub (re-runnable), not a one-time screen.
+
+### Acceptance
+A **Connect** nav item opens a hub showing Email (Gmail + iCloud + forwarding), Job sites, and the Extension with live status and one-click connect; the same flows are reachable via **small contextual links** from résumé/cover-letter upload, the Matches empty state, and Inbox; the extension links to its **Chrome Web Store** listing; and nothing is added as an intrusive banner — the site stays uncluttered.
+
+## P72 — Move the keyboard-shortcut tips out of the page body into a "Tips & Tricks" menu
+
+**Frontend only.** The Documents editor currently shows an inline keyboard-shortcuts **banner** in the main content ("New: drive the editor from the keyboard — `Ctrl+S` save in place, `Shift+Ctrl+S` save as new version, `Ctrl+F` Find & Replace, `Alt+I` jump to Ask AI… every key is also in the Shortcuts panel"). It clutters the workspace. Relocate the tips; keep the workspace clean. Match the design system; mobile-first.
+
+### Do
+1. **Remove** the inline keyboard-shortcut banner/tips card from the Documents editor body — and any similar inline shortcut hints that interrupt the main content.
+2. Add a **"Tips & Tricks"** menu item (e.g. under **ACCOUNT** or a Help area). It opens one calm page that houses:
+   - **Keyboard shortcuts** — the full list currently in the Shortcuts panel (save in place, save as new version, Find & Replace, jump to Ask AI, zoom, undo/redo, etc.), grouped by area.
+   - Room for a few other short usage tips (how versions work, Ask AI, connecting email) — concise cards, not a wall of text.
+3. Keep a **minimal** in-editor affordance: a small **"?" / Shortcuts** icon (or the existing Shortcuts panel toggle) that opens the shortcuts on demand — but **no** large banner in the body. Any first-time hint is a single dismissible one-line tooltip, not a persistent card.
+4. Preserve the site's uncluttered feel: one menu entry, consistent with P9/P60, works on mobile.
+
+### Acceptance
+The keyboard-shortcut banner no longer appears in the Documents editor body; a **Tips & Tricks** menu item opens a page with the full keyboard-shortcut list (and space for tips); an unobtrusive in-editor shortcuts affordance remains; and the workspace looks cleaner with no loss of the shortcut information.
