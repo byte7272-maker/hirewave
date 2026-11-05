@@ -3101,3 +3101,24 @@ A **Connect** nav item opens a hub showing Email (Gmail + iCloud + forwarding), 
 
 ### Acceptance
 The keyboard-shortcut banner no longer appears in the Documents editor body; a **Tips & Tricks** menu item opens a page with the full keyboard-shortcut list (and space for tips); an unobtrusive in-editor shortcuts affordance remains; and the workspace looks cleaner with no loss of the shortcut information.
+
+## P73 (patch) — Cover letters must render as a real preview ("Couldn't load this version's design")
+
+**Frontend-only patch; the backend is fine** — the cover-letter content endpoints return **200** (`POST /api/v1/cover-letters/{id}/review`, the version content). On the Documents page a cover letter's preview card shows **"Couldn't load this version's design"** and plain text only — it does **not** render as a styled document preview the way a résumé does, so **adding a cover letter never produces a proper second preview**.
+
+### Reproduce
+1. Documents → **Cover letters**: the current cover letter's preview card reads "Couldn't load this version's design" (text only, no rendered document).
+2. **Upload** or **Generate** a cover letter → it does not render as its own styled preview the way a résumé upload does.
+3. (Related: opening a cover letter to the full editor still crashes — see **P70**. Fix both so the cover-letter preview works in the Documents list **and** the editor.)
+
+### Root cause
+The preview runs cover letters through the **résumé design/template render path**, but a cover letter has no template/design associated, so the render throws and the UI falls back to the "Couldn't load this version's design" **error card** instead of just rendering the document.
+
+### Patch
+1. Render the cover letter from its **content/version** using the **same shared document-preview component** résumés use (fit-width / zoom / Full-size / version marquee), pointed at the cover-letter text (already available from the 200 `review` / version content) — **not** a résumé-only design pipeline.
+2. When a cover letter has **no template/design set**, fall back to a **clean default document render** (a plainly styled letter). Never show "Couldn't load this version's design" for a missing template — only surface a design error if an explicitly chosen template genuinely fails.
+3. **Adding a cover letter** (Upload or Generate) must immediately show it as its **own rendered preview** — a second preview, same renderer as a résumé — not a text-only card.
+4. Leave résumé previews unchanged.
+
+### Acceptance
+A cover letter renders as a full styled document preview with the same behavior as a résumé (zoom / fit / Full-size / version marquee); the "Couldn't load this version's design" card is gone (default render when no template is set); uploading or generating a cover letter immediately produces its own rendered preview; and résumé previews still work.
