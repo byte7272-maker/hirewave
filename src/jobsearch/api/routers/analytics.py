@@ -19,6 +19,7 @@ from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel
 
 from jobsearch.analytics import ai_usage, feature_activity
 from jobsearch.api.deps import CurrentUser, StateDep
@@ -333,4 +334,78 @@ def analytics_overview(user: CurrentUser, state: StateDep) -> dict:
             "job_source_mode": s.job_source_provider,  # "mock" | "http" (live)
             "gmail_fetch_mode": s.gmail_fetch,          # "mock" | "http" (live)
         },
+    }
+
+
+# --- maintenance: prune seed/test accounts ---------------------------------
+class PruneAccountsRequest(BaseModel):
+    #: DRY RUN unless true. When false, returns exactly what WOULD be deleted.
+    confirm: bool = False
+    #: Select accounts whose email domain is a configured test domain (test.dev, *.local…).
+    test_domains: bool = True
+    #: Also select one exact email domain (e.g. "test.dev") — narrows to just that one.
+    domain: Optional[str] = None
+    #: Explicit emails to delete (combined with the above selectors).
+    emails: Optional[list[str]] = None
+    #: Safety cap: refuse to execute if the selection exceeds this many accounts.
+    max_delete: int = 200
+
+
+@router.post("/accounts/prune")
+def prune_accounts(body: PruneAccountsRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Delete seed/test accounts (and their data) in bulk — operator cleanup for the
+    load-test/seed accounts that inflate the user count. **Dry run by default**: returns
+    the count + sample of what WOULD be deleted. Pass ``confirm=true`` to actually delete.
+
+    Guardrails: admin and tester emails are NEVER deleted here (protected), the caller's
+    own account is never deleted, and a ``max_delete`` cap refuses an over-broad confirm.
+    Selection = test-domain accounts by default; narrow with ``domain`` or an explicit
+    ``emails`` list to remove only *some*. Uses the same cascade as self-serve deletion."""
+    _require_admin(state, user)
+    s = state.settings
+    protected = {e.lower() for e in s.admin_emails}
+    protected |= {e.lower() for e in getattr(s, "tester_emails", [])}
+    protected.add((user.email or "").lower())  # never delete yourself via bulk prune
+
+    domain = (body.domain or "").strip().lower().lstrip("@")
+    wanted = {e.strip().lower() for e in (body.emails or []) if e.strip()}
+
+    targets = []
+    protected_skipped = 0
+    for u in state.users.all():
+        email = (u.email or "").lower()
+        selected = (
+            (bool(wanted) and email in wanted)
+            or (bool(domain) and email.endswith("@" + domain))
+            or (body.test_domains and s.is_test_user_email(email))
+        )
+        if not selected:
+            continue
+        if email in protected:
+            protected_skipped += 1
+            continue
+        targets.append(u)
+
+    deleted = 0
+    if body.confirm:
+        if len(targets) > body.max_delete:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"selection of {len(targets)} accounts exceeds max_delete={body.max_delete}; "
+                "narrow the selection (domain/emails) or raise max_delete to proceed",
+            )
+        from jobsearch.api.routers.auth import wipe_user
+        for u in targets:
+            try:
+                wipe_user(state, u.id)
+                deleted += 1
+            except Exception:  # noqa: BLE001 - never let one account block the rest
+                pass
+
+    return {
+        "dry_run": not body.confirm,
+        "matched": len(targets),
+        "deleted": deleted,
+        "protected_skipped": protected_skipped,
+        "sample": [u.email for u in targets[:50]],
     }

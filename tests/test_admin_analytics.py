@@ -149,6 +149,71 @@ def test_overview_splits_real_vs_test_accounts_and_users_can_exclude_them():
     assert next(r for r in allrows if r["email"] == "boss@x.com")["is_test"] is False
 
 
+# --- prune seed/test accounts ----------------------------------------------
+def test_prune_requires_admin():
+    _, c = _app(admin_emails_raw="boss@x.com")
+    h = _auth(c, "nope@x.com")
+    assert c.post("/api/v1/admin/accounts/prune", headers=h, json={}).status_code == 403
+
+
+def test_prune_dry_run_lists_test_accounts_without_deleting():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "seed@test.dev")
+    _auth(c, "demo@example.com")
+    _auth(c, "real@x.com")  # real domain → not selected
+    b = c.post("/api/v1/admin/accounts/prune", headers=boss, json={}).json()
+    assert b["dry_run"] is True and b["deleted"] == 0
+    assert b["matched"] == 2 and set(b["sample"]) == {"seed@test.dev", "demo@example.com"}
+    # nothing was actually removed
+    assert c.get("/api/v1/admin/analytics/overview", headers=boss).json()["totals"]["users"] == 4
+
+
+def test_prune_confirm_deletes_only_test_accounts():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "seed@test.dev")
+    _auth(c, "real@x.com")
+    r = c.post("/api/v1/admin/accounts/prune", headers=boss, json={"confirm": True})
+    assert r.json()["deleted"] == 1
+    ov = c.get("/api/v1/admin/analytics/overview", headers=boss).json()
+    assert ov["totals"]["users"] == 2  # boss + real remain
+    assert state.user_by_email("seed@test.dev") is None
+    assert state.user_by_email("real@x.com") is not None
+
+
+def test_prune_never_deletes_admin_or_caller_even_on_test_domain():
+    state, c = _app(admin_emails_raw="boss@test.dev")  # admin's own email is a test domain
+    boss = _auth(c, "boss@test.dev")
+    _auth(c, "seed@test.dev")
+    b = c.post("/api/v1/admin/accounts/prune", headers=boss, json={"confirm": True}).json()
+    assert b["deleted"] == 1 and b["protected_skipped"] >= 1
+    assert state.user_by_email("boss@test.dev") is not None   # admin survived
+    assert state.user_by_email("seed@test.dev") is None
+
+
+def test_prune_confirm_refuses_over_max_delete():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "a@test.dev")
+    _auth(c, "b@test.dev")
+    r = c.post("/api/v1/admin/accounts/prune", headers=boss, json={"confirm": True, "max_delete": 1})
+    assert r.status_code == 400
+    assert state.user_by_email("a@test.dev") is not None  # nothing deleted
+
+
+def test_prune_by_explicit_emails_only():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "keep@test.dev")
+    _auth(c, "zap@test.dev")
+    r = c.post("/api/v1/admin/accounts/prune", headers=boss,
+               json={"confirm": True, "test_domains": False, "emails": ["zap@test.dev"]})
+    assert r.json()["deleted"] == 1
+    assert state.user_by_email("zap@test.dev") is None
+    assert state.user_by_email("keep@test.dev") is not None
+
+
 # --- the metering wrapper (unit) -------------------------------------------
 def test_meter_llm_records_estimated_usage_for_current_actor():
     seen = []

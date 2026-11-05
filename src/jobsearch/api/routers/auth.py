@@ -165,14 +165,11 @@ def my_plan(user: CurrentUser, state: StateDep) -> dict:
     return plan_limits.snapshot(state, user)
 
 
-@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
-def delete_account(body: DeleteAccountRequest, user: CurrentUser, state: StateDep) -> None:
-    """Permanently delete the signed-in account and its data. Password accounts must
-    confirm with their password. This is irreversible."""
-    full = state.users.get(user.id)
-    if full is not None and full.hashed_password and not verify_password(body.password, full.hashed_password):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "password confirmation required")
-    uid = user.id
+def wipe_user(state, uid: str) -> None:
+    """Permanently delete a user and all their owned data: every user-scoped repo, their
+    owner-scoped sample postings, and their connected provider tokens/sessions. Shared by
+    self-serve account deletion and the admin bulk prune, so both cascade identically.
+    Best-effort per repo — one failing repo never blocks the rest of the wipe."""
     for repo_name in _USER_SCOPED_REPOS:
         repo = getattr(state, repo_name, None)
         if repo is None:
@@ -196,6 +193,16 @@ def delete_account(body: DeleteAccountRequest, user: CurrentUser, state: StateDe
         except Exception:  # noqa: BLE001
             pass
     state.users.delete(uid)
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(body: DeleteAccountRequest, user: CurrentUser, state: StateDep) -> None:
+    """Permanently delete the signed-in account and its data. Password accounts must
+    confirm with their password. This is irreversible."""
+    full = state.users.get(user.id)
+    if full is not None and full.hashed_password and not verify_password(body.password, full.hashed_password):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "password confirmation required")
+    wipe_user(state, user.id)
 
 
 # --- Sign in with Google (OIDC login) --------------------------------------
