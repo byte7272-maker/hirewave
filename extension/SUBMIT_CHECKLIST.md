@@ -5,13 +5,18 @@ free-text field. Provider domains live ONLY in the manifest's `host_permissions`
 (already in the zip). Rejected twice (v1.1.0, v1.1.1) for a provider list in a
 free-text field — overwrite every field below, don't just re-upload.
 
-Upload package: `extension/dist/project-harbor-connect-1.1.2.zip`
+Upload package: `extension/dist/project-harbor-connect-1.4.0.zip`
+
+**v1.4.0 adds page access on job sites** (pull jobs + "Fill with Harbor"). That's a new
+data use: you MUST overwrite the Single purpose, the host-permission justification, ADD a
+`scripting` justification, and update the data-collection answer to include *Website
+content*. Expect a fresh review.
 
 ---
 
 ## Package
 
-- [ ] **Upload new package** → `project-harbor-connect-1.1.2.zip` (manifest version 1.1.2).
+- [ ] **Upload new package** → `project-harbor-connect-1.4.0.zip` (manifest version 1.4.0).
 
 ## Store listing tab
 
@@ -19,20 +24,22 @@ Upload package: `extension/dist/project-harbor-connect-1.1.2.zip`
   `Project Harbor Connect`
 
 - [ ] **Summary** (short description, ≤132 chars):
-  `Connect a job board you already use so Project Harbor's assistant can help you apply. Session only, never your password.`
+  `Connect a job board you use, pull the jobs you view, and fill applications with your saved details — you approve and submit.`
 
 - [ ] **Description** (detailed):
   ```
   Project Harbor Connect is the companion browser extension for Project Harbor, your AI application assistant.
 
-  Keep the job boards you already use. When you choose to connect a site you're signed in to, the extension reads only that site's existing session (its cookies) and hands it to your Project Harbor account over a secure connection, so the assistant can help you tailor your resume and apply -- with you approving every step. You stay logged in on the site's own page; the extension never sees, stores, or transmits your password.
+  Keep the job boards you already use. The extension helps in three ways — always on your action, always with you in control:
+  - Connect a site you're signed in to: it reads only that site's existing session (its cookies) and hands it to your Project Harbor account over a secure connection.
+  - Pull the jobs you're viewing into Project Harbor, so the assistant can match and tailor your resume to them.
+  - Fill an application form with your own saved details when you click "Fill with Harbor": it reads the form's field labels, fills your information, and highlights it for you to review. It never fills passwords or eligibility questions, and it never submits — you do.
 
-  It works alongside the sites you already use -- it is not a replacement for them. You keep signing in to and using each site directly, and every listing and its content belong to that site.
+  You stay logged in on each site's own page; the extension never sees, stores, or transmits your password. It works alongside the sites you already use -- it is not a replacement for them, and every listing and its content belong to that site.
 
   Why install it:
-  - A helper, not autopilot: Project Harbor prepares applications; you approve every apply.
-  - One connection: sign in on the site once, then connect it in a click.
-  - Private by design: your session only, never your password; it acts only when you ask, and you can disconnect any site at any time.
+  - A helper, not autopilot: you approve every application and click Submit yourself.
+  - Private by design: your session and your own details only, never your password; it acts only when you ask, and you can disconnect any site at any time.
 
   You'll need a Project Harbor account to use this extension.
   ```
@@ -50,7 +57,7 @@ Upload package: `extension/dist/project-harbor-connect-1.1.2.zip`
 
 - [ ] **Single purpose:**
   ```
-  Project Harbor Connect connects a job site the user is already logged into to the user's own Project Harbor account, so Project Harbor's assistant can help the user apply for jobs and keep their resume updated on that site. When the user chooses to connect a site, the extension reads only that site's existing session cookies and sends them to the user's Project Harbor account over HTTPS. It never reads or transmits passwords - the user authenticates directly on the job site. Capturing an existing job-site session on request and handing it to the user's own Project Harbor account is the extension's only function.
+  Project Harbor Connect is the companion extension for the user's own Project Harbor account. On the user's action it (1) connects a job site the user is logged into by reading only that site's existing session cookies, (2) pulls job listings the user is viewing into their Project Harbor account, and (3) fills an application form the user opens with the user's own saved profile details. It reads an application form's field labels only on the user's click, never reads passwords, and never submits a form - the user reviews and submits. Every function serves the single purpose of helping the user apply for jobs through their own Project Harbor account; data is transmitted only to that account over HTTPS, and passwords are never read.
   ```
 
 - [ ] **`cookies` justification:**
@@ -63,19 +70,27 @@ Upload package: `extension/dist/project-harbor-connect-1.1.2.zip`
   The tabs permission is used only to read the active tab's URL to auto-detect which supported job site the user is currently on, so the correct site is pre-selected in the connect UI. No browsing history is collected, stored, or transmitted, and no other tab data is accessed. The URL is used ephemerally on the client for provider detection only.
   ```
 
+- [ ] **`scripting` justification** ← *NEW in 1.4.0*:
+  ```
+  The scripting permission lets the extension act on the page only in response to the user's action: (1) read the job listings on the page the user is viewing to pull them into the user's own account, and (2) read the labels and types of an application form the user chooses to fill and write the user's own saved details into it. It runs only on the job-site hosts declared in the manifest, reads no other page content, and never reads password fields.
+  ```
+
 - [ ] **`storage` justification:**
   ```
-  The storage permission persists one local setting - the Project Harbor API base URL the extension talks to (defaulting to the production API). It is stored only in the user's browser via chrome.storage.local, is never synced or transmitted, and contains no personal data. It exists so the user does not have to re-enter the endpoint.
+  The storage permission persists local settings in the user's own browser (chrome.storage.local): the Project Harbor API base URL, and - if the user uses the pull-jobs or fill-form features - the Project Harbor token the user pastes, used to mint short-lived access tokens for their own account. Nothing is synced or shared; it saves the user from re-entering these.
   ```
 
 - [ ] **Host permission justification** ← *this field held the rejected list; overwrite it*:
   ```
-  Two kinds of hosts are requested. (1) The supported job-site domains declared in the manifest's host_permissions - required to read the session cookies of the specific site the user chooses to connect. (2) The Project Harbor API host and app origin - the API host is where the captured session is sent over HTTPS to the user's account; the app origin is where a content script sets a marker so the app knows the extension is installed and relays the user's connect request. Each host is necessary for the connect flow; no other sites are accessed.
+  Two kinds of hosts are requested. (1) The job-site hosts declared in the manifest's host_permissions - used, only on the user's action, to read that site's session cookies when the user connects it, and to read an application form's field labels and fill the user's own details when the user clicks to fill. The extension reads no other page content and never reads passwords. (2) The Project Harbor API host and app origin - the API host is where sessions and form-field labels are sent over HTTPS to map to the user's own account; the app origin is where a content script marks that the extension is installed and relays the user's requests. Each host is necessary; no other sites are accessed.
   ```
 
 - [ ] **Are you using remote code?** → **No**
 - [ ] **Data collection — What data do you collect?** → **Authentication information**
-      (the session cookies of the job site the user connects; no passwords)
+      (the session cookies of a job site the user connects; no passwords) **+ Website
+      content** (the labels/types of an application form the user chooses to fill, and the
+      job listings the user chooses to pull) — both only on the user's action, sent only to
+      the user's own account.
 - [ ] **Is data sold to third parties?** → **No**
 - [ ] **Used/transferred for purposes unrelated to the single purpose?** → **No**
 - [ ] **Used to determine creditworthiness / lending?** → **No**
