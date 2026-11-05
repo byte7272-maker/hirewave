@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project Harbor Connect — Privacy Policy</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; background: #f7f9fc; color: #1a1f2b;
+      font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 40px 24px 72px; }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+    .brand .logo {
+      width: 40px; height: 40px; border-radius: 9px;
+      background: linear-gradient(#3b82f6, #2563eb); color: #fff;
+      display: grid; place-items: center; font-weight: 800; font-size: 22px;
+    }
+    .brand b { font-size: 18px; }
+    .brand span { color: #2563eb; }
+    h1 { font-size: 30px; margin: 0 0 4px; }
+    .updated { color: #64748b; font-size: 14px; margin: 0 0 28px; }
+    h2 { font-size: 20px; margin: 34px 0 10px; }
+    p, li { color: #2b3444; }
+    ul { padding-left: 22px; }
+    li { margin: 6px 0; }
+    .callout { background: #eef4ff; border: 1px solid #dbe6ff; border-radius: 12px; padding: 16px 18px; margin: 22px 0; }
+    code { background: #eef2f7; padding: 1px 6px; border-radius: 5px; font-size: 90%; }
+    footer { margin-top: 44px; color: #64748b; font-size: 14px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0f1420; color: #e6e8ec; }
+      p, li { color: #cbd2dc; }
+      .callout { background: #16233d; border-color: #24365c; }
+      code { background: #1c2333; }
+      .updated, footer { color: #94a3b8; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <div class="logo">H</div>
+    <b>Project Harbor <span>Connect</span></b>
+  </div>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: November 5, 2026</p>
+
+  <p>
+    Project Harbor Connect is a browser extension that lets you connect a job site to your
+    Project Harbor account, pull job listings you are viewing, and — when you ask it to —
+    fill an application form with your own saved details. This policy explains exactly what
+    the extension accesses, what it sends, and what it never touches.
+  </p>
+
+  <div class="callout">
+    <strong>The short version:</strong> the extension acts only when you ask it to, works
+    with your own Project Harbor account, and <strong>never reads, stores, or transmits your
+    password</strong>. It never submits an application for you — you review and submit.
+  </div>
+
+  <h2>What the extension does (always on your action)</h2>
+  <ul>
+    <li><strong>Connect a site:</strong> when you choose to connect a job site you are
+      signed in to, it reads only that site's existing <strong>session cookies</strong>
+      (set after <em>you</em> logged in on that site's own page) and sends them to your
+      Project Harbor account over HTTPS.</li>
+    <li><strong>Pull jobs:</strong> on a job list you are viewing, it reads the listings on
+      that page and sends them to your Project Harbor account so the assistant can match and
+      tailor your resume.</li>
+    <li><strong>Fill an application form:</strong> when you click <strong>“Fill with
+      Harbor”</strong> on an application page, it reads the form's field <em>labels and
+      types</em> (never password, hidden, or file fields, and never your existing answers),
+      asks your Project Harbor account to map them to your own saved details, and fills those
+      values into the form in your browser. It highlights what it filled; <strong>you review
+      and submit</strong>.</li>
+  </ul>
+  <p>The extension takes <strong>no action on its own</strong> — every action is a direct
+    response to your click, on a supported job-site page.</p>
+
+  <h2>Connecting the extension without copy-paste</h2>
+  <p>
+    To pull jobs or fill forms, the extension uses your own Project Harbor sign-in. When you
+    click <strong>Enable in this browser</strong> in the Project Harbor app, the app hands the
+    extension your current session token for your own account, used only to request
+    short-lived access tokens. You never have to find, copy, or paste a token.
+  </p>
+
+  <h2>What it accesses and why</h2>
+  <ul>
+    <li><strong>Cookies</strong> (limited to the job-site domains in the manifest) — to
+      capture the authenticated session when you connect a site.</li>
+    <li><strong>Active tab URL</strong> — only to auto-detect which supported job site you
+      are on. No browsing history is read or stored.</li>
+    <li><strong>Page content on supported job-site hosts</strong> — only the job listings you
+      pull and the labels/types of an application form you choose to fill, only on your
+      action. No other page content is read.</li>
+    <li><strong>Local storage</strong> — the Project Harbor API address, and (if you enable
+      pull/fill) your own Project Harbor session token, stored only in this browser to request
+      short-lived access tokens for your account.</li>
+  </ul>
+
+  <h2>What it never accesses</h2>
+  <ul>
+    <li><strong>Your passwords.</strong> The extension never reads, stores, or transmits any
+      password or login credential — on a job site or in Project Harbor.</li>
+    <li><strong>Password, hidden, or file fields</strong> on an application form, and your
+      existing answers. It never submits a form.</li>
+    <li><strong>Legal / eligibility answers.</strong> Work-authorization, sponsorship,
+      veteran/disability, and consent questions are never auto-answered — they are left for
+      you.</li>
+    <li>Cookies or data from any site other than the supported job sites you explicitly use.</li>
+  </ul>
+
+  <h2>What is sent, where, and how it is stored</h2>
+  <ul>
+    <li><strong>Sent:</strong> connected sessions, pulled job listings, and application-form
+      field labels — only to your own Project Harbor account over HTTPS, to perform the action
+      you requested.</li>
+    <li><strong>Stored by Project Harbor:</strong> connected sessions are stored
+      <strong>encrypted at rest</strong>, scoped to your account, and used solely to perform
+      actions you request.</li>
+    <li><strong>Stored by the extension locally:</strong> the Project Harbor API address and
+      your own session token (if you enabled pull/fill). Cookies and form content are not
+      retained after they are sent.</li>
+  </ul>
+
+  <h2>Data sharing</h2>
+  <p>
+    Project Harbor does not sell your data and does not share your sessions, pulled jobs, or
+    form data with third parties. They are transmitted only to your own Project Harbor account.
+  </p>
+
+  <h2>Your control</h2>
+  <ul>
+    <li>The extension acts only when you click Connect, Pull, or Fill.</li>
+    <li>You can disconnect a site at any time from the Project Harbor app, which invalidates
+      the stored session.</li>
+    <li>Removing the extension stops all access immediately.</li>
+  </ul>
+
+  <h2>Contact</h2>
+  <p>
+    For questions about this policy or your data, contact the Project Harbor team at the
+    address published on the Project Harbor website.
+  </p>
+
+  <footer>© 2026 Project Harbor. Project Harbor Connect browser extension.</footer>
+</main>
+</body>
+</html>
