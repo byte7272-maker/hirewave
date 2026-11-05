@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from jobsearch.analytics import ai_usage, feature_activity
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines import plans
+from jobsearch.engines.sourcing.imap_source import is_imap_provider
 from jobsearch.models.common import utcnow
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin-analytics"])
@@ -62,14 +63,33 @@ def _tier(state, user) -> str:
 
 
 def _email_connected(state, user_id: str) -> bool:
+    """Whether the user has a working email FEEDER connected — Gmail (OAuth) or an
+    IMAP mailbox (iCloud). Both feed job email into matches, so both must count here;
+    otherwise an iCloud-connected user is wrongly flagged ``matches_frozen_no_feeder``."""
     try:
         conns = state.integration.list_connections(user_id)
     except Exception:  # noqa: BLE001
         return False
     return any(
-        (c.get("provider") in ("gmail", "google")) and not c.get("expired")
+        (c.get("provider") in ("gmail", "google") or is_imap_provider(c.get("provider", "")))
+        and not c.get("expired")
         for c in conns
     )
+
+
+def _email_feeders(state, user_id: str) -> list[str]:
+    """The provider names of the user's connected email feeders (e.g. ["gmail","icloud"]),
+    so the dashboard can show WHICH inbox types are connected, not just a yes/no."""
+    try:
+        conns = state.integration.list_connections(user_id)
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    for c in conns:
+        p = c.get("provider", "")
+        if (p in ("gmail", "google") or is_imap_provider(p)) and not c.get("expired"):
+            out.append(p)
+    return sorted(set(out))
 
 
 def _active_saved_search(state, user_id: str):
@@ -102,7 +122,8 @@ def _user_row(state, user, jobs_by_owner: dict, now, in_rate: float, out_rate: f
 
     apps = state.applications.find(user_id=user.id)
     submitted = sum(1 for a in apps if str(getattr(a.status, "value", a.status)) == "submitted")
-    email_on = _email_connected(state, user.id)
+    email_feeders = _email_feeders(state, user.id)
+    email_on = bool(email_feeders)
     saved = _active_saved_search(state, user.id)
     search_on = saved is not None
 
@@ -125,6 +146,10 @@ def _user_row(state, user, jobs_by_owner: dict, now, in_rate: float, out_rate: f
         "user_id": user.id,
         "email": user.email,
         "tier": tier,
+        # True when the email's domain is a configured seed/test domain (test.dev,
+        # example.com, *.local, …) — so the dashboard can separate real users from the
+        # load-test/seed accounts that accumulate in production.
+        "is_test": state.settings.is_test_user_email(user.email),
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "last_active": user.updated_at.isoformat() if user.updated_at else None,
         "engagement": {
@@ -133,6 +158,8 @@ def _user_row(state, user, jobs_by_owner: dict, now, in_rate: float, out_rate: f
             "applications": len(apps),
             "applications_submitted": submitted,
             "email_connected": email_on,
+            # WHICH email inboxes feed this user's matches (gmail / icloud / …).
+            "email_providers": email_feeders,
             "active_saved_search": search_on,
             "saved_search_last_run": last_run.isoformat() if last_run else None,
             "matches_pool": len(owned),
@@ -173,8 +200,10 @@ def analytics_users(
     state: StateDep,
     tier: str = Query("", description="filter to one effective tier (tester/trial/free)"),
     limit: int = Query(500, ge=1, le=5000),
+    exclude_test: bool = Query(False, description="hide seed/test-domain accounts (test.dev, *.local, …)"),
 ) -> list[dict]:
-    """Per-user rows: plan, engagement counts, estimated AI usage/cost, flags."""
+    """Per-user rows: plan, engagement counts, estimated AI usage/cost, flags.
+    Pass ``exclude_test=true`` to hide seed/test-domain accounts and see only real users."""
     _require_admin(state, user)
     now = utcnow()
     in_rate = state.settings.ai_cost_input_per_1k
@@ -185,6 +214,8 @@ def analytics_users(
     for u in sorted(state.users.all(), key=lambda x: getattr(x, "created_at", now)):
         row = _user_row(state, u, jbo, now, in_rate, out_rate)
         if want and row["tier"] != want:
+            continue
+        if exclude_test and row["is_test"]:
             continue
         rows.append(row)
         if len(rows) >= limit:
@@ -203,19 +234,27 @@ def analytics_overview(user: CurrentUser, state: StateDep) -> dict:
     jbo = _jobs_by_owner(state)
 
     by_tier: dict[str, int] = {}
+    by_tier_real: dict[str, int] = {}
     revenue_by_tier: dict[str, dict] = {}
     active_7d = active_30d = email_connected = active_search = matches_frozen = 0
+    test_users = 0
     total_ai_cost = 0.0
     total_ops = 0
     feature_totals = {f: 0 for f in feature_activity.FEATURES}
+    email_provider_counts: dict[str, int] = {}
 
     users = list(state.users.all())
     for u in users:
         row = _user_row(state, u, jbo, now, in_rate, out_rate)
         t = row["tier"]
+        is_test = row.get("is_test", False)
         for f in feature_activity.FEATURES:
             feature_totals[f] += row["features"].get(f, 0)
         by_tier[t] = by_tier.get(t, 0) + 1
+        if is_test:
+            test_users += 1
+        else:
+            by_tier_real[t] = by_tier_real.get(t, 0) + 1
         price = s.plan_price(t)
         slot = revenue_by_tier.setdefault(t, {"count": 0, "price": price, "subtotal": 0.0})
         slot["count"] += 1
@@ -228,10 +267,14 @@ def analytics_overview(user: CurrentUser, state: StateDep) -> dict:
             active_30d += 1
         if row["engagement"]["email_connected"]:
             email_connected += 1
+        for p in row["engagement"].get("email_providers", []):
+            email_provider_counts[p] = email_provider_counts.get(p, 0) + 1
         if row["engagement"]["active_saved_search"]:
             active_search += 1
         if "matches_frozen_no_feeder" in row["flags"]:
             matches_frozen += 1
+
+    real_users = len(users) - test_users
 
     monthly_revenue = round(sum(v["subtotal"] for v in revenue_by_tier.values()), 2)
 
@@ -248,7 +291,16 @@ def analytics_overview(user: CurrentUser, state: StateDep) -> dict:
     return {
         "generated_at": now.isoformat(),
         "month": ai_usage.month_key(now),
-        "totals": {"users": len(users), "by_tier": by_tier},
+        "totals": {
+            "users": len(users),
+            "by_tier": by_tier,
+            # Real vs seed/test accounts, so the headline isn't inflated by load-test /
+            # seed data (test.dev, example.com, *.local, …). Test accounts are still
+            # counted in "users"; these split it out.
+            "real_users": real_users,
+            "test_users": test_users,
+            "by_tier_real": by_tier_real,
+        },
         "revenue": {
             "monthly_projected": monthly_revenue,
             "currency": "USD",
@@ -266,6 +318,8 @@ def analytics_overview(user: CurrentUser, state: StateDep) -> dict:
             "active_7d": active_7d,
             "active_30d": active_30d,
             "email_connected": email_connected,
+            # How many users feed matches from each inbox type (gmail / icloud / …).
+            "email_providers": email_provider_counts,
             "active_saved_search": active_search,
             "matches_frozen_no_feeder": matches_frozen,
             "feature_interactions": feature_totals,  # total interactions per core feature (MTD)

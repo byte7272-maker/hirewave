@@ -96,6 +96,59 @@ def test_overview_hidden_when_no_admin_emails_configured():
     assert c.get("/api/v1/admin/analytics/overview", headers=h).status_code == 403
 
 
+# --- iCloud/IMAP counts as an email feeder ---------------------------------
+def test_icloud_connection_counts_as_email_feeder():
+    # A connected iCloud inbox must count like Gmail: email_connected True, named in
+    # email_providers, and NOT flagged matches_frozen_no_feeder.
+    from jobsearch.models import Provider
+
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "mac@x.com")
+    uid = state.user_by_email("mac@x.com").id
+    state.integration.connect_imap(uid, Provider.ICLOUD, username="mac@icloud.com", password="pw")
+
+    row = next(r for r in c.get("/api/v1/admin/analytics/users", headers=boss).json()
+               if r["email"] == "mac@x.com")
+    assert row["engagement"]["email_connected"] is True
+    assert "icloud" in row["engagement"]["email_providers"]
+    assert "matches_frozen_no_feeder" not in row["flags"]
+
+    ov = c.get("/api/v1/admin/analytics/overview", headers=boss).json()
+    assert ov["engagement"]["email_providers"].get("icloud", 0) >= 1
+
+
+# --- real vs seed/test accounts --------------------------------------------
+def test_is_test_user_email_matches_domains_and_subdomains():
+    s = Settings()
+    assert s.is_test_user_email("a@test.dev") is True
+    assert s.is_test_user_email("a@sub.test.dev") is True
+    assert s.is_test_user_email("a@example.com") is True
+    assert s.is_test_user_email("a@gmail.com") is False
+    assert s.is_test_user_email("boss@x.com") is False
+
+
+def test_overview_splits_real_vs_test_accounts_and_users_can_exclude_them():
+    _, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")       # real (x.com isn't a test domain)
+    _auth(c, "seed@test.dev")           # seed/test domain
+    _auth(c, "demo@example.com")        # seed/test domain
+
+    ov = c.get("/api/v1/admin/analytics/overview", headers=boss).json()
+    assert ov["totals"]["users"] == 3
+    assert ov["totals"]["test_users"] == 2
+    assert ov["totals"]["real_users"] == 1
+
+    # exclude_test hides the seed accounts
+    kept = {r["email"] for r in c.get("/api/v1/admin/analytics/users?exclude_test=true", headers=boss).json()}
+    assert kept == {"boss@x.com"}
+
+    # per-row is_test flag
+    allrows = c.get("/api/v1/admin/analytics/users", headers=boss).json()
+    assert next(r for r in allrows if r["email"] == "seed@test.dev")["is_test"] is True
+    assert next(r for r in allrows if r["email"] == "boss@x.com")["is_test"] is False
+
+
 # --- the metering wrapper (unit) -------------------------------------------
 def test_meter_llm_records_estimated_usage_for_current_actor():
     seen = []

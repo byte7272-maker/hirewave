@@ -227,6 +227,15 @@ class Settings(BaseSettings):
     ai_cost_output_per_1k: float = Field(
         default=0.015, validation_alias="JOBSEARCH_AI_COST_OUTPUT_PER_1K"
     )
+    #: Email domains treated as SEED/TEST accounts in the admin dashboard, so the numbers
+    #: reflect real users rather than load-test/seed data (which can accumulate in prod from
+    #: automated test runs). Comma-separated; a domain also matches its subdomains. These
+    #: users are still stored and counted, but the dashboard reports a real-vs-test split.
+    #: The default covers the common offline/test/example domains.
+    admin_test_domains_raw: str = Field(
+        default="test.dev,example.com,example.org,example.net,hirewave.local,localhost,test",
+        validation_alias="JOBSEARCH_ADMIN_TEST_DOMAINS",
+    )
 
     @property
     def admin_emails(self) -> list[str]:
@@ -234,6 +243,19 @@ class Settings(BaseSettings):
 
     def is_admin_email(self, email: str) -> bool:
         return bool(email) and email.strip().lower() in self.admin_emails
+
+    @property
+    def admin_test_domains(self) -> list[str]:
+        return [d.strip().lower().lstrip("*.") for d in self.admin_test_domains_raw.split(",") if d.strip()]
+
+    def is_test_user_email(self, email: str) -> bool:
+        """True if an email's domain is a configured seed/test domain (or a subdomain of
+        one) — used so the admin dashboard can separate real users from test/seed data."""
+        e = (email or "").strip().lower()
+        dom = e.split("@")[-1] if "@" in e else ""
+        if not dom:
+            return False
+        return any(dom == d or dom.endswith("." + d) for d in self.admin_test_domains)
 
     @property
     def plan_prices(self) -> dict[str, float]:
