@@ -3135,3 +3135,55 @@ A cover letter renders as a full styled document preview with the same behavior 
 
 ### Acceptance
 The top bar no longer shows an "Update extension" button; an update prompt appears only when a real version check confirms a newer extension exists (and never by default); any legitimate update notice lives in the Connect hub's extension row with a Chrome Web Store link; installing the extension when absent still works.
+
+## P75 (patch) — Uploaded/generated documents must never auto-become "current" (the user chooses)
+
+**Frontend only.** Today, uploading or generating a résumé/cover letter **auto-switches the "current" document** to the new one (the marquee flips to "your latest résumé" and shows the upload). The current document should be whatever the user **explicitly chose**, never "the newest by date." (Backend has no "current document" concept — "current" is purely a client selection the app persists via `PUT /api/v1/view-state/resumes` · `/cover-letters`.)
+
+### Do
+1. **Treat "current" as an explicit, persisted selection**, not "the latest." The marquee/editor shows the document whose id the user selected (stored in `view-state`), and the header reads "versions of your **current** résumé/cover letter" for that selection.
+2. **On upload or generate:** add the new document to the library, confirm with a small toast ("Résumé added — open it to make it current"), and **do not change the current selection**. The previously-current document stays current and keeps showing in the marquee.
+3. **Switching is always deliberate:** give every document in the library an explicit **Open** / **Make current** action. Only that action (or clicking the document) changes the current selection and persists it to `view-state`. Never auto-select the newest.
+4. **First-ever document** (empty library, no current selection yet) may become current automatically — there's nothing to displace. Never auto-replace an existing explicit selection.
+5. Apply identically to résumés **and** cover letters.
+
+### Also (same upload path): fix the stale count badge
+After an upload, the **"Résumés" / "Cover letters" tab count badge** doesn't refresh (e.g. shows `1` when there are now `2`). Re-read the list (`GET /api/v1/resumes` · `/cover-letters`) on upload success so the count and the library list update immediately.
+
+### Acceptance
+Uploading or generating a résumé or cover letter never changes which document is shown as current; the new item appears in the library with an explicit **Open / Make current** control; the current document changes **only** when the user picks it (persisted in `view-state`); the first document on an empty library may become current; and the tab count badge updates immediately after an upload.
+
+## P76 — Real-time AI-activity bubbles + authorization checkpoints (security & control)
+
+A live, glanceable stream of **what the app's automation/AI is doing on the user's behalf** when it has access to their connected email and authenticated job sites — shown as small **bubbles/toasts** — plus **approval checkpoints** for sensitive actions. **The point is to reassure the user about their security and control:** they always see what's happening, and nothing sensitive happens without their explicit OK. **Backend is LIVE** (`GET /api/v1/activity`); this builds the UI. Design system (P9 one accent, P60 dark mode); mobile-first; Bearer auth; global P0 rules.
+
+### 1. Feed source (one endpoint)
+Poll **`GET /api/v1/activity?since=<last generated_at>&limit=50`** on a cadence (~8–12s while the tab is **visible**; pause when hidden via the Page Visibility API; back off when idle). Response:
+`{ items[], pending_action_count, unread_count, mode{automation_live, submit_live, email_scan_live, sourcing_live, worker_active}, generated_at }`.
+Each item: `{ id, kind: "notification"|"checkpoint", type, category: matches|application|document|security|system, message, at, read, requires_action, action? }`. **Dedupe by `id`.**
+
+### 2. Passive update bubbles (`requires_action: false`)
+As new items arrive, show a small **toast/bubble** in a fixed corner — 1–2 lines, a category icon/colour, **auto-dismiss ~6s**, stack a few max, with "View all" to open the panel. These never block and never need a click. E.g. "Scanned your inbox — added 3 matches", "Prepared a tailored draft for *Staff Engineer @ Globex*".
+
+### 3. Checkpoint bubbles (`requires_action: true` / `kind: "checkpoint"`)
+These need a decision and **must not auto-dismiss**. Show a persistent card with the message + **Approve** / **Reject**:
+- Approve → `POST action.approve` (`/api/v1/auto-apply/approvals/{id}/approve`); Reject → `POST action.reject`. Bulk: `POST /api/v1/auto-apply/approvals/approve-all`.
+- If **`action.will_submit_for_real === false`**, badge it: *"Test mode — the form is filled and held; nothing is sent."* When true: *"On approve, this application is sent."*
+- A **reauth** checkpoint (category `security`) → "Reconnect your Gmail/iCloud" linking to the Connect hub (P71).
+- Keep a **pending-actions tray/badge** = `pending_action_count`; it persists until each is resolved.
+
+### 4. The activity overview panel
+A **bell/pulse icon** in the top bar with two badges (`unread_count`, `pending_action_count`) opens a compact panel: recent `items` newest-first (**the quick overview**), **checkpoints pinned at top**, grouped by category. Mark read via `PUT /api/v1/notifications/{id}/read` and `/read-all`. `mode.worker_active` drives a subtle "AI is working" pulse.
+
+### 5. Security & control (the whole point)
+At the top of the panel, a short **assurance line + live/simulated status** from `mode`:
+- `submit_live === false` → "Automation is in **simulated** mode — nothing is actually sent." `=== true` → "**Live** — applications are sent **only after you approve each one**."
+- Always state the guarantee: **"Nothing is sent to an employer or on your behalf without your explicit approval."**
+- Give one-tap **Pause / Stop automation** controls (reuse auto-apply grants: `GET /api/v1/auto-apply/grants` + its pause/revoke endpoints) so the user can halt everything instantly.
+- **Badge every simulated action** so the feed never overstates what happened.
+
+### 6. Reasonable, not excessive
+Passive actions (scanning, sourcing, drafting, matching) **just bubble and fade** — no prompts. Only **sensitive/irreversible** actions (submitting to an employer, sending on the user's behalf, reconnecting access) create a checkpoint that asks. Never prompt for routine reads.
+
+### Acceptance
+Real-time bubbles appear for AI actions as the feed reports them, and passive ones auto-dismiss; a prepared application shows a **persistent checkpoint** bubble with Approve/Reject wired to the approvals endpoints and **never sends without approval**; simulated actions are clearly badged; a top-bar activity panel gives a quick overview with unread + pending counts, a live/simulated status, and a Pause/Stop control; and no passive action ever interrupts the user. Verify on the published site.

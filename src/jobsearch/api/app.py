@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from jobsearch.api.routers import (
+    activity,
     admin,
     analytics,
     applications,
@@ -71,6 +72,7 @@ _ROUTERS = [
     reminders.router,
     admin.router,
     analytics.router,
+    activity.router,
     templates.router,
     view_state.router,
     view_state.recent_router,
