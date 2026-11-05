@@ -3122,3 +3122,16 @@ The preview runs cover letters through the **résumé design/template render pat
 
 ### Acceptance
 A cover letter renders as a full styled document preview with the same behavior as a résumé (zoom / fit / Full-size / version marquee); the "Couldn't load this version's design" card is gone (default render when no template is set); uploading or generating a cover letter immediately produces its own rendered preview; and résumé previews still work.
+
+## P74 (patch) — Remove the always-on "Update extension" button from the top bar (and fix its source)
+
+**Frontend only.** The top bar shows an **"Update extension"** pill that is **always active and always says an update is available** — it never reflects reality. Remove it from the top bar, and fix/relocate the underlying signal so a *genuine* update prompt only appears when there actually is one.
+
+### Do
+1. **Remove** the persistent **"Update extension" / "Upgrade extension"** button from the global top bar. The top bar should not carry a standing extension-update nag.
+2. **Audit its info source.** Find what currently drives the "update available" state and why it's always true. Likely culprits: a hardcoded/true flag, a stale `localStorage` marker (e.g. `hirewave_extension_update_notified` / `hirewave_extension_last_seen`), or a version check that compares wrong/missing values so it always reports "newer available." Make the state come from a **real version comparison** — the installed extension's reported version vs. the latest Chrome Web Store version the app knows — and default to **no update** when the version can't be determined (fail closed, not "update available").
+3. **Relocate** any genuine "update available" indicator into the **Connect hub → Browser extension row** (P71): show "Update available" there, linking to the Chrome Web Store listing, only when the real check says so. No top-bar pill.
+4. Leave the normal "Get the extension" install affordance intact (for users who don't have it yet) — this patch is about the false *update* nag, not install.
+
+### Acceptance
+The top bar no longer shows an "Update extension" button; an update prompt appears only when a real version check confirms a newer extension exists (and never by default); any legitimate update notice lives in the Connect hub's extension row with a Chrome Web Store link; installing the extension when absent still works.
