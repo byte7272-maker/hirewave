@@ -3199,3 +3199,27 @@ Passive actions (scanning, sourcing, drafting, matching) **just bubble and fade*
 
 ### Acceptance
 Real-time bubbles appear for AI actions as the feed reports them, and passive ones auto-dismiss; a prepared application shows a **persistent checkpoint** bubble with Approve/Reject wired to the approvals endpoints and **never sends without approval**; simulated actions are clearly badged; a top-bar activity panel gives a quick overview with unread + pending counts, a live/simulated status, and a Pause/Stop control; and no passive action ever interrupts the user. Verify on the published site.
+
+## P77 — Mobile that works without the extension (email-fed matches + tap-to-copy Apply helper + desktop handoff)
+
+**Frontend only; all endpoints are LIVE.** Browser extensions do **not** run on mobile Chrome/Safari, so the extension's Fill/pull/connect features are desktop-only. On a phone the web app must still deliver real value **without the extension**, and never dangle a feature the user can't use. Platform-detect (user agent + no-extension); mobile-first; design system (P9/P60); global P0 rules.
+
+### 1. Email-fed matches as the mobile default
+On mobile, lead the Connect hub (P71) and the Matches empty state with **"Connect your email to keep matches coming"** — Gmail (OAuth) and iCloud (P69 app-password), which need **no extension** and feed matches on mobile exactly like desktop. This is the primary mobile growth loop; make it the first thing a phone user sees.
+
+### 2. Apply helper — tap-to-copy (uses `POST /api/v1/apply/field-map`)
+Mobile can't auto-fill a job form, but it can make manual applying fast. On a match's "Apply" action, open an **Apply helper** sheet:
+- Call `POST /api/v1/apply/field-map` with the common application fields (name, email, current title/company, etc.) for the selected résumé/job. 
+- Render each returned `mappings` item as a **tap-to-copy chip** ("Email → you@example.com · Copy"), grouped; show `needs_user` items as "you answer these" and omit `skipped_sensitive`.
+- Also offer **Copy résumé text** / **Copy cover letter** and an **Open job ↗** button (opens the posting in the mobile browser) so the user pastes each field as they go.
+- Clear, honest framing: "We prepared your answers — tap to copy into the application." No claim of auto-fill.
+
+### 3. Desktop handoff (honest, not a nag)
+Where the desktop extension would auto-fill, show a single quiet line: **"On a computer, the Project Harbor extension fills this for you in one click."** Link to the Connect hub's extension row. One line, dismissible, never a blocking modal.
+
+### Mobile hygiene
+- **Hide** every extension-only affordance on mobile (install/enable extension, "Fill with Harbor", pull-from-tab) — don't show a button that can't work. Surface them only on desktop.
+- Keep everything else (matches, résumé/cover-letter editing, AI, activity bubbles, approvals) fully usable on a phone.
+
+### Acceptance
+On a phone, the app leads with email-connect for matches (no extension prompts), an **Apply helper** turns a match into tap-to-copy field values from `/apply/field-map` plus copy-résumé/cover-letter and open-job, and a single quiet "fills in one click on a computer" line points to desktop — while all non-extension features work normally; no extension-only button is shown on mobile. On desktop the extension flow (P71/P76) is unchanged.
