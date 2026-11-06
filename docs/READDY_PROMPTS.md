@@ -3336,11 +3336,16 @@ From the Documents view a user can **delete an entire résumé or cover letter i
 
 ### Repro
 1. Documents → **Cover letters** → **Upload** a `.pdf`/`.docx`/`.txt` cover letter. The call returns 201.
-2. **Bug:** the new letter does not immediately appear as a rendered preview, and the **"Cover letters" tab count** doesn't tick up (e.g. still `1` when there are now `2`) until a reload. The identical résumé flow works.
+2. **Bug:** the new letter does not immediately appear as a rendered preview, and the **"Cover letters" tab count** doesn't visibly update until a reload. The identical résumé flow works.
+
+### Backend truth (verified in-process, 2026-11-06 — do NOT try to "fix" this in the UI)
+A fresh account ships **one seeded _sample_ cover letter** (`is_sample: true`). On the **first real upload** the backend **clears that sample and replaces it**, so the list count correctly stays **1** (sample → real), not `1 → 2`. The count only increments from the **second** real upload onward (`1 → 2`). Verified sequence: seeded `[sample]` → 1st upload `[real]` (count **1**) → 2nd upload `[real, real]` (count **2**). Each upload's **201 response already carries `content` + `versions:[{version:1,label:"Original"}]` + `active_version:1`**, and `GET …/{id}/preview.html` renders **200**. Consequences for the UI:
+- **Don't gate "did it work?" on the count changing** — on the first upload it legitimately stays 1, so the UI must treat the **201 response** (not a count delta) as success.
+- The most likely real symptom: the UI **never re-fetches the list**, so after the swap it keeps showing the **old sample** and the user thinks nothing was added/rendered. Re-fetching fixes both the preview and the badge.
 
 ### Do (mirror whatever the résumé upload success handler already does)
 1. **On 201, use the returned object directly** — the response **is** the created cover letter with its content + `versions[0]` ("Original"). Add it to the in-memory cover-letters list and **render it immediately** through the **same shared document-preview component** résumés use (per P73 — never the résumé-only design pipeline; default clean letter render when no template). Do not wait for a separate fetch to draw the first preview.
-2. **Re-fetch the list** right after success — `GET /api/v1/cover-letters?archived=false` — so the **count badge and the library list** update immediately (same as P75's résumé count fix). If the list fetch lags, the optimistic insert from step 1 still shows the letter and the right count.
+2. **Always re-fetch the list** right after success — `GET /api/v1/cover-letters?archived=false` — and **replace the cached list with the response** (don't merge). This is what makes the swapped-out sample disappear and the real letter + badge show correctly (same as P75's résumé count fix). If the fetch lags, the optimistic insert from step 1 still shows the letter.
 3. **Do not auto-switch "current"** (keep P75): adding a cover letter doesn't change the current selection; show the small "Cover letter added — open it to make it current" toast, with an **Open / Make current** control. (If the library was empty, the first one may become current.)
 4. Make sure the upload success handler is **wired for cover letters at all** — the likely root cause is that only the résumé branch calls the "insert + render + re-fetch list" routine, and the cover-letter branch just closes the dialog. Use **one shared post-upload routine** parameterized by document kind so the two paths can't drift again.
 5. Null-safe + global P0 rules (token refresh, render on 200, never a stuck spinner — if the first render is slow show a skeleton, not a dead spinner).
