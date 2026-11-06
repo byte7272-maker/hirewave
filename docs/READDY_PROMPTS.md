@@ -3453,3 +3453,33 @@ Arbitrary point sizes; per-selection text/highlight colors; multiple fonts withi
 
 ### Acceptance
 The full editor shows a small toolbar — **Bold, Italic, Underline, a Title/Heading/Normal style dropdown, bulleted & numbered lists, and Link** (plus optional strikethrough/quote) — that formats the current selection, shows active state, supports Ctrl/Cmd+B/I/U, works on mobile, and **saves as valid Markdown (+`<u>`) through the existing `/versions` path** with the preview re-rendering. **Font family** and a simple **base size** live in **Design** at the document level with live preview. No arbitrary point sizes, colors, or font-mixing; the renderer/ATS/templates keep working.
+
+## P91 — "Open in / Edit elsewhere": export to Word, Google Docs, PDF, or copy text (convenient, everywhere)
+
+**Frontend only; export endpoints already LIVE and verified 2026-11-06.** Let users take a résumé/cover letter into their own editor. The backend already renders the **current active version** as a formatted file — no backend work for Part A:
+- `GET /api/v1/resumes/{id}/export.docx` → **200**, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (real Word .docx)
+- `GET /api/v1/resumes/{id}/export.pdf` → **200**, `application/pdf`
+- `GET /api/v1/cover-letters/{id}/export.docx` · `…/export.pdf` → same
+- `GET /api/v1/{resumes|cover-letters}/{id}/file` → the **original uploaded** bytes (keep as "Download original")
+
+A **Word .docx is the universal exchange format** — it opens in **Microsoft Word, Apple Pages, LibreOffice, AND Google Docs** (Drive import). So one good export covers "my app of choice."
+
+### Do — Part A (frontend, ship now)
+1. **Add an "Open in… / Edit elsewhere ▾" control** in **convenient, obvious places**, for both résumés and cover letters:
+   - the **document preview / versions-marquee header** (next to Open / Download / Design),
+   - the **full editor header**,
+   - each **document card's ⋯ menu** in the library.
+2. **Menu items:**
+   - **Download as Word (.docx)** — labeled "opens in Word, Pages, or Google Docs." Fetch `…/export.docx` with the auth header, get the blob, and save via an `<a download="<Name> — <Role>.docx">` (the endpoint doesn't set a filename, so the client names it). Never a raw link that 401s.
+   - **Open in Google Docs** — since there's no Drive integration yet, do the pragmatic flow: trigger the **.docx download**, then open **`https://docs.google.com/document/u/0/`** (or `https://drive.google.com/drive/my-drive`) in a new tab with a one-line hint toast: *"Your Word file downloaded — in Google Docs choose File ▸ Open ▸ Upload to finish."* (When Part B ships, replace this with the one-click path.)
+   - **Download as PDF** — `…/export.pdf` (for viewing/printing/sharing; note PDF is not easily editable).
+   - **Copy text** — copy the current Markdown/plain text to the clipboard for pasting into any editor/email.
+   - **Download original** — `…/{id}/file` (the exact file the user uploaded), clearly distinguished from the formatted export.
+3. **Auth + null-safe:** all fetches send the Bearer token (P0), show a brief "Preparing…" state, and surface an **error + Retry** on failure (never silent). Disable items when there's no content yet.
+4. **Plain language, mobile-friendly:** big tap targets, tooltips ("Edit in Word", "Edit in Google Docs", "Save as PDF"). No acronyms.
+
+### Do — Part B (OPTIONAL, later; needs backend — do NOT block Part A on it)
+True one-click **"Open in Google Docs"** requires a **Google Drive OAuth integration**: with the user's Drive permission, upload the exported `.docx` to their Drive, convert to a Google Doc, and redirect to the new doc's URL. This is a separate backend feature (Drive API + OAuth scope) — note it as a future enhancement; Part A's download-and-import flow works today without it.
+
+### Acceptance
+From the preview/marquee header, the editor, and each document card, a user can **Open in / Edit elsewhere** and get: **Download as Word (.docx)** (opens in Word/Pages/Google Docs) with a sensible filename, **Open in Google Docs** (downloads .docx + opens Google Docs with a how-to hint), **Download as PDF**, **Copy text**, and **Download original** — all authenticated, with progress and error/Retry, never a silent or 401'd link; works for résumés and cover letters on desktop and mobile. (One-click Drive upload is noted as an optional backend follow-up.)
