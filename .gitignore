@@ -39,3 +39,6 @@ data/
 *.db
 railway-variables.txt
 _jwt_hex_values.txt
+
+# Readdy frontend export (not part of the backend repo)
+/project-14702058/
