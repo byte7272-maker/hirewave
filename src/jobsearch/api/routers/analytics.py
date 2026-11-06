@@ -409,3 +409,111 @@ def prune_accounts(body: PruneAccountsRequest, user: CurrentUser, state: StateDe
         "protected_skipped": protected_skipped,
         "sample": [u.email for u in targets[:50]],
     }
+
+
+# --- migrate one account's data to another ---------------------------------
+class MigrateAccountRequest(BaseModel):
+    from_email: str
+    to_email: str
+    #: DRY RUN unless true. When false, moves the data.
+    confirm: bool = False
+    #: After moving, permanently delete the (now-empty) source account.
+    delete_source: bool = False
+
+
+@router.post("/accounts/migrate")
+def migrate_account(body: MigrateAccountRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Move one account's documents + settings to another (e.g. a user re-created under a
+    different email). Reassigns every user-scoped record (résumés, cover letters, profile,
+    applications, saved searches, highlights, onboarding, view-state, …) and owned postings
+    from the source to the target. **Dry run by default**: returns what WOULD move. Pass
+    ``confirm=true`` to move it; ``delete_source=true`` to remove the emptied source after.
+
+    The target account must already exist (sign into it first). Connected integrations
+    (email/job-site sessions) are NOT moved — their secrets are bound to the source account's
+    encryption; re-connect them on the target. Intended for operator-run account recovery."""
+    _require_admin(state, user)
+    src = state.user_by_email((body.from_email or "").strip().lower()) if body.from_email else None
+    dst = state.user_by_email((body.to_email or "").strip().lower()) if body.to_email else None
+    if src is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"source account not found: {body.from_email}")
+    if dst is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            f"target account not found: {body.to_email} — create/sign into it first")
+    if src.id == dst.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "source and target are the same account")
+
+    from jobsearch.api.routers.auth import _USER_SCOPED_REPOS, wipe_user
+
+    def _find(repo, uid):
+        try:
+            return list(repo.find(user_id=uid))
+        except Exception:  # noqa: BLE001
+            return []
+
+    would: dict[str, int] = {}
+    for name in _USER_SCOPED_REPOS:
+        repo = getattr(state, name, None)
+        would[name] = len(_find(repo, src.id)) if repo is not None else 0
+    owned_jobs = []
+    try:
+        owned_jobs = [j for j in state.jobs.all() if getattr(j, "owner_id", "") == src.id]
+    except Exception:  # noqa: BLE001
+        owned_jobs = []
+    would["jobs"] = len(owned_jobs)
+    total = sum(would.values())
+
+    if not body.confirm:
+        return {
+            "dry_run": True, "from": src.email, "to": dst.email,
+            "would_move": {k: v for k, v in would.items() if v}, "total_records": total,
+            "note": "Integrations/sessions are NOT moved — re-connect them on the target account.",
+        }
+
+    moved: dict[str, int] = {}
+    for name in _USER_SCOPED_REPOS:
+        repo = getattr(state, name, None)
+        if repo is None:
+            continue
+        recs = _find(repo, src.id)
+        # profiles are 1:1 — clear the target's (empty) profile first so there's exactly one.
+        if name == "profiles" and recs:
+            for t in _find(repo, dst.id):
+                try:
+                    repo.delete(t.id)
+                except Exception:  # noqa: BLE001
+                    pass
+        n = 0
+        for r in recs:
+            try:
+                r.user_id = dst.id
+                repo.add(r)  # same id, new owner (upsert)
+                n += 1
+            except Exception:  # noqa: BLE001
+                pass
+        if n:
+            moved[name] = n
+    jn = 0
+    for j in owned_jobs:
+        try:
+            j.owner_id = dst.id
+            state.jobs.add(j)
+            jn += 1
+        except Exception:  # noqa: BLE001
+            pass
+    if jn:
+        moved["jobs"] = jn
+
+    deleted_source = False
+    if body.delete_source:
+        try:
+            wipe_user(state, src.id)
+            deleted_source = True
+        except Exception:  # noqa: BLE001
+            pass
+
+    return {
+        "dry_run": False, "from": src.email, "to": dst.email,
+        "moved": moved, "total_moved": sum(moved.values()), "deleted_source": deleted_source,
+        "note": "Integrations/sessions were NOT moved — re-connect them on the target account.",
+    }

@@ -214,6 +214,71 @@ def test_prune_by_explicit_emails_only():
     assert state.user_by_email("keep@test.dev") is not None
 
 
+# --- migrate one account's data to another ---------------------------------
+def test_migrate_requires_admin():
+    _, c = _app(admin_emails_raw="boss@x.com")
+    h = _auth(c, "nope@x.com")
+    r = c.post("/api/v1/admin/accounts/migrate", headers=h,
+               json={"from_email": "a@x.com", "to_email": "b@x.com"})
+    assert r.status_code == 403
+
+
+def test_migrate_target_must_exist():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "old@x.com")
+    r = c.post("/api/v1/admin/accounts/migrate", headers=boss,
+               json={"from_email": "old@x.com", "to_email": "ghost@x.com"})
+    assert r.status_code == 400 and "target account not found" in r.text
+
+
+def test_migrate_same_account_rejected():
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    _auth(c, "same@x.com")
+    r = c.post("/api/v1/admin/accounts/migrate", headers=boss,
+               json={"from_email": "same@x.com", "to_email": "same@x.com"})
+    assert r.status_code == 400
+
+
+def test_migrate_dry_run_then_moves_data():
+    from jobsearch.models.user import UserProfile
+
+    state, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    old = _auth(c, "old@x.com")   # the re-created-elsewhere source (e.g. iCloud)
+    _auth(c, "new@x.com")         # the target (e.g. Gmail), freshly signed in
+    old_uid = state.user_by_email("old@x.com").id
+    new_uid = state.user_by_email("new@x.com").id
+
+    # give the source a résumé (track it by id — new accounts also get a demo sample) + a profile setting
+    r = c.post("/api/v1/resumes/upload", headers=old,
+               files={"file": ("r.txt", b"My resume: Python engineer, led teams.", "text/plain")})
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    assert state.resumes.get(rid).user_id == old_uid
+    prof = state.profiles.get(old_uid) or UserProfile(user_id=old_uid)
+    prof.headline = "Staff Engineer"
+    state.profiles.add(prof)
+
+    # dry run moves nothing
+    dry = c.post("/api/v1/admin/accounts/migrate", headers=boss,
+                 json={"from_email": "old@x.com", "to_email": "new@x.com"}).json()
+    assert dry["dry_run"] is True and dry["would_move"].get("resumes", 0) >= 1
+    assert state.resumes.get(rid).user_id == old_uid  # not moved yet
+
+    # confirm actually moves it
+    done = c.post("/api/v1/admin/accounts/migrate", headers=boss,
+                  json={"from_email": "old@x.com", "to_email": "new@x.com", "confirm": True}).json()
+    assert done["dry_run"] is False and done["moved"].get("resumes", 0) >= 1
+    assert state.resumes.get(rid).user_id == new_uid       # the real résumé now belongs to the target
+    assert all(x.user_id != old_uid for x in state.resumes.find(user_id=old_uid))  # none left on source
+    # the profile (a setting) moved to the target
+    assert state.profiles.get(new_uid).headline == "Staff Engineer"
+    # source account still exists (emptied) unless delete_source was set
+    assert state.user_by_email("old@x.com") is not None
+
+
 # --- the metering wrapper (unit) -------------------------------------------
 def test_meter_llm_records_estimated_usage_for_current_actor():
     seen = []
