@@ -3312,3 +3312,20 @@ A first-time user can change their résumé's look in **≤2 clicks** from the r
 
 ### Acceptance
 On first login a non-technical user sees a guided wizard with a **progress bar**; each step asks for **one** thing in plain language and requests the needed permission **in-context** (OAuth / app-password / Chrome install / job-site login); completing it sets up **résumé, cover letter, résumé style (Design), email, job sites, and community** (+ the **extension** on desktop, enabled in one click with no token paste) with clear ✓s; cover letter, Design, and community are optional/skippable; the job-sites step walks the user through logging in and connecting each board (LinkedIn noted as assisted); it is **skippable, resumable, and re-runnable** from the Connect hub, and **hides desktop-only steps (extension + job sites) on mobile** while keeping the document and community steps.
+
+## P84 (patch) — Obvious Delete for a whole résumé / cover letter (trash on the marquee + the document card)
+
+**Frontend only; the backend delete is LIVE.** Users still can't find how to **delete an entire résumé or cover letter** — there's no visible trash control. (Deleting a *version* is different from deleting the whole document; make both obvious.) Backend endpoints already exist:
+- Whole document: `DELETE /api/v1/resumes/{id}` · `DELETE /api/v1/cover-letters/{id}` → 204.
+- One version: `DELETE /api/v1/resumes/{id}/versions/{version}` · `DELETE /api/v1/cover-letters/{id}/versions/{version}`.
+
+### Do
+1. **Delete the whole document — two visible places:**
+   - A **trash / Delete control in the Document-versions marquee header** (next to "Open résumé/cover letter"), labeled so it's clear it removes the **entire** current document, not just a version.
+   - A **trash icon on each document card** in the Résumés / Cover letters library list.
+2. **Confirm before deleting** — a small dialog: "Delete this résumé/cover letter and all its versions? This can't be undone." Confirm → call the whole-document `DELETE`; on 204 remove it from the list, clear it as current if it was selected (fall back to another doc or the empty state), and refresh the count badge.
+3. **Per-version trash stays** on each version card (delete just that version via the version `DELETE`), visually distinct from the whole-document delete so users don't confuse the two. Never allow deleting the last remaining version — delete the whole document instead.
+4. Works for **both** résumés and cover letters, identically.
+
+### Acceptance
+From the Documents view a user can **delete an entire résumé or cover letter in ≤2 clicks** — a clearly-labeled trash/Delete sits in the marquee header AND on each document card, with a confirm; deleting removes it from the list and updates the current selection + count; per-version delete remains available and visually separate; the last version can't be deleted (delete the document instead).
