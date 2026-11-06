@@ -3329,3 +3329,21 @@ On first login a non-technical user sees a guided wizard with a **progress bar**
 
 ### Acceptance
 From the Documents view a user can **delete an entire résumé or cover letter in ≤2 clicks** — a clearly-labeled trash/Delete sits in the marquee header AND on each document card, with a confirm; deleting removes it from the list and updates the current selection + count; per-version delete remains available and visually separate; the last version can't be deleted (delete the document instead).
+
+## P85 (patch) — Uploading a cover letter must render + bump the count immediately (parity with résumés)
+
+**Frontend only; the backend is fine.** `POST /api/v1/cover-letters/upload` returns **201** with the full cover letter (`content` extracted, an **Original** version seeded, `file_url`) — exactly like `POST /api/v1/resumes/upload`. For **résumés** this was already fixed: on a successful upload the new document renders at once and the tab count updates. **Cover letters still don't** — after uploading one, nothing renders as its own preview and the "Cover letters" count badge stays stale until a manual refresh. Bring the cover-letter upload path to **full parity with the résumé upload path**.
+
+### Repro
+1. Documents → **Cover letters** → **Upload** a `.pdf`/`.docx`/`.txt` cover letter. The call returns 201.
+2. **Bug:** the new letter does not immediately appear as a rendered preview, and the **"Cover letters" tab count** doesn't tick up (e.g. still `1` when there are now `2`) until a reload. The identical résumé flow works.
+
+### Do (mirror whatever the résumé upload success handler already does)
+1. **On 201, use the returned object directly** — the response **is** the created cover letter with its content + `versions[0]` ("Original"). Add it to the in-memory cover-letters list and **render it immediately** through the **same shared document-preview component** résumés use (per P73 — never the résumé-only design pipeline; default clean letter render when no template). Do not wait for a separate fetch to draw the first preview.
+2. **Re-fetch the list** right after success — `GET /api/v1/cover-letters?archived=false` — so the **count badge and the library list** update immediately (same as P75's résumé count fix). If the list fetch lags, the optimistic insert from step 1 still shows the letter and the right count.
+3. **Do not auto-switch "current"** (keep P75): adding a cover letter doesn't change the current selection; show the small "Cover letter added — open it to make it current" toast, with an **Open / Make current** control. (If the library was empty, the first one may become current.)
+4. Make sure the upload success handler is **wired for cover letters at all** — the likely root cause is that only the résumé branch calls the "insert + render + re-fetch list" routine, and the cover-letter branch just closes the dialog. Use **one shared post-upload routine** parameterized by document kind so the two paths can't drift again.
+5. Null-safe + global P0 rules (token refresh, render on 200, never a stuck spinner — if the first render is slow show a skeleton, not a dead spinner).
+
+### Acceptance
+Uploading a cover letter makes it **appear as its own rendered preview immediately** (same renderer/behavior as a résumé) **and** bumps the "Cover letters" count badge right away with no manual refresh; the current selection is unchanged (an **Open / Make current** control is offered per P75); and the résumé upload flow still behaves exactly as before.
