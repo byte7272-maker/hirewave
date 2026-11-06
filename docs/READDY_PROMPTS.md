@@ -3544,3 +3544,18 @@ The marquee header has a clean **icon toolbar** (upload, download/export, open, 
 
 ### Acceptance
 Right after uploading a `.docx`/`.pdf` cover letter or résumé, the preview shows the **original formatting faithfully** (docx via client-side docx-to-HTML, pdf rendered as-is), with a clear **Original / Working copy** toggle; the pristine original is always downloadable (P91); AI tailoring continues to work on the normalized Working copy without altering the Original.
+
+## P95 — Stop serving a stale build: no-cache index.html + "new version — reload" banner
+
+**Hosting/config + a small frontend bit. Root cause verified live 2026-11-06:** fixes get published but users keep running the **old build** because the entry **`index.html` is served from cache** (no service worker is involved — confirmed). Since the JS/CSS bundles are content-hashed (e.g. `index-C-iiyAqE.js`), only `index.html` must never be cached; once it's revalidated, the new hashed bundles load automatically. This has made several shipped fixes (P86/P88/P89) look "still broken" until a manual hard-refresh.
+
+### Do
+1. **Serve `index.html` as non-cacheable.** Configure the hosting/export so the HTML entry document returns:
+   - `Cache-Control: no-cache, no-store, must-revalidate` (and no long `max-age`).
+   Keep the **hashed static assets** (`/assets/index-*.js`, `*.css`, images) on long cache (`immutable`, 1 year) — they're safe because their names change per build. Only the entry HTML changes to no-cache.
+2. **Do NOT introduce a service worker** that caches the app shell (that would re-create the exact stale-build problem). If one exists, ensure it uses network-first for navigation/HTML and self-updates.
+3. **"New version available" reload banner (belt-and-suspenders).** In the app, periodically (e.g. every few minutes and on window refocus) fetch the current `index.html` (or a tiny `/version.json` emitted at build time with the build hash) with `cache: "no-store"`; if the build hash differs from the one the running app booted with, show a small, non-intrusive banner: **"A new version is available — Reload."** Clicking it does `location.reload()`. Never force-reload mid-edit; just offer it.
+4. Keep it uncluttered — one slim banner, dismissible, reappears on the next detected change.
+
+### Acceptance
+After a deploy, a returning user on a normal reload (no hard-refresh) gets the **latest build** because `index.html` is served `no-cache` while hashed assets stay cached; no service worker pins an old shell; and if a user has an old tab open when a new build ships, a subtle **"New version — Reload"** banner appears and reloads into the new build on click. Shipped fixes take effect for users without anyone clearing cache.
