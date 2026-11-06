@@ -419,6 +419,10 @@ class MigrateAccountRequest(BaseModel):
     confirm: bool = False
     #: After moving, permanently delete the (now-empty) source account.
     delete_source: bool = False
+    #: Also copy the source account's display name (``full_name``) to the target.
+    move_identity: bool = True
+    #: Explicit display name to set on the target (overrides move_identity when given).
+    target_name: str = ""
 
 
 @router.post("/accounts/migrate")
@@ -462,10 +466,15 @@ def migrate_account(body: MigrateAccountRequest, user: CurrentUser, state: State
         owned_jobs = []
     would["jobs"] = len(owned_jobs)
     total = sum(would.values())
+    src_name = (getattr(src, "full_name", "") or "").strip()
+    dst_name = (getattr(dst, "full_name", "") or "").strip()
+    new_name = (body.target_name or "").strip() or (src_name if body.move_identity else "")
 
     if not body.confirm:
         return {
             "dry_run": True, "from": src.email, "to": dst.email,
+            "from_name": src_name, "to_name": dst_name,
+            "would_set_name": new_name or None,
             "would_move": {k: v for k, v in would.items() if v}, "total_records": total,
             "note": "Integrations/sessions are NOT moved — re-connect them on the target account.",
         }
@@ -504,6 +513,17 @@ def migrate_account(body: MigrateAccountRequest, user: CurrentUser, state: State
     if jn:
         moved["jobs"] = jn
 
+    # Carry the display name (the account's own identity, not a user-scoped record) so the
+    # target doesn't fall back to a placeholder name.
+    set_name = None
+    if new_name and new_name != dst_name:
+        try:
+            dst.full_name = new_name
+            state.users.add(dst)
+            set_name = new_name
+        except Exception:  # noqa: BLE001
+            pass
+
     deleted_source = False
     if body.delete_source:
         try:
@@ -514,6 +534,7 @@ def migrate_account(body: MigrateAccountRequest, user: CurrentUser, state: State
 
     return {
         "dry_run": False, "from": src.email, "to": dst.email,
-        "moved": moved, "total_moved": sum(moved.values()), "deleted_source": deleted_source,
+        "moved": moved, "total_moved": sum(moved.values()),
+        "name_set": set_name, "deleted_source": deleted_source,
         "note": "Integrations/sessions were NOT moved — re-connect them on the target account.",
     }

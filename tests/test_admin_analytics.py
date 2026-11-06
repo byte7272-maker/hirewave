@@ -260,11 +260,15 @@ def test_migrate_dry_run_then_moves_data():
     prof = state.profiles.get(old_uid) or UserProfile(user_id=old_uid)
     prof.headline = "Staff Engineer"
     state.profiles.add(prof)
+    # give the source a real display name; clear the target's
+    su = state.user_by_email("old@x.com"); su.full_name = "Mason Real"; state.users.add(su)
+    tu = state.user_by_email("new@x.com"); tu.full_name = ""; state.users.add(tu)
 
-    # dry run moves nothing
+    # dry run moves nothing (but reports the names it would carry)
     dry = c.post("/api/v1/admin/accounts/migrate", headers=boss,
                  json={"from_email": "old@x.com", "to_email": "new@x.com"}).json()
     assert dry["dry_run"] is True and dry["would_move"].get("resumes", 0) >= 1
+    assert dry["from_name"] == "Mason Real" and dry["would_set_name"] == "Mason Real"
     assert state.resumes.get(rid).user_id == old_uid  # not moved yet
 
     # confirm actually moves it
@@ -275,6 +279,9 @@ def test_migrate_dry_run_then_moves_data():
     assert all(x.user_id != old_uid for x in state.resumes.find(user_id=old_uid))  # none left on source
     # the profile (a setting) moved to the target
     assert state.profiles.get(new_uid).headline == "Staff Engineer"
+    # the display name was carried, so the target no longer falls back to a placeholder
+    assert done["name_set"] == "Mason Real"
+    assert state.user_by_email("new@x.com").full_name == "Mason Real"
     # source account still exists (emptied) unless delete_source was set
     assert state.user_by_email("old@x.com") is not None
 
