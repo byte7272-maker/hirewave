@@ -3259,3 +3259,52 @@ A **Style / Design** control is visible at the top of the résumé render and op
 
 ### Acceptance
 With a résumé present in Documents, **every résumé-dependent screen recognizes and uses it** without re-uploading or manually selecting; a freshly migrated or first-login account with one real résumé has it active across Tailor, Matches, Interview prep, and Auto-apply; the "no résumé" empty state never shows when one exists.
+
+## P81 (patch) — Robust extension detection + "refresh to activate" after install
+
+**Frontend only.** "Get the extension" shows an **install** prompt even for users who've installed it, because (a) the app checks for the extension at a single moment and can miss the content script's slightly-later announcement, and (b) a freshly-installed extension's content script **doesn't inject into already-open tabs** until the page is refreshed.
+
+**How the extension signals presence:** its content script, on the app origin, sets `document.documentElement.dataset.harborConnect = <version>` and dispatches a `harbor-connect-ready` CustomEvent (`detail.version`).
+
+### Do
+1. **Detect on load AND via event AND by brief polling:** read `document.documentElement.dataset.harborConnect`; also `window.addEventListener("harbor-connect-ready", …)`; also poll the dataset for ~3s after load (the content script runs at `document_idle`). When any fires, mark the extension **Installed** (show version) and record last-seen.
+2. **After the user clicks "Add to Chrome"**, show a clear step: **"Installed? Refresh this page to activate the extension"** — content scripts don't load into already-open tabs; a refresh flips the state to Installed ✓.
+3. When the marker is present, the row shows **Installed ✓ (version)** with a Manage link, **not** an install button.
+4. "Needs update" shows **only** when the installed version is genuinely older than the store's latest (ties to P74) — never by default.
+
+### Acceptance
+A user with the extension installed sees "Installed ✓" (after a refresh if they just installed it), not an install prompt; detection works whether the content script announces before or after the app's check; the install flow tells the user to refresh to activate.
+
+## P82 — Résumé Design/Styles must be an OBVIOUS feature (top of the render AND a standalone menu item)
+
+**Frontend only.** Earlier attempts (P79) still left Design hidden — users can't find how to change how their résumé looks. Make it **impossible to miss** by giving it **two** entry points. (Do not bury it inside a secondary tab.)
+
+### Do
+1. **A prominent button at the TOP of the résumé render.** In the preview header/toolbar — alongside fit/zoom/full-size/download — place a clearly-labeled **"Design"** (or **"Styles"**) button with an icon, in the **accent/primary color** so it stands out. Visible in both normal and full-size preview, always.
+2. **A standalone "Design" (or "Styles & Templates") menu item** in the résumé/document navigation (or a clearly visible control in the editor header), so a user thinking "I want to restyle my résumé" finds it **directly**, without opening the editor's tabs.
+3. Both open the **template/design chooser**: `GET /api/v1/resume-templates` (+ `/categories`), `POST /api/v1/resume-templates/generate`, `PUT /api/v1/resumes/{id} { template_id }`, and the section-style controls. **Live preview** — applying a template/style re-renders immediately (new version via the normal save path).
+
+### Acceptance
+A first-time user can change their résumé's look in **≤2 clicks** from the résumé view: a labeled **Design/Styles** button sits at the **top of the render** AND a **standalone Design entry** exists in the nav/header; neither is hidden in a secondary tab; choosing a template re-renders right away.
+
+## P83 — Auto-setup wizard: one guided, step-by-step flow for non-technical users (progress bar + in-context permissions)
+
+**Frontend only; all endpoints are LIVE.** Connecting email and getting the extension is still too hard for non-technical users. Replace the scattered steps with **one simple setup wizard** — a step-by-step **dialog** with an **overall progress bar**, one clear action per step, plain language, and permission requested **only at the moment it's needed**. It auto-runs on first login, is **skippable + resumable** (persist progress in `view-state`), **re-runnable** from the Connect hub, and **platform-aware** (hide desktop-only steps on mobile — P77). Match the design system (P9 one accent, P60 dark mode); mobile-first; Bearer auth; global P0.
+
+### The flow (each step: a title, a one-line "why", ONE primary action, the progress bar, Back / Skip)
+1. **Welcome** — "Let's set up Hirewave — about a minute." Show the step list, progress 0%.
+2. **Your résumé** — if none, upload (drag-drop / file: .pdf/.docx/.txt → `POST /api/v1/resumes/upload`). If present, confirm "We'll tailor this one." Advance on success.
+3. **Connect your email** (the key step) — plain: "Connect your email so job replies and alerts flow into your matches." Offer **Gmail** (if `connected-apps` says `oauth_available` → OAuth consent) or **iCloud** (the P69 app-specific-password form, with the appleid.apple.com link + help text). Request that permission **inline**; on success show ✓ and advance. "Skip for now" allowed. Drive from `GET /integrations/connected-apps`, `GET /integrations/imap-providers`, `POST /integrations/connect-imap`.
+4. **(Desktop only) Get the browser extension** — detect via P81 (`dataset.harborConnect` / `harbor-connect-ready`). If missing: **"Add to Chrome"** → the Web Store listing → **"Installed? Refresh to activate"** → auto-detect. If present → ✓. On mobile, **skip** this step and show the P77 mobile apply path instead.
+5. **(Desktop only) Enable in this browser** — **one click** posts the session to the extension (`harbor-session`, P71 §1a) — **no token copy-paste**. Show ✓.
+6. **Done** — "You're all set!" Summary of what's connected (résumé ✓ · email ✓ · extension ✓), progress 100%, primary CTA → **View your matches**.
+
+### Rules (what makes it "easy")
+- **One thing per step**, in plain words; never dump all options at once.
+- **Ask for each permission in-context**, with a short reason, at the step that needs it (OAuth consent / app-password / Chrome install) — not up front.
+- **Overall progress bar** reflects completed/total steps and advances as each succeeds.
+- **Never blocks the app**: the wizard is dismissible; the user can close it and finish later from the Connect hub, with progress remembered.
+- **Platform-aware**: on mobile, show only the steps that work (résumé, email) and the mobile apply path; hide the extension steps.
+
+### Acceptance
+On first login a non-technical user sees a guided wizard with a **progress bar**; each step asks for **one** thing in plain language and requests the needed permission **in-context** (OAuth / app-password / Chrome install); completing it connects **résumé + email** (+ the **extension** on desktop, enabled in one click with no token paste) with clear ✓s; it is **skippable, resumable, and re-runnable** from the Connect hub, and **hides desktop-only steps on mobile**.
