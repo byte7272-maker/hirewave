@@ -3402,3 +3402,17 @@ Deleting a document never leaves the app stuck: current moves to another existin
 
 ### Acceptance
 The cover-letter Document-versions strip is **visually and behaviourally identical to the résumé one**: version cards are **fully rendered** (no blank cards) and laid out **horizontally, side by side with no overlap/stacking**, browsable with the same controls, the CURRENT card highlighted and centred; the résumé strip is unchanged; both use the same shared component.
+
+## P89 (BUG, root cause) — Upload "goes silent": the staged-file confirm + status render ~1200px OFF-SCREEN
+
+**Frontend only; the upload handler works — the confirmation UI is just placed far below the fold.** Measured live 2026-11-06 (viewport 629px tall): when a user picks a cover-letter file, the file **stages correctly**, but the **staged-file panel renders at y≈1577px and its "Upload cover letter" confirm button at y≈1797px — ~1168px *below* the bottom of the screen**. The marquee (y≈256, in view) only **flickers** as state updates, then nothing visible happens. The user never sees a confirm button, a progress bar, or any status, so the upload is **never submitted** → "opens the file browser, I choose a file, the marquee slightly vibrates, then it goes silent with no indicators and the preview never shows." Clicking that off-screen confirm **does** work (upload → 201 → marquee updates per P86); the only defect is **placement + lack of in-view status.** This blocks the user from even testing Design/styling.
+
+### Do
+1. **Preferred — auto-submit on selection (best for non-technical users).** When a file is chosen from the picker, **start the upload immediately** — no separate, hunt-for-it confirm step. Show an inline **"Uploading `<filename>`…"** indicator **right at the Upload control** (top of the Cover letters / Résumés section, in view), then on success the doc becomes current and renders in the marquee (P86).
+2. **If a confirm step is kept, it must be IN VIEW.** Render the staged-file panel (filename, **Upload** / **Choose a different file** / **Cancel**) **inline, immediately adjacent to the "Upload cover letter" button at the top of the section** — never 1000px down the page. On stage, **scroll it into view and move focus to the Upload button**. A modal/inline card anchored to the upload control is ideal.
+3. **Always show status — never silent.** Visible states at the upload control: **selected → uploading (spinner/progress) → success** ("Added — now your current cover letter") **or error + Retry** (P86 Part B). The user must always see what's happening without scrolling.
+4. On success, keep P86: the new doc becomes **current** and renders in the marquee; bump the count.
+5. Apply identically to **résumé** and **cover-letter** uploads (same shared upload component — the résumé upload likely has the same off-screen-confirm issue).
+
+### Acceptance
+Picking a file to upload (résumé or cover letter) triggers the upload **without hunting for an off-screen button** — either it auto-submits, or the confirm panel appears **in view right at the upload control** with focus moved to it. The user always sees **progress and a success/error result** in view (never a silent flicker), and on success the document becomes current and renders in the marquee. No part of the upload flow renders below the fold.
