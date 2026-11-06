@@ -3223,3 +3223,39 @@ Where the desktop extension would auto-fill, show a single quiet line: **"On a c
 
 ### Acceptance
 On a phone, the app leads with email-connect for matches (no extension prompts), an **Apply helper** turns a match into tap-to-copy field values from `/apply/field-map` plus copy-résumé/cover-letter and open-job, and a single quiet "fills in one click on a computer" line points to desktop — while all non-extension features work normally; no extension-only button is shown on mobile. On desktop the extension flow (P71/P76) is unchanged.
+
+## P78 (patch) — Profile menu / account section must show the REAL signed-in user (no mock name)
+
+**Frontend only.** The profile menu in the user's **Account** section shows a **hard-coded mock name** (e.g. "Jordan") instead of the signed-in user's real name. The backend has the real identity (confirmed: the account's `full_name` is the user's actual name) — the UI just isn't using it.
+
+### Do
+1. Source the profile menu's **name, email, and avatar initials from the real session user** — the same identity the dashboard greeting already uses ("Good evening, <name>"). Never a hard-coded demo name.
+2. Apply this everywhere a name/avatar renders: the **account/profile menu**, the account-settings header, the avatar initials, and any "signed in as" line.
+3. **Remove any hard-coded placeholder identity** ("Jordan", "Alex Sample", etc.) from the UI. Fallback order when a name is missing: `full_name` → email local-part → "You" — **never** a mock person.
+
+### Acceptance
+The profile menu and account section show the **signed-in user's real name and email**; no mock/placeholder name appears for any account (verify on the migrated Gmail account — it should read the real name, not "Jordan").
+
+## P79 (patch) — Make the résumé styling/design control easy to find (top of the résumé render)
+
+**Frontend only.** The résumé **styling / design** function (template + design + section styles — P2.4) is not easily accessible; users can't find it. Surface it **at the top of the résumé render**, in the preview toolbar.
+
+### Do
+1. Put a clearly-labeled **Style / Design** control in the **résumé preview toolbar at the top** (alongside fit/zoom/full-size/download) — not buried in a tab or menu.
+2. It opens the existing design/template chooser: `GET /api/v1/resume-templates` (+ `/categories`), `POST /resume-templates/generate`, `PUT /api/v1/resumes/{id} { template_id }`, and the section-style controls. Applying a style **re-renders the preview immediately** (new version via the normal save path).
+3. Keep it available in both normal and full-size preview.
+
+### Acceptance
+A **Style / Design** control is visible at the top of the résumé render and opens the design/template chooser; choosing a template or style re-renders the preview right away; it's reachable without hunting through tabs.
+
+## P80 (patch) — Every screen must recognize the user's existing résumé (don't depend on empty client state)
+
+**Frontend only; the backend already has the résumé.** A résumé that uploaded and **renders in Documents** isn't recognized by other screens (tailor, Matches, interview prep, auto-apply) — because those read a **client-side "selected/current résumé"** that's empty on a fresh session (e.g. after an account migration or first login on a new device). Every backend feature already finds the résumé by the user's id (`GET /api/v1/resumes`); the UI just isn't fetching/selecting it.
+
+### Do
+1. Any screen that needs "the user's résumé" must **fetch `GET /api/v1/resumes`** and, when nothing is explicitly selected in `view-state`, **default to the user's current/most-recent real résumé** (skip `is_sample`), then persist that selection (`PUT /api/v1/view-state/resumes`).
+2. After **login or migration** with ≥1 real résumé, **auto-select it as current** so Documents, Tailor, Matches, Interview prep, and Auto-apply all see it immediately — no re-upload, no manual pick.
+3. **Never show "no résumé — upload one"** (or an empty résumé picker) when the user actually has a résumé in Documents. If the picker is empty, re-fetch the list before showing the empty state.
+
+### Acceptance
+With a résumé present in Documents, **every résumé-dependent screen recognizes and uses it** without re-uploading or manually selecting; a freshly migrated or first-login account with one real résumé has it active across Tailor, Matches, Interview prep, and Auto-apply; the "no résumé" empty state never shows when one exists.
