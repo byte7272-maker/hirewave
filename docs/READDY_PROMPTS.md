@@ -3150,6 +3150,8 @@ The top bar no longer shows an "Update extension" button; an update prompt appea
 
 ## P75 (patch) — Uploaded/generated documents must never auto-become "current" (the user chooses)
 
+> **⚠ Superseded for the upload/generate case by [P86].** The user reversed this: an **explicit upload or generate IS an explicit choice**, so the new document **should** become current and show in the marquee immediately (P86). P75 still governs the cases it was really meant for — **login, migration, device switch, page load** must never auto-switch "current" to the newest-by-date. Keep P75 for those; follow P86 for a deliberate upload/generate.
+
 **Frontend only.** Today, uploading or generating a résumé/cover letter **auto-switches the "current" document** to the new one (the marquee flips to "your latest résumé" and shows the upload). The current document should be whatever the user **explicitly chose**, never "the newest by date." (Backend has no "current document" concept — "current" is purely a client selection the app persists via `PUT /api/v1/view-state/resumes` · `/cover-letters`.)
 
 ### Do
@@ -3351,4 +3353,23 @@ A fresh account ships **one seeded _sample_ cover letter** (`is_sample: true`). 
 5. Null-safe + global P0 rules (token refresh, render on 200, never a stuck spinner — if the first render is slow show a skeleton, not a dead spinner).
 
 ### Acceptance
-Uploading a cover letter makes it **appear as its own rendered preview immediately** (same renderer/behavior as a résumé) **and** bumps the "Cover letters" count badge right away with no manual refresh; the current selection is unchanged (an **Open / Make current** control is offered per P75); and the résumé upload flow still behaves exactly as before.
+Uploading a cover letter makes it **appear as its own rendered preview immediately** (same renderer/behavior as a résumé) **and** bumps the "Cover letters" count badge right away with no manual refresh; and the résumé upload flow still behaves exactly as before. *(Per [P86], the uploaded document now also becomes **current** and shows in the big Document-versions marquee — not only in the Quick preview.)*
+
+## P86 (patch) — Uploading/generating a document must SHOW it: make it current in the marquee + never fail silently
+
+**Frontend only; backend fully verified working (2026-11-06).** Live reproduction on the published site proved the data layer is correct: a real **Upload file** click fired `POST /api/v1/cover-letters/upload` → **201**, the list **re-fetched** (`GET …?archived=false` 200), and the uploaded doc's **preview.html + preview.png rendered** (200) in the **Quick preview** pane, with the count going up. **The problem the user sees:** the uploaded document does **not** appear in the dominant **"Document versions" marquee** — that marquee only follows the letter marked **Current**, and P75 kept "current" from changing on upload — so the most-looked-at area shows no change and it reads as *"uploading a document does not show."* The user has decided an **explicit upload/generate is an explicit choice** and should become current. Also, transient backend **`503`s** (Railway restarts) were observed, and a failed upload currently shows **nothing** — a swallowed error that also looks like "it didn't work."
+
+### Do — Part A: the uploaded/generated doc becomes current and shows in the marquee
+1. On a **successful** upload (`POST …/resumes/upload` · `…/cover-letters/upload`) **or** generate (`…/cover-letters/generate`, `…/resumes` generate), **set the new document as the current selection** and **persist it** — `PUT /api/v1/view-state/resumes` · `/cover-letters` `{ selectedId: <new id> }` — so the big **Document-versions marquee** and the editor immediately switch to and render the **just-added document** (its `versions[0]` "Original"), not the previously-current one.
+2. Keep everything P85 already does (insert into list, re-fetch the list, bump the count, render in the preview). Now the **marquee** reflects it too, because current = the new doc.
+3. **This is the ONE carve-out from P75.** Everywhere else P75 still holds: **login, migration, device switch, plain page load, or a background list refresh must NOT auto-switch** current to the newest-by-date. Only a **deliberate upload/generate in this session** moves current. (If you want a safety valve, briefly surface an **Undo / "keep my previous current"** on the success toast — optional.)
+4. Apply identically to **résumés and cover letters** (one shared post-upload routine, per P85).
+5. **Make the two-step upload obvious:** after a file is selected, the **"Upload file"** confirm button must be visually prominent (primary styling, clearly the next action) so users don't leave a file merely *staged*. (Selecting a file alone must never be mistaken for a completed upload.)
+
+### Do — Part B: never fail silently (visible error + Retry)
+6. Wrap the whole upload flow (the `POST`, the list re-fetch, and the `view-state` PUT). If **any** step fails — **503**, network error, timeout, or a 401 that refresh can't fix — show a clear, non-dismissable-until-acknowledged **error toast**: *"Upload didn't go through (server was busy). Try again."* with a **Retry** button that re-runs the same upload. **Never** leave the user with no feedback.
+7. A **503 / timeout is transient** — Retry should just repeat the request (optionally auto-retry once after ~1.5s before showing the error). Distinguish it from a **4xx** (bad file/too large → show the real reason, don't auto-retry). Follow global **P0** (token refresh on 401, render on 200, never a dead spinner).
+8. Show an explicit **in-progress** state on the confirm button ("Uploading…") so the user knows it's working, and clear it on success or error.
+
+### Acceptance
+Uploading **or** generating a résumé/cover letter immediately makes that document **the current one shown in the big Document-versions marquee** (and the preview + count), via a persisted `view-state` selection — the user no longer has to hunt for it. P75 still prevents any auto-switch on **login/migration/page-load/background refresh**. The **"Upload file"** confirm is unmistakably the next step. And if the upload (or its follow-up refresh) **fails for any reason**, the user sees a clear **error + Retry**, never silence — a transient `503` no longer looks like "nothing happened." Works identically for résumés and cover letters.
