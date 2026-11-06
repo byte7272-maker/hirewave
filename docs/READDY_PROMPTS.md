@@ -3483,3 +3483,64 @@ True one-click **"Open in Google Docs"** requires a **Google Drive OAuth integra
 
 ### Acceptance
 From the preview/marquee header, the editor, and each document card, a user can **Open in / Edit elsewhere** and get: **Download as Word (.docx)** (opens in Word/Pages/Google Docs) with a sensible filename, **Open in Google Docs** (downloads .docx + opens Google Docs with a how-to hint), **Download as PDF**, **Copy text**, and **Download original** — all authenticated, with progress and error/Retry, never a silent or 401'd link; works for résumés and cover letters on desktop and mobile. (One-click Drive upload is noted as an optional backend follow-up.)
+
+## P92 — Wire "Open in Google Docs" one-click (Drive) + keep the download/import fallback
+
+**Frontend only; backend LIVE.** The backend now has `POST /api/v1/resumes/{id}/open-in-google-docs` and `POST /api/v1/cover-letters/{id}/open-in-google-docs` — they upload the **current version** to the user's Google Drive as a **native, editable Google Doc** and return `{ web_view_link, file_id, name }`. Wire the P91 "Open in Google Docs" item to it.
+
+### Do
+1. **On click** → `POST …/{id}/open-in-google-docs` (Bearer auth). Show "Opening in Google Docs…".
+   - **200** → `window.open(res.web_view_link, "_blank")` and a toast "Opened in Google Docs."
+   - **409** with body `detail.error === "drive_not_connected"` → the user hasn't linked Drive yet: start the one-time OAuth using `detail.connect_path` (`POST /api/v1/integrations/connect/google_drive` → open the returned `authorization_url` in a popup/new tab). When the connect flow returns (watch for the window to close / a `?connected=google_drive`), **automatically retry** the open-in-google-docs call once, then open the Doc.
+   - **502 / network** → error toast + **Retry** (never silent).
+2. **Keep the fallback (P91):** always keep **Download as Word (.docx)** in the menu for Word/Pages and as the no-Drive path; if the user declines/cancels the Drive OAuth, fall back to the download + "File ▸ Open ▸ Upload" hint.
+3. **Connect hub:** add **Connect / Disconnect Google Drive** next to Gmail & iCloud. Connection status comes from `GET /api/v1/integrations` (a `google_drive` entry = connected); disconnect = `DELETE /api/v1/integrations/google_drive`. Show the one-click item as primary when Drive is connected; otherwise show it but let the 409 path drive the connect.
+4. Plain language ("Edit in Google Docs"), big tap targets, works on mobile. No document content is ever sent anywhere except the user's own Drive via this call.
+
+### Acceptance
+Clicking **Open in Google Docs** with Drive connected opens the résumé/cover letter as an editable Google Doc in a new tab; when not connected it runs the one-time Drive consent (`drive.file`) and then opens the Doc automatically; failures show Retry; **Download as Word** still works as the universal fallback; Drive shows in the Connect hub with connect/disconnect.
+
+## P93 (AUDIT fixes) — Cover-letter page: marquee icon toolbar, count clarity, collapsible history, add-not-replace
+
+**Frontend only. Audited live 2026-11-06.** Concrete problems found on the cover-letter Documents page and the fixes:
+
+### A. Modern icon toolbar IN the marquee header (upload + download not reachable there today)
+Today the marquee header only has "Open cover letter" / "Read". Add a compact **icon button row in the Document-versions marquee header** (and the résumé one), with tooltips:
+- **Upload** (upload/tray icon) — opens the file picker and **auto-submits on selection** (per P89: in-view progress "Uploading…", no off-screen confirm), then the new doc becomes current (P86).
+- **Download / Export** (download icon) — a small menu: Word (.docx), PDF, Google Docs (P91/P92), Copy text, Download original (`…/{id}/file`).
+- **Open** (open-in icon), **Delete** (trash, P84/P87 guards).
+Use clean, consistent line icons; keep labels as tooltips/aria-labels for accessibility and mobile.
+
+### B. Disambiguate the two counts (the "14 vs 1 version" confusion)
+The badge **"Cover letter 14"** is the number of **cover-letter documents** in the library; the marquee **"1 version"** is the number of **saved versions of the current letter** — two different things shown next to each other. Fix the labels so they're unmistakable:
+- Library/tab badge → **"14 cover letters"** (documents).
+- Marquee subheading → **"1 saved version of this cover letter"** (not a bare "version" next to "14").
+Never render a bare count adjacent to "version(s)" that could be read as a version count.
+
+### C. Collapsible history (the page is ~7,000px tall; a long list is dumped at the bottom)
+The full list of cover letters / versions currently fills the bottom of the page (starts ~5,500px down; total page ~7,000px). Make it a **collapsible section, collapsed by default**: a header like **"All cover letters (14) ▾"** that expands on click; same for a long per-letter version history ("Version history (N) ▾"). Default view shows the current letter + marquee; everything else is one tap away, so the page isn't a 7,000px scroll.
+
+### D. "Upload replaces instead of adds" — make ADD explicit, and offer version-append
+Uploading a file **adds a new cover letter to the library** (the count goes up) and makes it current (P86) — it does **not** delete the previous one, but because the marquee view switches, it *feels* like a replace. Fix the perception:
+- After an upload, show a toast **"Added your cover letter — you now have N"** and make the **library list** (collapsible, section C) visibly update so the user sees the new item alongside the old ones.
+- Offer a distinct choice when a current letter exists: **"Upload as a new letter"** (default, adds a document) vs **"Upload as a new version of this letter"** (appends a version via `POST /api/v1/cover-letters/{id}/versions` so version history builds on one document). Make the two outcomes obvious before the upload commits.
+
+### Acceptance
+The marquee header has a clean **icon toolbar** (upload, download/export, open, delete) that works from the marquee view; counts are labelled so **"14 cover letters"** (library) and **"1 saved version"** (current letter) can't be confused; the long cover-letter / version list is a **collapsed-by-default** section the page no longer scrolls through; and uploading clearly **adds** a document (toast + visible library update) with an explicit option to instead **append a version** to the current letter. Applies to résumés too where it fits.
+
+## P94 — Keep the ORIGINAL document's formatting (faithful "Original" view, not only the normalized text)
+
+**Mostly frontend. Audited live 2026-11-06:** an uploaded `.docx` cover letter renders as **plain paragraphs** — the app extracts the text and re-renders it through its own template, so the original's visual formatting (letterhead, fonts, spacing, contact block, bold/headings) is lost. The extracted/normalized text is needed for AI tailoring + ATS, but the user also wants to **see and keep their original formatting**. Give them both.
+
+### Do
+1. **Add a faithful "Original" preview** of the uploaded file, distinct from the editable/tailored view:
+   - **.docx** → convert the original bytes to HTML **client-side with a docx to HTML renderer (e.g. `mammoth.js`)** fetched from the `…/{id}/file` endpoint — this preserves bold, headings, lists, tables and paragraph structure far better than the current text extraction. Render that HTML in the preview.
+   - **.pdf** → render the original PDF faithfully (embed / `pdf.js`) from `…/{id}/file`.
+   - **.txt/.md** → render as-is.
+2. **A clear toggle** on the preview: **"Original"** (faithful, read-only, the uploaded file) vs **"Working copy"** (the editable, AI-tailorable, template-rendered text). Default to **Original** right after upload so the user immediately sees their formatting; switch to Working copy when they edit/tailor.
+3. **Exports already preserve the file:** keep P91's **Download original** (the exact uploaded bytes) so the user can always retrieve the pristine file.
+4. Make clear in the UI (one line) that tailoring/AI edits operate on the Working copy (normalized text) — the Original stays untouched and downloadable.
+5. (Optional backend follow-up, note only: a server-side `.docx -> PDF/HTML` faithful render — e.g. LibreOffice headless — if client-side conversion proves insufficient for complex files.)
+
+### Acceptance
+Right after uploading a `.docx`/`.pdf` cover letter or résumé, the preview shows the **original formatting faithfully** (docx via client-side docx-to-HTML, pdf rendered as-is), with a clear **Original / Working copy** toggle; the pristine original is always downloadable (P91); AI tailoring continues to work on the normalized Working copy without altering the Original.
