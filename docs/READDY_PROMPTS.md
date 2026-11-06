@@ -3361,6 +3361,18 @@ Uploading a cover letter makes it **appear as its own rendered preview immediate
 
 ### Do — Part A: the uploaded/generated doc becomes current and shows in the marquee
 > **Proven hook (verified live 2026-11-06):** the **"Make current"** button already live-updates the marquee with **no page reload** — clicking it fires `PUT /api/v1/view-state/cover-letters` then re-fetches the doc + `preview.html`/`preview.png` and the marquee switches instantly. The marquee *is* reactive to the current selection. **So do NOT invent a new refresh mechanism — on upload success, call the exact same "Make current" handler** the button uses, passing the newly-uploaded document's id. That is the whole fix for "the marquee doesn't reload."
+>
+> **THE EXPLICIT RENDER COMMAND (this is the line that "renders the preview in the marquee"):** there is **no separate "render into marquee" call** — the marquee is **data-bound to the current selection id**, so *setting the current id IS the render command.* In the upload success handler do exactly:
+> ```js
+> const doc = await res.json();                 // 201 body == the new document (has content + versions[0])
+> setCurrentCoverLetterId(doc.id);              // ← renders it in the marquee (marquee is keyed on this id)
+> await fetch('/api/v1/view-state/cover-letters', {
+>   method: 'PUT',
+>   headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+>   body: JSON.stringify({ selectedId: doc.id }),   // persist so it survives reloads
+> });
+> ```
+> The marquee component **must be keyed/eff:** `key={currentId}` or `useEffect(..., [currentId])` that re-fetches `GET /api/v1/cover-letters/{currentId}` (+ `/versions`, `/preview.png|html`) and renders. **If the marquee does not change when `currentId` changes, it is not bound to the selection — bind it.** (Résumés identical with `setCurrentResumeId` + `/view-state/resumes`.)
 1. On a **successful** upload (`POST …/resumes/upload` · `…/cover-letters/upload`) **or** generate (`…/cover-letters/generate`, `…/resumes` generate), **invoke the existing "Make current" action on the new document's id** — i.e. set it as the current selection and **persist it** via `PUT /api/v1/view-state/resumes` · `/cover-letters` `{ selectedId: <new id> }`, then let the marquee/editor re-render from that selection exactly as the button already does. The big **Document-versions marquee** must then switch to and render the **just-added document** (its `versions[0]` "Original"), not the previously-current one. **Root cause to avoid:** the upload handler currently updates the list/preview but **never changes the current selection**, so the selection-driven marquee has no reason to re-render — reusing the Make-current path fixes that.
 2. Keep everything P85 already does (insert into list, re-fetch the list, bump the count, render in the preview). Now the **marquee** reflects it too, because current = the new doc.
 3. **This is the ONE carve-out from P75.** Everywhere else P75 still holds: **login, migration, device switch, plain page load, or a background list refresh must NOT auto-switch** current to the newest-by-date. Only a **deliberate upload/generate in this session** moves current. (If you want a safety valve, briefly surface an **Undo / "keep my previous current"** on the success toast — optional.)
@@ -3416,3 +3428,28 @@ The cover-letter Document-versions strip is **visually and behaviourally identic
 
 ### Acceptance
 Picking a file to upload (résumé or cover letter) triggers the upload **without hunting for an off-screen button** — either it auto-submits, or the confirm panel appears **in view right at the upload control** with focus moved to it. The user always sees **progress and a success/error result** in view (never a silent flicker), and on success the document becomes current and renders in the marquee. No part of the upload flow renders below the fold.
+
+## P90 — Basic formatting toolbar in the full document editor (inline) + font family/size in Design (document-level)
+
+**Frontend only; saves through the existing version path.** Documents are stored as **Markdown** and rendered through a chosen **template/design**, and the renderer already honors Markdown **plus inline `<u>…</u>`**. Give the full editor a small, non-intimidating formatting toolbar (NOT a Word clone). Split: **inline character/paragraph formatting lives in the editor toolbar**; **font family + base size live in Design** (template-level), because per-character font/size doesn't fit a Markdown+template model and reads poorly on a résumé/cover letter.
+
+### Do — editor toolbar (inline, acts on the current selection; all map to what the renderer supports)
+1. **Bold** → wrap selection in `**…**`. **Italic** → `*…*`. **Underline** → `<u>…</u>`. Toggle on/off if already applied; buttons show an **active state** when the caret is inside that formatting.
+2. **Text style / "size"** = a small dropdown mapping to headings (this is how size works in a doc model, not point sizes): **Title** (`# `), **Section heading** (`## `), **Subheading** (`### `), **Normal** (no prefix). Applies to the current line/block.
+3. **Bulleted list** (`- `) and **Numbered list** (`1. `) toggles on the selected lines.
+4. **Link** → wrap selection as `[text](url)` with a tiny URL prompt.
+5. Optional (only if trivial): **Strikethrough** (`~~…~~`), **block quote** (`> `), **horizontal rule** (`---`).
+6. **Keyboard shortcuts:** Ctrl/Cmd+B, +I, +U. **Mobile:** the toolbar is a horizontally-scrollable row of big tap targets (plain-language tooltips: "Bold", "Bigger (heading)", "Bullets").
+7. **Save through the existing path** — edits produce updated Markdown saved via `POST /api/v1/{resumes|cover-letters}/{id}/versions { content }` (new version), and the preview/marquee re-renders from the response (P2.1/P86). No new endpoint.
+8. The editor's output stays **valid Markdown (+ `<u>`)** so the renderer, ATS text, and templates keep working — do **not** emit arbitrary HTML/CSS, font tags, colors, or inline styles.
+
+### Do — Design panel (document-level, NOT per-character)
+9. In **Design**, expose **Font family** as a small **curated set** (e.g. 4–5: a clean serif, a clean sans, one "modern", one "classic") applied to the whole document via the template (`PUT /api/v1/{resumes|cover-letters}/{id} { template_id }` / the template chooser's existing render params). Live preview per choice (P2.4).
+10. Expose **base size / density** as a simple scale — **Normal / Large** (or Compact / Comfortable) — template-level, not a point picker. (Only if the template system supports it; otherwise omit and keep font family + template.)
+11. Keep Design **prominent near the document render** (per the earlier Design-prominence work) so users find font/size there.
+
+### Explicitly do NOT add (keeps it clean, avoids the Word trap)
+Arbitrary point sizes; per-selection text/highlight colors; multiple fonts within a paragraph; tables-as-layout; multi-column. These don't fit the Markdown+template model and make documents look amateur.
+
+### Acceptance
+The full editor shows a small toolbar — **Bold, Italic, Underline, a Title/Heading/Normal style dropdown, bulleted & numbered lists, and Link** (plus optional strikethrough/quote) — that formats the current selection, shows active state, supports Ctrl/Cmd+B/I/U, works on mobile, and **saves as valid Markdown (+`<u>`) through the existing `/versions` path** with the preview re-rendering. **Font family** and a simple **base size** live in **Design** at the document level with live preview. No arbitrary point sizes, colors, or font-mixing; the renderer/ATS/templates keep working.
