@@ -1,0 +1,42 @@
+{
+  "name": "Project Harbor — AI Application Assistant",
+  "short_name": "Project Harbor",
+  "description": "Keep the job boards you love. Project Harbor tailors your résumé for every role, applies with your approval, and preps you for interviews.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fdfbf6",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "https://storage.helloreaddy.io/project_files/d6523991-0f51-4e05-ac11-6a28b4f177fa/c206cfd1-bb18-4f06-a9fc-f4896c351006_compressed_icon16.webp",
+      "sizes": "16x16",
+      "type": "image/webp",
+      "purpose": "any"
+    },
+    {
+      "src": "https://storage.helloreaddy.io/project_files/d6523991-0f51-4e05-ac11-6a28b4f177fa/adc69a7b-b744-4c4f-ba54-16341a6564b8_compressed_icon32.webp",
+      "sizes": "32x32",
+      "type": "image/webp",
+      "purpose": "any"
+    },
+    {
+      "src": "https://storage.helloreaddy.io/project_files/d6523991-0f51-4e05-ac11-6a28b4f177fa/356aec45-f607-4fae-94a3-2823e4e8faa5_compressed_icon48.webp",
+      "sizes": "48x48",
+      "type": "image/webp",
+      "purpose": "any"
+    },
+    {
+      "src": "https://storage.helloreaddy.io/project_files/d6523991-0f51-4e05-ac11-6a28b4f177fa/1f022524-733b-4112-925c-668e802bb9e2_compressed_icon128.webp",
+      "sizes": "128x128",
+      "type": "image/webp",
+      "purpose": "any"
+    },
+    {
+      "src": "https://storage.helloreaddy.io/project_files/d6523991-0f51-4e05-ac11-6a28b4f177fa/1f022524-733b-4112-925c-668e802bb9e2_compressed_icon128.webp",
+      "sizes": "128x128",
+      "type": "image/webp",
+      "purpose": "maskable"
+    }
+  ]
+}

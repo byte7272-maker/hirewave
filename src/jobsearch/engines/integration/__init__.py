@@ -9,6 +9,15 @@ from jobsearch.engines.integration.exchangers import (
     HttpxTokenExchanger,
     MockTokenExchanger,
 )
+from jobsearch.engines.integration.google_drive import (
+    DriveAuthError,
+    DriveFile,
+    DriveUploader,
+    DriveUploadError,
+    HttpxDriveUploader,
+    MockDriveUploader,
+    build_drive_uploader,
+)
 from jobsearch.engines.integration.linkedin_profile import (
     LinkedInProfileProvider,
     MockLinkedInProfileProvider,
@@ -20,8 +29,15 @@ from jobsearch.engines.integration.providers import PROVIDER_REGISTRY, ProviderC
 
 __all__ = [
     "AuthorizationRequest",
+    "DriveAuthError",
+    "DriveFile",
+    "DriveUploadError",
+    "DriveUploader",
+    "HttpxDriveUploader",
     "HttpxTokenExchanger",
     "IntegrationEngine",
+    "MockDriveUploader",
+    "build_drive_uploader",
     "LinkedInProfileProvider",
     "MockLinkedInProfileProvider",
     "MockTokenExchanger",

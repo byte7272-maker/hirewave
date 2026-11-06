@@ -26,10 +26,12 @@ from jobsearch.engines.interview import (
     build_voice_clone_provider,
 )
 from jobsearch.engines.integration import (
+    DriveUploader,
     HttpxTokenExchanger,
     IntegrationEngine,
     MockTokenExchanger,
     TokenExchanger,
+    build_drive_uploader,
     build_linkedin_provider,
 )
 from jobsearch.engines.application_router import ApplicationRouter
@@ -87,6 +89,7 @@ class AppState:
         *,
         settings: Optional[Settings] = None,
         exchanger: Optional[TokenExchanger] = None,
+        drive_uploader: Optional["DriveUploader"] = None,
     ) -> None:
         self.settings = settings or get_settings()
         #: Field-level cipher for secrets at rest (OAuth tokens, connected sessions).
@@ -179,6 +182,9 @@ class AppState:
         self.integration = IntegrationEngine(
             token_store=repos.token_store, exchanger=exchanger, settings=self.settings
         )
+        # Google Drive uploader for "Open in Google Docs" — live in oauth_mode=live,
+        # offline mock otherwise; an explicitly injected uploader (tests) wins.
+        self.drive_uploader = drive_uploader or build_drive_uploader(self.settings)
         self.linkedin_provider = build_linkedin_provider(self.settings)
         self.generation = GenerationEngine(llm=premium_llm or llm)
         # Résumé/cover-letter AI: critique/summaries use the configurable review model

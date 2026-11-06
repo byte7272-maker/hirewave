@@ -65,6 +65,7 @@ from jobsearch.models import (
     CoverLetterReview,
     CoverLetterRevision,
     CoverLetterSource,
+    Provider,
     Resume,
     ResumeData,
     ResumeFormat,
@@ -73,6 +74,8 @@ from jobsearch.models import (
     ResumeSource,
     UserProfile,
 )
+from jobsearch.engines.integration.engine import IntegrationError
+from jobsearch.engines.integration.google_drive import DriveAuthError, DriveUploadError
 from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render_text_preview
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -98,6 +101,38 @@ def _pdf_response(data, base_name: str):
         content=data, media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{base_name}.pdf"'},
     )
+
+
+#: HTTP 409 body telling the frontend to start the Google Drive OAuth, then retry.
+_DRIVE_NOT_CONNECTED = {
+    "error": "drive_not_connected",
+    "message": "Connect Google Drive to open this in Google Docs.",
+    "connect_path": "/api/v1/integrations/connect/google_drive",
+}
+
+
+def _open_in_google_docs(state: StateDep, *, docx_bytes, name: str, user_id: str) -> dict:
+    """Shared "Open in Google Docs" flow: needs a connected Drive token, uploads the
+    rendered .docx converting it to a native Google Doc, returns the editable link.
+    Raises HTTPException(409) when Drive isn't connected (or the token can't be
+    refreshed) so the frontend can prompt the one-time OAuth and retry."""
+    if docx_bytes is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no content to export")
+    try:
+        token = state.integration.get_access_token(user_id, Provider.GOOGLE_DRIVE)
+    except IntegrationError as exc:
+        # not connected, or expired with no usable refresh token → reconnect needed
+        raise HTTPException(status.HTTP_409_CONFLICT, _DRIVE_NOT_CONNECTED) from exc
+    try:
+        result = state.drive_uploader.upload_docx_as_gdoc(
+            access_token=token, docx_bytes=docx_bytes, name=name
+        )
+    except DriveAuthError as exc:
+        # Drive rejected the token (401/403) — treat as a reconnect prompt.
+        raise HTTPException(status.HTTP_409_CONFLICT, _DRIVE_NOT_CONNECTED) from exc
+    except DriveUploadError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Drive upload failed: {exc}") from exc
+    return {"web_view_link": result.web_view_link, "file_id": result.file_id, "name": result.name}
 from jobsearch.textextract import extract_text
 
 _EXT_FORMAT = {
@@ -1024,6 +1059,22 @@ def export_resume_pdf(resume_id: str, user: CurrentUser, state: StateDep) -> Res
     return _pdf_response(doc, base)
 
 
+@router.post("/resumes/{resume_id}/open-in-google-docs")
+def open_resume_in_google_docs(resume_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """Upload the résumé (active version, formatted .docx) to the user's Google Drive
+    as a native, editable **Google Doc** and return its URL. Requires a connected
+    Google Drive (least-privilege ``drive.file`` scope); returns **409
+    ``drive_not_connected``** with a ``connect_path`` when it isn't connected yet so
+    the frontend can start the one-time OAuth and retry. Creates a fresh Doc per call
+    (a snapshot); no LLM, no plan gate."""
+    resume = get_resume(resume_id, user, state)
+    base = (resume.original_filename or "resume").rsplit(".", 1)[0]
+    docx = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume",
+                      style=_resume_style(state, resume))
+    name = f"{base} — {resume.target_role}".strip(" —") if resume.target_role else base
+    return _open_in_google_docs(state, docx_bytes=docx, name=name, user_id=user.id)
+
+
 @router.get("/resumes", response_model=list[Resume])
 def list_resumes(
     user: CurrentUser, state: StateDep,
@@ -1520,6 +1571,20 @@ def export_cover_letter_pdf(
     cl = get_cover_letter(cover_letter_id, user, state)
     base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
     return _pdf_response(build_pdf(cl.content or "", title="Cover letter"), base)
+
+
+@router.post("/cover-letters/{cover_letter_id}/open-in-google-docs")
+def open_cover_letter_in_google_docs(
+    cover_letter_id: str, user: CurrentUser, state: StateDep
+) -> dict:
+    """Upload the cover letter (active version, formatted .docx) to the user's Google
+    Drive as a native, editable **Google Doc** and return its URL. Requires a
+    connected Google Drive (``drive.file`` scope); returns **409
+    ``drive_not_connected``** with a ``connect_path`` when it isn't connected yet."""
+    cl = get_cover_letter(cover_letter_id, user, state)
+    base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
+    docx = build_docx(cl.content or "", title="Cover letter")
+    return _open_in_google_docs(state, docx_bytes=docx, name=base, user_id=user.id)
 
 
 @router.get("/cover-letters", response_model=list[CoverLetter])
