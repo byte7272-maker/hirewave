@@ -3374,3 +3374,31 @@ Uploading a cover letter makes it **appear as its own rendered preview immediate
 
 ### Acceptance
 Uploading **or** generating a résumé/cover letter immediately makes that document **the current one shown in the big Document-versions marquee** (and the preview + count), via a persisted `view-state` selection — the user no longer has to hunt for it. P75 still prevents any auto-switch on **login/migration/page-load/background refresh**. The **"Upload file"** confirm is unmistakably the next step. And if the upload (or its follow-up refresh) **fails for any reason**, the user sees a clear **error + Retry**, never silence — a transient `503` no longer looks like "nothing happened." Works identically for résumés and cover letters.
+
+## P87 (BUG) — Deleting a document strands "current" → "no versions" + can't upload a new version (404)
+
+**Frontend only; backend verified correct 2026-11-06.** Reproduced live: after a document is **deleted** (the whole-document P84 Delete), the app's persisted **current selection (`view-state.selectedId`) still points at the now-deleted id**. The marquee then shows **"No saved versions of this cover letter yet,"** and any attempt to **add/upload a new version** hits `POST /api/v1/cover-letters/{deletedId}/versions` → **404 "cover letter not found"** — so the user is stuck and "could not upload a new version." (Backend is fine: `GET /cover-letters/{missing}` returns 404, and `DELETE …/versions/{version}` already returns **400 "can't delete the only version"**, so the *last* version can't be removed that way — the document was removed by the whole-document Delete, and the UI just never moved the selection off it.)
+
+### Do
+1. **Heal a dangling current selection.** Whenever the current document's fetch returns **404** (on page load, after a delete, or after a background refresh), treat the stored `selectedId` as invalid: **pick another existing document** (e.g. most-recently-updated) as current and **persist it** (`PUT /api/v1/view-state/{resumes|cover-letters}`), or show the **empty state** if the library is now empty. Never leave the UI pinned to a missing id.
+2. **On deleting the current document** (P84 whole-document Delete), immediately **move current to another document** (or empty state) and persist — do this as part of the delete success handler, not lazily.
+3. **Never POST a version to a missing/empty current.** The "add a new version" / "upload a new version" action must target a **valid** current document. If there is no valid current doc, route the user to **upload/create a new document** (which becomes current per P86) instead of firing a version POST that 404s. If a version POST ever returns 404, surface a clear message ("That document was removed — upload a new one") and drop into the new-document flow, never a silent failure (P0/P86 error rule).
+4. **Keep P84's last-version guard in the UI:** the per-version trash must be **hidden/disabled on the only remaining version** (the backend returns 400 for it) — to remove a one-version document the user uses the **whole-document Delete**, which must warn it removes the **entire document and all versions**.
+5. Applies identically to résumés and cover letters.
+
+### Acceptance
+Deleting a document never leaves the app stuck: current moves to another existing document (or a clean empty state) and persists; the "No saved versions" dead-end and the `404` on adding a version are gone; adding/uploading a version always targets a valid document (or starts a new one); the last remaining version can't be deleted from the per-version trash (use whole-document Delete, which warns); works for résumés and cover letters.
+
+## P88 — Document-versions marquee: show renders as a VERTICAL list, not a stacked coverflow carousel
+
+**Frontend/layout only; all data already loads.** The "Document versions" strip is a **horizontal coverflow carousel** — the current version's render sits in front and the other version cards are **stacked/overlapping behind it** at the edges ("centred on the current version · hover an edge to glide · ‹ ›"). Users read this as **"the renders are stacked on top of each other"** and want them laid out **vertically** — a clean column of rendered previews, one below the next, nothing overlapping.
+
+### Do
+1. **Replace the overlapping/centred coverflow with a VERTICAL list.** Lay the version render cards out in a single **vertical column** (CSS `flex-direction: column` / a stacked list), **newest at top**, each card fully visible — **no `position:absolute` overlap, no transform/peek, no z-index stacking**. The column scrolls **vertically** if it's taller than the viewport.
+2. **Each row is a real rendered preview** of that version (same renderer as the main preview — the version's own content, per P2.1/P3a), at a readable size, with its label, the **CURRENT** badge on the active one, and its existing per-row actions (activate / rename / the per-version trash, with P84/P87 guards).
+3. **Keep it responsive:** full-width rows on narrow screens; on wide screens the column may sit beside the main preview, but rows still **flow top-to-bottom and never overlap**. Remove the ‹ › "glide"/"1 of N" carousel chrome (or keep a simple count) — navigation is now plain vertical scroll.
+4. The **currently-selected/active** version stays visually distinct (highlight + CURRENT badge) and is scrolled into view.
+5. Apply the same vertical layout to the **résumé** versions marquee and the **cover-letter** versions marquee.
+
+### Acceptance
+The Document-versions area renders every version as a **non-overlapping card in a single vertical column** (newest first), scrolling vertically — no coverflow, no cards stacked behind one another; each card is a true rendered preview with its label, CURRENT badge, and actions; the layout is responsive and never overlaps on any width; identical for résumés and cover letters.
