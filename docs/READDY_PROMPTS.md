@@ -3704,3 +3704,38 @@ Keep each tour to ~3–6 steps; lead with the benefit, not the mechanics.
 
 ### Acceptance
 A user can **opt into** a guided tour from a visible help control, from Tips & tricks, and from a once-per-screen invite (declining never nags again). Running a tour shows **anchored bubbles with a spotlight** over the real elements, Back/Next/Skip and a step counter, auto-positioning and scroll-into-view, graceful handling when a target is absent, and completion is remembered with replay available. At least the five task tours above work end-to-end, each short and benefit-led, fully keyboard-accessible, reduced-motion-safe, and usable on mobile.
+
+## P101 — The Harbor Assistant: a page- and context-aware guide as a translucent light overlay
+
+**Frontend. Expands P100.** Grow the guided-tour system into a persistent, **context-aware assistant** — a light, translucent overlay companion that knows what screen you're on and what state you're in, suggests the next best action using the app's real tools, can run any P100 tour, and offers a full **"Grand Tour."** Opt-in and unobtrusive throughout.
+
+### Look & feel — a translucent light overlay (not a solid panel)
+- Render the assistant as a **frosted-glass, light, translucent surface**: low-opacity white/tinted background with **backdrop blur**, a soft border and shadow, so the app subtly shows through. Light and airy — a gentle presence, not a heavy modal.
+- Default state is a **small floating launcher** (a friendly ✨/assistant pill or bubble, bottom corner). Clicking it expands a **translucent card** with suggestions and actions; collapsing returns to the pill. It can be **moved/dismissed**, never blocks the UI, and stays out of the way of the primary content.
+- Reuse the brand accent and the P97/P98 button system for actions inside it. Dark-mode variant uses a translucent dark glass. Respect `prefers-reduced-motion` (fade/anchor, no large motion).
+
+### Page- & context-awareness (the core upgrade)
+The assistant reads the **current route + visible state** and tailors its guidance. It maps the situation to **concrete next actions that use the app's own tools**, each a one-click launch or a "Show me how" P100 tour. Examples (data-driven, not hardcoded copy):
+- **Documents, a doc loaded but not improved** → "Make this stronger in one pass → **Auto-Improve**" (launches it / tours it).
+- **Just uploaded a .docx** → "Keep your original formatting — here's **Original vs Working copy**."
+- **Drive not connected / wants to edit elsewhere** → "**Open in Google Docs** for deeper edits" (offers connect).
+- **Résumé with a low/absent ATS or no job targeted** → "**Tailor** this to a specific job to raise your match."
+- **Cover letter missing a salutation (from the review)** → "Add a proper opening — **insert 'Dear Hiring Manager,'**."
+- **Matches with items awaiting approval** → "You have N applies ready to **review & approve**."
+- **No résumé yet** → "Start here: upload or generate a résumé."
+Keep suggestions **few and ranked** (1–3 at a time), benefit-led, and dismissible; never nag. Each suggestion links to the exact control or runs the relevant P100 tour.
+
+### Guidance on tasks & features (help, in context)
+- A small **"What can I do here?"** list for the current page — the relevant tools/features with one-line descriptions and a "Show me" that launches the matching tour or focuses the control.
+- Lightweight **search/ask** box: the user types what they want to do ("write a cover letter", "change the font", "apply to a job") and the assistant points them to the feature/tour that does it. (Deterministic mapping over the feature catalog is fine — no backend AI call required for v1.)
+
+### The Grand Tour
+- A prominent **"Take the Grand Tour"** option in the assistant (and in Tips & tricks): a guided, cross-page walkthrough that **chains the P100 task tours** in a sensible order (set up → résumé → cover letter → tailor → apply → interview prep), moving the user between screens, with **Back/Next/Skip** and overall progress ("Part 3 of 6"). Pausable and resumable; completion remembered.
+
+### Opt-in, memory, accessibility
+- Entirely **optional**: the launcher can be collapsed or hidden from Settings; a first-run invite ("Meet your assistant — want help getting started?") appears once and never nags after "No thanks." Everything is replayable from the launcher and Tips.
+- Persist per-user: which suggestions/tours were seen or dismissed, Grand-Tour progress, and the launcher's position/hidden state.
+- **Accessible**: keyboard reachable, focus management, ARIA live region for suggestions, AA contrast *despite the translucency* (ensure text over the frosted surface stays readable — add a subtle scrim behind text if needed). Works at mobile width (launcher + sheet), reduced-motion-safe.
+
+### Acceptance
+A **translucent, frosted light overlay** assistant is present as a small, movable launcher that expands into a glassy card. It is **context-aware** — on each screen it surfaces 1–3 ranked, benefit-led next actions tied to the app's real tools and the user's current state, each launching the control or a P100 tour. It offers a **"What can I do here?"** list and a simple ask/search that maps intent to features, and a **"Take the Grand Tour"** that chains the task tours across pages with progress and resume. It is fully opt-in (hideable, never nags after decline), remembers state per user, keeps text readable over the translucency at AA contrast, and is keyboard-accessible, reduced-motion-safe, and usable on mobile.
