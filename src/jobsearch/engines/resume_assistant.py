@@ -277,6 +277,12 @@ def _rating(standard: str, score: int, note: str) -> QualityRating:
 
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 _METRIC_RE = re.compile(r"\d|%|\$")
+# An opening salutation on its own line: "Dear ...", "To whom it may concern",
+# "Hello ...", "Hi ...", "Greetings". Anchored to a line start so a "dear" buried
+# mid-sentence doesn't count.
+_SALUTATION_RE = re.compile(
+    r"(?mi)^\s*(?:dear\b|to whom it may concern|hello\b|hi\b|greetings\b)"
+)
 # First-person pronouns (resumes should be pronoun-free) + contact + section signals.
 _PRONOUN_RE = re.compile(r"\b(i|me|my|myself|mine)\b", re.IGNORECASE)
 _CONTACT_RE = re.compile(r"[\w.+-]+@[\w-]+\.\w+|\+?\d[\d\s().\-]{7,}\d")  # email or phone
@@ -1826,6 +1832,21 @@ class ResumeAssistant:
                 ))
             elif job.company:
                 strengths.append("Personalized to the company.")
+
+        # Opening salutation present? Every cover letter must open with one
+        # ('Dear Hiring Manager,' / 'Dear <name>,'). A free-text AI edit can drop it.
+        has_salutation = bool(
+            _SALUTATION_RE.search(text)
+        )
+        if not has_salutation:
+            suggestions.append(ResumeSuggestion(
+                category="structure", severity="important", title="Add an opening salutation",
+                detail="Open with a salutation on its own line -- 'Dear Hiring Manager,' "
+                       "or 'Dear <name>,' when you know it. A letter with no greeting "
+                       "reads as unfinished.",
+            ))
+        else:
+            strengths.append("Opens with a proper salutation.")
 
         # Sign-off present?
         if not any(s in lower for s in ("sincerely", "regards", "best,", "thank you")):

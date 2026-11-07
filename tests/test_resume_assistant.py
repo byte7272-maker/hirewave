@@ -208,6 +208,29 @@ def test_cover_letter_review_wants_company_named():
     assert any(s.title == "Name the company" for s in review.suggestions)
 
 
+def test_cover_letter_review_flags_missing_salutation():
+    # A letter that dives straight into the body with no "Dear ..." greeting.
+    cl = _cover(
+        "I led a team that grew revenue 30% last year and would bring that same "
+        "focus to your company. Sincerely, Sam."
+    )
+    review = ResumeAssistant().review_cover_letter(cl)
+    assert any(s.title == "Add an opening salutation" for s in review.suggestions)
+
+
+def test_cover_letter_review_accepts_present_salutation():
+    cl = _cover(
+        "Dear Hiring Manager,\n\nI led a team that grew revenue 30% last year and "
+        "would bring that same focus here.\n\nSincerely, Sam."
+    )
+    review = ResumeAssistant().review_cover_letter(cl)
+    assert not any(s.title == "Add an opening salutation" for s in review.suggestions)
+    # A mid-sentence "dear" must NOT count as a salutation.
+    cl2 = _cover("I hold this work very dear and would love to contribute. Sincerely, Sam.")
+    review2 = ResumeAssistant().review_cover_letter(cl2)
+    assert any(s.title == "Add an opening salutation" for s in review2.suggestions)
+
+
 def test_cover_letter_revise_preview():
     cl = _cover("Dear team, I want the job. Thanks.")
     rev = ResumeAssistant().revise_cover_letter(cl, "Make it warmer and more specific")
