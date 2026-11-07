@@ -3635,3 +3635,40 @@ A rendered/exported cover letter always has an **opening salutation** (with a on
 
 ### Acceptance
 On first look at the résumé/document screen, **Auto Improve is unmistakably the main action** (accent-filled hero, benefit label, gentle pulse when improvement is the pending next step), while manual/advanced tools are clearly secondary; every main screen has exactly one visually dominant primary CTA using a single shared accent style; a first-time user can tell what to click without hunting. Motion respects `prefers-reduced-motion`; contrast/focus/labels pass in light and dark.
+
+## P99 — Fix what shipped: hero-button hierarchy, surface Design, click-to-expand, de-clutter, feature the new functions in Tips
+
+**Frontend. Live audit of the published build 2026-11-07 (signed in).** P96–P98 were only *partially* applied — zoom/fit/Reset/Expand, the Original↔Working-copy toggle, the collapsible "All cover letters (15)", a draggable gutter, and an accent on *some* buttons all shipped. The remaining problems are **inverted hierarchy, buried features, and clutter.** Fix each precisely:
+
+### 1. The hero button is INVERTED — fix it (highest priority)
+Measured live on the cover-letter page: **"Improve whole cover letter"** renders with a near-**white** background (`oklch(0.985 …)`, dark-green text) — a ghost/secondary style — while *lesser* actions **Upload / Generate / Apply change** get the green **accent fill** (`oklch(0.56 0.14 158)`). The most important action recedes; minor ones dominate.
+- Make **Improve whole cover letter** (and the résumé **Auto-Improve**) the **single accent-filled hero**: solid brand accent, white text, largest weight/size on the screen, with the **pulse-when-pending** from P98 (pulses when a document is loaded but not yet improved; stops after use; `prefers-reduced-motion` → static accent + ring).
+- Demote Upload/Generate to a **still-visible but secondary** tier (accent *outline* or a lighter fill), so exactly ONE hero dominates. Never render the primary improve action as a white ghost button again.
+
+### 2. Surface the Design chooser — it exists but is hidden behind Alt+D
+The Design chooser is built (keyboard shortcut **Alt+D**, "Open the Design chooser") but has **no visible button** anywhere on the documents page — that's why "the design function isn't present or featured."
+- Add a **visible, labelled "Design" button** (template/theme/font) to the document toolbar (P96 §B styling — branded, not grey), next to Upload/Download/Open. It opens the same chooser Alt+D opens.
+- For cover letters, expose at least the document-level **font family / size / spacing** controls (P90) even if full résumé templates don't apply — the user must *see* a Design option where they're working.
+
+### 3. Click the document to open a fuller view
+Today only a small **Expand** button / "⤢ to read full size" opens the larger view; clicking the preview itself does nothing, so users don't discover it.
+- Make the **preview pane/card itself clickable to expand** (cursor-zoom affordance + a visible "Expand ⤢" affordance on hover), opening the same full-size reader. Keep Esc/✕ to close.
+
+### 4. Raise contrast — the palette is washed out
+The screen is pale sage/grey on white; headings and the version-bar action icons (upload/download/improve/trash) are faint and low-contrast.
+- Strengthen text, heading, border and icon contrast to **WCAG AA**; give the version-bar action icons real weight/color so they read as buttons. Keep it clean, but it must not look disabled/empty.
+
+### 5. Cut clutter (simplicity)
+Concrete redundancies/power-user noise found on Dashboard + Documents:
+- **Two stacked version surfaces** — a top "Document versions" marquee AND "Your current … · versions" below it (on both Dashboard and Documents). **Merge into one.**
+- The marquee helper line "*Newest to oldest · centred on the current version · hover an edge to glide · ← → to browse · ⇤ ⇥ to jump · click for actions*" is too much — reduce to a short hint; put the rest behind "?".
+- Move debug/power controls — **"Reset this page," "Reset duplicate check," "Blocked as a duplicate when it shouldn't be?"** — into an **Advanced/overflow (⋯)** menu, not inline for everyone.
+- The **"Jump back in" recent list is full of throwaway test files** (P89RECHECK…, P86CHECK…, VERIFY-P85…, test_resume.txt, duplicate CL (1)s). Let the user clear/hide items, and don't resurface obvious junk. *(Separately: the user should delete these test docs from the library.)*
+
+### 6. Feature the NEW functions in Tips & onboarding (not just shortcuts)
+The Tips & tricks page is a 30-item **keyboard-shortcut cheat sheet**; it never explains the headline features in plain language, and there's no first-run tour (`wizardKeys` empty).
+- Add a short **"What's new / featured" section** (plain language, no shortcut required) covering: **Auto-Improve / Improve whole document**, **Original vs Working copy** (keep your formatting), **Open in Google Docs** (one-click edit in Docs), the **cover-letter format** (salutation + proper signature), and the **Design chooser**. One line + where to click for each.
+- Add a lightweight **first-run callout / checklist** (or extend Simple view's intro) that *names* these featured functions so a new user discovers them — dismissible, shown once.
+
+### Acceptance
+The **Improve/Auto-Improve** action is the single accent-filled hero (pulses when pending); Upload/Generate are clearly secondary. A **visible Design button** sits in the document toolbar (opens the Alt+D chooser; cover letters at least get font controls). **Clicking the preview** opens the full-size reader. Text/icons meet **AA contrast**. The duplicate version marquees are merged, verbose helper text is trimmed, and debug controls live under an Advanced menu. **Tips & tricks** has a plain-language "featured functions" section and a one-time first-run callout naming the new capabilities.
