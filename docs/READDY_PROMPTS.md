@@ -3739,3 +3739,16 @@ Keep suggestions **few and ranked** (1–3 at a time), benefit-led, and dismissi
 
 ### Acceptance
 A **translucent, frosted light overlay** assistant is present as a small, movable launcher that expands into a glassy card. It is **context-aware** — on each screen it surfaces 1–3 ranked, benefit-led next actions tied to the app's real tools and the user's current state, each launching the control or a P100 tour. It offers a **"What can I do here?"** list and a simple ask/search that maps intent to features, and a **"Take the Grand Tour"** that chains the task tours across pages with progress and resume. It is fully opt-in (hideable, never nags after decline), remembers state per user, keeps text readable over the translucency at AA contrast, and is keyboard-accessible, reduced-motion-safe, and usable on mobile.
+
+## P102 — Upload stays on the Documents screen and focuses the marquee (no jump to a separate page)
+
+**Frontend. Fixes a navigation regression.** When the user uploads a document **from the Documents screen marquee**, the app currently **navigates away to a standalone document page** (e.g. `/dashboard/documents/cover-letters/{id}`). That extra step is unnecessary and jarring — the upload was invoked on the Documents screen, so the result should appear **right there, in the marquee**, with no page change.
+
+### Do
+1. **Stay in place.** An upload invoked from the Documents screen **does not navigate** to a separate document page. The user remains on the Documents screen; the marquee updates in place.
+2. **Focus the marquee on the new document.** After the upload, the new document becomes **current** and is **selected/highlighted/centred in the versions marquee** where the upload was invoked (per P86/P96: highlighted, "Current" badge, correct version number), and the preview re-renders to it — all on the same screen. Scroll/focus the marquee so the user's eye lands where they acted.
+3. **Edit from the same marquee with the same functions as the résumé.** The Documents screen keeps the **marquee formatting and the same in-place edit functions** it already uses for résumés (the distinctions between résumé and cover letter were already defined in the earlier prompts — honor those, don't re-diverge). A user uploading a cover letter gets the same stay-on-page, edit-in-the-marquee behavior a résumé upload gets.
+4. **Opening is still a deliberate action.** Navigating into a fuller/standalone document view should happen only when the user explicitly chooses it (Open / Expand / click-to-expand per P99 §3) — never as an automatic side effect of uploading.
+
+### Acceptance
+Uploading a document from the Documents screen marquee **keeps the user on the Documents screen** with **no navigation to a separate page**; the newly uploaded document is immediately **current, highlighted, and focused in the marquee** with its correct version number and a re-rendered preview, and it can be edited in place using the same marquee functions as a résumé. A standalone/fuller view opens only when the user explicitly asks for it. Behavior is consistent for résumés and cover letters, preserving the already-defined distinctions between them.
