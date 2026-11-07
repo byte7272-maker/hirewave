@@ -3752,3 +3752,29 @@ A **translucent, frosted light overlay** assistant is present as a small, movabl
 
 ### Acceptance
 Uploading a document from the Documents screen marquee **keeps the user on the Documents screen** with **no navigation to a separate page**; the newly uploaded document is immediately **current, highlighted, and focused in the marquee** with its correct version number and a re-rendered preview, and it can be edited in place using the same marquee functions as a résumé. A standalone/fuller view opens only when the user explicitly asks for it. Behavior is consistent for résumés and cover letters, preserving the already-defined distinctions between them.
+
+## P103 — Smart decision overlays: contextual Save/Cancel (and other commits) instead of fixed buttons
+
+**Frontend.** Decision controls that only matter **after an action** — **Save / Cancel**, Accept / Undo, Keep / Discard — should appear as **contextual overlays that surface exactly when a decision is pending**, anchored near the change, and **disappear once resolved** — not sit as permanent fixed buttons taking up space and competing for attention. The app already has the right model in the **Rephrase toolbar** (appears on text selection); generalize it.
+
+### The pattern — a "decision overlay"
+- **Appears only when there's a pending decision** (an unsaved edit, an AI change to accept, a destructive action to confirm). When nothing is pending, it's **not on screen**.
+- **Anchored to the thing being decided** (the edited line, the changed preview, the version card), floating just above/beside it; auto-positions to stay in view; reuse the P101 **translucent light** treatment and the P97/P98 button hierarchy (primary = the commit, e.g. Save; secondary = Cancel/Undo).
+- **Clear keyboard + click paths:** **Enter = commit, Esc = cancel**, and the overlay never traps focus or blocks the rest of the page. **Only one** decision overlay is active at a time.
+- **Non-destructive by default; confirm the destructive ones in place.** Irreversible actions (delete a document/version) still require explicit confirm — but as a **small inline confirm popover on the item** ("Delete this version? Delete / Cancel"), not a static button or a full modal.
+- After commit, show a brief, **transient confirmation** (a toast / "Saved ✓" that fades) rather than leaving a persistent control behind.
+
+### Move these decisions from static controls → smart overlays
+Audited live on Documents:
+1. **Edit → Save / Cancel.** After an inline or manual edit, show a floating **Save · Save as new version · Cancel** overlay anchored to the edited content (Enter saves, Esc cancels), instead of a fixed button row. Pulse Save while the edit is unsaved (P98), clear it on save.
+2. **Ask AI → Apply / after-apply Accept · Undo.** When an AI change lands, surface an **Accept · Undo** overlay on the changed region (currently a static "Apply change"/review area). 
+3. **Improve whole document → Keep · Discard (review).** The one-pass improve review becomes a decision overlay over the preview: **Keep changes (Save version) · Discard**, not a fixed bar.
+4. **Version card actions.** The "Click for actions" on a version card opens a **contextual popover** — Make current · Rename · Delete (inline confirm) · Read full size — instead of always-visible controls.
+5. **Insert-salutation / review fixes (P97).** A review suggestion like "Add an opening salutation" offers an **inline overlay** with **Insert 'Dear Hiring Manager,' · Dismiss** anchored at the insertion point.
+6. **Upload-as-new / duplicate prompts.** Any remaining upload confirmations resolve as a brief inline overlay/toast (per P86/P102 uploads just add), never a persistent control.
+7. **Find & replace** stays a floating bar (already overlay-like) — keep it consistent with this pattern.
+
+Leave genuinely **persistent primary actions** (the Auto-Improve/Improve hero, Upload, Generate, Design) as visible buttons — those are entry points, not post-action decisions. Only the **decision/commit** controls move to overlays.
+
+### Acceptance
+Save/Cancel and other post-action commits (Accept/Undo, Keep/Discard, delete-confirm) appear as **contextual overlays anchored to the change, only while a decision is pending**, styled as translucent light surfaces with the primary/secondary hierarchy, driven by **Enter=commit / Esc=cancel**, never trapping focus, one at a time, with a transient "Saved ✓" on commit and inline confirm popovers for destructive actions. The static Save/Cancel button rows are removed from the editor and version UI; persistent entry-point actions (Improve hero, Upload, Generate, Design) remain as buttons. Accessible and reduced-motion-safe.
