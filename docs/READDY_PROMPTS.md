@@ -3672,3 +3672,35 @@ The Tips & tricks page is a 30-item **keyboard-shortcut cheat sheet**; it never 
 
 ### Acceptance
 The **Improve/Auto-Improve** action is the single accent-filled hero (pulses when pending); Upload/Generate are clearly secondary. A **visible Design button** sits in the document toolbar (opens the Alt+D chooser; cover letters at least get font controls). **Clicking the preview** opens the full-size reader. Text/icons meet **AA contrast**. The duplicate version marquees are merged, verbose helper text is trimmed, and debug controls live under an Advanced menu. **Tips & tricks** has a plain-language "featured functions" section and a one-time first-run callout naming the new capabilities.
+
+## P100 — Guided tours: opt-in coach-mark bubbles that walk the user through a task
+
+**Frontend. New capability.** Add an **optional, task-oriented guided tour**: anchored bubble/popup messages ("coach marks") that spotlight the real on-screen element for each step and walk the user through the features that accomplish a task. It is **always the user's choice** — never auto-forced, always skippable and replayable.
+
+### Entry points (opt-in — the user chooses)
+- A persistent **"Show me how" / "Take a tour"** control (a small help/`?` button in the header, and an item in **Tips & tricks** and **Settings → Help**).
+- On a user's **first visit to a screen**, a single, dismissible invite — **"Want a quick walkthrough? Yes / No thanks"** — shown once per screen. "No thanks" never asks again for that screen; tours stay available from the help button.
+- Each **featured function** (P99 §6) has a "Show me" link that launches the matching tour.
+
+### Tour behavior (the bubbles)
+- Each step is a **bubble anchored to the real element** it describes, with a **spotlight/dimmed backdrop** that highlights just that element, a short **title + one or two plain-language sentences**, and controls: **Back · Next · Skip tour**, plus a **progress indicator** ("Step 2 of 5").
+- Bubbles **auto-position** (above/below/beside) to stay on-screen; the highlighted element **scrolls into view**; clicking the element or **Next** advances. **Esc** or **Skip** ends the tour; **✕** closes.
+- If a step's target isn't present yet (e.g. no document loaded), the step either **guides the prerequisite** ("Upload or pick a cover letter first") or is **skipped gracefully** — a tour never points at a missing element or gets stuck.
+- Finishing or skipping a tour is **remembered** (persisted per tour id) so it isn't shown again unprompted; the user can **replay any tour** anytime from the help menu.
+
+### The task-based tours (ship at least these, each a short sequence)
+Build a small, declarative tour definition (id, title, ordered steps = {anchor/selector, title, body, optional action}) so tours are easy to add. Ship:
+1. **Improve my résumé/cover letter** → pick/upload a doc → **Auto-Improve / Improve whole document** (the hero) → review the change → **Save as a version**.
+2. **Keep my original formatting** → the **Original ↔ Working copy** toggle → what each is for → **Download original**.
+3. **Edit elsewhere** → **Open in Google Docs** (one-click) / **Download as Word** → (connect Drive if prompted).
+4. **Change the look** → the **Design** button (templates / font / size).
+5. **Apply to a job** → Matches → Tailor → review → **approve the apply** (human-approval step).
+Keep each tour to ~3–6 steps; lead with the benefit, not the mechanics.
+
+### Craft & accessibility
+- Plain, friendly language; one idea per bubble; no jargon. Reuse the brand accent and the P97/P98 button system so bubbles feel native.
+- **Keyboard accessible** (Tab/Enter/Esc), focus is trapped in the active bubble and restored on exit, ARIA roles/labels on the bubble and spotlight, and the highlighted element is announced.
+- **Respect `prefers-reduced-motion`** (no large animated movement — just show/anchor). Works at mobile width (bubbles reflow, backdrop still highlights the target). Never block the UI permanently — the user can always Skip/Esc.
+
+### Acceptance
+A user can **opt into** a guided tour from a visible help control, from Tips & tricks, and from a once-per-screen invite (declining never nags again). Running a tour shows **anchored bubbles with a spotlight** over the real elements, Back/Next/Skip and a step counter, auto-positioning and scroll-into-view, graceful handling when a target is absent, and completion is remembered with replay available. At least the five task tours above work end-to-end, each short and benefit-led, fully keyboard-accessible, reduced-motion-safe, and usable on mobile.
