@@ -3617,3 +3617,21 @@ Right now **Save** and other next-step CTAs share the same color as ordinary but
 
 ### Acceptance
 A rendered/exported cover letter always has an **opening salutation** (with a one-click insert when missing, driven by the review suggestion), a **top contact header** and a **distinct bottom signature** (typed name, not a duplicated banner); the signature-as-typed-name is treated as correct with an optional image upload. Across the editor, the **Save and next-step buttons are visibly the primary action** (accent fill, optional pulse when action is pending, reduced-motion respected) while secondary buttons recede — a user can instantly tell what to click next.
+
+## P98 — Make the MAIN features obvious: "Auto Improve" as the hero action, site-wide visual hierarchy
+
+**Frontend, site-wide. Generalizes P97 Part 2 to the whole app.** Audited live 2026-11-06: the headline features — above all **Auto Improve** (the one-click "make my résumé better" that unsophisticated users want most) — are rendered in the same flat, low-contrast style as every secondary control, so they're effectively hidden. Users can't find the thing the product is *for*. Fix the hierarchy everywhere, not just in the document editor.
+
+### The problem
+- **Auto Improve** (résumé one-click improve; the equivalent cover-letter improve) looks like a plain link/button among many. It should be the single most obvious action on the résumé/document screen.
+- Other primary features (Tailor to a job, Generate cover letter, Analyze/Review, Apply, Save) are equally buried. Everything is one grey tone — nothing signals "start here."
+
+### Do
+1. **Define ONE primary-action style and use it consistently (reuse P97 Part 2's system):** brand **accent fill**, strong contrast, larger weight/size, clear icon + verb label, lively hover/active states. Secondary actions are outline/ghost and visibly recede. This is a shared button component, not per-screen styling.
+2. **Auto Improve is the hero.** On the résumé / document workspace make **Auto Improve** the prominent primary CTA — big, accent-filled, with a short benefit label (e.g. **"✨ Auto-Improve my résumé"** / "One-click improve"). Give it a brief **pulse/shimmer when the user has a résumé loaded but hasn't improved it yet** (the expected next step), stopping once used; respect `prefers-reduced-motion`. Keep the advanced/manual tools present but secondary, so power users still have them without the beginner path being hidden.
+3. **One clear primary per screen.** Each main screen surfaces its headline action as THE primary button (résumé → Auto Improve; a job → Tailor / Generate cover letter; a draft → Save; a finished doc → Download/Open). Exactly one emphasized primary per context; never two competing heroes.
+4. **Discoverability cues for beginners:** a short one-line helper under the hero ("New here? Start with Auto-Improve — we'll do the work."), and make feature cards/tiles on the dashboard use the same accent treatment for their main CTA so the path through the product is visually obvious.
+5. Accessible and responsive: contrast AA in light and dark, focus rings, aria-labels, large tap targets on mobile, motion-reduced fallback (no pulse → a static accent + subtle ring).
+
+### Acceptance
+On first look at the résumé/document screen, **Auto Improve is unmistakably the main action** (accent-filled hero, benefit label, gentle pulse when improvement is the pending next step), while manual/advanced tools are clearly secondary; every main screen has exactly one visually dominant primary CTA using a single shared accent style; a first-time user can tell what to click without hunting. Motion respects `prefers-reduced-motion`; contrast/focus/labels pass in light and dark.
