@@ -3521,9 +3521,10 @@ Never render a bare count adjacent to "version(s)" that could be read as a versi
 The full list of cover letters / versions currently fills the bottom of the page (starts ~5,500px down; total page ~7,000px). Make it a **collapsible section, collapsed by default**: a header like **"All cover letters (14) ▾"** that expands on click; same for a long per-letter version history ("Version history (N) ▾"). Default view shows the current letter + marquee; everything else is one tap away, so the page isn't a 7,000px scroll.
 
 ### D. "Upload replaces instead of adds" — make ADD explicit, and offer version-append
+**⚠ The two-way choice below is SUPERSEDED by P96 §C:** upload now **always adds a new document** (no replace / append-version prompt). Keep only the ADD-is-explicit perception fixes (the toast + visible library update); ignore the "upload as a new version of this letter" option.
 Uploading a file **adds a new cover letter to the library** (the count goes up) and makes it current (P86) — it does **not** delete the previous one, but because the marquee view switches, it *feels* like a replace. Fix the perception:
 - After an upload, show a toast **"Added your cover letter — you now have N"** and make the **library list** (collapsible, section C) visibly update so the user sees the new item alongside the old ones.
-- Offer a distinct choice when a current letter exists: **"Upload as a new letter"** (default, adds a document) vs **"Upload as a new version of this letter"** (appends a version via `POST /api/v1/cover-letters/{id}/versions` so version history builds on one document). Make the two outcomes obvious before the upload commits.
+- ~~Offer a distinct choice when a current letter exists: "Upload as a new letter" vs "Upload as a new version of this letter".~~ **(Dropped — see P96 §C: always add a new document.)**
 
 ### Acceptance
 The marquee header has a clean **icon toolbar** (upload, download/export, open, delete) that works from the marquee view; counts are labelled so **"14 cover letters"** (library) and **"1 saved version"** (current letter) can't be confused; the long cover-letter / version list is a **collapsed-by-default** section the page no longer scrolls through; and uploading clearly **adds** a document (toast + visible library update) with an explicit option to instead **append a version** to the current letter. Applies to résumés too where it fits.
@@ -3559,3 +3560,60 @@ Right after uploading a `.docx`/`.pdf` cover letter or résumé, the preview sho
 
 ### Acceptance
 After a deploy, a returning user on a normal reload (no hard-refresh) gets the **latest build** because `index.html` is served `no-cache` while hashed assets stay cached; no service worker pins an old shell; and if a user has an old tab open when a new build ships, a subtle **"New version — Reload"** banner appears and reloads into the new build on click. Shipped fixes take effect for users without anyone clearing cache.
+
+## P96 — Document preview: resizable pane controls, an engaging toolbar, and upload-always-adds
+
+**Frontend only. Follows P94 (original formatting now preserved).** Audited live 2026-11-06. Four fixes to the cover-letter / résumé Documents workspace:
+
+### A. Add resizable / zoom controls to the document preview pane
+The preview now renders the original formatting (P94) but has **no way to resize or zoom** it — the pane is a fixed box. Add the standard document-viewer chrome to the preview header (same component for résumés and cover letters, Original and Working-copy views):
+- **Zoom out / Zoom in** (− / + with the current % shown), **Fit width**, and **Reset (100%)**.
+- **Expand / Read full size** — open the document in a large modal/overlay at a comfortable reading size, with the same zoom controls, and Esc/✕ to close.
+- A **draggable splitter** between the preview pane and the right-side panel so the user can widen the preview (remember the last width per session). On mobile this collapses to a full-width preview with the zoom controls still present.
+Controls apply to `.docx` (mammoth HTML), `.pdf` (pdf.js), and text alike — they scale the rendered preview, they do not alter the stored document.
+
+### B. Make the Design / feature menu line engaging (it's too bland today)
+The toolbar line that holds **Design** and the other feature controls is flat and grey — it doesn't stand out or invite interaction. Restyle it with the Harbor/Hirewave brand treatment:
+- Give the bar presence: brand accent color, a subtle gradient or tinted surface, clear iconography with labels, and hover/active states that respond.
+- Make **Design** read as the primary, inviting action (accent fill or a distinct pill), with the secondary actions (Upload, Download/Export, Open, Versions) as clean icon+label buttons that light up on hover.
+- Keep it a single tidy row, accessible (aria-labels, focus rings, good contrast in light and dark), and responsive — it should feel like a polished app toolbar, not a plain link line.
+
+### C. Upload ALWAYS adds a new document — drop the "replace / append a version" choice
+This **reverses P93 §D's two-way prompt.** Replacing an existing document on upload is unnecessary and confusing. From now on:
+- **Uploading a file always creates a NEW document** in the library (the document count goes up). There is **no** "upload as a new version of this letter" / replace path, and no prompt asking which — upload just adds.
+- The freshly uploaded document becomes **current** and is **visibly highlighted** in the library list and marquee (e.g. an accent border / "New" or "Current" badge) so the user sees exactly what was added.
+- Keep P86/P89 behavior: auto-submit on selection, in-view "Uploading…" progress, then the new doc is selected/rendered.
+
+### D. Versioning stays per-document and is managed by the user, not by upload
+Each document still carries its own versions (the seeded "Original" is v1; AI edits / manual saves add v2, v3…). The newly uploaded document shows its **correct version number** (Original / v1). Version management is a deliberate, user-driven action — never a side effect of uploading:
+- In the Versions list (P93 collapsible history), the user can **preview** any earlier version and **delete** old versions they don't want (last-version-protected per the backend 400 guard — deleting the only version is blocked; deleting the whole document is a separate explicit action).
+- "Current" / highlighted = the user's selected document+version; switching selection updates the preview (P86 render-on-select).
+
+### Acceptance
+The document preview has working **zoom / fit-width / reset / expand-to-full-size** controls and a **draggable splitter** (preview resizes; stored doc unchanged); the **Design/feature toolbar** is visibly branded and engaging (Design reads as the primary action, hover/active states, accessible, responsive); **every upload adds a new document** (no replace/append-version prompt), the new document is **highlighted and marked current with its correct version number**; and the user can **preview or delete earlier versions** from the collapsible Versions list without upload ever touching existing documents. Applies to résumés and cover letters.
+
+## P97 — Correct cover-letter FORMAT (salutation, header-vs-signature) + stand-out primary buttons
+
+**Frontend. Follows P94/P96.** Audited live 2026-11-06 against standard cover-letter format. Two parts:
+
+### Part 1 — Cover-letter structure must match a proper business letter
+A cover letter has a fixed, expected skeleton; the current render breaks it. The structured backend model already exists (`CoverLetterData`: `name, contact[], date, company, role, salutation, paragraphs[], closing, signature`) and the backend now **flags a missing opening salutation** in the review (new `"Add an opening salutation"` suggestion from `GET/POST .../review`). Surface and respect that structure:
+
+1. **Opening salutation is REQUIRED and must render.** Every cover letter opens with a salutation on its own line — **"Dear Hiring Manager,"** (or "Dear <name>," when known). If the current letter has none (a free-text AI edit can drop it), show the review's **"Add an opening salutation"** suggestion prominently with a one-click **"Insert 'Dear Hiring Manager,'"** fix that writes it as the first line above the body. Never render a letter that jumps straight into a paragraph.
+2. **The name appears twice ON PURPOSE — style the two differently, don't duplicate a banner.** Standard format puts the sender's **name + contact** in a *header block* at the **top**, and the sender's **typed name** in the *signature* at the **bottom** under the close. Today both render as the same bold "title header," which reads as a duplicated header. Fix:
+   - **Top:** a contact header — name (prominent) + contact line (email · phone · location) + date. Not a résumé-style name banner.
+   - **Bottom:** the closing block — **"Sincerely,"** on its own line, then the typed name as a **signature** (a light script/italic style is fine to evoke a signature; see 3).
+   - They are visually distinct; the bottom is clearly a sign-off, not a repeated title.
+3. **Typed signature is correct — keep it, and make it optional to upload a real one.** Turning a handwritten signature into the typed name is **standard and expected** for a digital/emailed letter (ATS and PDFs handle text, not ink) — this is not a bug. Render the typed name in the signature slot (optionally an italic/script face). *Optional nicety:* let the user attach a signature image that renders above the typed name; default stays the typed name.
+4. Apply this skeleton in both the **Working-copy** preview and on **export** (.docx/PDF/Google Docs): header → date → (company / Re: role) → **salutation** → body paragraphs → close → signature. The faithful **Original** view (P94) is unchanged — it shows the uploaded file as-is.
+
+**Recommended skeleton (reference):** Contact header · Date · (Recipient/Company) · **Salutation ("Dear …,")** · Opening paragraph (hook, names role + company) · 1–2 body paragraphs (one concrete, quantified result) · Closing paragraph (call to action) · **Sign-off ("Sincerely,") + typed name.**
+
+### Part 2 — Primary / next-step buttons must stand out (not blend into the color scheme)
+Right now **Save** and other next-step CTAs share the same color as ordinary buttons and disappear to the eye. Establish a clear visual hierarchy:
+- **Primary actions** (Save, Save version, Apply, Continue / next-step CTAs) get the brand **accent fill** with strong contrast, larger weight, and an optional **subtle pulse/glow** when they're the expected next action (e.g. after an unsaved edit the **Save** button gently pulses; it stops once saved). Use a tasteful animation (soft box-shadow pulse or scale), respect `prefers-reduced-motion`.
+- **Secondary actions** (Cancel, Open, Download, switch views) are quieter — outline/ghost style — so they clearly recede behind the primary action.
+- Exactly **one** primary action is emphasized per context; never pulse two things at once. Disabled Save isn't pulsing. Keep it accessible (contrast, focus ring, aria) in light and dark.
+
+### Acceptance
+A rendered/exported cover letter always has an **opening salutation** (with a one-click insert when missing, driven by the review suggestion), a **top contact header** and a **distinct bottom signature** (typed name, not a duplicated banner); the signature-as-typed-name is treated as correct with an optional image upload. Across the editor, the **Save and next-step buttons are visibly the primary action** (accent fill, optional pulse when action is pending, reduced-motion respected) while secondary buttons recede — a user can instantly tell what to click next.
