@@ -3778,3 +3778,32 @@ Leave genuinely **persistent primary actions** (the Auto-Improve/Improve hero, U
 
 ### Acceptance
 Save/Cancel and other post-action commits (Accept/Undo, Keep/Discard, delete-confirm) appear as **contextual overlays anchored to the change, only while a decision is pending**, styled as translucent light surfaces with the primary/secondary hierarchy, driven by **Enter=commit / Esc=cancel**, never trapping focus, one at a time, with a transient "Saved ✓" on commit and inline confirm popovers for destructive actions. The static Save/Cancel button rows are removed from the editor and version UI; persistent entry-point actions (Improve hero, Upload, Generate, Design) remain as buttons. Accessible and reduced-motion-safe.
+
+## P104 — Fix marquee↔preview sync + real click-to-expand, enforce cover-letter rules, add proactive AI recommendations
+
+**Frontend. Correctness-first — these are bugs, verify on the published build.** Several avoidable issues on the Documents screen. Fix the bugs (1–2) first, then enforce the rules (3) and add the proactive AI layer (4), using overlays throughout.
+
+### 1. The marquee selection and the preview below it must ALWAYS be in sync (bug)
+Right now the **current/selected version shown in the marquee is not the one rendered in the preview below** — they diverge. There must be **one single source of truth**: a `selectedVersion` (the current/selected version in the marquee) that **drives the preview directly**, rendering from **that version's own content** (not a lagging `rendered_text` or a cached render).
+- Selecting/centring a version in the marquee **immediately re-renders the preview to that exact version**. Changing the current version, uploading (P102), switching documents — the preview follows, every time, with no mismatch.
+- The marquee's "Current"/highlighted card and the preview header must name the **same version number**. If they ever disagree, that's the bug — reconcile to the single `selectedVersion`.
+
+### 2. Clicking the preview must open a REAL full-size reader — and clean up (bug)
+Clicking the marquee preview does **not** open a fuller human-readable view — it stays a large thumbnail, and a **stale/orphaned enlarged thumbnail survives on its own after the page scrolls or focus changes**. Fix both:
+- Clicking the preview opens a **true full-size, human-readable reader overlay** (modal/lightbox) of the **current selection** — actual readable document size with the P96 zoom/fit controls, Esc/✕ to close — not an inflated thumbnail.
+- The expanded view is a **single managed overlay** bound to the current selection; it **does not leave an orphaned enlarged instance** behind when the user scrolls, navigates, or changes focus. Opening is idempotent (no duplicates); closing fully tears it down.
+
+### 3. Enforce the cover-letter edit rule set (already defined — don't let it drift)
+Make sure the previously defined cover-letter behavior is actually in place: **required opening salutation + one-click insert** (P97, backed by the new review check), **top contact header vs. distinct bottom signature** (P97), **Original ↔ Working copy** faithful formatting (P94), **horizontal version display matching résumés** (P88), **upload always adds + becomes current** (P96/P102), and the **same marquee edit functions as résumés** with the already-defined résumé/cover-letter distinctions honored. Audit the cover-letter path against these and close any gaps.
+
+### 4. Proactive AI: the app analyzes the document and offers recommended changes (feature)
+Don't make the user think of what to ask. The AI should **analyze the current document on its own** and **proactively offer remedies** — format and wording — with a clear option to apply them:
+- On open / after upload, run the existing analysis (cover letters: `review_cover_letter` → score, ratings, suggestions incl. the new salutation check; résumés: the review/`suggest-edits` path) and surface a short, ranked list of **recommended changes** ("Tighten this cliché," "Add a measurable result," "Insert an opening salutation," "Fix this wording").
+- Present each as an **actionable recommendation in an overlay** with **Apply · Apply all · Dismiss** (apply writes the change and saves/queues a version via the existing apply/versions endpoints; each apply is undoable per P103). The user is always **offered** the change — nothing is applied without their click.
+- Tie into the one-pass **Improve whole document** as the "fix everything recommended" option. Keep it benefit-led and non-nagging (collapsible, remembered when dismissed).
+
+### 5. Overlays throughout for an engaging, interactive feel
+Use the P101 translucent-light + P103 decision-overlay language for: the **full-size reader** (2), the **AI recommendations** and their Apply/Dismiss (4), the **insert-salutation** fix (3/P97), and version-card actions. Anchored, dismissible, one primary action each, keyboard-accessible, reduced-motion-safe.
+
+### Acceptance
+The marquee's current/selected version and the preview below it are **always the same version** (single `selectedVersion` source of truth; preview re-renders on every selection/upload/switch, version numbers match). **Clicking the preview opens a true full-size readable reader overlay** of the current selection with zoom controls and clean teardown — **no orphaned enlarged thumbnail** survives scroll/navigation/focus change. The **cover-letter rule set** (salutation+insert, header/signature, Original/Working copy, horizontal versions, upload-adds-and-currents, résumé-equivalent editing) is verified in place. The app **proactively surfaces ranked AI recommendations** (format + wording) in overlays with **Apply / Apply all / Dismiss**, each undoable, nothing applied without the user's choice. All of the above uses the translucent overlay language and is accessible and reduced-motion-safe.
