@@ -1191,6 +1191,33 @@ class PrepareDraftsOut(BaseModel):
     application_ids: list[str]
 
 
+class InterpretContext(BaseModel):
+    """Light page state so references like 'that one' / 'go here' resolve."""
+
+    page: str = ""
+    resume_id: Optional[str] = None
+    cover_letter_id: Optional[str] = None
+    job_id: Optional[str] = None
+    focused_index: Optional[int] = None  # the item currently read/highlighted (0-based)
+    options: list[dict] = Field(default_factory=list)  # the on-screen choices [{id,label}]
+
+
+class InterpretRequest(BaseModel):
+    transcript: str
+    context: Optional[InterpretContext] = None
+
+
+class InterpretResponse(BaseModel):
+    """A classified intent (interpretation only — the client runs the guarded action)."""
+
+    intent: str
+    confidence: float
+    slots: dict = Field(default_factory=dict)
+    reply: str = ""
+    needs_disambiguation: list[dict] = Field(default_factory=list)
+    utterance: str = ""
+
+
 class EmailImportOut(BaseModel):
     source: str  # detected board (linkedin/indeed/…)
     parsed: int  # postings found in the email

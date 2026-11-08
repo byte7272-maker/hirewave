@@ -1,0 +1,340 @@
+"""Assistant NLU — turn a free-form utterance into a structured intent.
+
+Interpretation only: this maps what the user *said* onto the P121 command set, the
+P115 playbooks, the app sections and the bullet flow. It never executes anything —
+the API layer runs the (already guarded) action. A deterministic matcher covers the
+whole command set with no LLM; an optional LLM backstop handles free-form phrasing
+when one is configured. See ``docs/ASSISTANT_INTENT.md``.
+"""
+
+from __future__ import annotations
+
+import difflib
+import json
+import re
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+# ---- taxonomy --------------------------------------------------------------
+
+#: Every intent the endpoint can return.
+INTENTS = {
+    "confirm", "decline",
+    "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
+    "choose", "navigate", "start_playbook",
+    "read_options", "what_can_i_do",
+    "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
+    "change_voice", "set_rate",
+    "ask", "unknown",
+}
+
+#: App sections a user can be sent to (slot ``section``), with spoken synonyms.
+_SECTIONS = {
+    "matches": ("matches", "match", "my jobs", "jobs", "job matches", "roles"),
+    "documents": ("documents", "document", "my files", "files", "resume", "résumé",
+                  "resumes", "cover letter", "cover letters", "my documents"),
+    "auto_apply": ("auto apply", "auto-apply", "autoapply", "apply bot", "automation"),
+    "design": ("design", "styles", "style", "templates", "template", "look"),
+    "interview": ("interview", "interviews", "practice interview", "practice", "mock interview"),
+    "inbox": ("inbox", "email", "mailbox"),
+    "connect": ("connect", "connections", "integrations", "sources"),
+    "community": ("community", "people"),
+    "dashboard": ("dashboard", "home", "overview"),
+}
+
+#: P115 playbooks (slot ``playbook``), with spoken synonyms.
+_PLAYBOOKS = {
+    "connect_source": ("connect a source", "connect my email", "connect email", "connect gmail",
+                       "connect icloud", "add a job source", "connect a job source"),
+    "auto_apply": ("set up auto apply", "auto apply", "apply for me", "automate applications",
+                   "automate applying"),
+    "walk_matches": ("walk through my matches", "walk my matches", "go through my matches",
+                     "review my matches", "which jobs fit"),
+    "apply_job": ("apply to this job", "apply to a job", "apply to this one", "fill this application",
+                  "help me apply"),
+    "upload": ("upload a document", "upload my resume", "upload my résumé", "upload a cover letter",
+               "upload a file", "import a document"),
+    "download": ("download", "download this", "get a pdf", "get a word copy", "export",
+                 "open in google docs"),
+    "design": ("design my document", "change the design", "which template", "pick a style",
+               "make it look better"),
+    "tailor": ("tailor my resume", "tailor my résumé", "tailor to a job", "aim my resume",
+               "tailor my cover letter"),
+    "practice": ("practice an interview", "practice interview", "rehearse", "mock interview"),
+    "bullets": ("make bullets", "bullet workshop", "work highlights", "my work highlights",
+                "turn this into bullets", "build bullets"),
+}
+
+_FILLER = re.compile(
+    r"\b(please|could you|can you|would you|um+|uh+|like|just|hey|okay so|so|well)\b",
+    re.I,
+)
+# Ordinal words only — NOT bare cardinals like "one"/"two", which are usually nouns
+# here ("that one", "the one about X") rather than a position.
+_ORDINALS = {
+    "first": 1, "1st": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3,
+    "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "last": -1,
+}
+
+
+@dataclass
+class IntentResult:
+    intent: str = "unknown"
+    confidence: float = 0.0
+    slots: dict[str, Any] = field(default_factory=dict)
+    reply: str = ""
+    needs_disambiguation: list[dict[str, str]] = field(default_factory=list)
+    utterance: str = ""
+
+
+def _norm(text: str) -> str:
+    text = (text or "").strip().lower()
+    text = _FILLER.sub(" ", text)
+    text = re.sub(r"[^\w\s%$+./-]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _contains_any(text: str, phrases) -> bool:
+    return any(p in text for p in phrases)
+
+
+def _token_overlap(a: str, b: str) -> float:
+    ta, tb = set(re.findall(r"\w+", a.lower())), set(re.findall(r"\w+", b.lower()))
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _best_option(text: str, options: list[dict]) -> tuple[Optional[dict], float]:
+    """Fuzzy-match the utterance to one of the on-screen options by label."""
+    best, score = None, 0.0
+    for o in options or []:
+        label = str(o.get("label", ""))
+        s = max(_token_overlap(text, label),
+                difflib.SequenceMatcher(None, text, label.lower()).ratio())
+        if s > score:
+            best, score = o, s
+    return best, score
+
+
+def _resolve_reference(text: str, context: dict) -> tuple[Optional[str], Optional[int], list[dict]]:
+    """Resolve 'that one' / an ordinal / a label to an (option_id, index) from context.
+
+    Returns (option_id, index, disambiguation_options).
+    """
+    options = list(context.get("options") or [])
+    # explicit ordinal / number ("the second one", "number 3")
+    m = re.search(r"\b(?:number|option|#)\s*(\d+)\b", text) or re.search(r"\b(\d+)\b", text)
+    idx = None
+    if m:
+        idx = int(m.group(1))
+    else:
+        for word, n in _ORDINALS.items():
+            if re.search(rf"\b{re.escape(word)}\b", text):
+                idx = n
+                break
+    if idx is not None and options:
+        i = (len(options) + idx) if idx < 0 else (idx - 1)
+        if 0 <= i < len(options):
+            return str(options[i].get("id")), i, []
+    # demonstrative ("that one", "this", "it") → the focused/only option
+    if re.search(r"\b(that one|this one|that|this|it)\b", text):
+        fi = context.get("focused_index")
+        if isinstance(fi, int) and options and 0 <= fi < len(options):
+            return str(options[fi].get("id")), fi, []
+        if len(options) == 1:
+            return str(options[0].get("id")), 0, []
+        if options:
+            return None, None, options  # ambiguous → disambiguate
+    # label match
+    opt, score = _best_option(text, options)
+    if opt and score >= 0.34:
+        return str(opt.get("id")), options.index(opt), []
+    return None, None, []
+
+
+def _match_section(text: str) -> Optional[str]:
+    for key, syns in _SECTIONS.items():
+        if _contains_any(text, syns):
+            return key
+    return None
+
+
+def _match_playbook(text: str) -> Optional[str]:
+    best, score = None, 0.0
+    for key, syns in _PLAYBOOKS.items():
+        for s in syns:
+            r = _token_overlap(text, s)
+            if s in text:
+                r = max(r, 0.9)
+            if r > score:
+                best, score = key, r
+    return best if score >= 0.5 else None
+
+
+# ---- deterministic matcher -------------------------------------------------
+
+def _deterministic(text: str, context: dict) -> IntentResult:
+    t = text
+    has = lambda *w: _contains_any(t, w)  # noqa: E731
+
+    # flow control (check multi-word / specific first)
+    if has("never mind", "nevermind", "forget it"):
+        return IntentResult("cancel", 0.9)
+    if re.fullmatch(r"(stop|halt|quiet|be quiet|shush)", t) or has("stop talking", "stop reading"):
+        return IntentResult("stop", 0.95)
+    if re.fullmatch(r"(pause|hold on|wait)", t):
+        return IntentResult("pause", 0.9)
+    if has("go back", "previous", "back up") or re.fullmatch(r"back", t):
+        return IntentResult("back", 0.9)
+    if re.fullmatch(r"(next|continue|go on|keep going|carry on|resume|move on)", t) or has(
+        "next one", "keep going", "go on", "move on"
+    ):
+        return IntentResult("next" if "next" in t else "continue", 0.9)
+    if re.fullmatch(r"(repeat|again|say that again|one more time)", t) or has("say that again",
+                                                                             "repeat that"):
+        return IntentResult("repeat", 0.9)
+    if re.fullmatch(r"skip", t) or has("skip this", "skip that", "skip it"):
+        return IntentResult("skip", 0.85)
+    if re.fullmatch(r"(cancel|abort)", t):
+        return IntentResult("cancel", 0.9)
+
+    # voice / rate (before navigate, so "switch to coral" isn't a section)
+    if has("faster", "speed up", "talk faster", "quicker"):
+        return IntentResult("set_rate", 0.9, {"direction": "faster"})
+    if has("slower", "slow down", "talk slower"):
+        return IntentResult("set_rate", 0.9, {"direction": "slower"})
+    m = re.search(r"(?:speed|rate)\D{0,6}(\d(?:\.\d)?)", t)
+    if m:
+        return IntentResult("set_rate", 0.9, {"rate": float(m.group(1))})
+    m = re.search(r"\b(?:voice|sound)\b", t)
+    if m and (has("change", "switch", "use", "different", "warmer", "friendl") or "voice to" in t):
+        vm = re.search(r"(?:to|use)\s+(?:the\s+)?([a-z]+)", t) or re.search(r"([a-z]+)\s+voice", t)
+        name = vm.group(1) if vm else ""
+        slots = {"voice": name} if name and name not in (
+            "the", "a", "my", "voice", "sound", "change", "switch", "different"
+        ) else {}
+        return IntentResult("change_voice", 0.85, slots)
+
+    # bullet actions
+    if has("read them", "read these", "read the bullets", "read my bullets", "read the suggestions"):
+        return IntentResult("read_bullets", 0.9)
+    if has("which should", "which one should", "which bullet", "recommend a bullet", "suggest a bullet",
+           "which do you") or re.fullmatch(r"(suggest|recommend|which one)", t):
+        return IntentResult("suggest_bullets", 0.85)
+    if has("discard", "drop that", "drop it", "remove that", "not that one", "reject"):
+        oid, idx, _ = _resolve_reference(t, context)
+        slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
+        return IntentResult("discard_bullet", 0.85, slots)
+    if has("use ", "use that", "use this", "use it", "add that", "add this", "pick that",
+           "pick this", "go with that", "go with this") or re.fullmatch(
+        r"(use|add|pick)(\s+it)?", t
+    ):
+        oid, idx, dis = _resolve_reference(t, context)
+        if dis:
+            return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
+        slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
+        return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # navigate ("go to / take me to / open <section>") — a nav verb + a section wins
+    # over the playbook matcher, so "go to auto apply" navigates but "set up auto
+    # apply" starts the playbook.
+    if has("go to", "take me to", "open", "show me", "switch to", "navigate"):
+        sec = _match_section(t)
+        if sec:
+            return IntentResult("navigate", 0.9, {"section": sec})
+
+    # playbooks (a concrete task phrase)
+    pb = _match_playbook(t)
+    if pb:
+        return IntentResult("start_playbook", 0.85, {"playbook": pb})
+
+    # options / help
+    if has("what can i do", "read my options", "what are my options", "my options", "what now",
+           "help me", "options") or re.fullmatch(r"(help|options|menu)", t):
+        return IntentResult("read_options", 0.85)
+
+    # yes / no — last among short commands so specific verbs win first
+    if re.fullmatch(
+        r"(yes|yeah|yep|yup|sure|ok|okay|do it|go|go ahead|confirm|sounds good|please do|absolutely|"
+        r"that works|correct|right)",
+        t,
+    ) or has("do it", "go ahead", "sounds good", "yes please"):
+        return IntentResult("confirm", 0.9)
+    if re.fullmatch(r"(no|nope|nah|don't|do not|not now|no thanks|negative)", t) or has(
+        "no thanks", "not now", "don't do"
+    ):
+        return IntentResult("decline", 0.9)
+
+    # bare selection ("the second one", "that one") without an action verb
+    oid, idx, dis = _resolve_reference(t, context)
+    if dis:
+        return IntentResult("choose", 0.6, {}, needs_disambiguation=dis)
+    if oid is not None or idx is not None:
+        slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
+        return IntentResult("choose", 0.8, slots)
+
+    return IntentResult("unknown", 0.0)
+
+
+# ---- optional LLM backstop -------------------------------------------------
+
+_LLM_SYSTEM = (
+    "You classify a job-search app user's utterance into one intent. "
+    "Output ONLY JSON: {\"intent\": <one of the list>, \"confidence\": 0..1, \"slots\": {}}. "
+    "No prose."
+)
+
+
+def _llm_classify(text: str, context: dict, llm) -> Optional[IntentResult]:
+    try:
+        prompt = (
+            "Intents: " + ", ".join(sorted(INTENTS)) + ".\n"
+            "Sections: " + ", ".join(_SECTIONS) + ". Playbooks: " + ", ".join(_PLAYBOOKS) + ".\n"
+            "slots may include: section, playbook, voice, rate, index, query.\n"
+            f"Utterance: {text!r}\nReturn JSON only."
+        )
+        raw = llm.complete(prompt, system=_LLM_SYSTEM, max_tokens=200, temperature=0.0)
+        start, end = raw.find("{"), raw.rfind("}")
+        data = json.loads(raw[start:end + 1]) if start != -1 and end != -1 else {}
+        intent = str(data.get("intent", "")).strip()
+        if intent not in INTENTS:
+            return None
+        conf = float(data.get("confidence", 0.6) or 0.6)
+        slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
+        return IntentResult(intent, max(0.5, min(conf, 0.95)), slots)
+    except Exception:  # noqa: BLE001 - never let the backstop raise
+        return None
+
+
+# ---- public API ------------------------------------------------------------
+
+def interpret(
+    transcript: str, *, context: Optional[dict] = None, llm=None, threshold: float = 0.6
+) -> IntentResult:
+    """Classify *transcript* into an :class:`IntentResult`.
+
+    ``context`` carries light page state (``page``, ``resume_id``, ``focused_index``,
+    ``options``) so references like "that one" resolve. ``llm`` (optional) is only used
+    as a backstop when the deterministic pass is below ``threshold``.
+    """
+    context = context or {}
+    raw = (transcript or "").strip()
+    text = _norm(raw)
+    if not text:
+        return IntentResult("unknown", 0.0, utterance=raw)
+
+    result = _deterministic(text, context)
+
+    if result.confidence < threshold:
+        if llm is not None:
+            llm_res = _llm_classify(raw, context, llm)
+            if llm_res is not None and llm_res.confidence >= result.confidence:
+                result = llm_res
+        # Still weak? Treat a substantive utterance as a free-form request.
+        if result.confidence < threshold and result.intent in ("unknown",):
+            if len(text.split()) >= 2:
+                result = IntentResult("ask", 0.5, {"query": raw})
+
+    result.utterance = raw
+    return result

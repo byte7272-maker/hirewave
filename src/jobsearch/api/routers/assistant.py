@@ -13,11 +13,14 @@ from jobsearch.api.schemas import (
     ExecuteFillRequest,
     FillEntryOut,
     FillPlanOut,
+    InterpretRequest,
+    InterpretResponse,
     LiveFillResultOut,
     PrepareDraftsOut,
     PrepareDraftsRequest,
 )
 from jobsearch.engines.assistant import FormField, build_browser_driver, demo_application_form
+from jobsearch.engines.assistant.intent import interpret as interpret_intent
 from jobsearch.models import AUTOMATION_SCOPES, UserProfile
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
@@ -33,6 +36,27 @@ def get_consent(user: CurrentUser, state: StateDep) -> ConsentOut:
 def set_consent(body: ConsentUpdate, user: CurrentUser, state: StateDep) -> ConsentOut:
     con = state.assistant.set_consent(user.id, body.scopes)
     return ConsentOut(granted=con.scopes, available=AUTOMATION_SCOPES)
+
+
+@router.post("/interpret", response_model=InterpretResponse)
+def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> InterpretResponse:
+    """Classify a free-form utterance into a structured intent for the assistant.
+
+    Interpretation only — this never connects, edits, navigates, or submits. The
+    frontend maps the returned intent to the existing, already-guarded endpoints and
+    still runs the per-action confirm (P114) and scope checks (P116). A deterministic
+    matcher covers the whole command set; the configured premium LLM (if any) is a
+    backstop for free-form phrasing. See ``docs/ASSISTANT_INTENT.md``."""
+    ctx = body.context.model_dump() if body.context else {}
+    # Only use the LLM backstop when a premium provider is actually configured
+    # (resolves to None otherwise, so the deterministic path stands alone).
+    llm = getattr(state.resume_assistant, "_premium", None)
+    res = interpret_intent(body.transcript, context=ctx, llm=llm)
+    return InterpretResponse(
+        intent=res.intent, confidence=res.confidence, slots=res.slots,
+        reply=res.reply, needs_disambiguation=res.needs_disambiguation,
+        utterance=res.utterance,
+    )
 
 
 @router.get("/actions", response_model=list[AutomationActionOut])
