@@ -4203,3 +4203,36 @@ Auto-apply **grants** (`/api/v1/auto-apply/*`, P115 Playbook 2) are the **bulk o
 
 ### Acceptance
 The Assistant's automation is built on `/api/v1/assistant`: a **permissions panel** reads/writes consent scopes (`form_autofill`, `draft_prep`, `submit_after_review`) via `GET/PUT /assistant/consent`, all off by default and revocable, and a 403 from any automation call routes the user to grant the scope rather than being worked around. The Assistant shows its **audit log** from `GET /assistant/actions` and never claims an unlogged action. **Per-job apply** previews via `POST /assistant/autofill/{job_id}` (showing filled/needs_input/**blocked-credentials**) and executes via `…/execute { submit }` — submit gated by the `submit_after_review` scope **and** a confirm, with **`live:false` reported honestly as simulated**, and `captcha`/`needs_login` **escalated to the user**. **Bulk** draft prep uses `POST /assistant/prepare-drafts` (needs `draft_prep`) feeding the auto-apply approvals queue; nothing submits without the double gate. Credentials never reach the browser, CAPTCHAs are never solved, and all P114/P111/P112 behavior is preserved.
+
+## P117 — ONE canonical Auto-apply experience (don't build two): rules + per-job autofill, one permissions panel, one approvals/activity view
+
+**Frontend / IA. The two backends (`/api/v1/auto-apply/*` grants and `/api/v1/assistant/*` scopes+autofill) are ONE feature to the user — present them as a single experience, not parallel screens. No backend change.** This resolves the overlap P116 §4 flagged: the grant engine already composes the assistant engine server-side; the UI must mirror that single system.
+
+### The one mental model
+There is **one feature: "Auto-apply."** It works at **two scales**, both producing the **same result — prepared applications that wait for your approval**, never auto-sent:
+- **A rule (bulk)** = an auto-apply **grant** (`/api/v1/auto-apply/grants/*`, P115 Playbook 2): criteria, caps, optional cadence; a run **prepares** matching applications.
+- **One job (per-job)** = **autofill** (`/api/v1/assistant/autofill/{job_id}` → `…/execute`, P116 Playbook 6): fill/prepare a single application from Matches.
+
+The **Assistant (P114) is the conversational driver** of this one feature — it can set up a rule *or* apply to one job. It is **not** a second auto-apply feature. The existing **Auto-apply page is the one visual home**; keep it, drive it from the Assistant, and **do not create a second auto-apply screen or nav entry.**
+
+### One permissions panel (not two)
+- The **`/assistant/consent` scopes** (`form_autofill`, `draft_prep`, `submit_after_review`, P116 §1) are the **single place** that governs what Auto-apply may do — for **both** the rule flow and the per-job flow. Show them **once**, in the Assistant/Auto-apply permissions panel.
+- A grant's own `require_verified`, `mode`, caps and cadence are **rule settings**, not a second permission system — present them as "how this rule behaves," clearly distinct from the standing scopes. Don't surface two competing "permissions" UIs.
+
+### One approvals + activity view (merge the two sources)
+Combine into a **single "Activity & approvals"** surface (the P76 home):
+- **Pending approvals** (top): `GET /api/v1/auto-apply/approvals` — applications prepared but not sent, each with **Approve** (`POST /auto-apply/approvals/{application_id}/approve`) / **Reject** (`…/reject`) / **Approve all** (explicit confirm only). Everything a rule-run *or* a per-job prepare created lands here.
+- **History** (below): `GET /api/v1/assistant/actions` — the audit log of what the assistant did/proposed/blocked (autofill · prepare · submit). 
+- One list, one place the user checks "what's waiting / what happened" — regardless of whether it came from a bulk rule or a single-job apply.
+
+### One submit gate everywhere
+Whether bulk or per-job, submission requires the **same triple gate** (P116 §5): the **`submit_after_review`** scope **+** a per-action confirm (click or voice) **+** a real connected browser session for a *live* submit; otherwise it **prepares/simulates** and routes to approvals. Never imply an application was really sent when the result is simulated (`live:false`). Credentials are never entered; CAPTCHA/login walls escalate to the user.
+
+### Entry points (map to the one system — no duplicates)
+- **"Set up auto-apply"** → the rule/grant wizard (Playbook 2).
+- **"Apply to this job"** (from a match) → per-job autofill (Playbook 6).
+- **"What's waiting for me?"** → the one Activity & approvals view.
+- All three are the same Auto-apply feature, the same scopes, the same approvals queue.
+
+### Acceptance
+The app presents **one** Auto-apply feature with **one** visual home and **no** duplicate auto-apply screen/nav entry. Setting up a **rule** (grant) and applying to a **single job** (autofill) both funnel prepared applications into **one shared Activity & approvals view** that merges `/auto-apply/approvals` (pending, with approve/reject/approve-all) and `/assistant/actions` (history). **One permissions panel** exposes the `/assistant/consent` scopes governing both flows, with a grant's own caps/mode/verified shown separately as rule settings — not a second permissions UI. The **submit gate is identical** everywhere (scope + confirm + connected session, else simulated/prepared), credentials are never entered, and CAPTCHAs/login walls escalate to the user. The Assistant drives this one feature conversationally and is never presented as a separate auto-apply system.
