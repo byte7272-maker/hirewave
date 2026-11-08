@@ -4293,3 +4293,37 @@ The handle is styled (`cursor: grab`) but nothing moves. Wire the drag for real:
 
 ### Acceptance
 The assistant has a **Minimize** control distinct from **Hide**: minimizing **collapses the task list to a compact speaking bar** (captions + Play/Pause/Stop + mute + speed + mic + Expand) while **speech keeps playing**, and Expand restores the full list; Hide closes everything and stops speech. The console (full **and** minimized) can be **dragged by its handle with mouse and touch**, stays clamped on-screen, **opens fully visible and never low/off-screen** (remembered positions are clamped into view; Reset returns to a sane default), and is keyboard-movable. All P111/P112/P119 voice, privacy and accessibility behavior is preserved.
+
+## P121 — Make the assistant conversational: greet → offer → listen → act, a real turn-taking loop driven by voice or dialog commands
+
+**Frontend. Ties P114 (task agent) + P115 (playbooks) + P119 (one voice) + P120 (console) into an actual conversation. No backend change** — uses the existing narration, action endpoints, and mic. Today the assistant shows a menu; it should **talk with the user**.
+
+### 1. Open with a greeting and an offer
+When the assistant opens (and the user has turned voice on per P111), it **greets warmly and asks how it can help** — e.g. *"Hi, I'm your Harbor Assistant. What would you like to get done today? I can walk you through anything — or I can read you the options."* Then it **waits** (it does not auto-dump the whole menu). Captions show the same text; if voice is off, it's shown, not spoken.
+
+### 2. Offer the options by group, pausing for a response (don't monologue)
+If the user says *"what can I do / read my options,"* the assistant reads the groups **one at a time and waits after each**, newest-preempts-current per P119:
+- **"Get something done"** — the P115 playbooks (Connect a source, Set up auto-apply, Walk the matches, Apply to a job, Upload/Download, Design, Tailor, Practice).
+- **"Suggested next"** — the ranked recommendations for this user.
+- **"Ask for something"** — free-form ("write a cover letter," "change the font").
+- **"Take the Grand Tour."**
+It reads a group, then **pauses: "Want any of those, or shall I go on?"** — it never reads the entire list in one breath. The user can jump in at any point ("that one," "auto-apply," "next group," "skip to asking").
+
+### 3. Listen for commands — verbal AND dialog, same vocabulary
+Every turn ends by **waiting for the user**, who can **speak** (when the mic is on — P114 mic-status check) **or click** an on-screen control that mirrors the same choice. Interpret a consistent command set:
+- **Flow:** stop / pause · continue / resume / go on · **next** · **back** · **repeat** · skip · "never mind."
+- **Choose:** by name or number ("the second one," "auto-apply," "yes," "no").
+- **Navigate:** **"go to [Matches / Documents / Auto-apply / Design / Interview]"** — the assistant navigates there (P115) and **keeps the conversation going** in that section.
+- **Task controls:** **apply / do it / confirm** · **cancel** · **undo** — mapped to the P114 confirm + P116 actions (nothing side-effectful without an explicit yes; mic-status-checked).
+Anything speakable is also a visible button (P114); captions reflect every spoken line.
+
+### 4. Barge-in + turn-taking
+- **Barge-in:** a command (stop / next / a new request) **immediately cancels the current speech** (the P119 single-voice controller) and acts — the user never has to wait out a sentence.
+- **One turn at a time:** speak → **await the user** → interpret → act (or navigate) → confirm the result → offer the next step. The assistant **always hands the turn back**; it doesn't march ahead on its own, and it doesn't talk over itself (P119).
+- **Graceful fallbacks:** if it doesn't understand, it says so briefly and re-offers ("Sorry — did you mean *auto-apply* or *apply to one job*?"), showing the options as buttons. If the mic is off/denied, it asks the user to type or tap instead — never blocks on voice.
+
+### 5. Interactive navigation carries the task
+When the user picks a playbook or says "go to [section]," the assistant **takes them there and runs the steps conversationally** (P115/P116): narrate the step, do-or-direct it, **ask for the go-ahead**, wait, then continue — so navigation and the task are one flowing dialog, resumable if interrupted.
+
+### Acceptance
+Opening the assistant **greets the user and asks how it can help, then waits** (no menu dump). On request it **reads the action groups one at a time, pausing for a response** after each. The user drives it by **voice or by clicking** the mirrored controls, using a consistent command set — **stop / continue / next / back / repeat / choose / go to [section] / apply / cancel / undo** — and a command **barges in**, cancelling current speech (P119) and acting. Every turn **ends by waiting for the user**; the assistant confirms before any action (P114), navigates to sections and keeps the task going there (P115/P116), re-offers clearly when it misunderstands, and falls back to type/tap when the mic is off. All P111/P112/P119/P120 voice, console, privacy and accessibility behavior is preserved.
