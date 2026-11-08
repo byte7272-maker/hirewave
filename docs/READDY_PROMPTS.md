@@ -3807,3 +3807,29 @@ Use the P101 translucent-light + P103 decision-overlay language for: the **full-
 
 ### Acceptance
 The marquee's current/selected version and the preview below it are **always the same version** (single `selectedVersion` source of truth; preview re-renders on every selection/upload/switch, version numbers match). **Clicking the preview opens a true full-size readable reader overlay** of the current selection with zoom controls and clean teardown — **no orphaned enlarged thumbnail** survives scroll/navigation/focus change. The **cover-letter rule set** (salutation+insert, header/signature, Original/Working copy, horizontal versions, upload-adds-and-currents, résumé-equivalent editing) is verified in place. The app **proactively surfaces ranked AI recommendations** (format + wording) in overlays with **Apply / Apply all / Dismiss**, each undoable, nothing applied without the user's choice. All of the above uses the translucent overlay language and is accessible and reduced-motion-safe.
+
+## P105 — Speaking assistant: give the Harbor Assistant a voice, central to the UX
+
+**Frontend. Expands P100/P101; builds on the existing narration system** (the app already has narration settings — `hw_narration_enabled`, `hw_narration_voice`, `hw_narration_rate`, `hw_narration_auto_read`). Make the assistant a **speaking guide** that verbally walks users through tasks, highlights the section it's talking about, reads things in plain language, reads summaries, and warmly promotes relevant features. Use the browser **Web Speech API (`speechSynthesis`)** — no backend TTS needed for v1.
+
+### Central, but consent-first (browsers block autoplay audio anyway)
+- The speaking assistant is a **prominent, first-class part of the UX** — a clear **"🔊 Guide me / Listen"** control on the P101 assistant and on tours/summaries — but it **only speaks after the user starts it** (a click), per browser autoplay rules and good taste. Respect the existing `hw_narration_enabled` / `auto_read` prefs; never surprise-talk.
+- Always-available **transport controls**: Play/Pause, **Stop**, skip step, **voice picker** (from `speechSynthesis.getVoices()`), **rate/pitch**, and **mute**. Persist choices via the existing `hw_narration_*` keys.
+
+### Speak + highlight together (the core)
+- When guiding, the assistant **speaks each step in simple language while spotlighting the exact section/element** it's describing (reuse the P100 coach-mark spotlight + P101 translucent overlay). Speech and highlight advance **in sync**; finishing a sentence/step moves the highlight; Pause stops both.
+- **Word/section cues:** use `speechSynthesis` `onboundary`/`onend` events to keep the highlight and (optional) progress in step with the narration.
+
+### What it reads
+1. **Step read-throughs** — narrate P100 task tours and the P101 Grand Tour: "Here's how to improve your résumé. First, pick a document…" in short, plain sentences.
+2. **Summaries** — read the document **AI summary**, the **review** result ("Your cover letter scores 82. It's missing an opening salutation — want me to add it?"), and the **"what changed"** after an Improve pass.
+3. **Recommendations (P104 §4)** — read each proactive recommendation aloud and offer to apply it ("I'd tighten this cliché — shall I apply it?"), wired to the same Apply/Dismiss overlay.
+4. **Feature promotion** — short, benefit-led spoken nudges about relevant capabilities in context ("You can open this in Google Docs to edit in Docs — want me to show you?"), drawn from the P101 context map. Promotional, not pushy: 1 at a time, dismissible, never repeats after "No thanks."
+
+### Accessibility (critical for a voice feature)
+- **Never audio-only:** everything spoken is **also shown as text/captions** in the assistant overlay (live caption of the current sentence), so it works muted and for deaf/hard-of-hearing users.
+- **Don't fight screen readers:** keep the visual focus/`aria-live` behavior correct; the spoken guide is an *addition* the user opts into, and should not double-announce for assistive tech — offer it, default off when the user already relies on a screen reader, and make it easy to turn off.
+- Keyboard controls for all transport; `prefers-reduced-motion` still applies to the highlight; stop speaking immediately on navigation/stop; handle voices-not-loaded and unsupported browsers gracefully (fall back to captions/text only).
+
+### Acceptance
+The assistant can **speak**, started by the user, with Play/Pause/Stop, voice and rate controls persisted to the existing narration settings. While guiding, it **narrates each step in plain language and highlights the matching section in sync**. It can **read document summaries, review results, "what changed," and proactive recommendations**, offering to apply changes via the P104 overlays, and delivers **brief, benefit-led spoken feature promotions** in context (one at a time, non-repeating after decline). Every spoken line is **also shown as captions/text**; it never autoplays, respects reduced-motion and screen-reader users, is fully keyboard-controllable, and degrades gracefully where speech synthesis is unavailable.
