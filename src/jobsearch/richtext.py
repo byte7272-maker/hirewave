@@ -335,3 +335,92 @@ def html_to_text(html: str) -> str:
     # Blank line between blocks for readable paragraphs; collapse runs of blanks.
     text = "\n\n".join(l for l in lines if l.strip())
     return text.strip()
+
+
+# --- docx -> html (seed the rich Working copy from a .docx upload) -----------
+
+def _run_html(run) -> str:
+    """One python-docx run -> inline HTML, preserving bold/italic/underline/strike
+    and font family/size (the subset the editor + exporter understand)."""
+    text = escape(run.text or "")
+    if not text:
+        return ""
+    styles: list[str] = []
+    font = getattr(run, "font", None)
+    if font is not None:
+        if font.name:
+            styles.append(f"font-family: {font.name}")
+        if font.size is not None:
+            try:
+                styles.append(f"font-size: {font.size.pt:g}pt")
+            except Exception:  # noqa: BLE001
+                pass
+    inner = text
+    if styles:
+        inner = f'<span style="{escape("; ".join(styles), quote=True)}">{inner}</span>'
+    if run.underline:
+        inner = f"<u>{inner}</u>"
+    if run.italic:
+        inner = f"<em>{inner}</em>"
+    if run.bold:
+        inner = f"<strong>{inner}</strong>"
+    if font is not None and getattr(font, "strike", False):
+        inner = f"<s>{inner}</s>"
+    return inner
+
+
+def docx_to_html(data: bytes) -> str:
+    """Convert an uploaded ``.docx`` to the sanitized HTML subset, so the Working
+    copy opens already formatted (Option B upload seeding). Returns '' when
+    python-docx is unavailable or the bytes aren't a readable .docx."""
+    try:
+        import io
+
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    except Exception:  # noqa: BLE001 - python-docx not installed
+        return ""
+    try:
+        doc = Document(io.BytesIO(data))
+    except Exception:  # noqa: BLE001 - not a valid .docx
+        return ""
+
+    align_map = {
+        WD_ALIGN_PARAGRAPH.CENTER: "center", WD_ALIGN_PARAGRAPH.RIGHT: "right",
+        WD_ALIGN_PARAGRAPH.JUSTIFY: "justify", WD_ALIGN_PARAGRAPH.LEFT: "left",
+    }
+    parts: list[str] = []
+    list_open: Optional[str] = None
+
+    def close_list() -> None:
+        nonlocal list_open
+        if list_open:
+            parts.append(f"</{list_open}>")
+            list_open = None
+
+    for p in doc.paragraphs:
+        if not (p.text or "").strip():
+            continue
+        style = (p.style.name or "").lower() if p.style is not None else ""
+        inner = "".join(_run_html(r) for r in p.runs) or escape(p.text)
+        if style.startswith("heading 1") or style == "title":
+            close_list(); parts.append(f"<h1>{inner}</h1>")
+        elif style.startswith("heading 2"):
+            close_list(); parts.append(f"<h2>{inner}</h2>")
+        elif style.startswith("heading"):
+            close_list(); parts.append(f"<h3>{inner}</h3>")
+        elif "number" in style:
+            if list_open != "ol":
+                close_list(); parts.append("<ol>"); list_open = "ol"
+            parts.append(f"<li>{inner}</li>")
+        elif "list" in style or "bullet" in style:
+            if list_open != "ul":
+                close_list(); parts.append("<ul>"); list_open = "ul"
+            parts.append(f"<li>{inner}</li>")
+        else:
+            close_list()
+            align = align_map.get(p.alignment)
+            attr = f' style="text-align: {align}"' if align else ""
+            parts.append(f"<p{attr}>{inner}</p>")
+    close_list()
+    return sanitize_html("".join(parts))

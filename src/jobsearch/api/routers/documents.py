@@ -77,7 +77,7 @@ from jobsearch.models import (
 from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.engines.integration.google_drive import DriveAuthError, DriveUploadError
 from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render_text_preview
-from jobsearch.richtext import html_to_text, sanitize_html
+from jobsearch.richtext import docx_to_html, html_to_text, sanitize_html
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -278,7 +278,9 @@ def _seed_original_version(doc, *, text_attr: str) -> None:
     (not only after the first edit). No-op if it already has versions or no text."""
     text = getattr(doc, text_attr) or ""
     if text.strip() and not doc.versions:
-        doc.versions = [DocumentVersion(version=1, label="Original", content=text, source="original")]
+        doc.versions = [DocumentVersion(
+            version=1, label="Original", content=text,
+            content_html=getattr(doc, "content_html", "") or "", source="original")]
         doc.active_version = 1
 
 
@@ -392,6 +394,10 @@ async def upload_resume(
     resume.rendered_text = extract_text(
         data, filename=filename, content_type=resume.content_type
     )[:_MAX_EXTRACT_CHARS]
+    # A .docx upload seeds the rich Working copy (Option B) so it opens already
+    # formatted; other formats keep the text path. The AI/ATS still read rendered_text.
+    if fmt == ResumeFormat.DOCX:
+        resume.content_html = docx_to_html(data)
     _seed_original_version(resume, text_attr="rendered_text")  # show an "Original" in the marquee at once
     saved = ensure_resume_grade(state, state.resumes.add(resume))
     _clear_samples(state, user.id, "resume")  # a real résumé replaces the seeded sample
@@ -1563,6 +1569,10 @@ async def upload_cover_letter(
     )
     state.documents.put(cl.id, data, content_type=content_type)
     cl.file_url = f"/api/v1/cover-letters/{cl.id}/file"
+    # A .docx upload seeds the rich Working copy (Option B) so it opens already
+    # formatted; other formats keep the text path. The AI/ATS still read content.
+    if filename.lower().endswith(".docx") or "wordprocessingml" in content_type:
+        cl.content_html = docx_to_html(data)
     _seed_original_version(cl, text_attr="content")  # show an "Original" in the marquee at once
     saved = ensure_cover_letter_grade(state, state.cover_letters.add(cl))
     _clear_samples(state, user.id, "cover_letter")  # a real letter replaces the seeded sample

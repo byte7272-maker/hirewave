@@ -153,6 +153,62 @@ def test_export_docx_uses_rich_html_when_present():
     assert exp.content[:2] == b"PK"
 
 
+def _make_docx_bytes() -> bytes:
+    docx = pytest.importorskip("docx")
+    import io
+    d = docx.Document()
+    d.add_heading("Bayete Williams", level=1)
+    p = d.add_paragraph()
+    p.add_run("Dear Hiring Manager,")
+    body = d.add_paragraph()
+    body.add_run("I ").bold = False
+    body.add_run("led").italic = True
+    body.add_run(" a team that shipped.")
+    buf = io.BytesIO()
+    d.save(buf)
+    return buf.getvalue()
+
+
+def test_docx_to_html_preserves_structure():
+    pytest.importorskip("docx")
+    from jobsearch.richtext import docx_to_html
+
+    html = docx_to_html(_make_docx_bytes())
+    assert "<h1>" in html and "Bayete Williams" in html
+    assert "Dear Hiring Manager" in html
+    assert "<em>led</em>" in html  # italic run preserved
+    assert "<script" not in html.lower()  # output is sanitized
+
+
+def test_docx_upload_seeds_content_html():
+    client = _client()
+    h = _auth(client, email="seed@demo.com")
+    r = client.post("/api/v1/cover-letters/upload", headers=h, files={
+        "file": ("letter.docx", _make_docx_bytes(),
+                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    })
+    assert r.status_code == 201, r.text
+    cl = r.json()
+    # The Working copy opens already formatted: content_html seeded from the .docx.
+    assert "Bayete Williams" in cl["content_html"]
+    assert "<em>led</em>" in cl["content_html"]
+    # The Original version carries it too (so switching back shows the formatting).
+    orig = next(v for v in cl["versions"] if v["version"] == 1)
+    assert "Bayete Williams" in orig["content_html"]
+    # Plain text (AI/ATS) is still populated and unaffected.
+    assert "Dear Hiring Manager" in cl["content"]
+
+
+def test_txt_upload_has_no_content_html():
+    client = _client()
+    h = _auth(client, email="plain@demo.com")
+    r = client.post("/api/v1/cover-letters/upload", headers=h, files={
+        "file": ("letter.txt", b"Dear Team, hello. Sincerely, Sam.", "text/plain"),
+    })
+    assert r.status_code == 201
+    assert r.json()["content_html"] == ""  # text upload stays on the text path
+
+
 def test_version_requires_some_content():
     client = _client()
     h = _auth(client)
