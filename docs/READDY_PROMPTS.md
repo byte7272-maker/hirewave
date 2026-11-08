@@ -3963,3 +3963,39 @@ On save, serialize the editable HTML and `POST /api/v1/{resumes|cover-letters}/{
 
 ### Acceptance
 Opening a document shows an **editable HTML rendering in the page DOM**, not a PDF in an iframe. **Clicking any paragraph or heading places a caret and the user can type and change the text in place**, within the existing heading/paragraph frames; a plain click **never** resizes or "snaps" the view (zoom/Expand are explicit buttons, and apply to the read-only Original). The surface renders from `content_html` when present and **otherwise from the existing `content` text** (so it works on today's data where `content_html` is empty). Editing then saving writes `content_html` via the versions endpoint (text derived server-side). The **Original** view still shows the faithful uploaded PDF, read-only. A `.docx` upload seeds `content_html`; a text-less scanned PDF yields an editable "type your letter here" surface, not an un-editable blank. Verified by: a `contenteditable` (or editor) node exists in the DOM, the document is **not** inside a `application/pdf` iframe on the edit surface, and typing changes the on-screen text.
+
+## P111 — Assistant speaks by DEFAULT (one-time consent) + a sleek on/off + mic muted by default with real privacy controls
+
+**Frontend. Updates the posture of P105/P106:** instead of "default off, click to speak every time," the assistant **speaks by default once the user has given a one-time consent**, captured in the setup wizard (P83) or on the assistant's first run. Voice output and voice input (mic) are **separate** permissions; the mic is **off/muted by default and between interactions**. Keep everything P106 established (server neural voices via `POST /api/v1/narration/speak`, captions, transport controls). No backend change — reuse the narration prefs (`hw_narration_enabled`, `hw_narration_voice`, `hw_narration_rate`, `hw_narration_auto_read`, `PUT /api/v1/narration/prefs`) and add the local flags below.
+
+### 1. One-time consent, then speak by default
+- **Ask once, clearly.** In the **P83 setup wizard** (a short "Meet your guide — want it to talk you through things?" step) **or** on the **assistant's first run**, show a friendly consent card: **"Turn on the talking guide"** — *"Your assistant can walk you through tasks out loud with a natural voice. You can turn this off anytime."* Buttons: **Yes, talk to me** (primary) / **No, stay silent**. The **Yes click doubles as the browser audio-unlock gesture** (required for autoplay) — speak a one-line confirmation right then so the user hears it working.
+- **After consent, voice output is ON by default** (`hw_narration_enabled = true`, `hw_narration_auto_read = true`, plus a `hw_voice_consent = "granted"` flag so we never re-prompt). The assistant then narrates steps, summaries, review results and recommendations **without a per-time click** — within the normal autoplay rules (speak in response to the user's navigation/actions, which carry a gesture; if a context ever lacks one, fall back to a single "🔊 tap to hear" chip, never a dead-silent failure).
+- **If the user picks "No,"** set consent to `declined`, voice stays off, and only the sleek toggle (below) is shown — never nag again.
+- **Screen-reader exception (keep from P105):** if the user relies on a screen reader / has a reduced-motion+AT profile, **default voice OFF** even post-consent and let them opt in — don't double-speak over their AT.
+
+### 2. A sleek, always-visible on/off for speech
+- A **minimal speaker toggle** on the assistant chrome — a single **🔊 / 🔇** control (clear label/tooltip, ~1 tap) that mutes/unmutes the voice instantly and **persists** (`hw_narration_enabled` / a `hw_voice_muted` flag). No digging through Settings to silence it.
+- Muting **stops any in-flight audio immediately** (tear down the `<audio>` element — no orphaned playback) and shows the muted state; unmuting resumes future narration. Keep the fuller transport (Play/Pause/Stop/skip, voice picker, rate) from P105/P106 behind the assistant's menu.
+
+### 3. Microphone: requested, but MUTED by default and between interactions (privacy-critical)
+Voice **input** (talking to the assistant) is a **separate opt-in** from voice output, with strict defaults:
+- **Separate permission ask.** Request the mic only when the user first chooses to use voice input (or as a clearly-separate, skippable step in the wizard) — **not bundled** into the speak-consent. Copy: *"Let the assistant listen only while you hold the mic button. It stays muted the rest of the time."*
+- **Muted by default and between interactions.** The assistant **never holds an open mic.** It listens **only** during an explicit **press-and-hold / tap-to-talk** interaction, and the instant that ends it **stops the media tracks** (`stream.getTracks().forEach(t => t.stop())`) — not merely paused/`enabled=false`. Between interactions the mic is fully released, and the browser's in-use indicator is off.
+- **Visible state.** A clear mic indicator: **muted (default)** vs **listening (only while held)**. Listening shows an obvious active cue; releasing returns to muted.
+- **No recording, no storage.** Audio is transcribed transiently for that one interaction and **never stored, uploaded as audio, or logged**; nothing persists. If transcription uses a service, say so in the privacy note; otherwise use the browser `SpeechRecognition` locally.
+- Voice input is **fully optional** — the assistant is completely usable with the mic permission denied/never granted (type to it instead).
+
+### 4. Sensible privacy controls (one small panel)
+A compact **"Voice & privacy"** panel on the assistant (and mirrored in Settings):
+- **Talking guide (voice output):** On/Off — reflects/sets `hw_narration_enabled`.
+- **Let the assistant listen (mic):** Off by default; "Only while I hold the mic button" (no always-on option). Revoke here (stop tracks + forget the grant).
+- **Voice** picker + **rate** (from P106 server voices).
+- A plain-language line: *"Your mic is off unless you're holding the button. We don't record or store your audio."* Link to revoke/relearn.
+- Everything is **reversible** and **remembered** via narration prefs + the local flags; revoking mic access takes effect immediately.
+
+### 5. Keep all of P105/P106
+Server neural voices (not browser TTS) via `/narration/speak` played through a managed `<audio>`; **every spoken line is also shown as captions/text**; speak+highlight stays in sync (audio `timeupdate`/`ended`); Pause/Stop/skip; graceful fallback to captions-only where speech is unavailable; `prefers-reduced-motion` respected.
+
+### Acceptance
+After a **one-time consent** (in the P83 wizard or the assistant's first run), the assistant **speaks by default** — narrating steps, summaries, review results and recommendations without a per-time click — using the server neural voice, with captions always shown. A **sleek 🔊/🔇 toggle** on the assistant mutes/unmutes instantly (stopping in-flight audio) and persists; declining consent leaves it silent with no re-nagging; screen-reader users default to silent. The **microphone is a separate opt-in, muted by default and between interactions** — it listens **only** during an explicit press/tap-to-talk and **stops the media tracks** the moment that ends (browser mic indicator goes off), never records or stores audio, and the assistant works fully with the mic denied. A **"Voice & privacy" panel** exposes voice-output on/off, mic off/"only while held," voice/rate, revoke, and a plain no-recording statement — all reversible and remembered. Verified by: the mic's live-use indicator is off except while the talk button is held, and no audio stream/track stays active between interactions.
