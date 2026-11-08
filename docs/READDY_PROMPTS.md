@@ -4272,3 +4272,24 @@ Audio is overlapping because more than one utterance plays at once (e.g. a narra
 
 ### Acceptance
 Only **one** assistant voice is ever audible at a time — every line routes through a single controller that stops/cancels the current audio before the next, server audio and browser TTS never play together, and sequential lines play as an ordered queue that newer high-priority speech preempts; navigation/Stop/mute/new-request stop audio immediately with no overlap or orphaned playback. The **default voice is a warmer, friendlier one** (e.g. coral/shimmer) at a natural rate, the spoken (and captioned) copy is **conversational and encouraging** rather than formal/robotic, and the user can still pick any voice. All P111/P112 privacy, console and accessibility behavior is preserved.
+
+## P120 — Assistant console: a minimize state (keep the speaking bar, hide the list) + make dragging actually work
+
+**Frontend. Fixes the live assistant console (`hw-glass` / `hw-console-handle` / `hw-console-body`). No backend change.** Two problems, confirmed live 2026-11-08: the assistant is **one monolithic panel** — the task **list** (playbooks, suggestions, ask, tour, panels) and the **speaking** controls are fused, and the only control is **"Hide assistant,"** which closes everything; there's **no way to minimize the list while keeping the speaking dialog open**. And although a grab handle exists (`hw-console-handle`, `cursor: grab`) the panel **won't actually drag**, and it can start **low on the screen**.
+
+### 1. Split into a full view and a minimized "speaking bar" (keep speech open)
+Give the console **three states**, not two:
+- **Full** — today's panel: handle + the whole list (Guide me, "Get something done" playbooks, Suggested next, Ask, Grand Tour, Voice & privacy, Permissions & activity).
+- **Minimized** — collapses the **list** down to a **compact speaking bar**: the drag handle + **live captions** + transport (**Play/Pause/Stop**, **🔊/🔇 mute**, the P112 **speed slider**) + the **press-and-hold mic** + an **Expand** button. The big list is hidden; **speech keeps playing** and captions keep updating. 
+- **Closed** — "Hide assistant" fully dismisses and stops speech.
+- **Add a distinct Minimize control** (e.g. a "–" / collapse button on the handle, next to Hide) separate from **Hide assistant**. **Minimizing the list must not stop the voice** — the speaking bar persists and audio continues. Expand restores the full list in place. Remember the last state (full/minimized) per P112.
+
+### 2. Make the console actually draggable (it isn't) + sane start position
+The handle is styled (`cursor: grab`) but nothing moves. Wire the drag for real:
+- **Pointer + touch drag on `hw-console-handle`:** `pointerdown` on the handle → track `pointermove` → update the panel's `left/top` (it's already `position: fixed` with inline `left/top`) → `pointerup` ends; use Pointer Events (or mouse **and** touch) so it works on a touchscreen too, and `setPointerCapture` so a fast drag doesn't drop. `cursor: grabbing` while dragging. The **minimized speaking bar is draggable the same way** via its handle.
+- **Clamp on-screen** every drag and on resize (never off the top/edges or below the fold).
+- **Sane default + fix "starts low":** open at a **fully-visible** default (e.g. upper-right, a small margin from the top — not low on the screen). If a **remembered position** (P112) is off-screen or in the bottom region, **clamp it back into view** on load instead of restoring it low. "Reset position" returns to that sane default.
+- **Keyboard move** (arrow-nudge when the handle is focused) and reduced-motion still apply (P112).
+
+### Acceptance
+The assistant has a **Minimize** control distinct from **Hide**: minimizing **collapses the task list to a compact speaking bar** (captions + Play/Pause/Stop + mute + speed + mic + Expand) while **speech keeps playing**, and Expand restores the full list; Hide closes everything and stops speech. The console (full **and** minimized) can be **dragged by its handle with mouse and touch**, stays clamped on-screen, **opens fully visible and never low/off-screen** (remembered positions are clamped into view; Reset returns to a sane default), and is keyboard-movable. All P111/P112/P119 voice, privacy and accessibility behavior is preserved.
