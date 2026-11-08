@@ -77,6 +77,7 @@ from jobsearch.models import (
 from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.engines.integration.google_drive import DriveAuthError, DriveUploadError
 from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render_text_preview
+from jobsearch.richtext import html_to_text, sanitize_html
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -207,16 +208,38 @@ def _review_focus_points(review) -> list[str]:
     return [f"{s.title}: {s.detail}" for s in getattr(review, "suggestions", [])][:8]
 
 
+def _version_bodies(body) -> tuple[str, str]:
+    """Resolve the (plain_text, sanitized_html) to save for a version request.
+
+    When the request carries rich ``content_html`` (the word-processor Working copy),
+    sanitize it and DERIVE the plain text from it — that derived text is what the AI
+    and ATS read, so the rich layer never changes them. Otherwise fall back to the
+    request's plain ``content`` with no rich body."""
+    html = getattr(body, "content_html", None)
+    if html and html.strip():
+        safe = sanitize_html(html)
+        text = html_to_text(safe)
+        # If the HTML sanitized to nothing, fall back to any plain content provided.
+        if text.strip():
+            return text, safe
+    return (body.content or ""), ""
+
+
 def _add_version(doc, *, text_attr, new_content, label, source, instruction, job, state,
-                 change_summary: str = ""):
+                 change_summary: str = "", content_html: str = ""):
     """Append a new version to a résumé/cover letter, seeding the current text as the
     'Original' first time, set it active, and point the doc's live text at it.
 
     ``change_summary`` lets the caller supply the changelog directly (e.g. a
-    deterministic formatting edit); when empty, it's generated with the LLM."""
+    deterministic formatting edit); when empty, it's generated with the LLM.
+    ``content_html`` carries the rich word-processor body (Option B); it's stored on
+    the version and mirrored to the document's active ``content_html`` (empty for a
+    plain/markdown save, which also clears the active rich body)."""
     old = getattr(doc, text_attr) or ""
+    old_html = getattr(doc, "content_html", "") or ""
     if not doc.versions:
-        doc.versions = [DocumentVersion(version=1, label="Original", content=old, source="original")]
+        doc.versions = [DocumentVersion(version=1, label="Original", content=old,
+                                        content_html=old_html, source="original")]
     next_v = max(v.version for v in doc.versions) + 1
     # Deterministic changelog (no LLM) keeps saving a version off the latency-sensitive
     # edit path — an edit never waits on a slow LLM just to label the version.
@@ -225,12 +248,15 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     default_label = (job.category if job else "") or (job.title if job else "") or f"Version {next_v}"
     doc.versions.append(DocumentVersion(
         version=next_v, label=(label or default_label), content=new_content,
-        change_summary=summary, source=source, instruction=instruction,
-        job_posting_id=(job.id if job else ""), job_title=(job.title if job else ""),
+        content_html=content_html, change_summary=summary, source=source,
+        instruction=instruction, job_posting_id=(job.id if job else ""),
+        job_title=(job.title if job else ""),
         job_company=(job.company if job else ""), job_category=(job.category if job else ""),
     ))
     doc.active_version = next_v
     setattr(doc, text_attr, new_content)
+    if hasattr(doc, "content_html"):
+        doc.content_html = content_html
 
 
 def _clear_samples(state: StateDep, user_id: str, kind: str) -> None:
@@ -1044,7 +1070,7 @@ def export_resume_docx(resume_id: str, user: CurrentUser, state: StateDep) -> Re
     resume = get_resume(resume_id, user, state)
     base = (resume.original_filename or "resume").rsplit(".", 1)[0]
     doc = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume",
-                     style=_resume_style(state, resume))
+                     style=_resume_style(state, resume), content_html=resume.content_html or "")
     return _docx_response(doc, base)
 
 
@@ -1070,7 +1096,7 @@ def open_resume_in_google_docs(resume_id: str, user: CurrentUser, state: StateDe
     resume = get_resume(resume_id, user, state)
     base = (resume.original_filename or "resume").rsplit(".", 1)[0]
     docx = build_docx(resume.rendered_text or "", title=resume.target_role or "Resume",
-                      style=_resume_style(state, resume))
+                      style=_resume_style(state, resume), content_html=resume.content_html or "")
     name = f"{base} — {resume.target_role}".strip(" —") if resume.target_role else base
     return _open_in_google_docs(state, docx_bytes=docx, name=name, user_id=user.id)
 
@@ -1282,13 +1308,14 @@ def create_resume_version(
     """Save an accepted rewrite as a new version, make it active (so the document
     view + preview show it), and record a summary of what changed. Returns the résumé
     with its full version history for the switcher."""
-    if not (body.content or "").strip():
+    new_text, content_html = _version_bodies(body)
+    if not new_text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "content is required")
     resume = get_resume(resume_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    _add_version(resume, text_attr="rendered_text", new_content=body.content, label=body.label,
+    _add_version(resume, text_attr="rendered_text", new_content=new_text, label=body.label,
                  source=("tailored" if job else "revision"), instruction=body.instruction,
-                 job=job, state=state)
+                 job=job, state=state, content_html=content_html)
     resume.quality_score = None  # active text changed -> re-grade cheaply
     resume.quality_grade = ""
     state.resumes.add(resume)
@@ -1306,6 +1333,7 @@ def activate_resume_version(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
     resume.active_version = version
     resume.rendered_text = ver.content
+    resume.content_html = ver.content_html or ""
     resume.quality_score = None
     resume.quality_grade = ""
     state.resumes.add(resume)
@@ -1560,7 +1588,10 @@ def export_cover_letter_docx(
     """Download the cover letter (active version) as a formatted Word (.docx) file."""
     cl = get_cover_letter(cover_letter_id, user, state)
     base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
-    return _docx_response(build_docx(cl.content or "", title="Cover letter"), base)
+    return _docx_response(
+        build_docx(cl.content or "", title="Cover letter", content_html=cl.content_html or ""),
+        base,
+    )
 
 
 @router.get("/cover-letters/{cover_letter_id}/export.pdf")
@@ -1583,7 +1614,7 @@ def open_cover_letter_in_google_docs(
     ``drive_not_connected``** with a ``connect_path`` when it isn't connected yet."""
     cl = get_cover_letter(cover_letter_id, user, state)
     base = (cl.original_filename or "cover-letter").rsplit(".", 1)[0]
-    docx = build_docx(cl.content or "", title="Cover letter")
+    docx = build_docx(cl.content or "", title="Cover letter", content_html=cl.content_html or "")
     return _open_in_google_docs(state, docx_bytes=docx, name=base, user_id=user.id)
 
 
@@ -1785,13 +1816,14 @@ def create_cover_letter_version(
 ) -> CoverLetter:
     """Save an accepted rewrite as a new version, make it active, and record what
     changed. Returns the cover letter with its version history."""
-    if not (body.content or "").strip():
+    new_text, content_html = _version_bodies(body)
+    if not new_text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "content is required")
     cl = get_cover_letter(cover_letter_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    _add_version(cl, text_attr="content", new_content=body.content, label=body.label,
+    _add_version(cl, text_attr="content", new_content=new_text, label=body.label,
                  source=("tailored" if job else "revision"), instruction=body.instruction,
-                 job=job, state=state)
+                 job=job, state=state, content_html=content_html)
     cl.quality_score = None
     cl.quality_grade = ""
     state.cover_letters.add(cl)
@@ -1809,6 +1841,7 @@ def activate_cover_letter_version(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "version not found")
     cl.active_version = version
     cl.content = ver.content
+    cl.content_html = ver.content_html or ""
     cl.quality_score = None
     cl.quality_grade = ""
     state.cover_letters.add(cl)

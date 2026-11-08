@@ -335,12 +335,98 @@ def _style_tokens(style) -> dict:
     }
 
 
-def build_docx(text: str, *, title: str = "", style=None) -> Optional[bytes]:
-    """Build a clean, professionally-formatted Word (.docx) document from the
-    markdown-ish content: a title, section headings, bullet lists, and bold text.
-    ``style`` (a ResumeTemplateStyle) applies the template's font, accent color,
-    uppercase headings, and spacing. Returns the .docx bytes, or None if
-    python-docx is unavailable / there's no text. A fresh formatted document."""
+_HTML_HEADING_LEVEL = {"h1": 1, "h2": 2, "h3": 3}
+
+
+def _build_docx_from_html(content_html: str, *, title: str = "", style=None) -> Optional[bytes]:
+    """Render the word-processor Working copy (sanitized HTML) to a .docx, mapping
+    the editor's known subset to real Word runs/paragraphs. Returns None if
+    python-docx is unavailable or there are no blocks."""
+    try:
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Pt, RGBColor
+    except Exception:  # noqa: BLE001 - python-docx not installed
+        return None
+    from html import unescape
+
+    from jobsearch.richtext import html_to_blocks
+
+    blocks = html_to_blocks(content_html)
+    if not blocks:
+        return None
+
+    tok = _style_tokens(style)
+    font_name = _DOCX_FONTS.get(tok["font_family"], "Calibri")
+    accent = RGBColor(*tok["accent"])
+    space_after = _DOCX_SPACE_AFTER.get(tok["density"], 4)
+    aligns = {
+        "left": WD_ALIGN_PARAGRAPH.LEFT, "center": WD_ALIGN_PARAGRAPH.CENTER,
+        "right": WD_ALIGN_PARAGRAPH.RIGHT, "justify": WD_ALIGN_PARAGRAPH.JUSTIFY,
+    }
+
+    doc = Document()
+    normal = doc.styles["Normal"]
+    normal.font.name = font_name
+    normal.font.size = Pt(10.5)
+    if title:
+        h = doc.add_heading(title.upper() if tok["uppercase"] else title, level=0)
+        for run in h.runs:
+            run.font.name = font_name
+            run.font.color.rgb = accent
+
+    for blk in blocks:
+        level = _HTML_HEADING_LEVEL.get(blk.kind)
+        if level:
+            par = doc.add_heading("", level=level)
+        elif blk.kind == "li-ul":
+            par = doc.add_paragraph(style="List Bullet")
+        elif blk.kind == "li-ol":
+            par = doc.add_paragraph(style="List Number")
+        elif blk.kind == "blockquote":
+            par = doc.add_paragraph(style="Intense Quote")
+        else:
+            par = doc.add_paragraph()
+        if blk.align in aligns:
+            par.alignment = aligns[blk.align]
+        par.paragraph_format.space_after = Pt(space_after)
+
+        for r in blk.runs:
+            text = unescape(r.text)
+            if text == "":
+                continue
+            run = par.add_run(text)
+            run.font.name = r.font or font_name
+            if r.size_pt and 4 <= r.size_pt <= 96:
+                run.font.size = Pt(r.size_pt)
+            run.bold = r.bold or None
+            run.italic = r.italic or None
+            run.underline = r.underline or None
+            if r.strike:
+                run.font.strike = True
+            if level:  # headings carry the accent colour, like the markdown path
+                run.font.color.rgb = accent
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def build_docx(text: str, *, title: str = "", style=None, content_html: str = "") -> Optional[bytes]:
+    """Build a clean, professionally-formatted Word (.docx) document.
+
+    When ``content_html`` is given (the word-processor Working copy, Option B), the
+    document is rendered from that rich HTML — preserving per-word bold/italic/
+    underline/strike, font family and size, alignment, spacing, lists and headings.
+    Otherwise it's built from the markdown-ish ``text`` (title, headings, bullets,
+    bold). ``style`` (a ResumeTemplateStyle) sets the default font/accent/spacing.
+    Returns the .docx bytes, or None if python-docx is unavailable / there's nothing
+    to render. A fresh formatted document."""
+    if (content_html or "").strip():
+        rich = _build_docx_from_html(content_html, title=title, style=style)
+        if rich is not None:
+            return rich
+        # fall through to the text path if the HTML render couldn't run
     text = (text or "").strip()
     if not text:
         return None

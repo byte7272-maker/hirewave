@@ -40,7 +40,11 @@ class DocumentVersion(DomainModel):
 
     version: int  # 1-based, monotonic
     label: str = ""  # short tag, e.g. the job type it targets ("Data Engineer")
-    content: str = ""  # full text of this version
+    content: str = ""  # full text of this version (plain-text/markdown; AI + ATS read this)
+    #: Rich-text (word-processor) body as sanitized HTML, when the user edited with
+    #: formatting (Option B). Empty => a text/markdown-only version (render as before).
+    #: ``content`` is always kept in sync as the derived plain-text projection.
+    content_html: str = ""
     template_id: str = ""  # this version's own design; empty = inherit the résumé's
     change_summary: str = ""  # what changed vs the previous version
     source: str = "revision"  # "original" | "revision" | "tailored" | "reuse"
@@ -63,6 +67,10 @@ class Resume(DomainModel):
     tone: str = "professional"
     generated_content: ResumeContent = Field(default_factory=ResumeContent)
     rendered_text: str = ""  # human-readable rendering for review/export (= active version)
+    #: Rich-text body (sanitized HTML) of the active version, when formatted with the
+    #: word-processor editor (Option B). Empty => plain/markdown. ``rendered_text`` stays
+    #: the derived text projection the AI/ATS read.
+    content_html: str = ""
     file_url: str = ""  # populated once stored (upload) or exported to Drive
     original_filename: str = ""  # for uploaded files
     content_type: str = ""  # MIME type of the uploaded file
@@ -179,6 +187,10 @@ class CoverLetter(DomainModel):
     tone: str = "professional"
     source: CoverLetterSource = CoverLetterSource.GENERATED
     content: str = ""
+    #: Rich-text body (sanitized HTML) of the active version when formatted with the
+    #: word-processor editor (Option B). Empty => plain/markdown. ``content`` stays the
+    #: derived text projection the AI/ATS read.
+    content_html: str = ""
     file_url: str = ""  # populated once an uploaded file is stored
     original_filename: str = ""  # for uploaded files
     content_type: str = ""  # MIME type of the uploaded file

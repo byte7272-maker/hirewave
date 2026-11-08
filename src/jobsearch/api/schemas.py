@@ -471,7 +471,11 @@ class CoverLetterStructuredImprovement(BaseModel):
 class CreateVersionRequest(BaseModel):
     """Save an accepted rewrite as a new version of a résumé/cover letter."""
 
-    content: str  # the new version's full text (e.g. an accepted revise preview)
+    content: str = ""  # the new version's full text (e.g. an accepted revise preview)
+    #: Rich-text (word-processor) body as HTML from the Working-copy editor (Option B).
+    #: When present it is sanitized server-side and ``content`` is DERIVED from it (the
+    #: client need not send both); the derived text is what the AI/ATS read.
+    content_html: Optional[str] = None
     label: Optional[str] = None  # optional tag; defaults to the target job's type
     job_posting_id: Optional[str] = None  # the job this version targets, if any
     instruction: str = ""  # what was asked for (used in the change summary)
