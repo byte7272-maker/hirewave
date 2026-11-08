@@ -4029,3 +4029,26 @@ The speak choice must **survive reloads and the next visit** — don't re-ask or
 
 ### Acceptance
 The assistant console can be **dragged by its handle/header to any on-screen position** (mouse/touch + keyboard), stays clamped on-screen, and **remembers its position** next time. A visible **speed slider (0.5×–2.0×)** changes the narration rate **live** (current + future speech) and persists. **Captions are clearly readable** — larger, high-contrast text on a subtle scrim within the still-translucent panel, AA-compliant in light and dark. The **decision to let the assistant speak is remembered across reloads and future visits** (consent, on/off, voice, rate, and position hydrated from narration prefs + localStorage, written through on change) — a returning user is never re-prompted and finds their settings intact. Reduced-motion and keyboard accessibility preserved throughout.
+
+## P113 — One AI surface: fold the typed AI-prompt into the Assistant, and remove the now-redundant manual-edit buttons
+
+**Frontend. Builds on the live editable editor (P110) and the Assistant (P101/P105/P106/P111/P112). No backend change** — reuse the same AI endpoints the prompt box already calls. Two cleanups the user asked for, verified against the live cover-letter editor 2026-11-08.
+
+### 1. Remove the redundant manual-edit buttons (the document is directly editable now)
+Now that the Working copy is a real `contenteditable` surface with a formatting toolbar (P110 — confirmed live: one `contenteditable` body, no PDF iframe), the separate "open a manual editor" controls are dead weight. The editor currently shows **four** overlapping ones — **"Edit manually," "Edit the full text," "Edit text,"** and **"Prefer to tweak it yourself? Advanced tools."**
+- **Remove them from the editor chrome.** Direct in-place editing **is** the manual editing — clicking the letter and typing, with the toolbar. There's no second "manual" mode to switch into.
+- If a raw-text / plain-markdown fallback is still wanted for edge cases (e.g. a scanned PDF with no structure), keep **exactly one** entry, tucked inside an **overflow / "Advanced"** menu — never as prominent chrome, and not duplicated. Everything else goes.
+
+### 2. Fold the typed AI-prompt into the Assistant (one place to ask the AI)
+Today there are two "AI" surfaces: a standalone **AI-prompt textarea** (placeholder *"e.g. make my summary punchier, or use present tense for my current role."*) **and** the **Assistant**. Collapse them so the **Assistant is the single AI surface** — you **type or talk** to it, and it both **guides you** and **makes the requested edits**.
+- **Remove the standalone AI-prompt textarea** from the editor chrome. Its job moves into the Assistant.
+- **The Assistant gets a text input** (always available, alongside the P111 mic). The user asks it anything in plain language — an **edit request** ("make my summary punchier," "use present tense for my current role") **or** a **help request** ("how do I add a job?"). Typing always works even if the mic is denied.
+- **It routes intent to the same endpoints the prompt box used:** an edit request → `POST /api/v1/cover-letters/{id}/ai-edit` (or `/improve-structured`, `/suggest-edits` → `/apply-edits` → `/versions`) **against the currently open document**; a help/navigation request → the P101 guidance. One AI brain, context-aware of the open document (P101).
+- **Edits apply with Undo** (the current model: apply immediately, **Undo = version switch**, P1.1/P0b), the preview updates, and the change is saved as a version. For bigger rewrites, offer **Apply / Apply all / Dismiss** via the P103 overlay (as P104 §4 already does). Nothing destructive without the user seeing it.
+- **Keep the proactive layer (P104 §4 / P105):** the Assistant still surfaces and reads ranked recommendations and can apply them — now the same surface you can also type a freeform instruction into.
+
+### 3. Keep the hero "Auto-improve" button (don't fold that away)
+The one-click **"Auto-improve my cover letter" / "Improve whole cover letter"** hero action (P98) **stays a visible primary button** for non-technical users — only the *freeform typed prompt* folds into the Assistant. The Assistant may **also** trigger auto-improve ("want me to improve the whole thing?"), but the standalone hero button remains.
+
+### Acceptance
+The cover-letter (and résumé) editor has **no standalone "Edit manually" / "Edit the full text" / "Edit text"** buttons — direct in-place editing is the only manual editing, with at most **one** raw-text fallback hidden under an Advanced/overflow menu. There is **no standalone AI-prompt textarea**; the **Assistant is the single AI surface** — the user **types or speaks** a request to it, and it **guides** (help/navigation) **or edits the open document** (routing to `ai-edit`/`improve`/`suggest`→`apply`→`versions`), with apply + Undo and the P103 overlay for larger changes, preview updating on save. The **hero "Auto-improve" button stays visible** (P98). Typing to the Assistant works with the mic denied; the Assistant stays context-aware of the open document; accessibility and the P112 console behavior are preserved.
