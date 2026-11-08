@@ -4363,3 +4363,28 @@ Wire the P121 command understanding to **`POST /api/v1/assistant/interpret`** (s
 
 ### Acceptance
 The assistant's **Voice & privacy** panel offers the **interview-style named voice menu**, one tap away, changing the assistant voice live and persistently (and by the "switch voice" command). A **bullet workshop** walks a pasted data dump through extract → synthesize → suggest, with the assistant **narrating the processing state** throughout, laid out as a **dual-pane (bubbles + résumé render) with window controls**. The assistant **suggests** which bullets to use (from `match-bullets`), **reads them aloud one at a time while highlighting the current bubble**, and on **"use / use that one"** (voice via `use_bullet` or click) **applies** that bullet (add/replace → `apply-edits` → `versions`) with confirm + Undo. It can **spotlight the bubbles pane or the render pane** in sync with speech. Natural-language commands route through **`POST /assistant/interpret`** (per `docs/ASSISTANT_INTENT.md`) and map to the existing guarded actions, with a local fallback. All P111/P112/P119/P120/P121 behavior is preserved.
+
+## P123 — BUG: the microphone has no visible status/permission indicator and fails silently
+
+**Frontend. No backend change.** Verified live 2026-11-08: the mic permission is `denied` yet **nothing in the UI shows it** — there's only a bare `ri-mic-line` icon with no label and no state, no "listening/muted/blocked/enable" cue, and voice input simply doesn't hear with no explanation. Fix the mic so its state is always visible and a denied/blocked permission is surfaced, not swallowed. (The APIs are all present — `getUserMedia`, `SpeechRecognition`, a device, secure context — so the only blocker is permission + missing UI.)
+
+### 1. An always-visible mic status indicator
+Put a clear mic control/indicator on the assistant (full console **and** the P120 speaking bar) whose appearance + label reflect the **live** state:
+- **Not yet enabled** (permission `prompt`, voice input never turned on) → a mic button labelled **"Tap to enable voice input"**. 
+- **Granted + idle/muted (default, P111)** → **"Mic off — hold to talk"**, mic-muted icon; this is the resting state between interactions.
+- **Listening** (only while held) → an obvious **active** state: filled/pulsing mic, "Listening…", and (nice-to-have) a live input-level meter so the user sees it's hearing them. 
+- **Denied / blocked** → a distinct **blocked** state: **"Microphone blocked — turn it on in your browser's site settings,"** with a short "How?" link. Never show a ready-looking mic when permission is denied.
+- **Unavailable** (no device / `getUserMedia`/`SpeechRecognition` unsupported) → **"Voice input isn't available here — type instead,"** and hide the hold-to-talk affordance.
+Label it for screen readers (`aria-label` reflecting the state) and announce changes via `aria-live`.
+
+### 2. Make press-and-hold actually request + use the mic, and handle denial
+- On the **first** hold-to-talk, call `navigator.mediaDevices.getUserMedia({audio:true})` to **prompt for permission** (this is the only way to ask), then start `SpeechRecognition` while held; on release, **stop the recognizer and stop the tracks** (`stream.getTracks().forEach(t=>t.stop())`, P111 — muted between interactions).
+- If `getUserMedia` rejects (**`NotAllowedError`/denied**), switch the indicator to the **blocked** state (§1) and tell the user in-dialog how to re-enable — **don't fail silently**. If it rejects with `NotFoundError` → the **unavailable** state.
+- **React to live permission changes:** `navigator.permissions.query({name:'microphone'})` then `permissionStatus.onchange` → update the indicator immediately when the user grants or revokes in browser settings (no reload needed).
+
+### 3. Honest confirms + never block on a dead mic
+- The P114 "confirm by voice" path must **check this state first**: only offer spoken yes/no when the mic is **granted and ready**; when it's muted/blocked/unavailable, present the **Yes/No buttons** and say "mic's off — tap the mic to talk, or use the buttons." The assistant never silently waits on a mic that can't hear.
+- Typing to the assistant always works regardless of mic state (P113/P121).
+
+### Acceptance
+The assistant shows an **always-visible mic indicator** whose label/appearance match the live state — **not-enabled / off-hold-to-talk / listening / blocked / unavailable** — with ARIA. Press-and-hold **requests permission on first use**, listens only while held, and **stops the tracks on release**; a **denied permission shows the "blocked — enable in site settings" state with guidance** instead of failing silently; the indicator **updates on live permission changes**. Voice-confirm is only offered when the mic is ready (else buttons), and the assistant never blocks on an unavailable mic. All P111/P114 privacy (muted by default, no recording) is preserved.
