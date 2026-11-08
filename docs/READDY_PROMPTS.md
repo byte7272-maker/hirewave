@@ -916,7 +916,7 @@ empties it.
 
 ---
 
-## P7 — Unified résumé & cover-letter workspace (SUPERSEDES the split Documents editor + My Work Highlights)
+## P7 — Unified résumé & cover-letter workspace (SUPERSEDES the split Documents editor + My Work Highlights)  _(layout superseded by P109, which reconciles this with P94/P96–P108; P7's tab map below is still the detailed spec P109 references)_
 
 **Why.** "Documents" and "My Work Highlights" have become two editors for the *same* résumé — same
 preview, same versions, same bullet editing, same save. That's redundant and confusing. Collapse
@@ -3885,3 +3885,47 @@ The cover-letter view should open to a **large, readable, editable rendering of 
 
 ### Acceptance
 Reopening a cover letter after **a new Readdy build is published** shows the user's **saved/current version** (server `active_version` with its `content_html`), never a reverted or bundled-default copy; the current version is reconstructed from the server and no build-scoped client cache can override it. The screen **opens to one large, editable rendering** of the letter (the P107 Working copy with its toolbar) as the clear focus, with versions, Original toggle, AI recommendations, Design and assistant **demoted to secondary/on-demand** surfaces and a single prominent Save. No duplicate previews or commit buttons; responsive, accessible, reduced-motion-safe.
+
+## P109 — Build the Unified Workspace (current): one large editable render + a demoted tabbed panel, for résumés AND cover letters
+
+**Frontend / IA. This is the build order for the single Workspace — it supersedes the *layout* of P7 and folds in everything shipped since (P94, P96–P108). No backend, no new endpoints; every endpoint is already LIVE.** P7 defined the Workspace IA and the per-tab endpoint map; this prompt is what to actually build now, reconciled with the rich editor, the one-large-render focus, the persistence fix, the overlays, and the assistant. Where this prompt and P7 differ (the editing surface, the focus, persistence), **this prompt wins**; for each tab's detailed behavior, follow P7 and the prompt it cites. Verify on the **published** build (`hlrtlg.readdy.co`), Bearer auth, the global P0 rules apply.
+
+### A. Information architecture (from P7 — keep)
+- **Documents = the library.** Pick / upload / archive / flag / delete résumés **and** cover letters; opening any document goes into the **Workspace**. There is **no** separate "My Work Highlights" nav entry and **no** separate "Documents editor" page — exactly **one** place to edit a document.
+- **One Workspace shell for both types**, driven by the **P29/P33 Résumé ⇄ Cover letter toggle**: the toggle switches the shell, the preview, **and** the versions marquee together. Résumé = full tabs; cover letter = reduced tabs (§D).
+
+### B. The hero: ONE large, editable render (P108 §2 + P107 + P94)
+This is the change from P7's "static preview + hidden markdown editor." The main column **is** the editable document.
+- **The editing surface is the hero.** The main column is the **P107 WYSIWYG Working copy** — a large, document-width, click-and-type rich editor (per-word bold/italic/underline, font family/size, **colour/highlight**, headings, alignment, spacing, lists, links; sticky branded toolbar; `#hex`/`rgb()` colours that round-trip). Not a hidden/opt-in markdown box. One comfortable reading/writing width, real type, generous line length.
+- **Original ↔ Working copy (P94).** A clear toggle on the hero: **Original** = faithful, read-only, exactly as uploaded; **Working copy** = this editable render. A `.docx` upload opens the Working copy **already formatted and coloured** (backend seeds `content_html`); `.pdf`/`.txt` open as editable text. Imported-with-colour → the P107 **Keep colours vs Standardize-for-ATS** overlay.
+- **Real full-size reader (P104 §2).** Expanding opens a **true full-size reader overlay** of the current selection (P96 zoom/fit, Esc/✕), as a single managed overlay — **no orphaned enlarged thumbnail**, no duplicate previews.
+
+### C. Persistence: the current version survives a republish (P108 §1 — applies to BOTH types)
+- **On mount, always fetch the document** (`GET /api/v1/{resumes|cover-letters}/{id}`) and load **`active_version`** (its `content_html`, falling back to `content` for legacy versions). **Never** seed the editor from a Readdy-bundled default, sample, or stale build asset.
+- **One `selectedVersion` is the single source of truth** (P104 §1): it drives the hero render and matches the marquee's "Current" card and the header version number — always. Saving/applying/activating persists server-side via `POST /{…}/{id}/versions` and `.../versions/{v}/activate` (both already set `active_version`), so the current version is reconstructed from the server after any reload or **republish**.
+- **Client cache is a mirror only** — never keyed to the build hash/origin; on load the server's `active_version` wins. Clearing it changes nothing the server holds.
+
+### D. The rest is DEMOTED to a compact side panel / tabs / overlays (P108 §2, folding P7's tabs)
+Everything that isn't the document moves out of the always-on layout into a slim side panel (tabs, one visible at a time), an overflow menu, or the P101/P103 overlays — collapsed by default, summoned when wanted. Nothing from P7 is lost; it's just no longer competing with the document. For a **résumé** the panel holds P7's tabs; for a **cover letter**, the reduced set.
+
+- **Ask AI + proactive recommendations** — instruction-driven edit (`/ai-edit`, `/improve-structured`), **defaulting to the last generated bullets + prompt** (P6: `/highlights/latest`, `/highlights/runs`, `.../runs/{run_id}/state`, `DELETE /highlights`). This tab is also where the **P104 §4 proactive AI recommendations** live: on open/after upload, run the review (cover letters: `review_cover_letter` incl. the salutation check; résumés: `/suggest-edits`) and surface a short ranked list with **Apply · Apply all · Dismiss** in a **P103 overlay**, each undoable. Tie "fix everything" to the one-pass Improve.
+- **My Work Highlights** *(résumé only)* — the paste-driven, accept-before-save pipeline (P2.3 zones A–D): `/evidence-prompts` → `/evidence/extract` → `/evidence/synthesize` → `/highlights/suggest` with smart Add/Replace (`/match-bullets`, P2a), scrollable accept/reject + Undo (P2d), complement/avoid dedup (P2c) → `/apply-edits` → `/versions`. Persistent experience library (`/api/v1/experience*`) → `/incorporate`.
+- **Bullets** *(résumé only)* — the interactive bullet board (P4): reorder, edit, remove, substitute, drag right→left to replace, undo/redo. `/match-bullets`, `/versions`.
+- **Manual edit** — the raw-text/markdown fallback + Find & replace (P1b/P1c/P1.1, `/replace`) for anyone who wants it; secondary to the P107 WYSIWYG hero, not the primary editor.
+- **Design** — template/design chooser with live preview (P2.4): `/resume-templates` (+ `/categories`), `/resume-templates/generate`, `PUT /{id} { template_id }`. Make it discoverable (P79/P82) but out of the hero.
+- **Versions** — the marquee (P2.1): list, rename, activate, delete. `GET /{id}` (`versions[]`, `active_version`), `.../versions/{v}/render`, `PATCH`/`activate`/`DELETE`. Switches with the P33 toggle.
+- **Assistant (P101/P105/P106)** — the translucent Harbor Assistant is available from the Workspace (Guide me / Listen), speaking through the **server neural voices** (`/narration/speak`), able to narrate steps, read the review/summary, and read + offer to apply the §D recommendations via the same overlays. On-demand, consent-first, captioned.
+
+### E. Commits, Save, and shared rules
+- **One prominent Save** (P97/P98 prominence), committed through the **P103 decision overlay** (Save / Save as new version / Cancel; Ctrl+S; pulse while dirty). **No scattered duplicate commit buttons.**
+- Single save path (`/versions`); **Undo = switch to the previous version**; the **"Updated — N change(s)"** cue (P4b) after any save; global P0 (token refresh, null-safe render on 200, error+Retry not infinite spinners). Switching tabs never loses the hero render, `selectedVersion`, or an in-progress review.
+- Enforce the **cover-letter rule set** (P97/P104 §3): required opening salutation + one-click insert, top contact header vs. distinct bottom signature, Original/Working-copy fidelity, horizontal versions (P88), upload-adds-and-currents (P96/P102/P75).
+
+### F. Cover letters = the same shell, reduced tabs (P7 §C + P97)
+Opening a cover letter opens the **same Workspace** with the **same large P107 editable hero** and Original/Working-copy toggle, pointed at the letter, with a **reduced panel**: **Ask AI + recommendations**, **Manual edit**, **Design** (if templates apply), **Versions**. Hide the résumé-only tabs (My Work Highlights pipeline, Bullets board). Same persistence (§C), same Save/overlay model, cover-letter rules enforced.
+
+### G. Scope
+IA + layout + focus only; reuse every existing control's behavior from the cited prompts. The only AI is the AI those tabs already call. **No new backend, no new endpoints.** Nothing in `src/` changes.
+
+### Acceptance
+There is **one** place to edit a document, for both résumés and cover letters, reached by opening from the Documents library and switched by the **Résumé ⇄ Cover letter toggle** (which moves the preview **and** the versions marquee). The Workspace **opens to one large, editable rendering** — the P107 WYSIWYG Working copy with its toolbar and the P94 Original/Working-copy toggle — as the clear focus; versions, My Work Highlights, Bullets, Manual edit, Design, AI recommendations and the assistant are **demoted** to a compact side panel / overflow / overlays, collapsed by default, with **one** prominent Save (P103 overlay) and no duplicate previews or commit buttons. The current version is loaded from the server's `active_version` and **survives a Readdy republish** (reconstructed from the server; no build-scoped cache overrides it); one `selectedVersion` drives the hero and matches the marquee. Each panel item works against its live endpoint; saving anywhere creates a new version and the hero updates immediately with the "what changed" cue. A cover letter opens the same shell with the reduced tab set and the cover-letter rules enforced. No separate "My Work Highlights" nav entry; identical from every entry point; responsive, accessible, reduced-motion-safe.
