@@ -4236,3 +4236,20 @@ Whether bulk or per-job, submission requires the **same triple gate** (P116 §5)
 
 ### Acceptance
 The app presents **one** Auto-apply feature with **one** visual home and **no** duplicate auto-apply screen/nav entry. Setting up a **rule** (grant) and applying to a **single job** (autofill) both funnel prepared applications into **one shared Activity & approvals view** that merges `/auto-apply/approvals` (pending, with approve/reject/approve-all) and `/assistant/actions` (history). **One permissions panel** exposes the `/assistant/consent` scopes governing both flows, with a grant's own caps/mode/verified shown separately as rule settings — not a second permissions UI. The **submit gate is identical** everywhere (scope + confirm + connected session, else simulated/prepared), credentials are never entered, and CAPTCHAs/login walls escalate to the user. The Assistant drives this one feature conversationally and is never presented as a separate auto-apply system.
+
+## P118 — BUG: the "insert salutation" warning shows even when a salutation is already present
+
+**Frontend. A false positive — fix the trigger. No backend change** (the backend is already correct — verified live 2026-11-08). The editor keeps showing the **"Insert 'Dear Hiring Manager,'"** recommendation (with "Not now" / "Dismiss this suggestion") on cover letters that **already open with a salutation**.
+
+> **Evidence (live):** for a cover letter whose text is `# Bayete Williams` / `Senior Level IT Leadership Position` / **`Dear Hiring Manager and team`** / …, `POST /api/v1/cover-letters/{id}/review` returns **`strengths: ["…","Opens with a proper salutation."]`** and suggestions **`["Add a concrete result"]`** — **no salutation suggestion**. The backend's multiline check (`^\s*(?:dear|to whom…|hello|hi|greetings)`) correctly finds the salutation even though it's on the **third** line (after the name/title header). So the warning is coming from the **frontend**, not the review.
+
+### The bug
+The salutation prompt is being shown **unconditionally** (or from a naive client-side check — most likely testing only the **first line/block**, which here is the name header `# Bayete Williams`, so it wrongly concludes "no greeting"). It is **not** gated on the real review result.
+
+### Fix
+1. **Drive the salutation prompt from the backend review only.** Show "Insert a salutation" **iff** `POST /api/v1/cover-letters/{id}/review` returns a suggestion whose title is **"Add an opening salutation"** (category `structure`). If the review doesn't include it — as for any letter that already has a greeting — **don't show the prompt.** Remove any client-side salutation heuristic (don't test `content.startsWith("Dear")` or only the first line; the salutation legitimately sits below a name/title header).
+2. **Re-evaluate after edits.** Re-run (or re-read) the review after an edit, an AI change, an insert, or a version switch, so the prompt **clears as soon as a salutation exists** and doesn't persist stale. The same rule applies to the other review-driven recommendations (P104 §4): they reflect the current review, not a one-time or hardcoded list.
+3. **Respect dismissal** (unchanged): if the user dismisses it, keep it dismissed for that document/version.
+
+### Acceptance
+A cover letter that already opens with a salutation (even when a name/title header precedes it) shows **no** "insert salutation" prompt and instead reflects the review's **"Opens with a proper salutation"** strength. The prompt appears **only** when `POST /cover-letters/{id}/review` actually returns the "Add an opening salutation" suggestion, and it **clears immediately** once a salutation is added (review re-evaluated after edits/version changes). No client-side salutation heuristic remains; dismissal still sticks.
