@@ -3929,3 +3929,37 @@ IA + layout + focus only; reuse every existing control's behavior from the cited
 
 ### Acceptance
 There is **one** place to edit a document, for both résumés and cover letters, reached by opening from the Documents library and switched by the **Résumé ⇄ Cover letter toggle** (which moves the preview **and** the versions marquee). The Workspace **opens to one large, editable rendering** — the P107 WYSIWYG Working copy with its toolbar and the P94 Original/Working-copy toggle — as the clear focus; versions, My Work Highlights, Bullets, Manual edit, Design, AI recommendations and the assistant are **demoted** to a compact side panel / overflow / overlays, collapsed by default, with **one** prominent Save (P103 overlay) and no duplicate previews or commit buttons. The current version is loaded from the server's `active_version` and **survives a Readdy republish** (reconstructed from the server; no build-scoped cache overrides it); one `selectedVersion` drives the hero and matches the marquee. Each panel item works against its live endpoint; saving anywhere creates a new version and the hero updates immediately with the "what changed" cue. A cover letter opens the same shell with the reduced tab set and the cover-letter rules enforced. No separate "My Work Highlights" nav entry; identical from every entry point; responsive, accessible, reduced-motion-safe.
+
+## P110 — BLOCKER: the document is a PDF in an iframe, so it can't be edited — build the editable surface from the text the backend already has
+
+**Frontend. This is the real reason P107/P108/P109 "don't work": the WYSIWYG editor was never actually built — the app still renders the document as a flattened PDF and clicking it only zooms. Fix the surface itself. No backend change.** Verified live on the published build 2026-11-08 by inspecting the DOM and the API:
+
+> **Evidence (do not hand-wave past this):**
+> - The "document preview" is an **`<iframe>` whose `src` is a `blob:` URL of `content-type: application/pdf`** (magic bytes `%PDF-1.6`). A PDF is a flattened image of text — **it has no editable text nodes and no DOM to place a caret in.** That is why "clicking the file" can never start editing.
+> - There are **zero `contenteditable` elements anywhere on the page** — no editor was mounted.
+> - The click that "snaps it to a smaller view" is the wrapper `div.group.relative…` (it has an `onclick` and `cursor:pointer`) — a **zoom/fit toggle**, not an edit action.
+> - Across all 16 cover letters, **`content_html` is empty on every one** (including a `.docx` upload that should have seeded it), **but the plain-text `content` is present on almost all** (≈1,100–1,800 chars on generated letters). So the editable text already exists — the app just renders the PDF instead of using it.
+
+### 1. The editing surface must be HTML in the page DOM — NEVER a PDF/iframe
+Stop using the rendered **PDF** (the `build_pdf`/`file_url` blob in an `<iframe>`) as the thing the user edits. The Working copy must be **real HTML elements in the page** (`<h1>/<h2>/<p>/<ul>…`), styled to look like the document, so the browser can put a caret in them.
+- **Source the HTML, with a fallback that works TODAY:** mount **`content_html`** if it's non-empty; **otherwise build editable HTML from the existing `content`** text (render its markdown-ish headings/bullets/bold into `<h*>/<p>/<ul>/<strong>` blocks). Do **not** depend on `content_html` being populated — on live data it is empty everywhere, so a `content`-only path must render a full editable document right now.
+- The **PDF/`file_url` iframe is only for the read-only _Original_ view** (P94) and for Expand / print / export. It is never the editable surface.
+
+### 2. Make the content editable IN PLACE, inside the existing frames
+Exactly what the user asked: *"even if it uses the existing paragraph and header frames, all content within can be manually edited."*
+- Render the document's blocks and make them **editable in place** — `contentEditable` on the rendered body (or TipTap/ProseMirror bound to that same HTML). **Clicking any paragraph or heading places a caret there and the user types** to change the text within that frame. Headings stay headings, paragraphs stay paragraphs; the text inside each is freely editable. Selection shows the P107 formatting toolbar.
+- This is the hero surface from P108/P109 — large, document-width, real type.
+
+### 3. Remove the click-to-zoom from the editing surface (the "snaps to smaller view" bug)
+The wrapper `div.group.relative…` `onclick` that shrinks/zooms the view **must not intercept clicks on the editable document**. On the Working copy, a plain click = **place caret**, nothing else.
+- Move zoom / fit-width / Expand to **explicit buttons** (P96), not a click anywhere on the page. The full-size reader/zoom stays available for the **Original** (the PDF) via those buttons — but clicking the editable Working copy never resizes it.
+
+### 4. Save the edits (already supported)
+On save, serialize the editable HTML and `POST /api/v1/{resumes|cover-letters}/{id}/versions { content_html }` (the backend sanitizes it and derives the plain-text `content` for AI/ATS). Commit via the P103 overlay. This also **fills the empty `content_html`** going forward, so reopened/edited docs get richer round-trips.
+
+### 5. Data gaps to close (so editing isn't empty)
+- A `.docx` upload must actually **seed `content_html`** (the backend supports it); verify the deployed build runs it — the live `.docx` has empty `content_html`.
+- A few PDF uploads extracted almost no text (`content` of ~50 chars — scanned/flattened PDFs). For those, the Working copy will be near-empty; show a clear "we couldn't read text from this PDF — paste or type your letter here" editable state rather than a blank PDF the user can't touch. The Original PDF still shows read-only.
+
+### Acceptance
+Opening a document shows an **editable HTML rendering in the page DOM**, not a PDF in an iframe. **Clicking any paragraph or heading places a caret and the user can type and change the text in place**, within the existing heading/paragraph frames; a plain click **never** resizes or "snaps" the view (zoom/Expand are explicit buttons, and apply to the read-only Original). The surface renders from `content_html` when present and **otherwise from the existing `content` text** (so it works on today's data where `content_html` is empty). Editing then saving writes `content_html` via the versions endpoint (text derived server-side). The **Original** view still shows the faithful uploaded PDF, read-only. A `.docx` upload seeds `content_html`; a text-less scanned PDF yields an editable "type your letter here" surface, not an un-editable blank. Verified by: a `contenteditable` (or editor) node exists in the DOM, the document is **not** inside a `application/pdf` iframe on the edit surface, and typing changes the on-screen text.
