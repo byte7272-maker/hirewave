@@ -4052,3 +4052,39 @@ The one-click **"Auto-improve my cover letter" / "Improve whole cover letter"** 
 
 ### Acceptance
 The cover-letter (and résumé) editor has **no standalone "Edit manually" / "Edit the full text" / "Edit text"** buttons — direct in-place editing is the only manual editing, with at most **one** raw-text fallback hidden under an Advanced/overflow menu. There is **no standalone AI-prompt textarea**; the **Assistant is the single AI surface** — the user **types or speaks** a request to it, and it **guides** (help/navigation) **or edits the open document** (routing to `ai-edit`/`improve`/`suggest`→`apply`→`versions`), with apply + Undo and the P103 overlay for larger changes, preview updating on save. The **hero "Auto-improve" button stays visible** (P98). Typing to the Assistant works with the mic denied; the Assistant stays context-aware of the open document; accessibility and the P112 console behavior are preserved.
+
+## P114 — The Assistant completes tasks: conversational step-by-step walkthroughs, confirm-before-acting (click OR voice), relevant suggestions
+
+**Frontend orchestration over existing endpoints. Elevates the Assistant (P101/P104/P105/P113) from a setup guide into a task-completion agent. No new backend** — it drives the flows the app already has (connect sources, auto-apply, tailoring, interview) and obeys the P76 authorization-checkpoint model and the global "explicit consent before any side-effectful action" rule.
+
+### A. From guide to agent: drive a desired OUTCOME to done
+The Assistant doesn't just point at buttons — it **walks the user through a goal to completion**, in conversation. The user states an outcome ("help me set up auto-apply," "get my résumé ready for this job," "connect my email") and the Assistant **takes them through every step and action**, doing what it can and directing what only the user can, checking each step is done before moving on, until the outcome is achieved. It is multi-step and conversational, not a one-shot answer.
+
+### B. Task playbooks (each = ordered steps + the real action + a completion check)
+Ship a set of **outcome playbooks**, each decomposed into concrete steps with the exact control/endpoint and a "done?" check. At minimum:
+- **Connect a job source** — walk through connecting email/boards (P13/P14/P71 Connect hub, `/api/v1/integrations/*`): explain, open the right connect flow, confirm it connected (poll status), offer "pull now."
+- **Set up auto-apply** — the P15/P23/P24 flow: pre-fill a sensible rule, explain each field, **create/enable it on confirm** (`/api/v1/auto-apply*` rules), then show it running.
+- **Tailor my résumé / cover letter to a job** — pick the job (Matches, P31 pulls the JD), open the doc in the Workspace (P109), run the tailoring/recommendations (P104 §4), apply on confirm, save a version.
+- **Practice an interview** — set role/mode (P49/P50), start a session.
+- (Extensible: Upload/organize documents, review matches, etc.) Each playbook declares its steps so the Assistant can narrate progress ("Step 2 of 4") and resume if interrupted.
+
+### C. Do-or-direct each step
+For every step the Assistant either:
+- **Does it** (offer first, §D) — e.g. create the auto-apply rule, apply a résumé edit, trigger "pull now" — via the same endpoint the UI uses; then shows the result and an **Undo** where possible; **or**
+- **Directs the user** (spotlight + plain instruction, P100/P105) for anything only they can/should do — **OAuth consent, entering credentials, choosing a file, picking a job** — and waits, detecting completion before advancing. The Assistant **never performs the sensitive step itself** (it never types a password or completes a provider's consent screen).
+
+### D. Confirm before acting — clearly, by click OR voice; check the mic first
+Before **any** action that changes something (connect an account, enable auto-apply, apply an edit, send, delete, save), the Assistant **asks in plain language and waits for an explicit yes**:
+- **Ask clearly:** *"Want me to create an auto-apply rule for Software Engineer roles in Columbia, SC? I won't send anything until you say go."* Show the specifics of what it will do.
+- **Accept the answer by click OR voice.** On-screen **Yes / No** (primary/secondary) **and**, when voice input is available, a spoken **"yes / do it / go"** or **"no / stop"** confirms. 
+- **Check mic status before offering voice confirmation.** Query the permission/mute state (`navigator.permissions.query({name:'microphone'})` + the P111 mic flag). If the mic is **granted and the user chooses to talk**, accept the spoken yes/no (listening only during that confirm, then tracks stopped — P111). If the mic is **muted/denied/unavailable**, don't wait on voice — present the **Yes/No buttons** and optionally offer "tap the mic to answer by voice." Never block on a mic that isn't on.
+- **No action without an explicit yes.** Silence, ambiguity, or "not sure" = do nothing and keep guiding. Every action it takes is logged to the **P76 AI-activity / approvals** surface, is reversible where the platform allows, and the Assistant **reports what it did** afterward ("Done — your rule is on. Undo?").
+
+### E. Relevant, in-context suggestions
+As it works, the Assistant **offers the next sensible step or feature** where it makes sense — *"Your résumé's tailored. Want to set up auto-apply so it goes out automatically?"* / *"You've connected Gmail — want me to pull your latest matches?"* One at a time, benefit-led, dismissible, never nagging (don't repeat after "no thanks"). Suggestions are grounded in the user's actual state (connected sources, existing rules, current document), not generic.
+
+### F. Keep the guardrails
+Consent-first and **mic muted by default / between interactions** (P111); sensitive data (credentials, OAuth, payment) always done by the user, never the Assistant; spoken lines also shown as **captions/text** (P105); the P112 console (draggable, speed slider, readable captions, remembered state) and all accessibility/reduced-motion rules preserved; typing to the Assistant fully works with the mic off.
+
+### Acceptance
+The Assistant **walks a user through a complete outcome** (e.g. connect a source, set up auto-apply, tailor a document, start an interview) **step by step in conversation**, doing what it can via the live endpoints and directing what only the user can (OAuth/credentials/file/job choice), checking each step before advancing, and announcing progress. Before **every** side-effectful action it **asks clearly what it's about to do and waits for an explicit yes**, accepting **either an on-screen Yes/No or a spoken yes/no** — and it **checks mic status first**, falling back to buttons when the mic is muted/denied and never blocking on voice. Nothing changes without confirmation; actions are logged to the P76 approvals surface, reversible where possible, and reported back with Undo. The Assistant **proactively suggests relevant next features/actions** grounded in the user's state, one at a time and dismissible. All P111/P112 privacy, console, caption and accessibility behavior is preserved.
