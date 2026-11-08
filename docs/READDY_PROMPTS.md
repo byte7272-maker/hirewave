@@ -4162,3 +4162,44 @@ The Assistant **walks a user through a complete outcome** (e.g. connect a source
 
 ### Acceptance
 The Assistant can run each of the five playbooks end-to-end against the live endpoints named above, following the P114 model: **Connect** (Gmail OAuth via `connect/{provider}` with the user completing consent; iCloud via `imap-providers`→`connect-imap` with the user entering the app password; verify via `GET /integrations`; offer pull-now), **Auto-apply** (`suggested-criteria`→explain→confirm→`POST /grants`→`run{dry_run:true}` preview→approvals, stating clearly that nothing submits without approval and keeping `require_verified:true`), **Matches** (`GET /jobs/matches`, walked one at a time with score/reasons/gaps/authenticity and per-job Save/Tailor/Open/Add-to-auto-apply, each confirmed), **Upload/Download** (user picks the file → `resumes|cover-letters/upload`; export via `export.pdf`/`export.docx`/`open-in-google-docs` with the format trade-offs explained, each download confirmed), and **Design** (`GET /resume-templates`, per-style advice + best-practices keyed to the live categories, `render?template_id=` preview, `PUT /resumes/{id}{template_id}` on confirm). No credentials/OAuth are ever entered by the Assistant; every side-effectful call is confirmed by click or spoken yes/no after a mic-status check; actions are logged, reversible where possible, and reported with Undo.
+
+## P116 — Route the Assistant through the permissioned automation backend (`/api/v1/assistant`): consent scopes, audit log, autofill/submit guardrails
+
+**Frontend wiring. There is already a purpose-built, audited automation engine — use it as the authorization spine for P114/P115 instead of ad-hoc confirms. No backend change** (verified in `routers/assistant.py` + `engines/assistant/*` 2026-11-08). The P114 per-action confirm still happens; it now sits **on top of** durable, server-enforced consent scopes and a real audit log.
+
+### 1. Consent scopes are the durable authorization layer (all OFF by default)
+Surface and use the scope model in an **Assistant permissions** panel (near the P111 Voice & privacy panel):
+- **Read** `GET /api/v1/assistant/consent` → `{ granted:[…], available:{ scope: description } }`. The three scopes:
+  - **`form_autofill`** — "Auto-fill application forms with my profile (I review before it submits)."
+  - **`draft_prep`** — "Auto-prepare application drafts (résumé + cover letter) for strong matches."
+  - **`submit_after_review`** — "Submit applications once I've reviewed and approved them."
+- **Grant/revoke** with `PUT /api/v1/assistant/consent { scopes:[…] }`. All default **off**; each is a clear toggle with its plain-language description. Revocable anytime.
+- **How this relates to P114's confirms:** granting a scope is the **standing permission**; the P114 per-action "want me to do X?" is the **moment-of-action confirm**. An automation call that lacks its scope returns **403** ("grant the '…' permission in Assistant settings first") — when that happens, the Assistant explains and offers to open the permissions toggle, it never tries to route around it.
+
+### 2. The audit log is the P76 activity surface (server-side, real)
+- **Read** `GET /api/v1/assistant/actions` → `[{ id, kind:"autofill"|"prepare"|"submit", job_id, status:"proposed"|"completed"|"blocked"|"skipped", detail, created_at }]`. Show this as the Assistant's **activity/approvals history** (P76) — every action it did or proposed, including what it **refused** (blocked). The Assistant references it ("here's what I've done") and never claims an action the log doesn't show.
+
+### 3. New Playbook 6 — Apply to a specific job (per-job autofill, guardrailed)
+*Triggers: "apply to this one," "fill out this application," "help me apply."* From a job in Matches (Playbook 3):
+1. **Check/obtain the scope.** Needs `form_autofill`. If not granted, explain and **Direct** the user to grant it (§1). 
+2. **Preview the fill plan (nothing submits).** **Do** → `POST /api/v1/assistant/autofill/{job_id}` → `FillPlanOut { entries:[{ field, label, value, source, status:"filled"|"blocked"|"needs_input", reason }], filled, blocked, needs_input }`. Walk the user through it: what it will **fill**, what it **needs from them** (`needs_input`), and what it **refused** (`blocked` = credentials/sensitive — explain these are never auto-filled). Read-only; no submit.
+3. **Collect the `needs_input` answers.** **Direct** (user types any missing non-credential answers; recurring ones are learned via the screener).
+4. **Fill (and optionally submit) — confirm + scope-gated.** **Confirm** clearly. **Do** → `POST /api/v1/assistant/autofill/{job_id}/execute { submit }`:
+   - `submit:false` → fills only. 
+   - `submit:true` → **also needs the `submit_after_review` scope** *and* an explicit yes. 
+   - Result `LiveFillResultOut { status, filled[], unknown_required[], confirmation, detail, live }`. **`live:false` means it was simulated** (no real browser session configured) — **say so honestly**: "I prepared this; to actually submit on the site you'll need to connect a browser session, or do the final submit yourself." A `status` of **`needs_login`/`captcha`** = **escalate to the user** (they sign in / solve it themselves — the Assistant never does). `unknown_required` fields → hand back to the user.
+5. **Report + log.** Summarize from the result and point to `GET /assistant/actions`. 
+
+### 4. Fold the bulk flow (Playbook 2) into the same engine
+Auto-apply **grants** (`/api/v1/auto-apply/*`, P115 Playbook 2) are the **bulk orchestration**; the `/assistant` endpoints are the **per-job primitives** the grant engine composes. Keep Playbook 2 as the setup/approvals flow, and add:
+- **Auto-prepare drafts for strong matches** — needs `draft_prep`. **Confirm**, **Do** → `POST /api/v1/assistant/prepare-drafts { min_fit:70, limit:5 }` → `{ prepared, application_ids }`. Drafts **wait for approval** (P115 Playbook 2 step 6 approvals) — nothing submits.
+- Everywhere "submit" could happen, the **double gate** holds: `submit_after_review` scope **+** per-action confirm **+** (for real submission) the user's connected browser session; otherwise it prepares/simulates and routes to approvals.
+
+### 5. Hard guardrails (server-enforced — reflect them, don't fight them)
+- **Credentials never touched.** `blocked` (password/SSN/credential) fields are structurally excluded from the plan and never reach the browser. The Assistant presents these as "you'll enter this yourself."
+- **CAPTCHA / login walls are escalated, never solved** (matches the global rule). On `captcha`/`needs_login`, the Assistant stops and asks the user to handle that step.
+- **Submission is opt-in twice** (scope + confirm) and needs a real connected session to be live; default prod is **simulated** — never imply an application was really sent when `live:false`.
+- Scopes are **off by default and revocable**; every action is **audited**; the P114 voice/mic-status confirm model and P111/P112 privacy all still apply.
+
+### Acceptance
+The Assistant's automation is built on `/api/v1/assistant`: a **permissions panel** reads/writes consent scopes (`form_autofill`, `draft_prep`, `submit_after_review`) via `GET/PUT /assistant/consent`, all off by default and revocable, and a 403 from any automation call routes the user to grant the scope rather than being worked around. The Assistant shows its **audit log** from `GET /assistant/actions` and never claims an unlogged action. **Per-job apply** previews via `POST /assistant/autofill/{job_id}` (showing filled/needs_input/**blocked-credentials**) and executes via `…/execute { submit }` — submit gated by the `submit_after_review` scope **and** a confirm, with **`live:false` reported honestly as simulated**, and `captcha`/`needs_login` **escalated to the user**. **Bulk** draft prep uses `POST /assistant/prepare-drafts` (needs `draft_prep`) feeding the auto-apply approvals queue; nothing submits without the double gate. Credentials never reach the browser, CAPTCHAs are never solved, and all P114/P111/P112 behavior is preserved.
