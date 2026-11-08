@@ -3999,3 +3999,33 @@ Server neural voices (not browser TTS) via `/narration/speak` played through a m
 
 ### Acceptance
 After a **one-time consent** (in the P83 wizard or the assistant's first run), the assistant **speaks by default** — narrating steps, summaries, review results and recommendations without a per-time click — using the server neural voice, with captions always shown. A **sleek 🔊/🔇 toggle** on the assistant mutes/unmutes instantly (stopping in-flight audio) and persists; declining consent leaves it silent with no re-nagging; screen-reader users default to silent. The **microphone is a separate opt-in, muted by default and between interactions** — it listens **only** during an explicit press/tap-to-talk and **stops the media tracks** the moment that ends (browser mic indicator goes off), never records or stores audio, and the assistant works fully with the mic denied. A **"Voice & privacy" panel** exposes voice-output on/off, mic off/"only while held," voice/rate, revoke, and a plain no-recording statement — all reversible and remembered. Verified by: the mic's live-use indicator is off except while the talk button is held, and no audio stream/track stays active between interactions.
+
+## P112 — Assistant console: draggable + speed slider + readable captions on the translucent overlay + remember the speak choice
+
+**Frontend. Polish on the live assistant (P101/P105/P106/P111). No backend change** — reuse narration prefs (`hw_narration_enabled`, `hw_narration_voice`, `hw_narration_rate`, `hw_voice_consent`, `PUT /api/v1/narration/prefs`) and hydrate them on load (P22). Four refinements.
+
+### 1. Grabbable, movable console
+- The assistant console (the P101 translucent panel) is **draggable** — a clear grab handle / its header bar (`cursor: grab` → `grabbing`), drag to reposition anywhere on screen. Pointer-based (mouse + touch).
+- **Stay on-screen:** clamp to the viewport so it can't be dragged off or cover nothing-but-edge; re-clamp on window resize. Don't let it block the whole document — it floats above, movable out of the way.
+- **Remember its position** across reloads/sessions (`hw_assistant_pos` in localStorage); restore on load, falling back to a sensible default (e.g., bottom-right) if off-screen or unset. A small "reset position" affordance in its menu.
+- **Accessible:** movable by keyboard when the handle is focused (arrow keys nudge), ARIA on the dialog, focus not trapped, `prefers-reduced-motion` (no slide animation, just place it).
+
+### 2. Speaker speed slider (visible, not buried)
+- A **labeled rate slider** right on the console (near the 🔊/🔇 toggle) — **Slower ↔ Faster**, range ~**0.5×–2.0×**, step 0.1, showing the current value (e.g., "1.0×").
+- **Applies live:** changing it adjusts the **currently playing** narration and all future speech immediately — for server audio set `audio.playbackRate`; for the browser-TTS fallback set `utterance.rate`.
+- **Persists** to `hw_narration_rate` and syncs via `PUT /narration/prefs`; restored on load.
+
+### 3. Readable captions on the translucent overlay
+Keep the translucent/glass look (P101), but the **words must be clearly legible** on top of it — the current captions are hard to read.
+- Put the caption text on a **subtle solid scrim** inside the translucent panel (a darker/lighter readable band behind just the text, or a frosted `backdrop-filter` layer) so it never sits directly on busy page content.
+- **Larger, higher-contrast type:** comfortable caption size (≥16–18px), good weight, **AA contrast guaranteed** against the scrim in **both light and dark** themes; a soft text-shadow/outline as a fallback where blur isn't supported. Sensible max line-length and line-height; the current spoken sentence is emphasized.
+- The panel chrome stays translucent and light; **only the readability of the words is increased** — don't make the whole panel opaque.
+
+### 4. Remember the decision to let the assistant speak (across engagements)
+The speak choice must **survive reloads and the next visit** — don't re-ask or reset to off.
+- On load, **hydrate** the voice state from the **server narration prefs** (P22) and localStorage: `hw_voice_consent` (granted/declined — never re-prompt once set), `hw_narration_enabled`/`hw_voice_muted` (the on/off), `hw_narration_voice`, `hw_narration_rate`, and the window position. Apply them before the assistant first speaks.
+- **Write-through on every change:** toggling 🔊/🔇, moving the rate slider, or granting/declining consent updates both localStorage **and** `PUT /narration/prefs`, so the choice is remembered on this device and the next (cross-device per P22).
+- Net effect: a returning user who turned the voice on (or off) finds it **the same way next time**, at their chosen speed and voice, with the console where they left it — no fresh consent prompt.
+
+### Acceptance
+The assistant console can be **dragged by its handle/header to any on-screen position** (mouse/touch + keyboard), stays clamped on-screen, and **remembers its position** next time. A visible **speed slider (0.5×–2.0×)** changes the narration rate **live** (current + future speech) and persists. **Captions are clearly readable** — larger, high-contrast text on a subtle scrim within the still-translucent panel, AA-compliant in light and dark. The **decision to let the assistant speak is remembered across reloads and future visits** (consent, on/off, voice, rate, and position hydrated from narration prefs + localStorage, written through on change) — a returning user is never re-prompted and finds their settings intact. Reduced-motion and keyboard accessibility preserved throughout.
