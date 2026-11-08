@@ -4253,3 +4253,22 @@ The salutation prompt is being shown **unconditionally** (or from a naive client
 
 ### Acceptance
 A cover letter that already opens with a salutation (even when a name/title header precedes it) shows **no** "insert salutation" prompt and instead reflects the review's **"Opens with a proper salutation"** strength. The prompt appears **only** when `POST /cover-letters/{id}/review` actually returns the "Add an opening salutation" suggestion, and it **clears immediately** once a salutation is added (review re-evaluated after edits/version changes). No client-side salutation heuristic remains; dismissal still sticks.
+
+## P119 — Assistant voice: one speaker at a time (no overlapping audio) + a warmer, friendlier voice and tone
+
+**Frontend. Two fixes to the live assistant voice (P105/P106/P111/P112). No backend change** — the neural voices already exist. Right now **multiple voices talk over each other**, and the voice sounds **too serious/robotic**.
+
+### 1. One voice at a time — a single speech channel (bug)
+Audio is overlapping because more than one utterance plays at once (e.g. a narration line, an auto-read, and a recommendation all fire; or the browser-TTS fallback plays **at the same time** as the server audio). Gate it to exactly one.
+- **A single narration controller owns the only active audio.** Route **every** spoken line through one manager that holds **one** `<audio>` element (server TTS) or **one** `speechSynthesis` utterance. Before starting any new speech, it **stops/cancels the current one** (`audio.pause(); audio.src=''` and/or `speechSynthesis.cancel()`) — barge-in, newest wins — so two lines never overlap.
+- **Never run server audio and browser TTS together.** Use the P106 server voice **or** the fallback, never both. If server audio is playing, `speechSynthesis` must be silent, and vice-versa.
+- **Queue, don't stack.** If several lines are meant to be read in sequence (e.g. a multi-step walkthrough), play them **one after another** via the controller's `ended` event — a short ordered queue, not concurrent playback. New higher-priority speech (a direct answer, a confirm prompt) **clears the queue** and speaks immediately.
+- **Stop on the right events:** navigation, Stop/mute (P111/P112), starting a new request, or closing the assistant all **immediately** stop the current audio and clear the queue — no orphaned playback (ties to the P112 teardown rule).
+
+### 2. Warmer, friendlier voice + tone
+- **Pick a warmer default voice.** From `GET /api/v1/narration/voices` choose a **warm, friendly** voice as the new default instead of the current neutral one — e.g. **`coral`** (warm, upbeat) or **`shimmer`** (bright, friendly); audition and set whichever reads warmest. Keep the full picker (P106) so the user can change it; just change the **default** and persist it via narration prefs.
+- **Soften the delivery.** A slightly **slower, natural rate** (the P112 slider default around ~0.95–1.0×) reads warmer than a fast clip. If the voice supports a style/tone hint, use a friendly/conversational one.
+- **Warm up the words (this matters as much as the voice).** Rewrite the assistant's spoken copy to sound like a friendly helper, not a manual: contractions, encouragement, plain language, a little personality — e.g. *"Nice — your résumé's looking sharp. Want me to tailor it to this job?"* instead of *"Resume processing complete. Proceed to tailoring?"* Keep it concise and never saccharine; warmth, not filler. Captions show the same friendly text (P105).
+
+### Acceptance
+Only **one** assistant voice is ever audible at a time — every line routes through a single controller that stops/cancels the current audio before the next, server audio and browser TTS never play together, and sequential lines play as an ordered queue that newer high-priority speech preempts; navigation/Stop/mute/new-request stop audio immediately with no overlap or orphaned playback. The **default voice is a warmer, friendlier one** (e.g. coral/shimmer) at a natural rate, the spoken (and captioned) copy is **conversational and encouraging** rather than formal/robotic, and the user can still pick any voice. All P111/P112 privacy, console and accessibility behavior is preserved.
