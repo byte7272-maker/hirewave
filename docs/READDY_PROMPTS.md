@@ -3847,3 +3847,19 @@ The assistant can **speak**, started by the user, with Play/Pause/Stop, voice an
 
 ### Acceptance
 The assistant's voice picker lists the **11 server neural voices** from `GET /api/v1/narration/voices` (default nova), and speaking routes through **`POST /api/v1/narration/speak`** with the returned audio played via a managed `<audio>` element (verifiable: an `audio/mpeg` request fires and an `<audio>` plays — not `speechSynthesis`). The browser voice is used **only** as the documented fallback when `server_tts` is false / `/speak` 501s. Voice choice persists via narration prefs; Pause/Stop/skip control the audio with clean teardown; highlight stays in sync via audio events; captions and accessibility from P105 remain.
+
+## P107 — Full word-processor editing of the Working copy (rich text, per-word formatting)
+
+**Frontend. Pairs with the backend task in `docs/RICH_TEXT_EDITING.md` (Option B) — requires `content_html` support on the versions/export endpoints.** Make the **Working copy** fully editable like a word processor: type anywhere and apply **per-word** formatting, saved as a version. The faithful **Original** view (P94) stays read-only.
+
+### Do
+1. **Rich-text (WYSIWYG) editor on the Working copy.** Use a proven editor — **TipTap (ProseMirror)** recommended (React-friendly, outputs clean HTML). Render the document body as an editable surface where the user clicks and types directly, like Word/Docs. Not a raw-markdown box.
+2. **Formatting toolbar** (sticky, branded per P97/P98): **bold, italic, underline, strikethrough**; **font family** and **font size**; **text color** (and optional highlight); **headings** (Title / H1 / H2 / body); **alignment** (left/center/right/justify); **line spacing**; **bulleted & numbered lists**; **links**; **undo/redo**; **clear formatting**. Keyboard shortcuts (Ctrl/Cmd+B/I/U, etc.). Reuse the existing rephrase/selection pattern for a floating mini-toolbar on text selection.
+3. **Save as a version.** The editor emits HTML; save via `POST /api/v1/{resumes|cover-letters}/{id}/versions { content_html }`. The backend sanitizes it and derives the plain-text `content` for AI/ATS — the client does **not** send a second text body. Use the **P103 decision overlay** for Save / Save as new version / Cancel (Ctrl+S saves; pulse Save while dirty). Autosave-to-draft locally is fine; a committed version is explicit.
+4. **Original vs Working copy stays clear (P94).** **Original** = faithful, read-only, exactly as uploaded. **Working copy** = this editable rich document. A `.docx` upload opens the Working copy **already formatted** (backend seeds `content_html` from the file); `.pdf`/`.txt` open as editable text. One line reminds the user that AI tailoring operates on the Working copy.
+5. **Load `content_html`** from `GET /…/{id}` (or the version render) into the editor; fall back to rendering `content` (Markdown) for legacy versions with no `content_html`.
+6. **Escape hatch for full fidelity.** Keep **Open in Google Docs / Download as Word** (P91/P92) for anything beyond the in-app editor — now round-tripping the formatted document.
+7. Accessible (keyboard-operable toolbar, ARIA, focus ring, AA contrast), responsive (toolbar wraps/collapses to an overflow on mobile), `prefers-reduced-motion` safe.
+
+### Acceptance
+The Working copy is a **true WYSIWYG editor**: the user types anywhere and applies **per-word** bold/italic/underline, font family/size, color, alignment, spacing, lists, headings and links, with a branded toolbar and shortcuts. Saving writes `content_html` to a new version via the versions endpoint (backend derives the text projection; AI/ATS unaffected), committed through the P103 save overlay. A `.docx` upload opens already formatted; Original stays read-only; legacy Markdown versions still load. Exports/Google-Docs reflect the formatting. Keyboard-accessible, responsive, reduced-motion-safe.
