@@ -77,7 +77,7 @@ from jobsearch.models import (
 from jobsearch.engines.integration.engine import IntegrationError
 from jobsearch.engines.integration.google_drive import DriveAuthError, DriveUploadError
 from jobsearch.docpreview import build_docx, build_pdf, render_text_html, render_text_preview
-from jobsearch.richtext import docx_to_html, html_to_text, sanitize_html
+from jobsearch.richtext import docx_to_html, html_to_text, sanitize_html, strip_colors
 
 _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
@@ -218,6 +218,8 @@ def _version_bodies(body) -> tuple[str, str]:
     html = getattr(body, "content_html", None)
     if html and html.strip():
         safe = sanitize_html(html)
+        if getattr(body, "standardize", False):  # "standardize for ATS" -> drop colour
+            safe = strip_colors(safe)
         text = html_to_text(safe)
         # If the HTML sanitized to nothing, fall back to any plain content provided.
         if text.strip():

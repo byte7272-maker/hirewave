@@ -32,11 +32,31 @@ def test_sanitize_drops_javascript_href_keeps_safe_links():
     assert sanitize_html('<a href="mailto:a@b.com">mail</a>').count("mailto:") == 1
 
 
-def test_sanitize_keeps_font_but_drops_color_in_v1():
-    html = '<span style="font-family: Arial; font-size: 14px; color: red">x</span>'
+def test_sanitize_keeps_font_and_valid_color():
+    html = '<span style="font-family: Arial; font-size: 14px; color: #ff0000">x</span>'
     clean = sanitize_html(html)
     assert "font-family" in clean and "font-size" in clean
-    assert "color" not in clean.lower()  # colour is intentionally not in the v1 allowlist
+    assert "color: #ff0000" in clean  # colour round-trips (user's choice to keep)
+
+
+def test_sanitize_rejects_unsafe_color_but_keeps_rgb():
+    # A url()/expression masquerading as a colour must not survive.
+    bad = sanitize_html('<span style="color: url(javascript:x)">x</span>')
+    assert "javascript" not in bad.lower() and "url(" not in bad.lower()
+    # rgb() is a legitimate colour and is kept verbatim.
+    good = sanitize_html('<span style="color: rgb(10,20,30)">x</span>')
+    assert "rgb(10,20,30)" in good
+
+
+def test_strip_colors_standardizes_for_ats():
+    from jobsearch.richtext import has_colors, strip_colors
+
+    html = '<p><span style="color: #c00; font-size: 12pt">Red bold text</span></p>'
+    assert has_colors(html) is True
+    clean = strip_colors(html)
+    assert "color" not in clean.lower()
+    assert "font-size" in clean  # other formatting kept
+    assert has_colors(clean) is False
 
 
 def test_sanitize_rejects_style_with_css_function():
@@ -96,6 +116,19 @@ def test_build_docx_from_html_renders_formatting():
     assert any(r.bold and "Hiring Manager" in r.text for r in runs)
     assert any(r.italic and r.text == "led" for r in runs)
     assert any((r.font.name or "") == "Georgia" for r in runs)
+
+
+def test_build_docx_applies_text_color():
+    docx = pytest.importorskip("docx")
+    from jobsearch.docpreview import build_docx
+
+    html = '<p><span style="color: #ff0000">Red</span> and plain.</p>'
+    data = build_docx("x", content_html=html)
+    import io
+    doc = docx.Document(io.BytesIO(data))
+    runs = [r for p in doc.paragraphs for r in p.runs]
+    red = next(r for r in runs if r.text == "Red")
+    assert red.font.color is not None and str(red.font.color.rgb) == "FF0000"
 
 
 def test_build_docx_falls_back_to_markdown_when_no_html():
@@ -207,6 +240,24 @@ def test_txt_upload_has_no_content_html():
     })
     assert r.status_code == 201
     assert r.json()["content_html"] == ""  # text upload stays on the text path
+
+
+def test_version_keeps_color_by_default_and_standardizes_on_request():
+    client = _client()
+    h = _auth(client, email="color@demo.com")
+    cid = client.post("/api/v1/cover-letters/upload", headers=h,
+                      files={"file": ("cl.txt", b"Dear Team, hi. Sincerely, Sam.",
+                                      "text/plain")}).json()["id"]
+    colored = '<p><span style="color: #c00000">Keep me red</span></p>'
+    # Default: colour is kept (the user chose to keep it).
+    keep = client.post(f"/api/v1/cover-letters/{cid}/versions", headers=h,
+                       json={"content_html": colored}).json()
+    assert "color" in keep["content_html"].lower()
+    # Standardize for ATS: same HTML, colour stripped, other formatting intact.
+    std = client.post(f"/api/v1/cover-letters/{cid}/versions", headers=h,
+                      json={"content_html": colored, "standardize": True}).json()
+    assert "color" not in std["content_html"].lower()
+    assert "Keep me red" in std["content_html"]
 
 
 def test_version_requires_some_content():

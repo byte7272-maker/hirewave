@@ -9,13 +9,16 @@ HTML subset, so a stdlib allowlist is safer and lighter than passthrough):
 * ``html_to_blocks`` — parse the HTML into blocks + formatted runs, which
   ``docpreview.build_docx`` maps to a real .docx (fonts, size, bold/italic/…).
 
-v1 formatting: bold, italic, underline, strikethrough, font family, font size,
-headings, alignment, line spacing, lists, links. **No text color** (kept out of
-the allowlist deliberately for a cleaner, ATS-safe document).
+Formatting: bold, italic, underline, strikethrough, font family, font size,
+**text color / highlight**, headings, alignment, line spacing, lists, links.
+Colour round-trips; ``strip_colors`` (and the versions endpoint's ``standardize``
+flag) removes it to produce an ATS-safe document when the user chooses to
+standardize an imported, coloured file.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from html import escape, unescape
 from html.parser import HTMLParser
@@ -31,14 +34,26 @@ _ALLOWED_TAGS = {
 }
 _VOID_TAGS = {"br"}
 
-#: CSS properties kept from a ``style`` attribute. No ``color`` /
-#: ``background-color`` in v1 (see module docstring).
+#: CSS properties kept from a ``style`` attribute.
 _ALLOWED_STYLE_PROPS = {
     "font-family", "font-size", "font-weight", "font-style",
-    "text-decoration", "text-align", "line-height",
+    "text-decoration", "text-align", "line-height", "color", "background-color",
 }
+#: Colour properties — kept unless the caller standardizes for ATS.
+_COLOR_PROPS = {"color", "background-color"}
 
 _SAFE_URL_SCHEMES = ("http:", "https:", "mailto:", "tel:")
+
+#: A safe CSS colour value: #hex, rgb()/rgba()/hsl()/hsla() with only numeric
+#: parts, or a plain colour keyword. Anything else (url(), expression, …) fails.
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{3,8}$")
+_FUNC_COLOR = re.compile(r"^(?:rgb|rgba|hsl|hsla)\(\s*[0-9.,%\s/]+\)$", re.I)
+_WORD_COLOR = re.compile(r"^[a-zA-Z]+$")
+
+
+def _safe_color(val: str) -> bool:
+    v = (val or "").strip()
+    return bool(_HEX_COLOR.match(v) or _FUNC_COLOR.match(v) or _WORD_COLOR.match(v))
 
 
 def _safe_href(url: str) -> Optional[str]:
@@ -56,10 +71,11 @@ def _safe_href(url: str) -> Optional[str]:
     return u
 
 
-def _safe_style(style: str) -> str:
+def _safe_style(style: str, *, allow_color: bool = True) -> str:
     """Rebuild a ``style`` string from allowlisted properties with safe values
-    (no ``url(...)``, no CSS functions, no injection). Returns '' if nothing
-    survives."""
+    (no ``url(...)``, no ``expression``, no injection). Colour properties take
+    validated colour values (hex / rgb() / hsl() / keyword); ``allow_color=False``
+    drops them entirely (ATS standardization). Returns '' if nothing survives."""
     out: list[str] = []
     for decl in (style or "").split(";"):
         if ":" not in decl:
@@ -67,13 +83,16 @@ def _safe_style(style: str) -> str:
         prop, _, val = decl.partition(":")
         prop = prop.strip().lower()
         val = val.strip()
-        if prop not in _ALLOWED_STYLE_PROPS or not val:
+        if prop not in _ALLOWED_STYLE_PROPS or not val or len(val) > 120:
+            continue
+        if prop in _COLOR_PROPS:
+            if not allow_color or not _safe_color(val):
+                continue
+            out.append(f"{prop}: {val}")
             continue
         low = val.lower()
-        # Reject any value carrying a CSS function, url(), or expression.
+        # Non-colour values must not carry a CSS function, url(), or expression.
         if "(" in low or "@" in low or "expression" in low or "/*" in low:
-            continue
-        if len(val) > 120:
             continue
         out.append(f"{prop}: {val}")
     return "; ".join(out)
@@ -83,10 +102,11 @@ class _Sanitizer(HTMLParser):
     """Re-serialize HTML from an allowlist. Disallowed tags are dropped but their
     text is kept; ``script``/``style`` content is discarded entirely."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, allow_color: bool = True) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._skip_depth = 0  # inside a script/style subtree -> drop text
+        self._allow_color = allow_color
 
     def handle_starttag(self, tag, attrs):
         if tag in ("script", "style"):
@@ -101,7 +121,7 @@ class _Sanitizer(HTMLParser):
                 if safe:
                     kept.append(f'href="{escape(safe, quote=True)}"')
             elif name == "style":
-                safe = _safe_style(value or "")
+                safe = _safe_style(value or "", allow_color=self._allow_color)
                 if safe:
                     kept.append(f'style="{escape(safe, quote=True)}"')
             # every other attribute (class, id, on*, data-*) is dropped
@@ -133,15 +153,29 @@ class _Sanitizer(HTMLParser):
         self.parts.append(escape(data))
 
 
-def sanitize_html(html: str) -> str:
-    """Allowlist-sanitize editor HTML for safe storage + re-render. Returns ''
-    for empty input."""
+def sanitize_html(html: str, *, allow_color: bool = True) -> str:
+    """Allowlist-sanitize editor HTML for safe storage + re-render. With
+    ``allow_color=False`` all colour declarations are dropped (ATS-safe). Returns
+    '' for empty input."""
     if not (html or "").strip():
         return ""
-    s = _Sanitizer()
+    s = _Sanitizer(allow_color=allow_color)
     s.feed(html)
     s.close()
     return "".join(s.parts).strip()
+
+
+def strip_colors(html: str) -> str:
+    """Remove all text/background colour from already-stored rich HTML, keeping
+    every other formatting — the 'standardize for ATS' action on an imported,
+    coloured document."""
+    return sanitize_html(html, allow_color=False)
+
+
+def has_colors(html: str) -> bool:
+    """True if the rich HTML carries any text/background colour — the signal the
+    UI uses to offer 'keep colours or standardize for ATS?' on an imported file."""
+    return sanitize_html(html) != strip_colors(html)
 
 
 # --- parse to blocks (for text projection + docx export) ---------------------
@@ -155,6 +189,7 @@ class Run:
     strike: bool = False
     font: str = ""       # family name, e.g. "Arial"
     size_pt: float = 0.0  # 0 => default
+    color: str = ""       # text colour (#hex / rgb() / keyword); '' => default
 
 
 @dataclass
@@ -170,9 +205,9 @@ class Block:
 _HEADINGS = {"h1": "h1", "h2": "h2", "h3": "h3"}
 
 
-def _parse_font(style: str) -> tuple[str, float, bool, bool, bool]:
-    """Pull (font_family, size_pt, bold, italic, underline) from a style string."""
-    fam, size, bold, italic, underline = "", 0.0, False, False, False
+def _parse_font(style: str) -> tuple[str, float, bool, bool, bool, str]:
+    """Pull (font_family, size_pt, bold, italic, underline, color) from a style."""
+    fam, size, bold, italic, underline, color = "", 0.0, False, False, False, ""
     for decl in (style or "").split(";"):
         prop, _, raw = decl.partition(":")
         prop = prop.strip().lower()
@@ -193,7 +228,9 @@ def _parse_font(style: str) -> tuple[str, float, bool, bool, bool]:
             italic = True
         elif prop == "text-decoration" and "underline" in low:
             underline = True
-    return fam, size, bold, italic, underline
+        elif prop == "color" and raw and _safe_color(raw):
+            color = raw
+    return fam, size, bold, italic, underline, color
 
 
 class _BlockParser(HTMLParser):
@@ -204,7 +241,7 @@ class _BlockParser(HTMLParser):
         self.blocks: list[Block] = []
         self._cur: Optional[Block] = None
         self._fmt = {"bold": 0, "italic": 0, "underline": 0, "strike": 0}
-        self._font: list[tuple[str, float]] = []  # stack of (family, size)
+        self._font: list[tuple[str, float, str]] = []  # stack of (family, size, color)
         self._list: list[str] = []  # stack of 'ul' | 'ol'
 
     def _begin(self, kind: str, align: str = "") -> None:
@@ -246,9 +283,9 @@ class _BlockParser(HTMLParser):
             self._fmt["strike"] += 1
         elif tag == "span":
             style = next((v for n, v in attrs if n == "style"), "") or ""
-            fam, size, b, i, u = _parse_font(style)
-            prev = self._font[-1] if self._font else ("", 0.0)
-            self._font.append((fam or prev[0], size or prev[1]))
+            fam, size, b, i, u, color = _parse_font(style)
+            prev = self._font[-1] if self._font else ("", 0.0, "")
+            self._font.append((fam or prev[0], size or prev[1], color or prev[2]))
             if b:
                 self._fmt["bold"] += 1
             if i:
@@ -292,14 +329,14 @@ class _BlockParser(HTMLParser):
         if self._cur is None:
             # loose text outside any block -> its own paragraph
             self._begin("p")
-        fam, size = (self._font[-1] if self._font else ("", 0.0))
+        fam, size, color = (self._font[-1] if self._font else ("", 0.0, ""))
         self._cur.runs.append(Run(
             text=data,
             bold=self._fmt["bold"] > 0,
             italic=self._fmt["italic"] > 0,
             underline=self._fmt["underline"] > 0,
             strike=self._fmt["strike"] > 0,
-            font=fam, size_pt=size,
+            font=fam, size_pt=size, color=color,
         ))
 
 
@@ -355,6 +392,12 @@ def _run_html(run) -> str:
                 styles.append(f"font-size: {font.size.pt:g}pt")
             except Exception:  # noqa: BLE001
                 pass
+        try:
+            rgb = font.color.rgb if font.color is not None else None
+            if rgb is not None:
+                styles.append(f"color: #{str(rgb)}")
+        except Exception:  # noqa: BLE001 - theme colours have no rgb
+            pass
     inner = text
     if styles:
         inner = f'<span style="{escape("; ".join(styles), quote=True)}">{inner}</span>'

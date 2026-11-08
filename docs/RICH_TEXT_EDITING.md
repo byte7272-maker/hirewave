@@ -52,4 +52,4 @@ On `.docx` upload, convert to the sanitized HTML subset (server-side, or accept 
 ## Open decisions for sign-off
 1. **.docx exporter:** hand-mapped subset (recommended, no heavy dep) vs `htmldocx`.
 2. **.pdf fidelity now vs later:** FPDF2 `write_html` subset now, or keep Markdown PDF until a headless renderer is added.
-3. **Per-word color/highlight:** include from v1 (allowlist already covers it) — confirm we want colored text in a résumé/cover letter at all, or restrict to font/size/weight for a cleaner, ATS-safe document.
+3. **Per-word color/highlight:** ✅ **Resolved — included.** Colour round-trips (sanitize allowlist, docx export, .docx-upload seeding). An imported coloured document gives the user a **Keep colours vs Standardize for ATS** choice; `strip_colors()` + the versions endpoint's `standardize: true` flag do the standardizing, and `has_colors()` tells the UI when to offer it.

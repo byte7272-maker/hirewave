@@ -318,6 +318,28 @@ def _rgb(hex_str: str, default=(37, 99, 235)) -> tuple:
     return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
+def _html_color_rgb(value: str):
+    """Parse an HTML colour ('#hex' or 'rgb(r,g,b)') to an (r,g,b) tuple for a Word
+    run, or None when it's empty / a keyword / unparseable (caller keeps the
+    default). Only numeric colours map cleanly to a .docx run colour."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    m = re.match(r"^#([0-9a-fA-F]{6})$", v)
+    if m:
+        h = m.group(1)
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    m = re.match(r"^#([0-9a-fA-F]{3})$", v)
+    if m:
+        h = m.group(1)
+        return (int(h[0] * 2, 16), int(h[1] * 2, 16), int(h[2] * 2, 16))
+    m = re.match(r"^rgba?\(\s*(\d{1,3})[,\s]+(\d{1,3})[,\s]+(\d{1,3})", v, re.I)
+    if m:
+        r, g, b = (min(255, int(m.group(i))) for i in (1, 2, 3))
+        return (r, g, b)
+    return None
+
+
 def _style_tokens(style) -> dict:
     def g(key, default):
         if style is None:
@@ -404,7 +426,10 @@ def _build_docx_from_html(content_html: str, *, title: str = "", style=None) -> 
             run.underline = r.underline or None
             if r.strike:
                 run.font.strike = True
-            if level:  # headings carry the accent colour, like the markdown path
+            run_color = _html_color_rgb(r.color)
+            if run_color is not None:
+                run.font.color.rgb = RGBColor(*run_color)
+            elif level:  # headings carry the accent colour, like the markdown path
                 run.font.color.rgb = accent
 
     buf = io.BytesIO()
