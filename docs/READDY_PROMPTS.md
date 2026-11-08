@@ -4327,3 +4327,39 @@ When the user picks a playbook or says "go to [section]," the assistant **takes 
 
 ### Acceptance
 Opening the assistant **greets the user and asks how it can help, then waits** (no menu dump). On request it **reads the action groups one at a time, pausing for a response** after each. The user drives it by **voice or by clicking** the mirrored controls, using a consistent command set — **stop / continue / next / back / repeat / choose / go to [section] / apply / cancel / undo** — and a command **barges in**, cancelling current speech (P119) and acting. Every turn **ends by waiting for the user**; the assistant confirms before any action (P114), navigates to sections and keeps the task going there (P115/P116), re-offers clearly when it misunderstands, and falls back to type/tap when the mic is off. All P111/P112/P119/P120 voice, console, privacy and accessibility behavior is preserved.
+
+## P122 — Assistant: interview-style voice menu, a guided bullet workshop (dual-pane + "use that one"), and NLU intents
+
+**Frontend, plus one new backend endpoint (spec in `docs/ASSISTANT_INTENT.md`).** Extends the conversational assistant (P121) with a familiar voice picker, a hands-on bullet-building walkthrough, and natural-language commands.
+
+### 1. Give the assistant the interview's voice menu
+The assistant must expose the **same voice-selection menu the Practice-Interview section uses** (P35/P36/P37 — the labeled neural voices), so the user changes the assistant's voice the familiar way:
+- Reuse the interview's voice picker (named voices, audition/preview) inside the assistant's **Voice & privacy** panel, reachable in **one tap** from the console. These are the same server voices (`GET /api/v1/narration/voices`, P106).
+- Changing it **applies live** to the assistant's speech and **persists** via narration prefs (`PUT /narration/prefs`, P112). The conversational command "switch to the warm voice / use Coral" also changes it (via the `change_voice` intent, §4).
+
+### 2. A guided "bullet workshop" over the user's data dump
+The assistant walks the user through turning a raw paste into résumé bullets (the My Work Highlights pipeline, P2.3/P4/P115), **narrating where the processing is** at each async step:
+- **Collect:** invite the user to paste a data dump (notes, a job history, a brag doc) or upload it. 
+- **Process + summarize state:** run and narrate each stage — extract → `POST /resumes/{id}/evidence/extract` (`data_points[]`): *"I read your paste and pulled 12 points."* → synthesize → `POST /resumes/{id}/evidence/synthesize` (`groups[] {theme, summary, points}`): *"I grouped them into 3 themes — leadership, cost savings, scale."* → suggest → `POST /resumes/{id}/highlights/suggest` or `/suggest-edits` (`suggestions[] {action:"add"|"reword", before, after, rationale}`): *"Here are 5 suggested bullets."* Keep a running, plain-language summary of **where it is and where it's going**, so the user always knows the state.
+- Persist/resume via the highlights runs (`/highlights/latest`, `/highlights/runs`), per P6.
+
+### 3. Dual-pane workshop with window controls
+Lay the workshop out as a **two-pane split** with window controls:
+- **Bubbles pane** — the candidate bullets as **frameless bubbles** (P8): each suggestion a draggable bubble (`after` text + its `rationale`).
+- **Résumé render pane** — the live document (the P110 editable render / preview) where bullets land.
+- **Window controls** per the P120 language: focus/expand/collapse/swap and resize each pane, and a one-pane fallback on small screens. Dragging a bubble onto the render pane adds/replaces a bullet (P4/P8).
+
+### 4. Suggest, read, and "use that one"
+The assistant actively helps choose bullets, by voice or click:
+- **Suggest which to use:** call `POST /resumes/{id}/match-bullets` (`matches[] {candidate, recommend:"add"|"replace", best_score, replace?, alternatives[]}`) and recommend — *"I'd use this one; it replaces a weaker line about the same thing."* Order by `best_score`; explain add vs replace.
+- **Read them aloud:** read the bubbles one at a time (P119 single voice), **highlighting the current bubble** as it reads.
+- **"Use" / "use that one":** on the spoken command (resolved by the `use_bullet` intent against the **currently read/highlighted** bubble — §4 context) **or** a click, apply that bullet — add, or replace its `recommend.replace` target — via `POST /resumes/{id}/apply-edits` → preview → `POST /resumes/{id}/versions`, with the **P114 confirm** and **Undo = version switch**. "Next / skip / discard" move through them.
+
+### 5. Highlight either pane while guiding
+The assistant can **spotlight the bubbles pane or the résumé render pane** (the P100/P105 translucent spotlight) as it talks — *"these are your candidate bullets"* (highlight bubbles) → *"here's where this one lands"* (highlight the render pane) — synced to the narration.
+
+### 6. Natural-language commands via the intent endpoint
+Wire the P121 command understanding to **`POST /api/v1/assistant/interpret`** (spec: `docs/ASSISTANT_INTENT.md`): send the transcript + light context (`page`, `resume_id`, `focused_index`, the on-screen `options`), get back `{ intent, slots, confidence, needs_disambiguation }`, and map it to the existing guarded actions. It covers flow (stop/continue/next/back/repeat), choose/`use_bullet`, `navigate`, `start_playbook`, `change_voice`/`set_rate`, and free-form `ask`. **Interpretation only — the frontend still runs the confirmed, guarded action** (P114/P116). Fall back to the local matcher + mirrored buttons if the endpoint is unavailable (P121 §4).
+
+### Acceptance
+The assistant's **Voice & privacy** panel offers the **interview-style named voice menu**, one tap away, changing the assistant voice live and persistently (and by the "switch voice" command). A **bullet workshop** walks a pasted data dump through extract → synthesize → suggest, with the assistant **narrating the processing state** throughout, laid out as a **dual-pane (bubbles + résumé render) with window controls**. The assistant **suggests** which bullets to use (from `match-bullets`), **reads them aloud one at a time while highlighting the current bubble**, and on **"use / use that one"** (voice via `use_bullet` or click) **applies** that bullet (add/replace → `apply-edits` → `versions`) with confirm + Undo. It can **spotlight the bubbles pane or the render pane** in sync with speech. Natural-language commands route through **`POST /assistant/interpret`** (per `docs/ASSISTANT_INTENT.md`) and map to the existing guarded actions, with a local fallback. All P111/P112/P119/P120/P121 behavior is preserved.
