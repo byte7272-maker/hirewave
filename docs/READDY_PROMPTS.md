@@ -4088,3 +4088,77 @@ Consent-first and **mic muted by default / between interactions** (P111); sensit
 
 ### Acceptance
 The Assistant **walks a user through a complete outcome** (e.g. connect a source, set up auto-apply, tailor a document, start an interview) **step by step in conversation**, doing what it can via the live endpoints and directing what only the user can (OAuth/credentials/file/job choice), checking each step before advancing, and announcing progress. Before **every** side-effectful action it **asks clearly what it's about to do and waits for an explicit yes**, accepting **either an on-screen Yes/No or a spoken yes/no** — and it **checks mic status first**, falling back to buttons when the mic is muted/denied and never blocking on voice. Nothing changes without confirmation; actions are logged to the P76 approvals surface, reversible where possible, and reported back with Undo. The Assistant **proactively suggests relevant next features/actions** grounded in the user's state, one at a time and dismissible. All P111/P112 privacy, console, caption and accessibility behavior is preserved.
+
+## P115 — Assistant playbooks (exact step scripts): Connect a source · Auto-apply · Walk the matches · Upload/Download · Design
+
+**Frontend. The concrete scripts P114 executes. No new backend — every endpoint below is LIVE** (verified against the routers 2026-11-08). Each playbook is ordered steps; each step says **Do** (Assistant calls the endpoint, after the P114 confirm) or **Direct** (only the user can — Assistant spotlights + waits), the **endpoint**, whether it **needs confirm**, and the **done-check**. The P114 rules hold throughout: confirm before any side-effectful call (click **or** spoken yes/no after a **mic-status check**); never enter credentials/OAuth; log to P76 approvals; report + Undo.
+
+### Playbook 1 — Connect a job source
+*Triggers: "connect my email/Gmail/iCloud," "add a job source," "where do my matches come from."*
+1. **Pick the source.** Ask which: Gmail (OAuth) or iCloud/other mail (app password), or a board. **Direct** (user picks). No confirm.
+2. **Start the connection.**
+   - **Gmail / OAuth providers:** **Do** → `POST /api/v1/integrations/connect/gmail` → returns `{ authorization_url }`. **Confirm** ("Open Google's sign-in to connect Gmail?"), then open `authorization_url` in a new tab. **The user completes Google's consent themselves** (Direct) — the Assistant never types the password.
+   - **iCloud / IMAP:** **Do** → `GET /api/v1/integrations/imap-providers` to render the form (label + where to get an app-specific password). **Direct:** the user enters their **email + app-specific password** (never their Apple ID password; Assistant never fills these). Then **Do** → `POST /api/v1/integrations/connect-imap { provider, email, app_password }`. **Confirm** before the POST.
+3. **Verify it connected.** **Do** → `GET /api/v1/integrations` (OAuth) or the `?connected=` redirect / `connect-imap` 200 shows `account_email`. Done-check: the provider appears connected. If error, explain and retry step 2.
+4. **Offer "pull now."** Suggest fetching matches from the new source. **Confirm**, then **Do** the ingest/refresh the Matches page uses. 
+5. **Suggest next:** "Want to review your matches?" → Playbook 3.
+
+### Playbook 2 — Set up auto-apply (safety-first: nothing sends without approval)
+*Triggers: "set up auto-apply," "apply for me," "automate applications."*
+> **Say this up front and mean it:** an auto-apply rule **never submits a real application on its own** — runs only **prepare** applications that **wait in your approvals**, and assisted/LinkedIn jobs are **queued for your manual Apply click**. The user approves each. Keep `require_verified: true`.
+1. **Pre-fill smart defaults.** **Do** → `GET /api/v1/auto-apply/suggested-criteria` → `{ criteria:{ title_keywords, locations, remote, sources, min_fit_score }, suggested:{ max_submits, daily_cap, mode:"assisted", require_verified:true } }`. No confirm (read-only). Present the pre-filled rule in plain language.
+2. **Explain each field + let the user edit.** title_keywords, locations, remote, sources, min_fit_score (fit threshold), max_submits, daily_cap, mode (**assisted** = queued for your click; **auto** = prepared then waits in approvals), interval_minutes (**0 = only when you run it**; >0 = cadence). **Direct** (user tweaks). Default to **mode: assisted, interval_minutes: 0, require_verified: true** unless the user explicitly chooses more.
+3. **Create the rule — confirm clearly.** **Confirm** ("Create this rule? It won't send anything — matches will wait for your OK."). **Do** → `POST /api/v1/auto-apply/grants { name, scope:"criteria", criteria:{…}, require_verified:true, max_submits, daily_cap, mode, interval_minutes, expires_at? }`. Done-check: a grant id returns; show it as **active**.
+4. **Preview before any real run.** **Do** → `POST /api/v1/auto-apply/grants/{id}/run { dry_run: true }` → show the jobs it *would* prepare. No submissions. 
+5. **Run for real (optional) — confirm.** Only if the user asks. **Confirm**, **Do** → `POST /api/v1/auto-apply/grants/{id}/run { dry_run: false, limit? }`. Prepared apps land in approvals.
+6. **Review approvals.** **Do** → `GET /api/v1/auto-apply/approvals`; the user **approves each** (`POST /approvals/{application_id}/approve`) or rejects (`.../reject`), or `POST /approvals/approve-all` **only on explicit confirm**. Pause/resume anytime: `PATCH /grants/{id} { status:"paused"|"active" }`.
+7. **Suggest next:** "Want me to tailor your résumé so these applications are stronger?" → Playbook 5 / the tailoring flow.
+
+### Playbook 3 — Walk through the matches
+*Triggers: "show me my matches," "which jobs fit," "help me go through these."*
+1. **Load matches.** **Do** → `GET /api/v1/jobs/matches?limit=10` (optionally `&resume_id=` if the user has several résumés, `&min_score=`, `&categories=`). No confirm. Each item has `score`, `reasons[]`, `breakdown{ semantic, skills, location, salary, seniority, recency }`, `matching_skills`, `gap_skills`, `authenticity_score`, `source_display`, `salary_display`, `url`.
+2. **Walk them one at a time, top-ranked first.** For each: say the title/company, the **fit score and why** (read 1–2 `reasons` + the strongest `breakdown` factors), the **matching skills**, the **gaps** ("they want X, which isn't on your résumé"), and flag **low `authenticity_score`** as "verify before applying." Plain language, one job at a time (read-only; no confirm).
+3. **Offer actions per job** (each needs **confirm**):
+   - **Save it** → `POST /api/v1/jobs/saved { job_id }`.
+   - **Tailor my résumé/cover letter to it** → hand to the tailoring flow (open the doc in the Workspace, pull this job's description, run recommendations P104 §4). 
+   - **Open the real posting** → open `url`/`source_url` (Direct).
+   - **Add to auto-apply** → Playbook 2 seeded with this role's keywords.
+4. **Narrate progress** ("Job 3 of 10") and let the user say "next," "skip," "save this," "tailor for this." 
+5. **Suggest next:** after the walk, "Want to export these, or set up auto-apply for the ones like these?" (`GET /api/v1/jobs/matches/export`).
+
+### Playbook 4 — Upload & download documents
+*Triggers: "upload my résumé/cover letter," "download this," "get a Word/PDF copy," "open in Google Docs."*
+- **Upload (Direct the file pick; Assistant never invents a file):**
+  1. Ask résumé or cover letter. **Direct** → user chooses the file (`.pdf`, `.docx`, `.txt`).
+  2. **Do** → `POST /api/v1/resumes/upload` **or** `POST /api/v1/cover-letters/upload` (multipart). **Confirm** before upload. Done-check: the new document returns.
+  3. Explain: it's **added as a new document** and you **choose whether it becomes current** (P75) — a `.docx` opens already formatted and editable (P110/P107); a scanned PDF may have little text (offer to type it in).
+  4. **Suggest next:** "Want me to review it / tailor it to a job?"
+- **Download / export (confirm — it's a file action):**
+  1. Ask the format and explain the trade-offs: **PDF** = send/print/ATS-safe, fixed layout (`GET /api/v1/{resumes|cover-letters}/{id}/export.pdf`); **Word (.docx)** = edit in Word/elsewhere (`…/export.docx`); **Google Docs** = edit online (`POST /…/{id}/open-in-google-docs`, needs Drive connected — route to Playbook 1 if not).
+  2. **Confirm**, then **Do** the export; hand the user the file / opened doc. Done-check: file downloaded or Docs opened.
+
+### Playbook 5 — Design your document (advise per style + best practices)
+*Triggers: "change the design/style," "make it look better," "which template," "is this ATS-friendly."*
+1. **Load the styles.** **Do** → `GET /api/v1/resume-templates` (+ `GET /resume-templates/categories` → `modern, classic, minimal, executive, creative, technical, academic, elegant`). No confirm. **Advise per the styles the endpoint actually returns** — don't assume names. The 8 built-ins and who each suits:
+   - **Modern** — single column, blue accent, uppercase ruled headers. *Safe, ATS-friendly default for most roles.*
+   - **Classic** — serif, centered header, clean rules. *Traditional/corporate, legal, finance.*
+   - **Minimal** — lots of whitespace, sans, no dividers. *Senior/clean; great when content is strong and short.*
+   - **Executive** — two-column, navy, bold bar headers. *Senior/leadership; two-column can trip some ATS — see best practices.*
+   - **Creative** — two-column, purple, bold. *Design/marketing; avoid for conservative industries.*
+   - **Technical** — compact two-column, teal, monospace caps. *Engineering/IT; fits dense skills.*
+   - **Academic** — serif, single column, generous spacing. *CVs, research, publications.*
+   - **Elegant** — refined serif. *Polished, understated; client-facing roles.*
+2. **Recommend for the user's situation.** Use their role/seniority (from the résumé/matches) to suggest 1–2 styles and say **why**, in plain language.
+3. **Share best practices (and check the doc against them):**
+   - **ATS-safe first:** a **single-column** layout reads most reliably in applicant-tracking systems; if the user wants a two-column style (Executive/Creative/Technical), note they should keep a plain-text/PDF copy for ATS and test it.
+   - **One accent color**, used sparingly; high contrast; avoid light-gray body text.
+   - **Length:** ~1 page early-career, up to 2 for senior; CV (Academic) can be longer.
+   - **Consistent headings**, standard section names (Experience, Skills, Education) so parsers find them.
+   - **No photo / graphics-as-text** for US applications; don't put key info in headers/footers (some parsers drop them).
+   - **Readable font** (the style's sans/serif/mono) at ~10–11pt body; don't over-compress (density) to force one page.
+4. **Preview before applying.** **Do** → `GET /api/v1/resumes/{id}/render?template_id={id}` to show the look. No confirm (preview).
+5. **Apply the style — confirm.** **Confirm** ("Apply the Modern style to this résumé? You can switch back anytime."). **Do** → `PUT /api/v1/resumes/{id} { template_id }`. Reversible (switch templates / prior version). Done-check: the preview updates to the new style.
+6. **Suggest next:** "Want to download a PDF to send?" → Playbook 4.
+
+### Acceptance
+The Assistant can run each of the five playbooks end-to-end against the live endpoints named above, following the P114 model: **Connect** (Gmail OAuth via `connect/{provider}` with the user completing consent; iCloud via `imap-providers`→`connect-imap` with the user entering the app password; verify via `GET /integrations`; offer pull-now), **Auto-apply** (`suggested-criteria`→explain→confirm→`POST /grants`→`run{dry_run:true}` preview→approvals, stating clearly that nothing submits without approval and keeping `require_verified:true`), **Matches** (`GET /jobs/matches`, walked one at a time with score/reasons/gaps/authenticity and per-job Save/Tailor/Open/Add-to-auto-apply, each confirmed), **Upload/Download** (user picks the file → `resumes|cover-letters/upload`; export via `export.pdf`/`export.docx`/`open-in-google-docs` with the format trade-offs explained, each download confirmed), and **Design** (`GET /resume-templates`, per-style advice + best-practices keyed to the live categories, `render?template_id=` preview, `PUT /resumes/{id}{template_id}` on confirm). No credentials/OAuth are ever entered by the Assistant; every side-effectful call is confirmed by click or spoken yes/no after a mic-status check; actions are logged, reversible where possible, and reported with Undo.
