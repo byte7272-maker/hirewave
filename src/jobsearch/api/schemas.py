@@ -1210,6 +1210,16 @@ class InterpretRequest(BaseModel):
     context: Optional[InterpretContext] = None
 
 
+class CommandSuggestion(BaseModel):
+    """An example command phrased the way the assistant can reliably understand it.
+    Every suggestion is verified to parse to a real intent, so offering it to the user
+    is a promise it will work."""
+
+    text: str                              # e.g. "Refresh my matches"
+    intent: str                            # what it parses to, e.g. "navigate"
+    slots: dict = Field(default_factory=dict)
+
+
 class InterpretResponse(BaseModel):
     """A classified intent (interpretation only — the client runs the guarded action)."""
 
@@ -1219,6 +1229,16 @@ class InterpretResponse(BaseModel):
     reply: str = ""
     needs_disambiguation: list[dict] = Field(default_factory=list)
     utterance: str = ""
+    # When the utterance wasn't understood, the nearest wordings it WOULD understand —
+    # so the assistant can offer "did you mean…" instead of a dead end.
+    suggestions: list[CommandSuggestion] = Field(default_factory=list)
+
+
+class SuggestionsOut(BaseModel):
+    """Example commands the assistant can suggest for the current screen — all verified
+    to be wording it understands."""
+
+    suggestions: list[CommandSuggestion] = Field(default_factory=list)
 
 
 class EmailImportOut(BaseModel):
@@ -1396,3 +1416,43 @@ class PushSubscribeRequest(BaseModel):
 
 class ReminderTestOut(BaseModel):
     channels: dict[str, int]  # channel -> count sent
+
+
+# --- Job fit brief (assistant: "why this fits + what to use/tailor/do") --------
+
+class DocOption(BaseModel):
+    """A résumé or cover letter the assistant can offer for a job, with its fit."""
+    id: str
+    title: str
+    score: Optional[int] = None  # 0-100 fit of this doc against the job (résumés)
+    is_current: bool = False     # the one the versions marquee currently follows
+
+
+class NextStep(BaseModel):
+    """A concrete related step the assistant can perform or walk the user through."""
+    action: str  # tailor_resume | tailor_cover_letter | apply | save | walk_matches | open_job
+    label: str
+    resume_id: Optional[str] = None
+    cover_letter_id: Optional[str] = None
+
+
+class FitBriefOut(BaseModel):
+    """A grounded, friendly brief the assistant speaks after landing on a job/match:
+    why it fits (or not), what to tailor, which résumé + cover-letter set to use, and
+    the related next steps to offer. Everything is derived from the real match scoring
+    and the user's own documents — never invented."""
+    job_id: str
+    title: str
+    company: str
+    score: int                       # 0-100, the best of the user's résumés vs this job
+    verdict: str                     # strong | solid | moderate | stretch
+    summary: str                     # one friendly line ("A solid 68/100 fit — …")
+    narrative: str                   # grounded paragraph (how you qualify for THIS role)
+    why_fits: list[str] = []         # concrete positives (skill overlap, salary, …)
+    gaps: list[str] = []             # requirements not yet surfaced
+    what_to_tailor: list[str] = []   # actionable tailoring moves
+    recommended_resume: Optional[DocOption] = None
+    recommended_cover_letter: Optional[DocOption] = None
+    resume_options: list[DocOption] = []
+    cover_letter_options: list[DocOption] = []
+    next_steps: list[NextStep] = []

@@ -14,6 +14,7 @@ from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AggregationOut,
     ExternalIngestRequest,
+    FitBriefOut,
     IngestRequest,
     MatchOut,
     MatchReasonOut,
@@ -426,6 +427,139 @@ def get_job(job_id: str, state: StateDep, _user: CurrentUser) -> JobPosting:
     if job is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
     return job
+
+
+def _verdict(score: int) -> tuple[str, str]:
+    """(verdict word, friendly lead-in) for a 0-100 fit score — upbeat, never harsh."""
+    if score >= 75:
+        return "strong", "a strong"
+    if score >= 60:
+        return "solid", "a solid"
+    if score >= 45:
+        return "moderate", "a workable"
+    return "stretch", "more of a stretch at"
+
+
+def _doc_title(doc, fallback: str) -> str:
+    name = getattr(doc, "original_filename", "") or getattr(doc, "target_role", "") or ""
+    return name or fallback
+
+
+@router.get("/{job_id}/fit-brief", response_model=FitBriefOut)
+def fit_brief(job_id: str, state: StateDep, user: CurrentUser) -> FitBriefOut:
+    """A grounded brief for one job/match: how well the user fits, what to tailor, which
+    résumé + cover-letter set to use, and the related next steps to offer. Powers the
+    assistant's proactive follow-up after it lands on Matches — everything here comes
+    from the real match scoring and the user's own documents, so the assistant can speak
+    it without inventing anything."""
+    from jobsearch.api.schemas import DocOption, NextStep
+    from jobsearch.engines.generation.ats import ats_score, extract_keywords
+    from jobsearch.engines.resume_assistant import soften_tone
+
+    job = state.jobs.get(job_id)
+    if job is None or getattr(job, "owner_id", "") != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+
+    resumes = state.resumes.find(user_id=user.id)
+    cover_letters = state.cover_letters.find(user_id=user.id)
+
+    # Embed the job once, then score it against each résumé (reusing the exact ranking
+    # the user sees) so we can recommend the best-fitting set.
+    job_vec = state.matching.embedder.embed_one(job.to_matching_text())
+
+    scored: list[tuple] = []  # (resume, MatchResult)
+    for r in resumes:
+        try:
+            prof = _matching_profile(state, user.id, r.id)
+        except HTTPException:
+            continue
+        scored.append((r, state.matching.score(prof, job, job_vec=job_vec)))
+    scored.sort(key=lambda rr: rr[1].score, reverse=True)
+
+    if scored:
+        best_resume, best = scored[0]
+    else:  # no résumés yet — score against the structured profile alone
+        best_resume = None
+        prof = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+        best = state.matching.score(prof, job, job_vec=job_vec)
+
+    score = int(round(best.score))
+    verdict, lead = _verdict(score)
+    matching = list(best.matching_skills or [])
+    gaps = list(best.gap_skills or [])
+
+    why_fits = [
+        (f"{rz.label}: {rz.detail}" if rz.detail else rz.label)
+        for rz in (best.reasons or [])
+        if getattr(rz, "sentiment", "positive") != "caution"
+    ][:4]
+
+    what_to_tailor = [f"Surface your experience with {g}" for g in gaps[:4]]
+    if not what_to_tailor and matching:
+        what_to_tailor = [f"Lead with {matching[0]} — it's exactly what they want"]
+
+    narrative = ""
+    if best_resume is not None:
+        try:
+            narrative = soften_tone(
+                state.resume_assistant.qualifications(
+                    best_resume, job,
+                    fit_score=score, matching_skills=matching, gap_skills=gaps,
+                )
+            )
+        except Exception:  # noqa: BLE001 - never block the brief on the narrative
+            narrative = ""
+
+    summary = f"{job.title} at {job.company} looks like {lead} {score}/100 fit."
+
+    resume_opts = [
+        DocOption(id=r.id, title=_doc_title(r, "Résumé"), score=int(round(res.score)))
+        for r, res in scored
+    ]
+    recommended_resume = resume_opts[0] if resume_opts else None
+
+    # Recommend the cover letter whose text best covers the job's keywords (keeping any
+    # already tailored to THIS job first); fall back to the most recent.
+    job_keywords = list(job.requirements or []) or extract_keywords(job.description or "", top_n=25)
+    cl_opts: list[tuple] = []  # (DocOption, sort_key)
+    for cl in cover_letters:
+        text = getattr(cl, "content", "") or ""
+        kw_fit = int(round(ats_score(text, job_keywords))) if job_keywords and text else 0
+        tailored_here = 1 if getattr(cl, "job_posting_id", "") == job.id else 0
+        cl_opts.append((
+            DocOption(id=cl.id, title=_doc_title(cl, "Cover letter"), score=kw_fit),
+            (tailored_here, kw_fit),
+        ))
+    cl_opts.sort(key=lambda t: t[1], reverse=True)
+    cover_letter_options = [o for o, _ in cl_opts]
+    recommended_cover_letter = cover_letter_options[0] if cover_letter_options else None
+
+    next_steps: list[NextStep] = []
+    if recommended_resume is not None:
+        next_steps.append(NextStep(
+            action="tailor_resume",
+            label=f"Tailor “{recommended_resume.title}” to this role",
+            resume_id=recommended_resume.id,
+        ))
+    if recommended_cover_letter is not None:
+        next_steps.append(NextStep(
+            action="tailor_cover_letter",
+            label=f"Tailor “{recommended_cover_letter.title}” to this role",
+            cover_letter_id=recommended_cover_letter.id,
+        ))
+    next_steps.append(NextStep(
+        action="apply", label=f"Apply to {job.company} — I’ll walk you through it"))
+    next_steps.append(NextStep(action="save", label="Save this one for later"))
+
+    return FitBriefOut(
+        job_id=job.id, title=job.title, company=job.company,
+        score=score, verdict=verdict, summary=summary, narrative=narrative,
+        why_fits=why_fits, gaps=gaps[:6], what_to_tailor=what_to_tailor,
+        recommended_resume=recommended_resume,
+        recommended_cover_letter=recommended_cover_letter,
+        resume_options=resume_opts, cover_letter_options=cover_letter_options,
+        next_steps=next_steps,
+    )
 
 
 @router.delete("/{job_id}", status_code=status.HTTP_204_NO_CONTENT)

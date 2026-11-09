@@ -21,7 +21,7 @@ from typing import Any, Optional
 INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
-    "choose", "navigate", "start_playbook",
+    "choose", "navigate", "start_playbook", "save",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -86,6 +86,9 @@ class IntentResult:
     reply: str = ""
     needs_disambiguation: list[dict[str, str]] = field(default_factory=list)
     utterance: str = ""
+    #: When the utterance wasn't understood, the nearest wordings that WOULD be —
+    #: so the assistant can suggest phrasing it can act on. Each item: {text,intent,slots}.
+    suggestions: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _norm(text: str) -> str:
@@ -247,6 +250,11 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         if sec:
             return IntentResult("navigate", 0.9, {"section": sec})
 
+    # save / bookmark the current job ("save this one for later", "bookmark it")
+    if has("save this", "save it", "save the job", "save for later", "save this one",
+           "bookmark", "add to saved", "add to my saved"):
+        return IntentResult("save", 0.9)
+
     # refresh / reload a section ("refresh my matches", "reload matches", "update my
     # jobs") — an explicit refresh verb navigates there and refreshes it. It must NOT be
     # read as the "walk through my matches" playbook (the grand tour the user did not
@@ -356,6 +364,120 @@ def _llm_classify(text: str, context: dict, llm) -> Optional[IntentResult]:
         return None
 
 
+# ---- suggestible commands --------------------------------------------------
+# Canonical example commands the assistant can offer, each tagged with the screens
+# it's useful on ("*" = everywhere). Every one is VERIFIED to parse (see
+# ``_verified`` / ``suggest_commands``), so the assistant only ever suggests wording
+# it can actually understand and act on — the point of "suggest wording it can
+# understand as well".
+_SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
+    # global — always safe to offer
+    ("What can I do?", ("*",)),
+    ("Give me a status report", ("*",)),
+    ("What's new since last time?", ("*",)),
+    ("Check my microphone", ("*",)),
+    ("Check my audio", ("*",)),
+    ("Talk slower", ("*",)),
+    # matches
+    ("Refresh my matches", ("matches",)),
+    ("Which jobs fit?", ("matches",)),
+    ("Walk me through my matches", ("matches",)),
+    ("Apply to this job", ("matches", "job")),
+    ("Tailor my résumé to this job", ("matches", "job")),
+    ("Save this one for later", ("matches", "job")),
+    # documents
+    ("Open my documents", ("documents", "dashboard")),
+    ("Tailor my résumé", ("documents",)),
+    ("Make bullets from my work", ("documents",)),
+    ("Change the design", ("documents",)),
+    ("Improve my résumé", ("documents",)),
+    # getting around
+    ("Take me to my matches", ("documents", "dashboard", "interview", "inbox")),
+    ("Set up auto apply", ("dashboard", "auto_apply")),
+    ("Connect my email", ("dashboard", "connect")),
+    ("Practice an interview", ("dashboard", "interview")),
+]
+
+
+def _as_dict(text: str, r: IntentResult) -> dict[str, Any]:
+    return {"text": text, "intent": r.intent, "slots": dict(r.slots)}
+
+
+def _verified(text: str, context: dict) -> Optional[IntentResult]:
+    """Parse *text* and return the result only if it maps to a real, actionable
+    command (not ``unknown``/``ask``) — the guarantee behind every suggestion."""
+    r = _deterministic(_norm(text), context or {})
+    return r if r.intent not in ("unknown", "ask") else None
+
+
+def _screen(context: Optional[dict]) -> str:
+    context = context or {}
+    scr = str(context.get("section") or context.get("page") or "").lower()
+    if context.get("job_id") and "job" not in scr:
+        scr = f"{scr} job".strip()
+    return scr
+
+
+def _relevant(tags: tuple[str, ...], screen: str) -> bool:
+    if "*" in tags:
+        return True
+    return bool(screen) and any(t and (t in screen or screen.startswith(t)) for t in tags)
+
+
+def suggest_commands(context: Optional[dict] = None, *, limit: int = 6) -> list[dict[str, Any]]:
+    """Example commands to offer on the current screen — screen-specific first, then
+    a couple of global ones. Every returned item is verified wording the NLU
+    understands, so the assistant can safely say "try: …"."""
+    context = context or {}
+    screen = _screen(context)
+    specific: list[dict[str, Any]] = []
+    general: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for text, tags in _SUGGESTIONS:
+        if text.lower() in seen:
+            continue
+        is_specific = "*" not in tags and _relevant(tags, screen)
+        is_global = "*" in tags
+        if not (is_specific or is_global):
+            continue
+        r = _verified(text, context)
+        if r is None:
+            continue
+        seen.add(text.lower())
+        (specific if is_specific else general).append(_as_dict(text, r))
+    return (specific + general)[:limit]
+
+
+def nearest_commands(
+    transcript: str, context: Optional[dict] = None, *, limit: int = 3
+) -> list[dict[str, Any]]:
+    """For an utterance that wasn't understood, the closest wordings that WOULD be —
+    ranked by similarity to what the user said — so the assistant can offer a
+    "did you mean…" instead of failing."""
+    context = context or {}
+    raw = _norm(transcript)
+    if not raw:
+        return suggest_commands(context, limit=limit)
+    screen = _screen(context)
+    scored: list[tuple[float, dict[str, Any]]] = []
+    seen: set[str] = set()
+    for text, tags in _SUGGESTIONS:
+        if text.lower() in seen:
+            continue
+        r = _verified(text, context)
+        if r is None:
+            continue
+        seen.add(text.lower())
+        cand = _norm(text)
+        sim = max(_token_overlap(raw, cand),
+                  difflib.SequenceMatcher(None, raw, cand).ratio())
+        if _relevant(tags, screen):
+            sim += 0.15  # prefer on-screen commands on a tie
+        scored.append((sim, _as_dict(text, r)))
+    scored.sort(key=lambda s: s[0], reverse=True)
+    return [d for _, d in scored[:limit]]
+
+
 # ---- public API ------------------------------------------------------------
 
 def interpret(
@@ -384,6 +506,11 @@ def interpret(
         if result.confidence < threshold and result.intent in ("unknown",):
             if len(text.split()) >= 2:
                 result = IntentResult("ask", 0.5, {"query": raw})
+
+    # When we couldn't pin a concrete command, offer the nearest wordings we DO
+    # understand, so the assistant suggests phrasing it can act on instead of a dead end.
+    if result.intent in ("unknown", "ask"):
+        result.suggestions = nearest_commands(raw, context)
 
     result.utterance = raw
     return result

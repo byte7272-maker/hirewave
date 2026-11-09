@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AutofillRequest,
     AutomationActionOut,
+    CommandSuggestion,
     ConsentOut,
     ConsentUpdate,
     ExecuteFillRequest,
@@ -18,9 +19,11 @@ from jobsearch.api.schemas import (
     LiveFillResultOut,
     PrepareDraftsOut,
     PrepareDraftsRequest,
+    SuggestionsOut,
 )
 from jobsearch.engines.assistant import FormField, build_browser_driver, demo_application_form
 from jobsearch.engines.assistant.intent import interpret as interpret_intent
+from jobsearch.engines.assistant.intent import suggest_commands
 from jobsearch.models import AUTOMATION_SCOPES, UserProfile
 
 router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
@@ -56,7 +59,24 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         intent=res.intent, confidence=res.confidence, slots=res.slots,
         reply=res.reply, needs_disambiguation=res.needs_disambiguation,
         utterance=res.utterance,
+        suggestions=[CommandSuggestion(**s) for s in res.suggestions],
     )
+
+
+@router.get("/suggestions", response_model=SuggestionsOut)
+def suggestions(
+    user: CurrentUser,
+    section: str = Query("", description="the screen the user is on, e.g. 'matches'"),
+    job_id: str = Query("", description="a focused job, to offer job-level commands"),
+    limit: int = Query(6, ge=1, le=12),
+) -> SuggestionsOut:
+    """Example commands to offer on the current screen — every one is wording the
+    assistant is guaranteed to understand and act on (verified against the same NLU
+    that `/interpret` uses). The assistant uses these to teach the user what to say,
+    and to recover when it didn't catch something."""
+    ctx = {"section": section, "job_id": job_id}
+    items = suggest_commands(ctx, limit=limit)
+    return SuggestionsOut(suggestions=[CommandSuggestion(**s) for s in items])
 
 
 @router.get("/actions", response_model=list[AutomationActionOut])

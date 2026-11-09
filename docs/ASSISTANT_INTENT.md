@@ -65,8 +65,23 @@ Map to the P121 command set, the P115 playbooks, the app sections, and the bulle
 | `discard_bullet` | `option_id`, `index` | drop a suggestion |
 | `change_voice` | `voice` (id or name, matched to `/narration/voices`) | "use the warm voice / switch to Coral" |
 | `set_rate` | `rate` (0.5–2.0) or `direction` (`faster`/`slower`) | speed control |
+| `save` | — | "save this one for later" / "bookmark it" → `POST /jobs/saved` for the focused job |
 | `ask` | `query` (verbatim) | free-form request to pass to the AI (e.g. "write a cover letter") |
 | `unknown` | — | couldn't classify (triggers re-offer + buttons) |
+
+Also added since: a **refresh/reload verb + a section** → `navigate` with `slots.refresh=true`
+(so "refresh my matches" refreshes, and is **not** read as the `walk_matches` grand tour).
+
+## Suggestions — wording the assistant can understand
+Two helpers teach/recover phrasing, both drawn from the **same** NLU so a suggestion is always a
+command that parses:
+- **`GET /api/v1/assistant/suggestions?section=<screen>&job_id=<id>&limit=`** → `SuggestionsOut
+  { suggestions: [{text,intent,slots}] }` — screen-specific examples first, then global. Chips the
+  UI shows as "Try saying…"; tapping one runs its `text` through `/interpret`.
+- **`InterpretResponse.suggestions`** → populated only on a miss (`unknown`/`ask`): the nearest
+  wordings the NLU *would* understand, for a "Did you mean…" recovery. Empty on a confident match.
+Every suggestion is verified via the deterministic matcher before it's returned (dead examples are
+dropped), so the assistant never suggests wording it can't act on.
 
 ## Resolution rules
 - **"that / this / it / that one"** → resolve against `context.focused_index`, else the single

@@ -80,6 +80,48 @@ def test_start_playbook():
     assert interpret("walk through my matches").slots["playbook"] == "walk_matches"
 
 
+def test_every_suggested_command_is_understood():
+    # The promise behind suggestions: anything the assistant offers, it can parse.
+    from jobsearch.engines.assistant.intent import _SUGGESTIONS, suggest_commands
+    for screen in ("matches", "documents", "dashboard", "", "job"):
+        for s in suggest_commands({"section": screen}, limit=12):
+            r = interpret(s["text"])
+            assert r.intent not in ("unknown", "ask"), (screen, s["text"], r.intent)
+            assert r.intent == s["intent"]
+    # the catalog itself is all parseable (no dead examples ship)
+    for text, _tags in _SUGGESTIONS:
+        assert interpret(text).intent not in ("unknown", "ask"), text
+
+
+def test_suggestions_are_screen_aware():
+    from jobsearch.engines.assistant.intent import suggest_commands
+    on_matches = [s["text"].lower() for s in suggest_commands({"section": "matches"}, limit=12)]
+    assert any("matches" in t for t in on_matches)
+    on_docs = [s["text"].lower() for s in suggest_commands({"section": "documents"}, limit=12)]
+    assert any("résumé" in t or "resume" in t or "bullets" in t for t in on_docs)
+
+
+def test_unknown_utterance_suggests_nearest_understood_wording():
+    # A garbled utterance should come back with "did you mean…" wording that parses.
+    r = interpret("the matches whatchamacallit thingy", context={"page": "matches"})
+    assert r.intent in ("unknown", "ask")
+    assert r.suggestions, "an unclear utterance should offer suggestions"
+    for s in r.suggestions:
+        assert interpret(s["text"]).intent not in ("unknown", "ask")
+    # on the matches screen, the nearest wording should surface a matches command
+    assert any("match" in s["text"].lower() for s in r.suggestions)
+
+
+def test_save_this_job_is_a_command():
+    assert interpret("save this one for later").intent == "save"
+    assert interpret("bookmark it").intent == "save"
+
+
+def test_clear_command_has_no_suggestions_noise():
+    r = interpret("take me to my matches")
+    assert r.intent == "navigate" and not r.suggestions  # understood → no "did you mean"
+
+
 def test_refresh_matches_navigates_not_grand_tour():
     # "refresh my matches" must NOT start the walk_matches playbook (grand tour) —
     # it token-overlaps "review my matches". An explicit refresh verb navigates there.
@@ -210,3 +252,28 @@ def test_interpret_requires_auth():
     client = _client()
     r = client.post("/api/v1/assistant/interpret", json={"transcript": "stop"})
     assert r.status_code in (401, 403)
+
+
+def test_suggestions_endpoint_returns_screen_commands():
+    client = _client()
+    h = _auth(client, email="sug@demo.com")
+    r = client.get("/api/v1/assistant/suggestions", headers=h, params={"section": "matches"})
+    assert r.status_code == 200, r.text
+    sugg = r.json()["suggestions"]
+    assert sugg, "the matches screen should have suggestions"
+    assert any("match" in s["text"].lower() for s in sugg)
+    # the guarantee: every suggested command round-trips through /interpret as a command
+    for s in sugg[:4]:
+        ri = client.post("/api/v1/assistant/interpret", headers=h,
+                         json={"transcript": s["text"]}).json()
+        assert ri["intent"] not in ("unknown", "ask")
+
+
+def test_interpret_endpoint_offers_suggestions_on_a_miss():
+    client = _client()
+    h = _auth(client, email="sug2@demo.com")
+    r = client.post("/api/v1/assistant/interpret", headers=h, json={
+        "transcript": "the matches whatchamacallit thingy", "context": {"page": "matches"}})
+    body = r.json()
+    assert body["suggestions"], "a miss should come back with wording it understands"
+    assert all("text" in s and "intent" in s for s in body["suggestions"])

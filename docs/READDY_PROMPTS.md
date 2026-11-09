@@ -4911,3 +4911,54 @@ Opening a cover letter (including one **uploaded as a PDF**) renders the **curre
 
 ### Acceptance
 On Documents there is **no separate upload section below the marquee**. Uploading a brand-new résumé or cover letter, and downloading an existing document (Original + Working copy), are both done **from the marquee** and work end-to-end. Generating a tailored cover letter is still available as a compact action. The page is visibly shorter/less cluttered, with no empty gap, leftover heading, or dead dropzone where the removed section was. No backend change.
+
+## P146 — Proactive matches follow-up: the assistant summarizes and offers the next step, it never just lands silently
+
+**Backend ready — a new grounded endpoint ships for this (see below).** Today, when the assistant navigates to **Matches** it drops the user on the page and goes quiet. It must instead **immediately brief and offer to act**, out loud with the moving caption + output wave so a muted user can read it (P138), taking turns and confirming before it does anything (P114/P121).
+
+### Behavior — right after landing on Matches
+1. **Auto-summarize (no extra tap).** From `GET /api/v1/jobs/matches` (the page already loads it): say **how many matches** there are, **how many are new since the last run**, **how many are favored/saved**, and the **top few by score** (title · company · score). "New since last run" = diff the current match `job_id`s against the set last seen, persisted in `localStorage` (`hw_last_matches_seen` → {ids, ts}); update it after briefing. Favored = `GET /api/v1/jobs/saved`. Example: *"You've got 45 matches — 6 new since last time, 3 you've saved. Your strongest right now is Staff Frontend Engineer at Vercel at 91."*
+2. **Then ask what they want to do** (turn-taking): tailor to one, apply to one, or look closer. Don't auto-run anything — confirm first (P114).
+3. **For a specific job, give a real fit brief.** Call **`GET /api/v1/jobs/{job_id}/fit-brief`** (NEW) and speak it: the **verdict + score**, **why it is / isn't a good fit** (`why_fits`, `gaps`), **what to tailor** (`what_to_tailor`), and **which résumé + cover-letter set to use** (`recommended_resume`, `recommended_cover_letter`; if there are multiple, name the options and why the top one wins). Everything in the brief is computed from the real match scoring and the user's own documents — speak it as given, don't invent.
+4. **Always offer to perform or walk the next step.** Use the brief's `next_steps[]` (each is a real action): **tailor** the recommended résumé (`POST /resumes/{id}/tailor`) or cover letter (`POST /cover-letters/{id}/tailor`), **apply** (start the Auto-apply / apply walkthrough), or **save** (`POST /jobs/saved`). Offer to either do it (on confirm) or walk them through it.
+5. **Friendly + muted-safe.** Warm language, no harsh words (the backend already softens the narrative); wave + real-time caption always on so the words are readable with sound off.
+6. **Generalize past matches.** After navigating to **any** section, give a one-line orient + the single most relevant offer (e.g. Documents → "Your résumé's at 50/100 — want me to run Auto-improve?"). Matches is just the richest case.
+
+### Backend (already implemented — no work for you)
+- **`GET /api/v1/jobs/{job_id}/fit-brief`** → `{ score, verdict, summary, narrative, why_fits[], gaps[], what_to_tailor[], recommended_resume{id,title,score}, recommended_cover_letter{id,title}, resume_options[], cover_letter_options[], next_steps[{action,label,resume_id?,cover_letter_id?}] }`. `action` ∈ `tailor_resume | tailor_cover_letter | apply | save`. 404 if the job isn't the user's.
+- Existing: `GET /api/v1/jobs/matches`, `GET /api/v1/jobs/saved`, `POST /resumes/{id}/tailor`, `POST /cover-letters/{id}/tailor`.
+
+### Acceptance
+Arriving at Matches (by voice, by typed command, or by nav), the assistant **speaks a summary within a moment** — count, new-since-last-run, saved, and the top matches — with the caption moving and the wave showing even when muted, then **asks what to do next**. Picking a job produces a spoken **fit brief** (why it fits, what to tailor, which résumé + cover-letter set to use) drawn from `/fit-brief`, and the assistant **offers to tailor / apply / save** and will do it on confirmation or walk the user through it. It never lands on Matches and says nothing. The same orient-and-offer pattern fires after navigating to other sections.
+
+## P147 — Voice capture must get the WHOLE sentence (stop cutting off mid-sentence)
+
+**Frontend. Backend already enabled.** The live-mic wave now shows (good), but transcription **truncated** — "bring me to my matches" came through as only "bring me to," forcing the user to type the rest. Root cause: the capture finalizes on the first short pause (browser `SpeechRecognition` interim/`onend`) instead of on the whole utterance.
+
+### Fix — capture the full press, transcribe server-side (P143)
+1. **Primary path: record → server transcribe.** While the mic button is held (or between start and the explicit **Stop**, per P138), record the **entire** utterance with `getUserMedia` + `MediaRecorder`, collecting all chunks. On release, POST the **complete** blob to **`POST /api/v1/narration/transcribe`** (now enabled server-side) and route the returned text to `POST /api/v1/assistant/interpret`. One clip in, one full transcript out — no mid-sentence cutoff.
+2. **Fallback path (`SpeechRecognition`, where no server STT): don't finalize on the first pause.** Set `continuous = true` and `interimResults = true`, **concatenate** segments, and only submit when the user releases / presses Stop, or after a **longer** end-of-speech silence (~1.2 s) — never on the first inter-word gap. Keep the latest interim visible so the user sees it building.
+3. **Visible states:** live mic meter while capturing → "Transcribing…" on release → text appears, then interpret. The Stop button (P138) ends capture and transcribes what was said so far.
+4. **Never lose words.** If the transcript is partial or empty, drop the captured text into the input so the user can **append by typing** (what they had to do) without re-recording.
+
+### Acceptance
+Holding the mic and saying a full sentence ("bring me to my matches") transcribes the **whole** sentence and routes it — no truncation at a mid-sentence pause. The live meter shows during capture, "Transcribing…" on release, and Stop ends and transcribes the captured audio. Partial results are recoverable by typing, never silently dropped.
+
+## P148 — The assistant suggests wording it can understand (and recovers a miss with "did you mean…")
+
+**Backend ready — a new endpoint ships for this.** The user shouldn't have to guess how to phrase things. The assistant should **teach the exact wording it understands**, and when it mishears, **offer the closest phrasing it can act on** instead of a dead end. Every suggestion is verified against the same NLU the assistant uses, so a suggested command is a promise it will work.
+
+### Behavior
+1. **Offer screen-aware example commands.** On each screen, call **`GET /api/v1/assistant/suggestions?section=<screen>&job_id=<focused job, if any>`** → `{ suggestions: [{ text, intent, slots }] }`. Show a few as tappable chips / "Try saying…" hints near the mic and the command box (e.g. on Matches: *"Refresh my matches", "Which jobs fit?", "Apply to this job"*; on Documents: *"Tailor my résumé", "Make bullets from my work", "Change the design"*). **Tapping a chip runs it exactly** (send its `text` through the normal interpret → action path), so chips double as buttons and as phrasing lessons.
+2. **Recover a miss with real wording.** `POST /api/v1/assistant/interpret` now returns a **`suggestions: [{text,intent,slots}]`** array whenever it couldn't pin a command (intent `unknown`/`ask`). When that happens, the assistant says it didn't quite catch that and offers those as **"Did you mean…"** options (spoken + on-screen), each tappable to run. Never answer a miss with only "I didn't understand."
+3. **Keep it honest.** Only ever suggest what comes back from these endpoints — never invent a command. If `suggestions` is empty, fall back to "What can I do?" (which lists options).
+4. **Quiet when understood.** When interpret returns a confident command, `suggestions` is empty — don't show "did you mean" noise; just do the thing (after the P114 confirm for actions).
+5. **Voice + muted-safe (P138).** Speak the offer and show the chips with the moving caption, so a muted user can read and tap them.
+
+### Backend (already implemented — no work for you)
+- **`GET /api/v1/assistant/suggestions`** (query: `section`, `job_id`, `limit`) → `SuggestionsOut { suggestions: [{text,intent,slots}] }`, screen-specific first then global. Every item is verified to parse.
+- **`POST /api/v1/assistant/interpret`** now also returns `suggestions: [{text,intent,slots}]` — populated only on a miss (unknown/ask).
+- New understood command **`save`** ("save this one for later", "bookmark it") → map to `POST /api/v1/jobs/saved` for the focused job.
+
+### Acceptance
+Each screen shows a few **"Try saying…"** commands pulled from `/assistant/suggestions`, and **tapping one runs it**. When the assistant doesn't understand an utterance, it offers **"Did you mean…"** options from the interpret response's `suggestions`, each of which **actually works** when chosen — no dead ends. Confident commands show no suggestion noise. Suggestions are only ever real, parseable wording (never invented), and everything is spoken with a readable caption for muted users.
