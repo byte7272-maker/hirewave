@@ -57,10 +57,13 @@ Legend: **Intent** = what `/interpret` returns · **Action** = what the frontend
 | "yes / no / do it / go" | `confirm` / `decline` | answer a P114 prompt |
 | "what can I do / read my options" | `read_options` | read the action groups |
 
-## 6. Hardware / connectivity (P130 — core to a voice app)
+## 6. Hardware / connectivity (P130/P131 — core to a voice app)
 | Say | Intent | Action |
 |---|---|---|
-| "check if my microphone is connected", "is my mic working", "test my microphone", "you can't hear me", "troubleshoot my mic", "check my audio" | `check_mic` | run the **mic connectivity troubleshooting guide** (P130): permission state, device present, live level test, fix steps |
+| "check if my microphone is connected", "is my mic working", "test my microphone", "you can't hear me", "troubleshoot my mic" | `check_mic` | **microphone** part of the hardware check (P130): permission, device, live level test, fix steps |
+| "check my audio", "test my speakers", "hardware check", "sound check", "I can't hear you", "there's no sound" | `check_audio` | **full hardware check** (P131): speakers/output test **and** the mic test, with connect + test + fix for each |
+
+> **Mic vs speakers split:** "*you* can't hear me" → `check_mic` (input); "*I* can't hear you / no sound" → `check_audio` (output). A general "hardware/sound/audio check" or any speaker mention runs the full both-devices guide.
 
 ## 7. Free-form fallback
 Anything not classified → `ask` (verbatim `query`). The frontend decides: an **edit request** on the open document (→ `/ai-edit`), or **guidance** (P101). Low confidence / ambiguity → `needs_disambiguation` with on-screen options. The LLM backstop (when a premium provider is configured) classifies free-form into this same taxonomy.

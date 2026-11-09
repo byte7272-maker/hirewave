@@ -25,7 +25,7 @@ INTENTS = {
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
-    "check_mic", "status_report", "whats_new", "resume_task",
+    "check_mic", "check_audio", "status_report", "whats_new", "resume_task",
     "ask", "unknown",
 }
 
@@ -90,6 +90,8 @@ class IntentResult:
 
 def _norm(text: str) -> str:
     text = (text or "").strip().lower()
+    # Drop apostrophes so contractions collapse ("can't" -> "cant"), not split.
+    text = text.replace("'", "").replace("’", "")
     text = _FILLER.sub(" ", text)
     text = re.sub(r"[^\w\s%$+./-]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
@@ -245,13 +247,23 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         if sec:
             return IntentResult("navigate", 0.9, {"section": sec})
 
-    # hardware / mic diagnostics ("check if my microphone is connected", "test my mic",
-    # "is my audio working") — triggers the connectivity troubleshooting guide.
-    if re.search(r"\b(mic|microphone|audio|headset|headphone|speaker)s?\b", t) and (
-        has("check", "test", "connect", "working", "work", "troubleshoot", "hear me",
-            "not hear", "can't hear", "cant hear", "detect", "set up", "setup", "problem",
-            "issue", "not working", "isn't working", "on or off", "enabled")
+    # --- audio hardware diagnostics (mic input + speaker output) --------------
+    # Triggers the connectivity troubleshooting guide. "you can't hear me" points at
+    # the mic; "I can't hear you / no sound" points at the speakers; a general
+    # "hardware/audio/sound check" or any speaker mention runs the full check.
+    _hw_verb = ("check", "test", "connect", "working", "work", "troubleshoot", "detect",
+                "set up", "setup", "problem", "issue", "not working", "isnt working",
+                "enabled", "on or off")
+    if has("cant hear me", "you cant hear", "you cannot hear", "not hearing me"):
+        return IntentResult("check_mic", 0.9)
+    if has("cant hear you", "i cant hear", "no sound", "nothing plays", "cant hear anything"):
+        return IntentResult("check_audio", 0.9)
+    if (re.search(r"\b(speakers?|sound|hardware)\b", t) and has(*_hw_verb)) or has(
+        "hardware check", "audio check", "sound check", "audio setup", "check my audio",
+        "test my audio", "test the audio", "check the audio"
     ):
+        return IntentResult("check_audio", 0.9)
+    if re.search(r"\b(mic|microphone|headset|headphone)s?\b", t) and has(*_hw_verb):
         return IntentResult("check_mic", 0.9)
 
     # status report / progress ("give me a status report", "how am I doing")
@@ -289,8 +301,8 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         t,
     ) or has("do it", "go ahead", "sounds good", "yes please"):
         return IntentResult("confirm", 0.9)
-    if re.fullmatch(r"(no|nope|nah|don't|do not|not now|no thanks|negative)", t) or has(
-        "no thanks", "not now", "don't do"
+    if re.fullmatch(r"(no|nope|nah|dont|do not|not now|no thanks|negative)", t) or has(
+        "no thanks", "not now", "dont do"
     ):
         return IntentResult("decline", 0.9)
 

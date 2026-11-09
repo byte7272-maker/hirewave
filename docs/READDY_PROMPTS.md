@@ -4563,3 +4563,32 @@ Because a user with a broken mic can't speak, the mic troubleshooting guide (§1
 
 ### Acceptance
 Saying (or tapping) "check my microphone / is my mic working / test my microphone" runs a **step-by-step connectivity guide** — browser support, permission state, device presence, and a **live capture test using the P127 meter** — reporting pass/fail with the specific fix per step and a Re-check, spoken and shown, and reachable as a **button** when the mic is unusable. The assistant routes **`status_report`→/dashboard/summary**, **`whats_new`→/activity**, **`resume_task`→resume**, and **every `navigate` intent to its screen** (so "take me to my résumé" opens Documents). All P114/P119/P123/P124/P127/P128 behavior is preserved.
+
+## P131 — Full hardware check: walk through connecting AND testing the microphone and the speakers
+
+**Frontend. Backend intents already shipped** — `/assistant/interpret` now returns **`check_audio`** (full both-devices check) alongside **`check_mic`** (mic only). This builds a complete **audio hardware check** — a voice app needs **output (speakers)** working, not just input. Extends the P130 mic guide. Reachable by voice *and* as a **"Hardware check"** button in the assistant's Voice & privacy panel (so it works when audio is broken).
+
+### Entry points
+- Voice/intent: `check_audio` ("check my audio / speakers / sound", "hardware check", "I can't hear you", "no sound") → **full check (speakers + mic)**; `check_mic` ("is my mic working", "you can't hear me") → **mic section** (still offer the speaker test). 
+- Button: **"Hardware check"** / "Test microphone & speakers".
+
+### A. Speakers / output test (do this first — the user needs to hear the guide)
+Walk it step by step, reporting each result:
+1. **Output device + volume:** note that sound plays through the browser/system; remind the user the **tab isn't muted**, system volume is up, and the right **output device** is selected. (The web can't read system volume, so guide, don't assert.)
+2. **Play a test sound:** play a short, pleasant **test tone** (WebAudio oscillator) or a spoken line — *"If you can hear this, your speakers are working. Did you hear it?"* — with **Yes / No** (and voice yes/no).
+3. **If "No":** step-by-step fixes — unmute the tab (speaker icon on the tab), raise system/app volume, switch output device (headphones vs speakers), check Bluetooth is connected, then **Replay**. Keep going until Yes or the user stops.
+4. **If "Yes":** ✓ "Speakers are working." Move to the mic.
+
+### B. Microphone / input test (P130)
+1. **Browser support** (`getUserMedia`/`SpeechRecognition`). 2. **Permission** (`permissions.query` → granted/prompt/denied; denied → P124 site-settings steps). 3. **Device present** (`enumerateDevices` audioinput). 4. **Live capture test:** `getUserMedia({audio:true})` + the **P127 meter** for ~3s — *"Say something"* — level moves → ✓ "I can hear you"; flat → "mic muted / wrong input — check system sound settings." 5. Tear down the stream (P111/P127).
+
+### C. Result + what to do
+Show a compact **checklist** (Speakers ✓/✗, Microphone ✓/✗) with the specific fix beside any ✗ and a **Re-check** per item and overall. On all-clear: *"You're all set — hold the mic and talk to me."* Narrate it (one voice, P119) **and** show it; keep each step short.
+
+### D. Always usable when audio is broken
+Everything is **visible text + buttons**, not audio-only — a user with dead speakers reads the guide; a user with a dead mic taps instead of speaking. The guide never depends on the very thing it's testing.
+
+### Acceptance
+"Check my audio / hardware check / test my speakers" (or the button) runs a **full hardware check**: a **speakers/output test** (play a test tone/voice → "did you hear it?" → targeted fixes + replay) **then** the **microphone test** (support → permission → device → live meter capture), each reported ✓/✗ with the specific fix and a Re-check. "You can't hear me" runs the mic section; "I can't hear you / no sound" runs the speaker section. The whole guide is **readable and button-driven** (works with broken audio), spoken where possible (P119), and ties into P123/P124/P127/P128. 
+
+> Note: the web can't read or change **system** volume/mute or force an output device — the speaker guide **instructs** the user through those OS-level steps and verifies by playback ("did you hear it?"), which is the correct and only reliable check.
