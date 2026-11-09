@@ -41,6 +41,16 @@ Legend: **Intent** = what `/interpret` returns · **Action** = what the frontend
 | "make my summary punchier" (free-form) | `ask` query | AI edit on the open doc | `/{…}/ai-edit`, `/improve-structured` |
 | "why that change / why does it fit?" | `ask` / `suggest_bullets` | explain reasoning (rationale/gap/fit) | (in context) |
 
+## 3a. Advice — grounded in the document AND the user's dumped info (FULLY SUPPORTED)
+The assistant gives real, specific advice from three live sources — confirmed end-to-end 2026-11-09:
+| Source | What it gives | Endpoint(s) |
+|---|---|---|
+| **The résumé** | score, strengths, issues, and **exact before→after rewrites** with rationale | `/resumes/{id}/review`, `/resumes/{id}/suggest-edits` |
+| **The cover letter** | fit score, what's addressed vs missing, concrete tailoring changes | `/cover-letters/{id}/review`, `/cover-letters/{id}/tailor` |
+| **A user's data dump** (notes / brag doc / pasted work) → **My Work Highlights** | extracts clean résumé-worthy **data points**, **synthesizes** them into themed concepts, then suggests bullets to add | `/resumes/{id}/evidence/extract` (`{text}`), `/evidence/synthesize` (`{text}`), `/highlights/suggest`, `/match-bullets`, `/incorporate` |
+
+**My Work Highlights = a fully-supported, first-class feature.** Triggers ("my work highlights", "turn this into bullets", "build bullets from my notes") → `start_playbook/bullets` (confirmed). The assistant: invites the dump → extracts/synthesizes (narrating the state, P122) → recommends bullets with reasoning → applies chosen ones (`/apply-edits`→`/versions`) with confirm + Undo. It should appear wherever the app lists supported features (e.g. onboarding "things this app does"), not be buried.
+
 ## 4. Status, continuity & what's new (P126)
 | Say | Intent | Action | Endpoint |
 |---|---|---|---|

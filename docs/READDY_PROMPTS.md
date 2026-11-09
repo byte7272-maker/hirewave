@@ -4726,6 +4726,25 @@ Natural connectors ("Okay—", "Alright,", "Got it,", "Let's—"), the user's fi
 
 ### Acceptance
 The assistant defaults to a **warm neural voice** at a **natural ~0.95× rate**, and its **spoken + captioned wording is conversational and warm** across greeting, options, confirmations, recommendations, applying, errors, mic guidance and closings (per the rewrite table) — contractions, first person, short friendly sentences, light encouragement — while still stating what each action does and keeping the P114 confirm. Users can still pick any voice/rate. No change to behavior, confirms, or privacy (P111/P112/P119 preserved).
+
+## P137 — Assistant advice from the document AND a data dump; feature "My Work Highlights" as fully supported
+
+**Frontend. No backend change** — all sources are live (confirmed 2026-11-09). Make explicit that the assistant advises from the résumé/cover letter **and** anything the user dumps, and promote **My Work Highlights** to a first-class, listed feature.
+
+### 1. Advice grounded in three live sources
+When asked "what should I improve / review this / help me," the assistant pulls real advice from:
+- **The résumé** — `POST /resumes/{id}/review` (score, strengths, issues) + `POST /resumes/{id}/suggest-edits` (exact **before→after** rewrites + rationale).
+- **The cover letter** — `POST /cover-letters/{id}/review` + `POST /cover-letters/{id}/tailor` (fit, addressed vs missing, concrete changes).
+- **The user's dumped info** — paste notes / a brag doc / raw work → `POST /resumes/{id}/evidence/extract { text }` (clean data points) → `POST /resumes/{id}/evidence/synthesize { text }` (themed concepts) → suggest bullets. *(Verified: a dump produced points like "Reduced Sev1 incidents from ~12/month to 3" and themes like "Incident Reduction & Reliability.")*
+It presents concrete advice (the exact change, the reason), not generic tips, and offers to apply it (P135).
+
+### 2. My Work Highlights = a fully-supported, listed feature
+- **Surface it as a first-class feature**, not a buried tab: add it to wherever the app lists what it does (the onboarding "things this app does" callout, the features list, the assistant's "what can I do" options). 
+- The assistant **invokes it by name**: "my work highlights / turn this into bullets / build bullets from my notes" → the workshop (P122). It invites the dump, narrates extract→synthesize→suggest, recommends bullets with reasoning, and applies chosen ones (`/apply-edits`→`/versions`) with confirm + Undo.
+- Make its value one line: *"Paste your notes or accomplishments and I'll turn them into strong, tailored résumé bullets."*
+
+### Acceptance
+Asked for advice, the assistant gives **specific, grounded** recommendations from the **résumé** (`review`/`suggest-edits`), the **cover letter** (`review`/`tailor`), **and** a **user's pasted data dump** (`evidence/extract`→`synthesize`→bullets), each with the concrete change + reason and an offer to apply (P135). **My Work Highlights is presented as a fully-supported feature** in the app's feature list and the assistant's capabilities, invoked by its name/phrases, running the full dump→points→themes→bullets workshop. No backend change; all P122/P135 behavior preserved.
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
