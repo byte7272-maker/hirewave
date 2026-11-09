@@ -1221,6 +1221,12 @@ def update_resume(
     return ensure_resume_grade(state, state.resumes.add(resume))
 
 
+#: Bump when the review wording/logic changes (e.g. friendlier framing). It is mixed
+#: into the narrative cache key so a logic change invalidates stale cached narratives
+#: — otherwise an unchanged résumé keeps serving a summary written by the old reviewer.
+_REVIEW_CACHE_VERSION = "2-friendly"
+
+
 @router.post("/resumes/{resume_id}/review", response_model=ResumeReview)
 def review_resume(
     resume_id: str, body: ResumeReviewRequest, user: CurrentUser, state: StateDep,
@@ -1238,7 +1244,9 @@ def review_resume(
     so no LLM call is made."""
     resume = get_resume(resume_id, user, state)
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    cache_key = hashlib.sha256((resume.rendered_text or "").encode("utf-8")).hexdigest()
+    cache_key = hashlib.sha256(
+        ((resume.rendered_text or "") + "\x00" + _REVIEW_CACHE_VERSION).encode("utf-8")
+    ).hexdigest()
 
     # Cache hit: unchanged résumé, no target job, narrative wanted, and we have it
     # cached -> deterministic review (no LLM) with the cached narrative injected.
