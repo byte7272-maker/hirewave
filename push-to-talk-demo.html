@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Push-to-Talk Reference</title>
+<style>
+  :root{--bg:#0f1420;--card:#19202e;--fg:#e8edf5;--muted:#9fb0c6;--ok:#22c55e;--bad:#ef4444;--accent:#3b82f6;--line:#2a3446;--red:#ef4444;--green:#22c55e;}
+  @media (prefers-color-scheme:light){:root{--bg:#f4f6fb;--card:#fff;--fg:#121824;--muted:#5a6a82;--line:#e3e8f0;}}
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);padding:24px}
+  .wrap{max-width:720px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin:14px 0}
+  .ptt{position:relative;width:100%;height:120px;border:0;border-radius:16px;color:#fff;font:600 18px system-ui;cursor:pointer;background:var(--green);overflow:hidden;user-select:none;touch-action:none}
+  .ptt.live{background:var(--red)}
+  .ptt .label{position:relative;z-index:2}
+  .ptt canvas{position:absolute;inset:0;width:100%;height:100%;z-index:1;opacity:.55}
+  .lvl{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;margin-top:8px;text-align:center}
+  .cap{min-height:52px;font-size:18px;margin-top:8px;padding:12px;border-radius:10px;background:rgba(127,127,127,.08)}
+  .cap .interim{color:var(--muted)}
+  .state{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;margin-left:8px}
+  .state.idle{background:rgba(159,176,198,.18);color:var(--muted)}
+  .state.listening{background:rgba(34,197,94,.16);color:var(--ok)}
+  .state.error{background:rgba(239,68,68,.16);color:var(--bad)}
+  .log{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--muted);white-space:pre-wrap;max-height:200px;overflow:auto}
+  .fix{font-size:13.5px;background:rgba(239,68,68,.08);border-left:3px solid var(--bad);padding:10px;border-radius:0 8px 8px 0;margin-top:10px;display:none}
+  kbd{background:rgba(127,127,127,.2);padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Push-to-Talk — working reference <span id="state" class="state idle">idle</span></h1>
+  <p class="sub">Open <b>in Microsoft Edge</b>. <b>Press and hold</b> the button (or hold <kbd>Space</kbd>) and speak — you'll see a live mic meter inside the button and your words transcribed below. This is the exact input path the app needs to mirror: <code>getUserMedia → createMediaStreamSource → AnalyserNode</code> for the meter, + <code>SpeechRecognition</code> for the words. Nothing is uploaded.</p>
+
+  <div class="card">
+    <button id="ptt" class="ptt"><span class="label">Hold to talk</span><canvas id="wave"></canvas></button>
+    <div class="lvl" id="lvl">mic level: —</div>
+    <div class="cap" id="cap"><span class="muted" style="color:var(--muted)">Your words will appear here…</span></div>
+    <div class="fix" id="fix"></div>
+  </div>
+
+  <div class="card">
+    <div style="font-weight:600;margin-bottom:6px">Step log</div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const btn=$('ptt'), cv=$('wave'), ctx2d=cv.getContext('2d');
+let stream=null, ac=null, analyser=null, raf=null, rec=null, finalText='', active=false;
+function log(...a){ $('log').textContent += a.join(' ')+'\n'; $('log').scrollTop=1e9; }
+function setState(s){ $('state').className='state '+s; $('state').textContent=s; }
+function showFix(msg){ $('fix').style.display='block'; $('fix').textContent=msg; }
+function clearFix(){ $('fix').style.display='none'; }
+
+function resize(){ cv.width=btn.clientWidth; cv.height=btn.clientHeight; }
+addEventListener('resize',resize); resize();
+
+function draw(){
+  if(!analyser){return;}
+  const buf=new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(buf);
+  let max=0; for(let i=0;i<buf.length;i++){const d=Math.abs(buf[i]-128)/128; if(d>max)max=d;}
+  $('lvl').textContent='mic level: '+(max*100).toFixed(0)+'%'+(max<0.01?'  (silent — speak up / check device)':'');
+  ctx2d.clearRect(0,0,cv.width,cv.height);
+  ctx2d.lineWidth=3; ctx2d.strokeStyle='rgba(255,255,255,.9)'; ctx2d.beginPath();
+  const slice=cv.width/buf.length;
+  for(let i=0;i<buf.length;i++){ const y=(buf[i]/255)*cv.height; const x=i*slice; i?ctx2d.lineTo(x,y):ctx2d.moveTo(x,y); }
+  ctx2d.stroke();
+  raf=requestAnimationFrame(draw);
+}
+
+async function start(){
+  if(active) return; active=true; clearFix(); finalText='';
+  btn.classList.add('live'); btn.querySelector('.label').textContent='Listening… (release to send)';
+  setState('listening'); $('cap').innerHTML='<span class="interim">…</span>';
+  // 1) getUserMedia — the live meter source (THE missing input indicator)
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    log('✅ getUserMedia OK — track:', stream.getAudioTracks()[0].label);
+  }catch(e){
+    log('❌ getUserMedia failed:', e.name);
+    setState('error'); btn.classList.remove('live'); btn.querySelector('.label').textContent='Hold to talk'; active=false;
+    if(e.name==='NotAllowedError') showFix('Microphone blocked. Edge: padlock in the address bar → Permissions for this site → Microphone = Allow → reload. Also Windows: Settings → Privacy & security → Microphone → let desktop apps / Edge access it.');
+    else if(e.name==='NotFoundError') showFix('No microphone found — plug one in / check Sound settings.');
+    else showFix('Mic error: '+e.name);
+    return;
+  }
+  ac=ac||new (window.AudioContext||window.webkitAudioContext)();
+  if(ac.state==='suspended') await ac.resume();
+  analyser=ac.createAnalyser(); analyser.fftSize=1024;
+  ac.createMediaStreamSource(stream).connect(analyser);   // ← identical to the output wave, mic source
+  draw();
+  // 2) SpeechRecognition — the transcript
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ log('⚠️ No SpeechRecognition (needs Chrome/Edge/Safari) — meter still works; type instead.'); showFix('Voice typing needs Chrome, Edge, or Safari. The mic meter works; type your request instead.'); return; }
+  rec=new SR(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=true;
+  rec.onstart=()=>log('🎤 recognition started');
+  rec.onresult=e=>{ let interim=''; for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript; if(e.results[i].isFinal) finalText+=t; else interim+=t; } $('cap').innerHTML=(finalText? '<b>'+finalText+'</b> ':'')+'<span class="interim">'+interim+'</span>'; };
+  rec.onerror=e=>{ log('❌ recognition error:', e.error); if(e.error==='network'){ showFix('Speech service error (network). The mic is working (see the meter) — try again, or type.'); } else if(e.error==='no-speech'){ showFix("Didn't catch any speech — hold and speak again."); } };
+  rec.onend=()=>log('⏹️ recognition ended');
+  try{ rec.start(); }catch(e){ log('recognition start error:', e.message); }
+}
+
+function stop(){
+  if(!active) return; active=false;
+  btn.classList.remove('live'); btn.querySelector('.label').textContent='Hold to talk'; setState('idle');
+  if(rec){ try{rec.stop();}catch(e){} rec=null; }
+  if(raf){cancelAnimationFrame(raf);raf=null;}
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }   // muted between interactions
+  analyser=null; ctx2d.clearRect(0,0,cv.width,cv.height); $('lvl').textContent='mic level: —';
+  const said=finalText.trim();
+  if(said){ $('cap').innerHTML='<b>'+said+'</b>'; log('📝 FINAL TRANSCRIPT → '+said+'   (this is what gets sent to /assistant/interpret)'); }
+  else if($('state').className.indexOf('error')<0){ log('(no transcript captured)'); }
+}
+
+btn.addEventListener('pointerdown',e=>{e.preventDefault();start();});
+['pointerup','pointerleave','pointercancel'].forEach(ev=>btn.addEventListener(ev,stop));
+addEventListener('keydown',e=>{ if(e.code==='Space'&&!e.repeat){e.preventDefault();start();} });
+addEventListener('keyup',e=>{ if(e.code==='Space'){e.preventDefault();stop();} });
+log('Ready. Hold the button (or Space) and speak.');
+</script>
+</body>
+</html>
