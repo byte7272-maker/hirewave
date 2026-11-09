@@ -4696,6 +4696,36 @@ Proactive but not pushy: one summary, collapsible, remembered when dismissed (P1
 
 ### Acceptance
 On analyzing a document the assistant **summarizes the issues and, for each, proposes the exact wording change** (before → after with a one-line why, from `suggest-edits`/`review`/`tailor`) — not just the problem. Each proposed change is **staged and ready to apply on the user's behalf** via Apply / Apply all (→ `apply-edits`/`revise`/`improve-structured` → `versions`, undoable), executed only on an explicit yes (P114). Where a gap needs new evidence, it **invokes the bullet-making workshop** (P122) with the gap as context and **recommends the next step**. Benefit-led, non-nagging, re-evaluated after edits, spoken+captioned, voice- or click-driven. All P104/P114/P118/P119/P122/P129 behavior is preserved.
+
+## P136 — A genuinely friendly assistant voice: warm preset + natural rate + a conversational script rewrite
+
+**Frontend. No backend change** — refines the voice (P119) with a warmer default and, more importantly, **rewrites the assistant's wording** so it *sounds* friendly, not formal. Three levers; the wording matters most.
+
+### 1. Warm default voice + natural pace
+- Default the assistant to the **warmest server neural voice** — audition **`coral`** (warm, upbeat) and **`shimmer`** (bright, friendly) from `GET /api/v1/narration/voices` and set the friendlier one as the default (keep the full picker, P112/P122). 
+- **Rate ~0.95×** (P112 slider default) — a hair slower than 1.0 reads as warm and unhurried, not clipped.
+
+### 2. Rewrite the assistant's lines to a friendly, conversational voice (the real change)
+Apply a **"voice & tone"** style to ALL assistant copy (spoken and the matching captions): **contractions, first person, short sentences, warmth, light encouragement, plainlanguage** — like a helpful friend, never a manual or a robot. Be concise; warmth, not filler; never saccharine. Concrete rewrites of the recurring lines:
+
+| Where | Before (formal) | After (friendly) |
+|---|---|---|
+| Greeting | "What would you like to get done today?" | "Hey — good to see you. What are we working on?" |
+| Offer options | "Would you like a status report, to hear what's changed, or to resume?" | "Want a quick catch-up on what's new, or should we pick up where you left off?" |
+| Before an action | "Do you want me to create an auto-apply rule?" | "Happy to set that up for you — want me to go ahead? I won't send anything without your okay." |
+| Recommendation | "Suggestion: add a measurable result." | "One quick win — let's add a real number here so it pops. Want me to?" |
+| Applying | "Change applied. Version saved." | "Done! Saved that as a new version — easy to undo if you change your mind." |
+| Error / miss | "I did not understand that." | "Hmm, I didn't quite catch that — mind trying again, or type it to me?" |
+| Mic blocked | "Microphone blocked." | "Looks like your mic's switched off for this site — let's get it turned on, it's quick." |
+| Finishing | "Task complete." | "Nice — that's sorted. Want to tackle the cover letter next?" |
+
+Keep required specifics (what an action will do, the confirm) — just say them warmly. Captions show the same friendly text (P105).
+
+### 3. Small spoken warmth cues
+Natural connectors ("Okay—", "Alright,", "Got it,", "Let's—"), the user's first name occasionally when known, and brief acknowledgements ("good question," "nice work") — sparingly, so it stays genuine, not cloying. No baby-talk, no exclamation overload (one is plenty).
+
+### Acceptance
+The assistant defaults to a **warm neural voice** at a **natural ~0.95× rate**, and its **spoken + captioned wording is conversational and warm** across greeting, options, confirmations, recommendations, applying, errors, mic guidance and closings (per the rewrite table) — contractions, first person, short friendly sentences, light encouragement — while still stating what each action does and keeping the P114 confirm. Users can still pick any voice/rate. No change to behavior, confirms, or privacy (P111/P112/P119 preserved).
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
