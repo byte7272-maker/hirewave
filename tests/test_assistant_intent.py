@@ -80,6 +80,18 @@ def test_start_playbook():
     assert interpret("walk through my matches").slots["playbook"] == "walk_matches"
 
 
+def test_refresh_matches_navigates_not_grand_tour():
+    # "refresh my matches" must NOT start the walk_matches playbook (grand tour) —
+    # it token-overlaps "review my matches". An explicit refresh verb navigates there.
+    for phrase in ("refresh my matches", "reload matches", "refresh matches"):
+        r = interpret(phrase)
+        assert r.intent == "navigate", (phrase, r.intent)
+        assert r.slots["section"] == "matches"
+        assert r.slots.get("refresh") is True
+    # a plain "review my matches" still walks them
+    assert interpret("review my matches").slots["playbook"] == "walk_matches"
+
+
 def test_set_rate_direction_and_value():
     assert interpret("faster").slots == {"direction": "faster"}
     assert interpret("set the speed to 1.5").slots == {"rate": 1.5}

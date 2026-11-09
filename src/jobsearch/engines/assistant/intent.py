@@ -247,6 +247,15 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         if sec:
             return IntentResult("navigate", 0.9, {"section": sec})
 
+    # refresh / reload a section ("refresh my matches", "reload matches", "update my
+    # jobs") — an explicit refresh verb navigates there and refreshes it. It must NOT be
+    # read as the "walk through my matches" playbook (the grand tour the user did not
+    # ask for): "refresh my matches" token-overlaps "review my matches" otherwise.
+    if has("refresh", "reload", "re-load", "re-fresh") or re.search(r"\bupdate my\b", t):
+        sec = _match_section(t)
+        if sec:
+            return IntentResult("navigate", 0.9, {"section": sec, "refresh": True})
+
     # --- audio hardware diagnostics (mic input + speaker output) --------------
     # Triggers the connectivity troubleshooting guide. "you can't hear me" points at
     # the mic; "I can't hear you / no sound" points at the speakers; a general
