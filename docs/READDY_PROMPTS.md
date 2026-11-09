@@ -4388,3 +4388,28 @@ Label it for screen readers (`aria-label` reflecting the state) and announce cha
 
 ### Acceptance
 The assistant shows an **always-visible mic indicator** whose label/appearance match the live state — **not-enabled / off-hold-to-talk / listening / blocked / unavailable** — with ARIA. Press-and-hold **requests permission on first use**, listens only while held, and **stops the tracks on release**; a **denied permission shows the "blocked — enable in site settings" state with guidance** instead of failing silently; the indicator **updates on live permission changes**. Voice-confirm is only offered when the mic is ready (else buttons), and the assistant never blocks on an unavailable mic. All P111/P114 privacy (muted by default, no recording) is preserved.
+
+## P124 — Proactively detect the mic permission and tell the user exactly what to do
+
+**Frontend. Extends P123. No backend change.** P123 shows mic state when the user tries; this makes the assistant **detect the browser permission up front and tell the user if action is needed**, with specific steps — so they're never left guessing why it can't hear.
+
+### 1. Detect the permission state proactively (not only on hold-to-talk)
+- When the assistant opens (and whenever voice is relevant), **query the permission immediately** — `navigator.permissions.query({ name: "microphone" })` — and reflect `granted` / `denied` / `prompt` in the indicator (P123) **before** the user tries to talk. Also detect **no device** (`enumerateDevices` → no `audioinput`) and **unsupported** (`getUserMedia` / `SpeechRecognition` missing).
+- Subscribe to `permissionStatus.onchange` so the state (and the message below) updates **live** when the user allows/blocks it in the browser — no reload.
+- Where `permissions.query` isn't supported (older Safari), fall back to inferring from the last `getUserMedia` result and treat unknown as `prompt`.
+
+### 2. Tell the user if action is needed — with the specific action
+When the mic **isn't ready and voice would be used**, show a clear, calm **"action needed"** message (not a dead icon), matched to the state:
+- **`prompt` (never asked):** *"To talk to me, tap the mic and choose **Allow** when your browser asks."* (The tap triggers the P123 `getUserMedia` prompt.)
+- **`denied` / blocked:** *"Your microphone is blocked for this site. To turn it on: click the **padlock / site-info icon** in the address bar → **Site settings** → set **Microphone** to **Allow**, then reload."* Tailor the wording to the detected browser (Chrome/Edge: padlock → Site settings; Safari: **Safari → Settings for This Website → Microphone → Allow**, or the address-bar mic icon; Firefox: padlock → clear the blocked permission). Include a short **"How?"** expander with these steps and a **"Re-check"** button.
+- **No device:** *"I don't see a microphone connected. Plug one in, then tap Re-check."*
+- **Unsupported browser:** *"This browser can't do voice input — you can type to me instead."*
+- **`granted`:** no message — just the ready "hold to talk" state (P123); never nag.
+
+### 3. Re-check and confirm it's resolved
+- A **"Re-check"** action re-queries the permission and updates the state immediately; on `onchange → granted`, the action-needed message clears itself and the indicator flips to ready, optionally confirming *"Mic's on — hold to talk."*
+- **Detect the browser** (from the user agent) only to tailor the instructions; keep a generic fallback ("open your browser's site settings and allow the microphone") when unsure.
+- Keep it **non-nagging**: show the action-needed prompt when the user turns on voice or tries to talk, and when the state is blocked — not repeatedly, and never when granted. Typing always works regardless (P113/P121).
+
+### Acceptance
+On opening the assistant, the mic permission is **detected up front** (`granted`/`denied`/`prompt`/no-device/unsupported) and reflected in the indicator, updating **live** on permission change. When action is needed, the assistant shows a **specific, browser-tailored message telling the user what to do** — allow-when-prompted for `prompt`, the exact site-settings steps for `denied`/blocked, connect-a-mic for no device, type-instead for unsupported — with a **Re-check** that clears the message once resolved. It never nags when `granted`, never blocks (buttons/typing remain), and preserves all P111/P114/P123 privacy and behavior.
