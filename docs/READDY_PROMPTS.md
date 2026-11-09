@@ -4962,3 +4962,21 @@ Holding the mic and saying a full sentence ("bring me to my matches") transcribe
 
 ### Acceptance
 Each screen shows a few **"Try saying…"** commands pulled from `/assistant/suggestions`, and **tapping one runs it**. When the assistant doesn't understand an utterance, it offers **"Did you mean…"** options from the interpret response's `suggestions`, each of which **actually works** when chosen — no dead ends. Confident commands show no suggestion noise. Suggestions are only ever real, parseable wording (never invented), and everything is spoken with a readable caption for muted users.
+
+## P149 — BUG: the Matches brief (P146) never fires on a page refresh, and is wrongly gated by auto-read
+
+**Frontend only. Backend is live and verified.** P146 shipped but the assistant **stays silent and doesn't walk the user through Matches**. Two causes to fix:
+
+1. **The brief only runs when the *assistant* navigated — not on a plain page load / refresh / deep link.** The user refreshed `/dashboard/matches` directly, the view mounted fresh, and nothing triggered the briefing. (Confirmed live: `hw_last_matches_seen` was never written, so the brief had not run even once.)
+2. **It's gated behind the document "read aloud" toggle (`hw_narration_auto_read`), which is off.** That toggle is for reading document summaries on demand — it must **not** suppress the assistant's own proactive walk-through. (Confirmed live: `hw_narration_enabled="1"` but `hw_narration_auto_read="0"`.)
+
+### Fix
+1. **Fire the brief on Matches *entry, however reached*** — assistant-driven nav, a typed/spoken command, a direct URL, or a **manual refresh / cold load**. Run it in the Matches view's mount/`useEffect`, not only inside the assistant's navigate handler. Guard it so it runs **once per visit** (a ref / the `hw_last_matches_seen` check), not on every re-render, and re-fires on a genuine re-entry.
+2. **Decouple it from `hw_narration_auto_read`.** The proactive walk-through is the assistant's behavior, not document read-aloud. Gate **audio** only on *speak enabled* (`hw_narration_enabled`) and not-muted; **never** on `auto_read`. The **visible** walk-through must **always** render regardless of any audio setting.
+3. **Always show it, even silent (P138).** On entry, **surface the assistant** (if the console is collapsed/minimized, pop it open or show a compact brief banner) and render the summary **on screen** — count, new-since-last-run, saved, top matches — with the **moving caption + output wave**. If speak is enabled and unmuted it also speaks; if muted or speech is unavailable it still **visibly walks the user through** and never just sits silent. "Silent" is acceptable; "nothing happens" is the bug.
+4. **Then offer the next step** (P146 §2–4): ask what to do, and show the tappable next-step chips (tailor / apply / save / look closer) from the fit brief. Wire these to `GET /api/v1/jobs/{job_id}/fit-brief` as before.
+5. **Give a manual re-trigger.** A small **"Brief me" / replay** control (and the spoken command *"walk me through my matches"*, which the NLU already understands) re-runs the walk-through on demand, in case the user missed it or has audio off.
+6. **Same pattern on other screens** (P146 §6): entry — by any route including refresh — triggers the one-line orient + top offer, on screen and (if enabled) spoken.
+
+### Acceptance
+**Refreshing `/dashboard/matches` (not just navigating to it) makes the assistant walk the user through the screen**: the assistant surfaces, shows the count / new / saved / top-matches summary with a moving caption and wave, and offers the next step — **even with `hw_narration_auto_read` off** (it speaks too when `hw_narration_enabled` is on and unmuted). It is never silent-and-blank on arrival. A "Brief me" control and *"walk me through my matches"* re-run it. `hw_last_matches_seen` is written after the first brief. No backend change.
