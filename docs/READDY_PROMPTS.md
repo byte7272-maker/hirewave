@@ -4640,6 +4640,31 @@ State plainly which layer is at fault and the one next action: *"Permission and 
 
 ### Acceptance
 The mic check **measures real audio** (AnalyserNode peak over ~4s) and **never reports success without detected sound**; "granted but silent" is surfaced as a distinct failure with the device-switch fix. Errors branch to **specific** resolutions (`NotAllowedError`/`NotReadableError`/`NotFoundError`/… each different, including the "mic busy/another app" case). A **device picker re-tests each input with a live meter**. The flow is **progressive** — stops at the first failing stage, shows its real measured value and only its fix, with a Re-check — not a repeating generic list. All P119/P123/P124/P127/P128/P131/P132 behavior is preserved.
+
+## P134 — BUG: the browser gives the app a working mic but the app doesn't use it (proven) — fix capture + transcription
+
+**Frontend. No backend change needed for the capture fix.** **Proven on the live site 2026-11-08:** running `navigator.mediaDevices.getUserMedia({audio:true})` in the console on `hlrtlg.readdy.co` returns a **live, unmuted** track ("Realtek Microphone Array") measuring **59.4% peak audio** over 4s. So permission, device and hardware are all fine on the app's own origin — **the app is handed a working stream and fails to capture/transcribe from it**, while falsely showing "working." Fix the app's capture path.
+
+### 1. Actually USE the getUserMedia stream (drive the meter from it)
+On hold-to-talk, call `getUserMedia({audio:true})` and **attach an `AnalyserNode` to the returned stream** to drive the P127 meter. This WILL move (the same call measures 59% in the console). **If the in-app meter doesn't move but the console test does, the app isn't attaching the stream it received** — bind the analyser to the actual `stream` from `getUserMedia`, not a placeholder. Keep the stream referenced so it isn't garbage-collected/stopped immediately.
+
+### 2. Wire SpeechRecognition correctly, with full event + error handling
+For the transcript, create `new (window.SpeechRecognition||window.webkitSpeechRecognition)()` and handle **all** events — the likely silent-failure point:
+- `recognition.lang='en-US'`, `interimResults=true`; `onstart`, `onresult` (read `results[last][0].transcript`), `onerror`, `onend`.
+- **Handle `onerror` visibly** — `not-allowed`, `no-speech`, `aborted`, and especially **`network`** (Edge/Chrome speech is a cloud service and can fail). Don't swallow it: show "I couldn't catch that (speech service error) — try again or type." 
+- Start it on press, stop on release, and **use the final transcript** → `POST /assistant/interpret`. Don't assume success with no `onresult`.
+
+### 3. If SpeechRecognition is unreliable, fall back — never dead-end
+If recognition errors (e.g. `network`) or yields nothing while the **meter shows real audio**, fall back gracefully: retry once, then tell the user to type (the text input is right there, P132). Optionally record the `getUserMedia` stream with `MediaRecorder` for a future server-STT path — but at minimum, **a captured-but-not-transcribed turn must say so**, not silently "work."
+
+### 4. Stop the false "it's working"
+Gate every success signal on **evidence**: show "Listening" only when the meter has real level; show "got it" only on an actual `onresult` transcript (or recorded audio). If `getUserMedia` resolved but no transcript and no level, say what happened. Never report ready/working without measured audio or a transcript (ties to P133).
+
+### 5. Verify after build (same proof)
+In the running app, holding the button must: move the meter (real level), produce a transcript (or a clear error), and reach `/assistant/interpret`. Confirm by: the in-app meter moves exactly as the console `getUserMedia`+AnalyserNode test does (it measured 59%).
+
+### Acceptance
+Holding the mic in the app **drives the meter from the real `getUserMedia` stream** (moves on speech, as proven in console), **captures a transcript via SpeechRecognition with full `onerror`/`onend` handling**, and sends it to `/assistant/interpret`; a recognition **`network`/other error is surfaced** (retry or type), never silently treated as success. No success state is shown without measured audio or a transcript. The app no longer "thinks it's working" when it captured nothing. All P127/P128/P132/P133 behavior is preserved.
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
