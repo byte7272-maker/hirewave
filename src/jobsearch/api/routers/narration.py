@@ -30,6 +30,16 @@ router = APIRouter(prefix="/api/v1/narration", tags=["narration"])
 #: this stops an oversized body from running up a provider bill by accident.
 _MAX_NARRATION_CHARS = 8000
 
+#: Default tone the assistant speaks in — warm and friendly, so the voice feels
+#: like a helpful friend rather than a robot. Passed to the TTS as a steering
+#: instruction (honoured by gpt-4o-mini-tts; ignored by voices that can't steer).
+#: A request may override it with its own ``instructions``.
+_FRIENDLY_TTS = (
+    "Speak in a warm, friendly, encouraging and upbeat tone — like a supportive "
+    "friend talking the person through things. Natural, relaxed and conversational, "
+    "never robotic, stiff, or harsh."
+)
+
 
 def _profile(state: StateDep, user_id: str) -> UserProfile:
     prof = state.profiles.get(user_id)
@@ -98,7 +108,8 @@ def speak(body: TtsRequest, user: CurrentUser, state: StateDep) -> Response:
         raise HTTPException(
             status.HTTP_501_NOT_IMPLEMENTED, "no neural-voice source configured"
         )
-    audio = state.speech.synthesize(text, voice=body.voice)
+    instructions = (body.instructions or "").strip() or _FRIENDLY_TTS
+    audio = state.speech.synthesize(text, voice=body.voice, instructions=instructions)
     if audio is None:
         detail = "voice source did not return audio"
         err = getattr(state.speech, "last_error", "")

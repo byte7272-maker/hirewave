@@ -33,7 +33,7 @@ class _FakeSpeech:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def synthesize(self, text: str, *, voice: str = "") -> bytes:
+    def synthesize(self, text: str, *, voice: str = "", instructions: str = "") -> bytes:
         self.calls.append((text, voice))
         return b"ID3fake-audio-" + voice.encode()
 

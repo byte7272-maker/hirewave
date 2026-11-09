@@ -30,7 +30,9 @@ class SpeechProvider(Protocol):
     @property
     def enabled(self) -> bool: ...
 
-    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]: ...
+    def synthesize(
+        self, text: str, *, voice: str = "", instructions: str = ""
+    ) -> Optional[bytes]: ...
 
 
 class NullSpeechProvider:
@@ -38,7 +40,7 @@ class NullSpeechProvider:
 
     enabled = False
 
-    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:
+    def synthesize(self, text: str, *, voice: str = "", instructions: str = "") -> Optional[bytes]:
         return None
 
 
@@ -52,17 +54,20 @@ class HttpSpeechProvider:
         self._api_key = api_key
         self._timeout = timeout
 
-    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
+    def synthesize(self, text: str, *, voice: str = "", instructions: str = "") -> Optional[bytes]:  # pragma: no cover - network
         import httpx
 
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
+        payload = {"text": text, "voice": voice}
+        if instructions:
+            payload["instructions"] = instructions
         try:
             resp = httpx.post(
                 self._url,
                 headers=headers,
-                json={"text": text, "voice": voice},
+                json=payload,
                 timeout=self._timeout,
             )
             resp.raise_for_status()
@@ -87,9 +92,11 @@ class ElevenLabsSpeechProvider:
         self._timeout = timeout
         self.last_error = ""
 
-    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
+    def synthesize(self, text: str, *, voice: str = "", instructions: str = "") -> Optional[bytes]:  # pragma: no cover - network
         import httpx
 
+        # ElevenLabs steers tone through voice settings, not a free-text instruction,
+        # so ``instructions`` is accepted for signature parity and ignored here.
         vid = voice or self._voice
         try:
             resp = httpx.post(
@@ -127,14 +134,19 @@ class OpenAISpeechProvider:
         self._timeout = timeout
         self.last_error = ""
 
-    def synthesize(self, text: str, *, voice: str = "") -> Optional[bytes]:  # pragma: no cover - network
+    def synthesize(self, text: str, *, voice: str = "", instructions: str = "") -> Optional[bytes]:  # pragma: no cover - network
         import httpx
 
+        payload = {"model": self._model, "voice": voice or self._voice, "input": text}
+        # Tone steering via ``instructions`` is only supported by the gpt-4o-mini-tts
+        # model; tts-1 / tts-1-hd reject unknown fields, so only send it when supported.
+        if instructions and "gpt-4o" in self._model:
+            payload["instructions"] = instructions
         try:
             resp = httpx.post(
                 self._URL,
                 headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
-                json={"model": self._model, "voice": voice or self._voice, "input": text},
+                json=payload,
                 timeout=self._timeout,
             )
             resp.raise_for_status()

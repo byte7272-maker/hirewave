@@ -275,6 +275,35 @@ def _rating(standard: str, score: int, note: str) -> QualityRating:
     score = max(0, min(100, int(score)))
     return QualityRating(standard=standard, score=score, grade=_grade(score), note=note)
 
+# Harsh, criticism-sounding phrasings → warm, constructive equivalents. People read
+# "fails"/"lacks"/"poor" as judgment, not help, so we never show them. Curated to
+# reword the actual criticism (e.g. "is weak") without touching neutral descriptors
+# (e.g. "weak verbs"), so advice stays specific but encouraging.
+_SOFTEN_SUBS = [
+    (re.compile(r"\bfails to\b", re.I), "could"),
+    (re.compile(r"\bfail to\b", re.I), "could"),
+    (re.compile(r"\bfailure to\b", re.I), "chance to"),
+    (re.compile(r"\byou fail\b", re.I), "you could"),
+    (re.compile(r"\bit fails\b", re.I), "it could"),
+    (re.compile(r"\blacks\b", re.I), "would be stronger with"),
+    (re.compile(r"\blacking\b", re.I), "an opportunity to add"),
+    (re.compile(r"\b(is|are|seems?) (too )?weak\b", re.I), r"\1 an opportunity to strengthen"),
+    (re.compile(r"\b(is|are) poor\b", re.I), r"\1 an opportunity to strengthen"),
+    (re.compile(r"\bpoorly\b", re.I), "less effectively"),
+    (re.compile(r"\b(is|are) bad\b", re.I), r"\1 an opportunity to improve"),
+    (re.compile(r"\bno impact\b", re.I), "room to show more impact"),
+]
+
+
+def soften_tone(text: str) -> str:
+    """Reword harsh criticism into warm, constructive language for anything the user
+    reads (reviews, summaries, advice). Keeps the point; drops the judgment."""
+    out = text or ""
+    for pat, repl in _SOFTEN_SUBS:
+        out = pat.sub(repl, out)
+    return out
+
+
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 _METRIC_RE = re.compile(r"\d|%|\$")
 # An opening salutation on its own line: "Dear ...", "To whom it may concern",
@@ -345,8 +374,10 @@ _EXPERT_REVIEWER = (
     "candidate's current role, past tense for previous roles), never 'responsible for', ATS "
     "parseability (single column, standard section headings, no tables or graphics), "
     "tight keyword alignment to the target role, no first-person pronouns, and 1-2 "
-    "page length. Be specific and candid -- name the actual weakness and cite the "
-    "line; never give generic praise. Plain ASCII."
+    "page length. Be specific and constructive -- cite the exact line and frame each "
+    "point as a concrete opportunity to make it stronger, warmly and encouragingly. "
+    "Never be harsh or discouraging; avoid words like 'fails', 'lacks', 'weak', 'poor' "
+    "or 'bad' -- say what to add or strengthen instead. Skip empty praise. Plain ASCII."
 )
 _REVISE_SYSTEM = (
     "You are an expert resume editor. Rewrite the candidate's resume to satisfy the "
@@ -1037,7 +1068,7 @@ class ResumeAssistant:
             )
             out = self.llm.complete(prompt, system=_EXPERT_REVIEWER, max_tokens=260).strip()
             if out:
-                return out
+                return soften_tone(out)
         except Exception:  # noqa: BLE001 - never break review on LLM error
             pass
         top = suggestions[0].title.lower() if suggestions else "a few small refinements"
@@ -1963,7 +1994,7 @@ class ResumeAssistant:
             )
             out = self.llm.complete(prompt, system=_EXPERT_REVIEWER, max_tokens=240).strip()
             if out:
-                return out
+                return soften_tone(out)
         except Exception:  # noqa: BLE001
             pass
         top = suggestions[0].title.lower() if suggestions else "a few small refinements"

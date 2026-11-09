@@ -656,6 +656,9 @@ class PersonaVoiceUpdate(BaseModel):
 class TtsRequest(BaseModel):
     text: str
     voice: str = ""  # provider voice id; blank = provider default
+    # Optional tone-steering instruction (gpt-4o-mini-tts). Blank = the endpoint's
+    # default warm, friendly tone.
+    instructions: str = ""
 
 
 class IncorporateRequest(BaseModel):
