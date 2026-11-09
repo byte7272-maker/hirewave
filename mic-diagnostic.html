@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Microphone Diagnostic</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#19202e; --fg:#e8edf5; --muted:#9fb0c6;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --accent:#3b82f6; --line:#2a3446;
+  }
+  @media (prefers-color-scheme:light){
+    :root{--bg:#f4f6fb;--card:#fff;--fg:#121824;--muted:#5a6a82;--line:#e3e8f0;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--fg);padding:24px}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+  button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 18px;cursor:pointer}
+  .primary{background:var(--accent);color:#fff}
+  .ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+  button:disabled{opacity:.5;cursor:default}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .step{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+  .step:last-child{border-bottom:0}
+  .dot{flex:0 0 auto;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;margin-top:1px}
+  .dot.ok{background:rgba(34,197,94,.15);color:var(--ok)}
+  .dot.bad{background:rgba(239,68,68,.15);color:var(--bad)}
+  .dot.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+  .dot.pend{background:rgba(159,176,198,.15);color:var(--muted)}
+  .step .t{font-weight:600}
+  .step .d{color:var(--muted);font-size:13.5px;margin-top:2px}
+  .step .fix{margin-top:6px;font-size:13.5px;background:rgba(245,158,11,.08);border-left:3px solid var(--warn);padding:8px 10px;border-radius:0 8px 8px 0}
+  .meterwrap{margin-top:10px}
+  .meter{height:26px;border-radius:8px;background:var(--line);overflow:hidden;position:relative}
+  .meter>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--ok),var(--warn),var(--bad));transition:width .05s}
+  .lvlnum{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;margin-top:4px}
+  select{font:inherit;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
+  .verdict{font-size:16px;font-weight:700;padding:14px 16px;border-radius:12px;margin-top:4px}
+  .verdict.ok{background:rgba(34,197,94,.12);color:var(--ok)}
+  .verdict.bad{background:rgba(239,68,68,.12);color:var(--bad)}
+  .verdict.warn{background:rgba(245,158,11,.12);color:var(--warn)}
+  code{background:rgba(127,127,127,.15);padding:1px 6px;border-radius:5px;font-size:13px}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--muted);white-space:pre-wrap;word-break:break-word}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Microphone Diagnostic</h1>
+  <p class="sub">Open this page <b>in Microsoft Edge</b> (not inside another app's preview). It measures your real microphone and tells you exactly what's wrong. Nothing is recorded or uploaded — it runs entirely on your device.</p>
+
+  <div class="card">
+    <div class="row">
+      <button id="run" class="primary">Run full diagnostic</button>
+      <button id="stop" class="ghost" disabled>Stop</button>
+    </div>
+    <div id="verdict"></div>
+  </div>
+
+  <div class="card">
+    <div id="steps"></div>
+  </div>
+
+  <div class="card" id="devcard" style="display:none">
+    <div class="t" style="font-weight:600;margin-bottom:8px">Try a different microphone</div>
+    <div class="d" style="color:var(--muted);font-size:13.5px;margin-bottom:10px">If the meter below doesn't move when you speak, your default input may be the wrong or a muted device. Pick each one and watch the meter.</div>
+    <div class="row">
+      <select id="devsel"></select>
+      <button id="retest" class="ghost">Test this one</button>
+    </div>
+    <div class="meterwrap">
+      <div class="meter"><i id="bar"></i></div>
+      <div class="lvlnum" id="lvl">level: —</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="t" style="font-weight:600;margin-bottom:6px">Technical details</div>
+    <div class="mono" id="details">(run the diagnostic)</div>
+  </div>
+</div>
+
+<script>
+const $=(id)=>document.getElementById(id);
+const stepsEl=$('steps'), detailsEl=$('details');
+let stream=null, ac=null, raf=null, log=[];
+
+function D(...a){ log.push(a.join(' ')); detailsEl.textContent=log.join('\n'); }
+function clearSteps(){ stepsEl.innerHTML=''; }
+function step(state,title,desc,fix){
+  const el=document.createElement('div'); el.className='step';
+  const sym={ok:'✓',bad:'✕',warn:'!',pend:'…'}[state]||'…';
+  el.innerHTML=`<div class="dot ${state}">${sym}</div><div><div class="t">${title}</div>${desc?`<div class="d">${desc}</div>`:''}${fix?`<div class="fix">${fix}</div>`:''}</div>`;
+  stepsEl.appendChild(el); return el;
+}
+function verdict(kind,msg){ const v=$('verdict'); v.className='verdict '+kind; v.textContent=msg; }
+
+function stopAll(){
+  if(raf)cancelAnimationFrame(raf),raf=null;
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  if(ac){ac.close().catch(()=>{});ac=null;}
+  $('stop').disabled=true; $('run').disabled=false;
+}
+
+// measure peak level for `ms`, call onDone(peak 0..1). Keeps running meter if keep=true.
+function measure(ms,onDone,keep){
+  const src=ac.createMediaStreamSource(stream);
+  const an=ac.createAnalyser(); an.fftSize=1024; src.connect(an);
+  const buf=new Uint8Array(an.fftSize); let peak=0; const t0=performance.now();
+  function tick(){
+    an.getByteTimeDomainData(buf);
+    let mx=0; for(let i=0;i<buf.length;i++){const d=Math.abs(buf[i]-128)/128; if(d>mx)mx=d;}
+    peak=Math.max(peak,mx);
+    const pct=Math.min(100,Math.round(mx*140));
+    $('bar').style.width=pct+'%';
+    $('lvl').textContent='level: '+(mx*100).toFixed(1)+'%   (peak '+(peak*100).toFixed(1)+'%)';
+    if(keep || performance.now()-t0<ms){ raf=requestAnimationFrame(tick); }
+    else { onDone&&onDone(peak); }
+  }
+  tick();
+}
+
+async function openStream(constraints){
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  stream=await navigator.mediaDevices.getUserMedia(constraints);
+  if(!ac) ac=new (window.AudioContext||window.webkitAudioContext)();
+  if(ac.state==='suspended') await ac.resume();
+  return stream;
+}
+
+async function listDevices(){
+  const ds=await navigator.mediaDevices.enumerateDevices();
+  return ds.filter(d=>d.kind==='audioinput');
+}
+
+function fillDevices(list, currentId){
+  const sel=$('devsel'); sel.innerHTML='';
+  list.forEach((d,i)=>{ const o=document.createElement('option'); o.value=d.deviceId; o.textContent=d.label||('Microphone '+(i+1)); if(d.deviceId===currentId)o.selected=true; sel.appendChild(o); });
+}
+
+async function run(){
+  clearSteps(); log=[]; $('verdict').className='verdict'; $('verdict').textContent='';
+  $('run').disabled=true; $('stop').disabled=false; $('devcard').style.display='none';
+
+  // 1. environment
+  const secure=window.isSecureContext;
+  const hasGUM=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+  const hasAC=!!(window.AudioContext||window.webkitAudioContext);
+  const hasSR=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
+  D('secureContext='+secure,'getUserMedia='+hasGUM,'AudioContext='+hasAC,'SpeechRecognition='+hasSR,'UA='+navigator.userAgent);
+  step(secure?'ok':'bad','Secure context (https / local file)', secure?'OK':'Not secure', secure?'':'Open the real site over https, or this file directly (file://).');
+  if(!hasGUM){ step('bad','Browser supports microphone capture','getUserMedia missing','Use Chrome, Edge, or Safari.'); verdict('bad','This browser can\'t capture audio.'); return stopAll(); }
+  step('ok','Browser supports microphone capture','getUserMedia available');
+  step(hasSR?'ok':'warn','Speech-to-text (for voice commands)', hasSR?'Available':'Not in this browser', hasSR?'':'Voice typing still works via audio; spoken commands need Chrome/Edge/Safari.');
+
+  // 2. permission state
+  let perm='unknown';
+  try{ perm=(await navigator.permissions.query({name:'microphone'})).state; }catch(e){ perm='query-unsupported'; }
+  D('permission='+perm);
+  step(perm==='granted'?'ok':perm==='denied'?'bad':'warn','Browser permission for this page', 'State: '+perm,
+      perm==='denied'
+        ? 'BLOCKED. Edge: padlock → Permissions for this site → Microphone = Allow. Also check edge://settings/content/microphone and remove this site from the Block list, then reload.'
+        : perm==='prompt' ? 'You\'ll be asked to Allow in a moment — choose Allow.' : '');
+
+  // 3. devices (pre-permission labels are blank if not yet granted)
+  let devs=[];
+  try{ devs=await listDevices(); }catch(e){ D('enumerate error '+e.name); }
+  const labelled=devs.filter(d=>d.label).length;
+  D('audioInputs='+devs.length,'withLabels='+labelled);
+  step(devs.length?'ok':'bad','Microphone device present', devs.length+' audio input(s) detected',
+       devs.length?'':'No microphone found. Plug one in / check it\'s not disabled in Sound settings, then re-run.');
+  if(!devs.length){ verdict('bad','No microphone device is visible to the browser.'); return stopAll(); }
+
+  // 4. capture
+  let captureOk=false, track=null;
+  try{
+    await openStream({audio:true});
+    track=stream.getAudioTracks()[0];
+    const s=track.getSettings?track.getSettings():{};
+    D('track.label='+track.label,'readyState='+track.readyState,'muted='+track.muted,'enabled='+track.enabled,'settings='+JSON.stringify(s));
+    captureOk=true;
+    step('ok','Microphone access granted','Using: '+(track.label||'default input'));
+    if(track.muted){
+      step('bad','Audio track is live','The track reports MUTED (by the OS or another app)','Windows: Settings → System → Sound → Input → make sure the device isn\'t muted and volume is up. Close apps (Teams/Zoom) that may hold the mic exclusively.');
+    } else {
+      step('ok','Audio track is live','readyState='+track.readyState+', not muted');
+    }
+  }catch(e){
+    D('getUserMedia error '+e.name+': '+e.message);
+    const map={
+      NotAllowedError:['Microphone access BLOCKED','Permission was denied (browser site setting or OS).',
+        'Edge: padlock → Permissions for this site → Microphone = Allow, then reload. If no prompt appears it\'s already set to Block — clear it at edge://settings/content/microphone (remove from Block). Then Windows: Settings → Privacy & security → Microphone → Let apps / Let desktop apps access, Edge allowed.'],
+      NotFoundError:['No microphone found','The device disappeared.','Reconnect it and re-run.'],
+      NotReadableError:['Mic is busy / hardware error','Another app is using the microphone exclusively, or a driver issue.','Close Teams/Zoom/Discord/Camera, unplug-replug, or restart Edge. Windows: check Sound settings the device works.'],
+      OverconstrainedError:['Requested device unavailable','The selected input isn\'t available.','Re-run to use the default device.'],
+      SecurityError:['Blocked by browser security','Insecure context or policy.','Use https or the real site.']
+    };
+    const m=map[e.name]||['Microphone error',e.name+': '+e.message,'Re-run; if it persists, restart the browser.'];
+    step('bad',m[0],m[1],m[2]);
+    verdict('bad','Could not open the microphone — see the fix above. (Error: '+e.name+')');
+    // still show device list so they can see what exists
+    try{ devs=await listDevices(); fillDevices(devs); $('devcard').style.display='block'; }catch(_){}
+    return stopAll();
+  }
+
+  // 5. live level test — the part that catches "app thinks it's fine but hears nothing"
+  devs=await listDevices(); fillDevices(devs, track.getSettings? track.getSettings().deviceId : '');
+  $('devcard').style.display='block';
+  const lvlStep=step('pend','Live audio level test','Speak now for ~4 seconds…');
+  verdict('warn','Listening… say a few words out loud.');
+  measure(4000,(peak)=>{
+    D('peakLevel(4s)='+(peak*100).toFixed(2)+'%');
+    lvlStep.remove();
+    if(peak>=0.03){
+      step('ok','Live audio level test','Peak '+(peak*100).toFixed(1)+'% — real sound detected ✓');
+      verdict('ok','✓ Your microphone works and the browser can hear you. If the app still says it can\'t, the app isn\'t reading this stream — the hardware/permission side is fine.');
+    } else {
+      step('bad','Live audio level test','Peak '+(peak*100).toFixed(1)+'% — permission is granted but NO sound is coming through',
+        'The browser has the mic, but it\'s silent. Most likely the WRONG input device is default, or it\'s muted in hardware. Use the “Try a different microphone” box above — pick each device and watch the meter. Also: Windows → Sound → Input → select the right device, raise its volume, and check a physical mute switch / muted tab.');
+      verdict('bad','Permission is fine, but the selected microphone produces no sound — switch input device above.');
+    }
+    // keep a live meter running for the device-picker
+    measure(0,null,true);
+  });
+}
+
+$('run').onclick=()=>run().catch(e=>{D('fatal '+e);verdict('bad','Unexpected error: '+e.message);stopAll();});
+$('stop').onclick=stopAll;
+$('retest').onclick=async()=>{
+  const id=$('devsel').value; if(raf)cancelAnimationFrame(raf),raf=null;
+  try{
+    await openStream({audio:{deviceId:{exact:id}}});
+    const tr=stream.getAudioTracks()[0]; D('switched to '+tr.label);
+    verdict('warn','Testing “'+(tr.label||'selected mic')+'” — speak now…');
+    measure(4000,(peak)=>{
+      if(peak>=0.03) verdict('ok','✓ “'+(tr.label||'this mic')+'” works (peak '+(peak*100).toFixed(1)+'%). Set it as your default input in Windows Sound settings.');
+      else verdict('bad','“'+(tr.label||'this mic')+'” still silent (peak '+(peak*100).toFixed(1)+'%). Try another, or it\'s muted in hardware.');
+      measure(0,null,true);
+    });
+  }catch(e){ verdict('bad','Could not open that device: '+e.name); }
+};
+window.addEventListener('pagehide',stopAll);
+</script>
+</body>
+</html>

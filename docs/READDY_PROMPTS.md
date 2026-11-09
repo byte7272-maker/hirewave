@@ -4612,6 +4612,34 @@ When capture fails (`NotAllowedError`) or the user runs the check, walk **both**
   - **Windows:** **Settings → Privacy & security → Microphone** → turn on **Microphone access**, **Let apps access your microphone**, and **Let desktop apps access your microphone** / ensure **Microsoft Edge** is allowed. Note Windows lists **desktop apps** (Edge as a whole), **not** individual websites — the website list is the browser one above. A Windows OS block throws the same `NotAllowedError` even when the site is "allowed."
   - **macOS:** **System Settings → Privacy & Security → Microphone** → enable your browser.
 - **Explain the two layers** so the user doesn't hunt in the wrong place: *Windows controls whether the browser app can use the mic; the browser controls which websites can. Both must allow it.*
+
+## P133 — Make the mic diagnostic REAL, measured, and adaptive (stop false "it's working"; advance progressively)
+
+**Frontend. No backend change.** User feedback: the mic troubleshooting is **repetitive, non-adaptive, and the app reports "working fine" when it isn't**. Rebuild it as a **measured, branching diagnostic** that proves each stage with real values and advances based on results — not a static list. (A standalone reference implementation exists — mirror its logic.)
+
+### 1. MEASURE, don't assume — kill the false positive
+The app must **never report the mic as working unless it has measured real audio frames.** Run an `AnalyserNode` on the actual `getUserMedia` stream and read the **peak level over ~4 seconds** while prompting "speak now." Verdicts:
+- **Permission granted + peak ≥ ~3%** → ✓ truly working.
+- **Permission granted + peak ≈ 0** → ✗ **"granted but silent"** (the common hidden case): the stream opened but no sound arrives → wrong/muted input device or hardware mute. **This must NOT read as success.**
+- Inspect the track too: `track.muted` (OS/other app muted it) and `track.readyState`; report these specifically.
+
+### 2. Branch on the actual error — distinct fixes, no repetition
+Catch `getUserMedia` rejections and give a **different, specific** resolution for each (don't loop the same generic steps):
+- **`NotAllowedError`** → blocked: browser site-permission (padlock / `edge://settings/content/microphone`, remove from Block) **and** OS (Windows Privacy / macOS) — the P132 two-layer steps.
+- **`NotReadableError`** → **mic is busy / driver**: another app (Teams/Zoom/Discord/Camera) holds it exclusively, or a driver glitch → close those apps, unplug-replug, restart the browser. *(This is a frequent "it's all allowed but still nothing" cause and was missing.)*
+- **`NotFoundError`** → no device; **`OverconstrainedError`** → bad device id; **`SecurityError`** → insecure context.
+
+### 3. Device picker — find a mic that actually works
+List all audio inputs (`enumerateDevices`) and let the user **select each and re-test with a live meter** (`getUserMedia({audio:{deviceId:{exact:id}}})`). This resolves "permission is fine but the default input is the wrong/silent device" — which no amount of permission-toggling fixes. On a working one: "set this as your default input in your OS sound settings."
+
+### 4. Adaptive, progressive flow (not a checklist on repeat)
+Run as **ordered stages that stop at the first failure and show only the relevant fix**, then a **Re-check** that re-runs from that stage — so the user advances (support → permission → device present → capture → **measured level** → device switch), never re-reading passed steps. Each stage shows its **real value** (permission state, device label, track.muted, measured peak %), not a generic "checking…".
+
+### 5. Honest final verdict
+State plainly which layer is at fault and the one next action: *"Permission and hardware are fine and I can hear you — if the app still fails, the app isn't reading this stream"* vs *"The browser has the mic but it's silent — switch input device"* vs *"Blocked — allow it here: …"*. Keep the text input working throughout.
+
+### Acceptance
+The mic check **measures real audio** (AnalyserNode peak over ~4s) and **never reports success without detected sound**; "granted but silent" is surfaced as a distinct failure with the device-switch fix. Errors branch to **specific** resolutions (`NotAllowedError`/`NotReadableError`/`NotFoundError`/… each different, including the "mic busy/another app" case). A **device picker re-tests each input with a live meter**. The flow is **progressive** — stops at the first failing stage, shows its real measured value and only its fix, with a Re-check — not a repeating generic list. All P119/P123/P124/P127/P128/P131/P132 behavior is preserved.
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
