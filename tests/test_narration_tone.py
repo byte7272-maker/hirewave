@@ -36,9 +36,11 @@ def test_soften_tone_handles_failing_and_violates():
     assert "provide unique accomplishments" in s  # meaning preserved
 
 
-def test_soften_tone_leaves_neutral_descriptors():
-    # "weak verbs" is a neutral descriptor, not a criticism of the person — untouched.
-    assert soften_tone("Replace weak verbs with strong ones.") == "Replace weak verbs with strong ones."
+def test_soften_tone_scrubs_bare_weak_and_poor():
+    # bare "weak"/"poor" descriptors ("weak verbs", "poor wording") become "generic".
+    assert soften_tone("Replace weak verbs with strong ones.") == "Replace generic verbs with strong ones."
+    assert "weak" not in soften_tone("Use of weak phrases like 'assisted with'.").lower()
+    assert "poor" not in soften_tone("The wording is poor and generic.").lower()
 
 
 def test_soften_tone_empty():

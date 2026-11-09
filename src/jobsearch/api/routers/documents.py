@@ -1224,7 +1224,7 @@ def update_resume(
 #: Bump when the review wording/logic changes (e.g. friendlier framing). It is mixed
 #: into the narrative cache key so a logic change invalidates stale cached narratives
 #: — otherwise an unchanged résumé keeps serving a summary written by the old reviewer.
-_REVIEW_CACHE_VERSION = "2-friendly"
+_REVIEW_CACHE_VERSION = "3-generic"
 
 
 @router.post("/resumes/{resume_id}/review", response_model=ResumeReview)

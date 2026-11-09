@@ -293,6 +293,9 @@ _SOFTEN_SUBS = [
     (re.compile(r"\blacking\b", re.I), "an opportunity to add"),
     (re.compile(r"\b(is|are|seems?) (too )?weak\b", re.I), r"\1 an opportunity to strengthen"),
     (re.compile(r"\b(is|are) poor\b", re.I), r"\1 an opportunity to strengthen"),
+    # Bare "weak"/"poor" as a descriptor ("weak phrases", "poor wording") → neutral.
+    (re.compile(r"\bweak\b", re.I), "generic"),
+    (re.compile(r"\bpoor\b", re.I), "generic"),
     (re.compile(r"\bpoorly\b", re.I), "less effectively"),
     (re.compile(r"\b(is|are) bad\b", re.I), r"\1 an opportunity to improve"),
     (re.compile(r"\bno impact\b", re.I), "room to show more impact"),
@@ -852,7 +855,7 @@ class ResumeAssistant:
         if weak_hits:
             suggestions.append(ResumeSuggestion(
                 category="impact", severity="important",
-                title="Replace weak phrases with strong action verbs",
+                title="Swap generic phrases for strong action verbs",
                 detail="Phrases like " + ", ".join(sorted(weak_hits)[:3]) +
                        " read as duties. Lead bullets with verbs like led, built, drove.",
             ))
