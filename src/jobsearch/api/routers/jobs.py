@@ -495,8 +495,16 @@ def fit_brief(job_id: str, state: StateDep, user: CurrentUser) -> FitBriefOut:
     ][:4]
 
     what_to_tailor = [f"Surface your experience with {g}" for g in gaps[:4]]
-    if not what_to_tailor and matching:
-        what_to_tailor = [f"Lead with {matching[0]} — it's exactly what they want"]
+    if matching:
+        what_to_tailor.insert(0, f"Lead with {matching[0]} — it's exactly what they want")
+    if not what_to_tailor:
+        # Sparse posting with no mined skills — still give an actionable move so the
+        # assistant always has something to tailor (best-practice guidance, not a claim).
+        what_to_tailor = [
+            f"Mirror the exact wording the {job.title} posting uses",
+            "Lead each bullet with a measurable result relevant to this role",
+        ]
+    what_to_tailor = what_to_tailor[:5]
 
     narrative = ""
     if best_resume is not None:

@@ -112,6 +112,20 @@ def test_fit_brief_what_to_tailor_names_the_gaps():
     assert b["what_to_tailor"], "there should be concrete tailoring moves"
 
 
+def test_fit_brief_always_has_a_tailoring_move_even_for_a_sparse_job():
+    # A posting with no mined requirements must still yield something to tailor —
+    # the assistant should always be able to answer "what should I tailor?".
+    state, client, h, uid = _client_with_user(email="fit5@demo.com")
+    state.profiles.add(UserProfile(user_id=uid, skills=["Python"], headline="Eng"))
+    state.resumes.add(Resume(user_id=uid, target_role="Engineer",
+                             rendered_text="Experienced professional."))
+    job = JobPosting(source_platform="linkedin", title="Technology", company="Acme LLP",
+                     owner_id=uid, description="Technology role.", requirements=[])
+    state.jobs.add(job)
+    b = client.get(f"/api/v1/jobs/{job.id}/fit-brief", headers=h).json()
+    assert b["what_to_tailor"], "there must always be at least one tailoring move"
+
+
 def test_fit_brief_works_with_no_documents_yet():
     state, client, h, uid = _client_with_user(email="fit3@demo.com")
     state.profiles.add(UserProfile(user_id=uid, skills=["Python", "AWS"], headline="Eng"))
