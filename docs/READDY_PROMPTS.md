@@ -4883,3 +4883,18 @@ The Documents page is **decluttered**: the "Start with these" cards are **collap
 
 ### Acceptance
 Holding the mic records audio via `MediaRecorder` on the same `getUserMedia` stream that drives the live meter; on release the Blob is POSTed to **`/api/v1/narration/transcribe`**, and the returned `text` is dispatched through `/assistant/interpret` like any command. When server STT is unavailable (501), it falls back to browser `SpeechRecognition`, and when that's also absent it cleanly tells the user to type — so **voice input works on every browser that can record audio** (Chrome, Edge, Safari, Firefox, mobile), with typing as the universal floor. Meter, Stop, output wave/captions and confirms all preserved (P111/P114/P127/P138/P140).
+
+## P144 — BUG: cover-letter renderer shows the original uploaded PDF, not the current version
+
+**Frontend. No backend change** — the server is correct (verified live 2026-11-09). For a cover letter **uploaded as a PDF**, the marquee shows the current version (e.g. **v4**), but the **renderer displays the original uploaded PDF** (the `file_url`) instead of the current version's edited content. Marquee and renderer must match (P104 §1).
+
+> **Evidence:** `cl_4f22bcb6219…` has `active_version: 4`, and `doc.content` is the **edited** text ("# Bayete Williams… Position…"); its `active` version (v4) matches. But it also has `file_url` + `content_type: application/pdf` (the original upload, whose text is "I am interested in securing…"). The renderer is showing that **original PDF**, not v4.
+
+### Fix
+1. **Render the CURRENT version's content, not the uploaded file.** The main preview renders from the **active/selected version** (`content_html` if present, else `content`) — the exact version the marquee shows as "current." It must **never** default to the original `file_url`/PDF just because the document was uploaded as a PDF. When current = v4, the renderer shows **v4's content**.
+2. **The uploaded PDF is the "Original" view only (P94).** `file_url` / the original PDF is shown **only** when the user explicitly switches to **Original** (the faithful, read-only view). The default/"Working copy" preview is the current version's content (P110). Switching Original ↔ Working copy is the only thing that swaps to the PDF.
+3. **Keep marquee ↔ renderer in lockstep (P104 §1 / P108).** One `selectedVersion` (the marquee's current, driven by the server `active_version`) feeds the renderer every time — selecting a version, saving, switching documents, reloading. If the marquee says v4, the renderer shows v4; they can never disagree.
+4. **Applies to résumés too** (same rule), but the live bug is cover letters uploaded as PDF — fix there first and verify.
+
+### Acceptance
+Opening a cover letter (including one **uploaded as a PDF**) renders the **current version's content** (matching the marquee's "current" — e.g. v4's edited text), **not** the original uploaded PDF. The original PDF appears **only** under the explicit **Original** view (P94); the default preview is the current/Working-copy content (P110). Marquee current and the renderer always show the **same version** (P104 §1); selecting another version re-renders to it. Résumés follow the same rule. No backend change.
