@@ -4665,6 +4665,37 @@ In the running app, holding the button must: move the meter (real level), produc
 
 ### Acceptance
 Holding the mic in the app **drives the meter from the real `getUserMedia` stream** (moves on speech, as proven in console), **captures a transcript via SpeechRecognition with full `onerror`/`onend` handling**, and sends it to `/assistant/interpret`; a recognition **`network`/other error is surfaced** (retry or type), never silently treated as success. No success state is shown without measured audio or a transcript. The app no longer "thinks it's working" when it captured nothing. All P127/P128/P132/P133 behavior is preserved.
+
+## P135 — Proactive remediation: the assistant proposes the exact fix, summarizes, invokes bullet-making, and is ready to apply on the user's behalf
+
+**Frontend. No backend change** — ties the review, the exact-wording suggestions, the bullet workshop, and one-click apply into one action-ready flow over existing endpoints. The assistant shouldn't just *find* problems — it should **propose the concrete fix, summarize, recommend the next step, and be ready to make the change** on the user's say-so.
+
+*Triggers: opening a document / after upload / "review my document" / "what should I fix / improve."*
+
+### 1. Find → propose the ACTUAL change (wording, not just the problem)
+Run the review and the edit suggestions together:
+- `POST /api/v1/{resumes|cover-letters}/{id}/review` → score, strengths, issues (title/detail/severity).
+- `POST /api/v1/resumes/{id}/suggest-edits { context, job_posting_id? }` → `suggestions[] { action, before, after, rationale }` — the **exact wording change** (before → after). Cover letters: `POST /cover-letters/{id}/tailor`/`review` for the concrete tailoring edits.
+For each issue, the assistant presents the **proposed rewrite** ("change *'responsible for sales'* → *'grew regional sales 24% in 12 months'*") with the one-line **why**, not merely "add a metric."
+
+### 2. Summarize briefly (spoken + shown)
+Lead with a short, ranked **summary**: *"Your résumé scores 78. I'd make 3 changes: add a measurable result to your lead bullet, tighten a cliché in your summary, and align your title to the job. Want me to make them?"* (P119 one voice, captioned). Keep it to the few that matter.
+
+### 3. Ready to apply — on the user's behalf, one click/word
+Every proposed change is **staged and ready to execute**, nothing applied without the go-ahead (P114):
+- Per item: **Apply · Apply all · Dismiss** (P103 overlay / spoken "apply" / "apply all" / "skip"). 
+- **Apply** writes the change via `POST /resumes/{id}/apply-edits` → preview → `POST /resumes/{id}/versions` (cover letters: `/revise`→`/versions`; or `/ai-edit`), **Undo = version switch**. 
+- **"Fix it all for me"** maps to applying all recommended (or the one-pass `POST /resumes/{id}/improve-structured`). The assistant reports what it changed.
+- The assistant is **ready and offers to do it** ("I can make all three now — just say go"), but waits for the explicit yes.
+
+### 4. Invoke the bullet-making process for the next steps
+Where the fix is "add evidence / a stronger achievement" (a gap, not a reword), **proactively launch the P122 bullet workshop** with a recommendation, carrying the gap as context: *"Your leadership experience is thin for this role — let's turn your recent work into 2 strong bullets. Paste a few notes and I'll draft them."* → `/evidence/extract` → `/synthesize` → `/highlights/suggest` → `/match-bullets`, then read/suggest/"use that one" (P122) → `/apply-edits` → `/versions`. Recommend the **next step** explicitly after any pass ("tailored ✓ — want to download, or set up auto-apply?").
+
+### 5. Keep it benefit-led and safe
+Proactive but not pushy: one summary, collapsible, remembered when dismissed (P104). Nothing changes without confirm (P114); everything undoable; spoken lines also captioned; works by voice or click; the review re-runs after edits so recommendations stay current (P118).
+
+### Acceptance
+On analyzing a document the assistant **summarizes the issues and, for each, proposes the exact wording change** (before → after with a one-line why, from `suggest-edits`/`review`/`tailor`) — not just the problem. Each proposed change is **staged and ready to apply on the user's behalf** via Apply / Apply all (→ `apply-edits`/`revise`/`improve-structured` → `versions`, undoable), executed only on an explicit yes (P114). Where a gap needs new evidence, it **invokes the bullet-making workshop** (P122) with the gap as context and **recommends the next step**. Benefit-led, non-nagging, re-evaluated after edits, spoken+captioned, voice- or click-driven. All P104/P114/P118/P119/P122/P129 behavior is preserved.
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
