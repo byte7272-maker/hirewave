@@ -4607,10 +4607,11 @@ Both the **voice** command ("check my hardware", "test my mic and speakers" → 
 
 ### 3. The checklist must cover BROWSER *and* OS blocks (this is the actual fix)
 When capture fails (`NotAllowedError`) or the user runs the check, walk **both** layers, because JS can't tell which one is blocking:
-- **Tab/site:** the tab isn't muted; the **site mic permission** is Allow. **Edge:** click the **padlock / "View site information"** in the address bar → **Permissions for this site** → set **Microphone = Allow**, then reload (or `edge://settings/content/microphone`). (Chrome: padlock → Site settings → Microphone; Safari: Settings for This Website.)
-- **Operating system (the one people miss):**
-  - **Windows:** **Settings → Privacy & security → Microphone** → turn on **Microphone access**, **Let apps access your microphone**, and **Let desktop apps access your microphone** / ensure **Microsoft Edge** is allowed. (A Windows OS block throws the same `NotAllowedError` even when the site is "allowed.")
+- **Browser site permission (controls WEBSITES):** the tab isn't muted; this **site's** mic permission is Allow. **Edge:** click the **padlock / "View site information"** in the address bar → **Permissions for this site** → set **Microphone = Allow**, then reload. The full per-**site** list (and the Block list) lives at **`edge://settings/content/microphone`** — make sure "Ask before accessing" is on and **remove this site from the Block list** if it's there. (Chrome: `chrome://settings/content/microphone`; Safari: Settings for This Website.)
+- **Operating system (controls APPS, not sites — the layer people miss):**
+  - **Windows:** **Settings → Privacy & security → Microphone** → turn on **Microphone access**, **Let apps access your microphone**, and **Let desktop apps access your microphone** / ensure **Microsoft Edge** is allowed. Note Windows lists **desktop apps** (Edge as a whole), **not** individual websites — the website list is the browser one above. A Windows OS block throws the same `NotAllowedError` even when the site is "allowed."
   - **macOS:** **System Settings → Privacy & Security → Microphone** → enable your browser.
+- **Explain the two layers** so the user doesn't hunt in the wrong place: *Windows controls whether the browser app can use the mic; the browser controls which websites can. Both must allow it.*
 - **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
 - After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
 
