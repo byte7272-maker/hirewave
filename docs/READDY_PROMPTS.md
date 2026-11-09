@@ -4784,3 +4784,29 @@ Separate from the P127 **input** meter (the mic listening), the assistant needs 
 
 ### Acceptance
 The mic/assistant has a visible **Stop** control (and Esc) that **immediately stops listening (tracks stopped, meter down) and stops any speech** (P119), cancelling in-flight processing. **Typed commands route through `/assistant/interpret`** and dispatch to the correct action — *"refresh my matches"* refreshes/analyzes matches (never the Grand Tour) — the **Grand Tour fires only on an explicit tour request**, and an unrecognized command **asks for clarification** instead of defaulting to a tour. While speaking, the assistant shows **its own output waveform** (distinct from the mic meter) and **captions that move word-by-word in sync** with the speech; when audio is **muted**, it **still animates the wave and reveals the captions at a reading pace** so the user knows it's speaking and reads along, with controls/Stop/typing interactive throughout. Reduced-motion and screen-reader safe. All P111/P119/P125/P126/P127/P128 behavior preserved.
+
+## P139 — Simplify the résumé bullet system: direct in-place editing + one-click Apply (retire drag-and-drop), keep the pipeline intact
+
+**Frontend. No backend change — the bullet engine is verified sound** (2026-11-09): `suggest-edits` returns before→after suggestions; `match-bullets` correctly classifies each candidate as **add** or **replace** with the exact target line + alternatives; `apply-edits`→`versions` applies with Undo. Keep all of that. What changes is the **UX**: now that the document is **directly editable** (P110), the drag-and-drop "bullet bubble board" (P4/P8) is over-complex and fragile — replace it with direct editing + a simple Apply list.
+
+### 1. Manual bullet editing = edit the bullet in the document (P110)
+To change a bullet's wording, the user **clicks into it in the editable document and types** — the P110 WYSIWYG surface. No dragging, no separate "bullet board," no bubble-onto-preview gesture for plain edits. Add/remove a bullet with the normal list controls in the editor (Enter for a new bullet, the list toolbar). **Reorder** with simple **Move up / Move down** controls (and optional drag *within the list only* if it's reliable) — not drag-from-a-separate-pane.
+
+### 2. AI suggestions = a simple, one-click Apply list (not drag-to-replace)
+Present `match-bullets` / `suggest-edits` results as a **plain list of suggestion cards**, each showing: the **new bullet**, its one-line **why** (`rationale`), and — for a `replace` — the **line it would replace** (the `replace.text`, with its alternatives available behind a "replace a different line" picker). Per card:
+- **Apply** → writes it **directly into the editable document** via `POST /resumes/{id}/apply-edits` (a `replace` swaps the matched `before` line; an `add` inserts into the right section) → preview → `POST /resumes/{id}/versions`. **Undo = version switch.**
+- **Apply all** · **Dismiss**. That's it — **no dragging a bubble onto the preview**. One click applies to the document the user can already see and edit.
+- For an `add` with `recommend:"add"` and no target line, insert at the top of the relevant section (or where the user's caret is); for `replace`, swap the specific line.
+
+### 3. Retire the drag-and-drop bubble board (keep only what helps)
+- **Remove** the frameless draggable bullet bubbles and the drag-right→left-to-replace interaction (P8/P4) — superseded by direct editing (§1) + one-click Apply (§2). 
+- If any drag remains, it's **only reorder within the document's own bullet list**, and must be reliable (no orphaned/ghost bubbles, no stuck drag state). If it can't be made clean, drop it in favor of Move up/down.
+
+### 4. Integrity rules (don't regress the engine)
+- Apply maps to the **correct line/section** (use the `match-bullets` `replace` target for replaces; never blind-insert duplicates). After apply, the bullet appears **once**, in place, and a version is saved.
+- No **orphaned** suggestion cards after apply/dismiss; the list reflects the current document (re-fetch suggestions after edits).
+- The **My Work Highlights workshop** (P122: dump → extract → synthesize → suggest) still feeds this same Apply list — the dual-pane/bubbles there also collapse to: suggestions on one side, the **editable document** on the other, Apply writing into it.
+- Everything undoable (versions); confirm per P114 only where a bulk apply is large.
+
+### Acceptance
+Editing a bullet is **direct**: click it in the document and type (P110); add/remove/reorder via the editor's own list controls (Move up/down), **no separate drag-and-drop bubble board**. AI bullet suggestions appear as a **simple list** (new text + why + the line it replaces) with **Apply / Apply all / Dismiss** that write into the editable document via `apply-edits`→`versions` (Undo = version switch) — **one click, no dragging onto a preview**. The suggestion→match→apply engine is unchanged and correct (adds vs replaces land on the right line/section, once, with a saved version); no orphaned cards or stuck drag state. The My Work Highlights workshop feeds the same Apply list. All P110/P114/P122/P135 behavior preserved.
