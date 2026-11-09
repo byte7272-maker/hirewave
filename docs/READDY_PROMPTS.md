@@ -4840,3 +4840,28 @@ The **input** meter (mic, "listening") and the **output** wave (TTS, "speaking",
 
 ### Acceptance
 Holding the mic shows a **live input meter that moves with the user's voice** — built from `getUserMedia → createMediaStreamSource → AnalyserNode`, the same visualizer as the working output wave — giving the previously-missing live-mic indicator. The captured transcript reaches `/assistant/interpret`; a recognition failure **while the meter shows audio** is surfaced with a clear message (try again / type), never silent, since there is no server transcription. Tracks stop on release/Stop (P111); input and output waves are visually distinct. All P119/P123/P124/P127/P128/P138 behavior preserved.
+
+## P141 — Declutter Documents: collapse the onboarding cards, make options/recommendations on-demand, and let the assistant present versions, usage & job-fit
+
+**Frontend. No backend change** — all endpoints are live. The Documents page is cluttered again (the "New here — Start with these" cards, always-on recommendations, a static Job selector). Move this to **on-demand, assistant-driven** surfaces; show things when asked, not constantly.
+
+### 1. Collapse the "New here — Start with these" cards
+- The onboarding "Six things this app does" / "Start with these" card wall **clutters the page**. **Collapse it** into a single small entry — a "**New here? Start here**" **menu / overflow** (or a one-line dismissible banner) — not a row of big cards. It stays dismissible and remembered (once), as before.
+- The **assistant can list these on demand** ("what can I do here?" → it reads the same starter options, P121). The page doesn't need to show them permanently.
+
+### 2. Lists of options → an on-demand overlay (larger surface)
+When the user wants a list of options (starter actions, document actions, recommendations, versions), present it as a **summoned overlay with a larger surface** (P101/P103 language) — roomy, readable — where the user can **pick manually OR tell the assistant to choose** ("you decide" / "pick the best one"). It's **opened on request**, not always on the page, and closes cleanly.
+
+### 3. Recommendations are on-demand, not always-on
+- Stop **constantly showing** the résumé/cover-letter recommendations. Replace the always-on recommendation card with a **"Review & suggestions"** trigger (button + voice "what should I fix?") that opens the ranked recommendations (P104/P135) in the overlay when asked. 
+- Nothing changes about the recommendations themselves (review → exact before→after → Apply); they're just **revealed on request**, keeping the page calm.
+
+### 4. The assistant presents versions, last-updated, and what they were used for
+The assistant can, on request ("show my versions", "what have I sent this to"), list a document's versions using **`GET /api/v1/{resumes|cover-letters}/{id}/version-usage`** (`VersionUsageOut`): each **version + label**, **when it was last updated** (`created_at`), its **source** (original / revision / **tailored** / reuse), the **job it was tailored for** (`tailored_for` {title, company}), and **every job it was applied to**. It reads this briefly ("Version 4, updated Nov 8, tailored for Acme — Senior IT Lead, applied to 2 jobs") and can open/activate a chosen version (`…/versions/{v}/activate`). Present it in the §2 overlay for manual picking too.
+
+### 5. Re-evaluate the static "Job selector"; the assistant does job-fit on demand
+- A **static Job selector** on the Documents page earns its place only if it's doing real work; if it's just a dropdown that duplicates what the assistant can do, **demote or remove it**.
+- Instead, the assistant **recommends job fit on request**: using **`GET /api/v1/jobs/matches`** (per-job fit score + reasons + `gap_skills`) it says **which jobs this résumé is already strong for** (high scores) and **which should be tailored and how** (the gaps, via `/resumes/{id}/suggest-edits` / `/cover-letters/{id}/tailor`), offering to do the tailoring (P129). Only surfaced when the user asks for "more information or actions."
+
+### Acceptance
+The Documents page is **decluttered**: the "Start with these" cards are **collapsed into a menu/overflow** (assistant lists them on demand), and the résumé recommendations are **behind an on-demand "Review & suggestions" trigger**, not always shown. Lists of options open as a **larger on-demand overlay** where the user picks manually or tells the assistant to choose. The assistant **presents versions with last-updated + what each was used for** (via `version-usage`: source, tailored-for, applied-to jobs) and can activate one. The **static Job selector is removed or demoted**; the assistant instead **recommends which jobs the résumé fits and which to tailor (and how)** on request, from `/jobs/matches` gaps, offering to tailor (P129). No always-on clutter; everything reachable on demand by click or voice. All P101/P103/P104/P121/P129/P135 behavior preserved.
