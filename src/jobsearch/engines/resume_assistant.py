@@ -282,9 +282,13 @@ def _rating(standard: str, score: int, note: str) -> QualityRating:
 _SOFTEN_SUBS = [
     (re.compile(r"\bfails to\b", re.I), "could"),
     (re.compile(r"\bfail to\b", re.I), "could"),
+    (re.compile(r"\bfailing to\b", re.I), "missing the chance to"),
     (re.compile(r"\bfailure to\b", re.I), "chance to"),
     (re.compile(r"\byou fail\b", re.I), "you could"),
     (re.compile(r"\bit fails\b", re.I), "it could"),
+    (re.compile(r"\bviolates\b", re.I), "could better follow"),
+    (re.compile(r"\bviolate\b", re.I), "could better follow"),
+    (re.compile(r"\bviolating\b", re.I), "not fully following"),
     (re.compile(r"\blacks\b", re.I), "would be stronger with"),
     (re.compile(r"\blacking\b", re.I), "an opportunity to add"),
     (re.compile(r"\b(is|are|seems?) (too )?weak\b", re.I), r"\1 an opportunity to strengthen"),

@@ -30,6 +30,12 @@ def test_soften_tone_keeps_meaning_and_metrics_word():
     assert "quantify" in soften_tone("It fails to quantify impact.")
 
 
+def test_soften_tone_handles_failing_and_violates():
+    s = soften_tone("It violates the XYZ formula by failing to provide unique accomplishments.")
+    assert "violat" not in s.lower() and "failing" not in s.lower()
+    assert "provide unique accomplishments" in s  # meaning preserved
+
+
 def test_soften_tone_leaves_neutral_descriptors():
     # "weak verbs" is a neutral descriptor, not a criticism of the person — untouched.
     assert soften_tone("Replace weak verbs with strong ones.") == "Replace weak verbs with strong ones."
