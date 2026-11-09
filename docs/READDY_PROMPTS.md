@@ -4898,3 +4898,16 @@ Holding the mic records audio via `MediaRecorder` on the same `getUserMedia` str
 
 ### Acceptance
 Opening a cover letter (including one **uploaded as a PDF**) renders the **current version's content** (matching the marquee's "current" — e.g. v4's edited text), **not** the original uploaded PDF. The original PDF appears **only** under the explicit **Original** view (P94); the default preview is the current/Working-copy content (P110). Marquee current and the renderer always show the **same version** (P104 §1); selecting another version re-renders to it. Résumés follow the same rule. No backend change.
+
+## P145 — Remove the redundant standalone "upload (optional)" section below the versions marquee
+
+**Frontend only. No backend change.** On **Documents** (`/dashboard/documents`), well below the **Document versions** marquee there is a separate, bulky upload block — on screen it reads **"Link to a job or résumé (optional)"**, then **"PDF, DOCX, Markdown or plain text · Pick a file and your cover letter uploads right away — no second step,"** then an **"Upload cover letter"** dropzone/button (and the équivalent résumé one). It duplicates what the **marquee already does** — uploading a new document and downloading an existing one are handled in the marquee's own controls — so this standalone section is pure clutter.
+
+### Change
+1. **Delete the standalone below-marquee upload card** for both cover letters and résumés: the **"Upload cover letter" / "Upload résumé"** dropzones, their helper copy ("PDF, DOCX… no second step"), and the **"Link to a job or résumé (optional)"** field that rode along with them. Remove the whole block, not just the heading.
+2. **Upload + download stay in the marquee — the single home for both.** The marquee's own entry point still **adds a new document** (upload a PDF/DOCX/Markdown/plain-text file) and each version's **⋯ actions** still **download** (Original and Working copy). Nothing is lost; there is just one place to do it now. If that upload/download affordance isn't already on the marquee, add it there as part of this change.
+3. **Keep generation reachable, compactly.** "Generate a cover letter tailored to a job" is a distinct capability (not upload/download) — do **not** delete it; if it lived inside the removed card, keep it as a single compact **"Generate cover letter"** action near the library, without the heavy upload chrome.
+4. **No orphans.** Remove now-unused file-input elements, drag-and-drop handlers, and the optional job/résumé link state tied only to the deleted card. Don't leave a dangling label, divider, or empty container where it was.
+
+### Acceptance
+On Documents there is **no separate upload section below the marquee**. Uploading a brand-new résumé or cover letter, and downloading an existing document (Original + Working copy), are both done **from the marquee** and work end-to-end. Generating a tailored cover letter is still available as a compact action. The page is visibly shorter/less cluttered, with no empty gap, leftover heading, or dead dropzone where the removed section was. No backend change.
