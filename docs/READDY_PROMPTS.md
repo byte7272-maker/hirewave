@@ -4810,3 +4810,33 @@ Present `match-bullets` / `suggest-edits` results as a **plain list of suggestio
 
 ### Acceptance
 Editing a bullet is **direct**: click it in the document and type (P110); add/remove/reorder via the editor's own list controls (Move up/down), **no separate drag-and-drop bubble board**. AI bullet suggestions appear as a **simple list** (new text + why + the line it replaces) with **Apply / Apply all / Dismiss** that write into the editable document via `apply-edits`→`versions` (Undo = version switch) — **one click, no dragging onto a preview**. The suggestion→match→apply engine is unchanged and correct (adds vs replaces land on the right line/section, once, with a saved version); no orphaned cards or stuck drag state. The My Work Highlights workshop feeds the same Apply list. All P110/P114/P122/P135 behavior preserved.
+
+## P140 — Wire the INPUT mic exactly like the (working) OUTPUT wave: live-mic meter + capture
+
+**Frontend. No backend change** (there is **no server transcription endpoint** — the browser's `SpeechRecognition` is the transcriber). The assistant's **output** speaking-wave now works (P138 §3) — which **proves the app's Web Audio visualization works**. The **input** side still doesn't: no live-mic indicator, and the mic stream never reaches recognition. Build the input exactly like the output, from the mic.
+
+### The core instruction
+The output wave is built as: `createMediaElementSource(ttsAudioEl) → AnalyserNode → draw bars each frame`. **Do the identical thing for the mic**, just with a different source node:
+```
+const stream = await navigator.mediaDevices.getUserMedia({ audio: true });   // proven to work on this origin (console captured 59% peak)
+const ctx = new AudioContext();
+const src = ctx.createMediaStreamSource(stream);        // ← the only difference vs the output wave
+const analyser = ctx.createAnalyser(); src.connect(analyser);
+// same draw loop as the output wave, reading analyser.getByteTimeDomainData(...)
+```
+If you can draw the output wave, you can draw this — it's the same visualizer with the mic as the source.
+
+### 1. The live-mic indicator (the missing piece)
+- On press/hold-to-talk, call `getUserMedia({audio:true})`, mount the **input meter** off that stream (the code above), and show a clear **Listening** state — a mic wave/level **visually distinct** from the output speaking-wave (e.g. different color/side), so the user can see the mic is live and hearing them.
+- Keep the stream referenced for the whole listening session; on release/Stop, stop recognition and **stop the tracks** (P111), tear down the meter.
+- Reflect permission state (P123/P124): granted→listening, denied→the blocked guidance, no-device→message.
+
+### 2. Capture the speech (and surface failures — no silent dead-ends)
+- Start `SpeechRecognition` on the same gesture; handle `onresult` (use the transcript → `POST /assistant/interpret`, P128/P138), `onstart`, `onend`, and especially **`onerror`**.
+- Because there is **no server STT fallback**, if recognition errors (`network`, `no-speech`) or returns nothing **while the input meter shows real audio**, say so clearly: *"I can see the mic working but couldn't turn it into text — try again, or type it."* Never show nothing. The meter proves the mic is live even when recognition fails.
+
+### 3. Don't conflate the two waves
+The **input** meter (mic, "listening") and the **output** wave (TTS, "speaking", P138 §3) are separate components with separate sources; both can exist, but only one is active at a time (don't let the output wave stand in for the mic indicator).
+
+### Acceptance
+Holding the mic shows a **live input meter that moves with the user's voice** — built from `getUserMedia → createMediaStreamSource → AnalyserNode`, the same visualizer as the working output wave — giving the previously-missing live-mic indicator. The captured transcript reaches `/assistant/interpret`; a recognition failure **while the meter shows audio** is surfaced with a clear message (try again / type), never silent, since there is no server transcription. Tracks stop on release/Stop (P111); input and output waves are visually distinct. All P119/P123/P124/P127/P128/P138 behavior preserved.
