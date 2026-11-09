@@ -4535,3 +4535,31 @@ Tailoring analysis is read-only. The assistant asks consent for the **actionable
 
 ### Acceptance
 The assistant **walks the user through tailoring a résumé and a cover letter to a chosen job**, step by step: it loads the job, analyzes fit via `cover-letters/{id}/tailor` and `resumes/{id}/suggest-edits` (read-only), and presents the **fit score, addressed vs missing points, gap skills, and concrete suggestions**. It walks the suggestions one at a time and, **when asked "why," explains the specific reasoning** (requirement addressed / gap filled / rationale / fit score) — briefly. It **applies chosen changes only on confirmation** (résumé `apply-edits`→`versions`; cover letter `revise`→`versions`, P97 rules), tailors **both** documents, and offers download or apply next. All actionable steps ask permission (P114/P116); spoken (one voice, P119), captioned, and voice- or click-driven.
+
+## P130 — Mic connectivity troubleshooting guide + wire the audited intents (check_mic, status, what's-new, resume)
+
+**Frontend. Backend intents already shipped** — `POST /api/v1/assistant/interpret` now returns `check_mic`, `status_report`, `whats_new`, `resume_task` (plus the existing set). This builds the **hardware-connectivity guide** (core to a voice app) and routes the audited intents. See `docs/ASSISTANT_CAPABILITIES.md` for the full map.
+
+### 1. A specific "is my microphone connected?" troubleshooting guide (`check_mic`)
+When the user says *"check if my microphone is connected," "is my mic working," "test my microphone," "you can't hear me," "troubleshoot my mic," "check my audio"* (intent `check_mic`) — or taps a **"Test microphone"** item in the assistant's Voice & privacy panel — run a short, plain-language **diagnostic** and report each step:
+1. **Browser support:** `getUserMedia` + `SpeechRecognition` present? If not (e.g. voice commands need Chrome/Edge/Safari) → say so; the meter still works where `getUserMedia` exists.
+2. **Permission state:** `navigator.permissions.query({name:'microphone'})` → **granted / prompt / denied**. If `denied` → the P124 "blocked — enable in site settings" steps for the user's browser. If `prompt` → "I'll ask for mic access — choose Allow."
+3. **Device present:** `enumerateDevices()` → is there an `audioinput`? If none → "no microphone detected — plug one in / check your system settings," and offer **Re-check**.
+4. **Live capture test:** request `getUserMedia({audio:true})` and run the **P127 level meter for ~3 seconds**: *"Say something…"* — if the level moves → **"Your mic is connected and I can hear you ✓."** If the level stays flat → "I got mic access but hear no sound — check it's not muted / the right input device is selected (system sound settings)."
+5. **Result + next step:** summarize pass/fail per step with the specific fix, a **Re-check** button, and — on success — *"You're set — hold the mic and talk to me."* Tear down the stream after (P111/P127).
+Speak it (one voice, P119) **and** show it as a checklist with ✓/✗ and the fix per item; keep it brief.
+
+### 2. Route the audited intents to their real actions
+- **`status_report`** → speak the brief status from `GET /dashboard/summary` (P126 §4) — don't just navigate to the dashboard.
+- **`whats_new`** → summarize `GET /activity?since=<lastSeen>` and advance the marker (P126 §5).
+- **`resume_task`** → resume the in-progress task and state readiness (P126 §3).
+- **`check_mic`** → §1 above.
+
+### 3. Close the navigation gap
+`/interpret` already returns the correct `navigate` section (e.g. "take me to my résumé" → `navigate/documents`). Ensure the frontend **actually routes every `navigate` intent** to its screen (documents/matches/auto_apply/design/interview/inbox/connect/community/dashboard). If a spoken nav "did nothing," it was mic-capture (P128) or unrouted navigation — fix both: route all `navigate` intents, and confirm capture via §1.
+
+### 4. The guide is reachable without voice too
+Because a user with a broken mic can't speak, the mic troubleshooting guide (§1) is **also a button** — "Test microphone" in Voice & privacy and in the P124 action-needed message — so it's usable precisely when voice isn't.
+
+### Acceptance
+Saying (or tapping) "check my microphone / is my mic working / test my microphone" runs a **step-by-step connectivity guide** — browser support, permission state, device presence, and a **live capture test using the P127 meter** — reporting pass/fail with the specific fix per step and a Re-check, spoken and shown, and reachable as a **button** when the mic is unusable. The assistant routes **`status_report`→/dashboard/summary**, **`whats_new`→/activity**, **`resume_task`→resume**, and **every `navigate` intent to its screen** (so "take me to my résumé" opens Documents). All P114/P119/P123/P124/P127/P128 behavior is preserved.

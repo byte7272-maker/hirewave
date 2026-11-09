@@ -25,6 +25,7 @@ INTENTS = {
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
+    "check_mic", "status_report", "whats_new", "resume_task",
     "ask", "unknown",
 }
 
@@ -243,6 +244,33 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         sec = _match_section(t)
         if sec:
             return IntentResult("navigate", 0.9, {"section": sec})
+
+    # hardware / mic diagnostics ("check if my microphone is connected", "test my mic",
+    # "is my audio working") — triggers the connectivity troubleshooting guide.
+    if re.search(r"\b(mic|microphone|audio|headset|headphone|speaker)s?\b", t) and (
+        has("check", "test", "connect", "working", "work", "troubleshoot", "hear me",
+            "not hear", "can't hear", "cant hear", "detect", "set up", "setup", "problem",
+            "issue", "not working", "isn't working", "on or off", "enabled")
+    ):
+        return IntentResult("check_mic", 0.9)
+
+    # status report / progress ("give me a status report", "how am I doing")
+    if has("status report", "full status", "status update", "progress report", "my progress",
+           "how am i doing", "where things stand", "where do things stand", "summarize my",
+           "give me a summary", "catch me up", "brief me"):
+        return IntentResult("status_report", 0.9)
+
+    # what changed since last time
+    if has("what's changed", "whats changed", "what has changed", "what changed",
+           "what's new", "whats new", "anything new", "since last login", "since last time",
+           "since i was last", "since i was here", "while i was away", "what did i miss"):
+        return IntentResult("whats_new", 0.9)
+
+    # resume an in-progress task ("pick up where I left off") — NOT the résumé document
+    if has("pick up where", "where i left off", "where we left off", "resume my task",
+           "resume where", "continue where i left off", "continue my task", "last session",
+           "finish what i started", "back to what i was", "what i was doing"):
+        return IntentResult("resume_task", 0.9)
 
     # playbooks (a concrete task phrase)
     pb = _match_playbook(t)

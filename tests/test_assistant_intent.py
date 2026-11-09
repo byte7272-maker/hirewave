@@ -36,6 +36,31 @@ def test_deterministic_commands(utterance, intent):
     assert interpret(utterance).intent == intent
 
 
+@pytest.mark.parametrize("utterance,intent", [
+    ("check if my microphone is connected", "check_mic"),
+    ("is my mic working", "check_mic"),
+    ("test my microphone", "check_mic"),
+    ("check my audio", "check_mic"),
+    ("troubleshoot my mic", "check_mic"),
+    ("you can't hear me, check the microphone", "check_mic"),
+    ("give me a status report", "status_report"),
+    ("how am I doing", "status_report"),
+    ("what's changed since last login", "whats_new"),
+    ("what did I miss", "whats_new"),
+    ("pick up where I left off", "resume_task"),
+    ("continue where I left off", "resume_task"),
+])
+def test_new_capability_intents(utterance, intent):
+    assert interpret(utterance).intent == intent
+
+
+def test_resume_the_document_still_navigates_not_resume_task():
+    # "my resume" is the document; only verb phrases map to resume_task.
+    assert interpret("take me to my resume").intent == "navigate"
+    assert interpret("take me to my resume").slots["section"] == "documents"
+    assert interpret("open my resume").slots["section"] == "documents"
+
+
 def test_navigate_sections():
     assert interpret("take me to my matches").intent == "navigate"
     assert interpret("take me to my matches").slots["section"] == "matches"
