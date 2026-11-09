@@ -4753,3 +4753,26 @@ On `NotAllowedError` / `NotFoundError`, **automatically surface this checklist**
 
 ### Acceptance
 The **text input sits directly under** the hold-to-talk button; the button is **green when idle and red while engaged**, with the **P127 level meter superimposed on it** reacting to the voice. **"Check my hardware"** (button or voice) **launches the checklist**, which walks **both browser site-permission and OS microphone-privacy** steps (Edge + Windows called out explicitly, Chrome/macOS too) plus device selection, with a **Re-check** that confirms capture via the meter. A capture failure (`NotAllowedError`) **auto-opens the checklist** instead of failing silently, and typing always works. All P119/P123/P124/P127/P128/P131 behavior is preserved.
+
+## P138 — A Stop button on the mic, and fix typed commands routing to the Grand Tour
+
+**Frontend. No backend change** — the intent endpoint is correct (verified: "refresh my matches" → `start_playbook/walk_matches` at 0.85). Two fixes.
+
+### 1. Add a Stop button to the mic / assistant
+Hold-to-talk releases on pointer-up, but the user needs an explicit **Stop** to end things manually.
+- Put a clear **Stop** control on the mic / speaking bar (P120), visible whenever the assistant is **listening or speaking**. One tap:
+  - **Stops listening immediately** — stop `SpeechRecognition` and **stop the media tracks** (`stream.getTracks().forEach(t=>t.stop())`, P111), tear down the P127 meter.
+  - **Stops any narration** — halt the current `<audio>` / `speechSynthesis` via the P119 single-voice controller (barge-in), clear the queue.
+  - **Cancels in-flight processing** — abort a pending `/assistant/interpret` or action so nothing fires after Stop.
+- It works for both hold-to-talk and any tap-to-talk, and as a general "stop talking / stop listening" at any time. Keyboard: **Esc** also stops. Accessible label + `aria`.
+
+### 2. BUG: typed commands must route through the intent endpoint — never default to the Grand Tour
+Typing *"refresh my matches"* into the command box **started a Grand Tour**. The endpoint returns the right intent (`start_playbook/walk_matches`), so the **frontend is mis-routing** — either not calling `/assistant/interpret` for typed input, or falling back to the Grand Tour when it doesn't recognize the result.
+- **Route typed input exactly like voice (P125/P128):** `POST /api/v1/assistant/interpret` with the text + context → dispatch on the returned `intent`/`slots`. "refresh my matches" → `walk_matches` → **refresh and analyze matches** (P126 §6), **not** a tour.
+- **Map every intent to its action** (navigate, start_playbook, use_bullet, status_report, whats_new, check_mic/check_audio, change_voice, ask, …) — the same dispatch table the voice path uses. Don't keyword-match locally in a way that lands on "tour."
+- **The Grand Tour launches ONLY on an explicit tour request** (e.g. "take the grand tour", "give me the tour"). It must **never** be the fallback for an unrecognized or low-confidence command.
+- **Unknown / low-confidence (`ask` with no clear action, or `needs_disambiguation`)** → the assistant **asks for clarification or shows the options as buttons** ("Did you mean refresh your matches, or something else?") — it never silently launches a 5-minute tour the user didn't ask for.
+- Confirm before side-effectful actions as usual (P114); a refresh/analyze of matches is safe to just do.
+
+### Acceptance
+The mic/assistant has a visible **Stop** control (and Esc) that **immediately stops listening (tracks stopped, meter down) and stops any speech** (P119), cancelling in-flight processing. **Typed commands route through `/assistant/interpret`** and dispatch to the correct action — *"refresh my matches"* refreshes/analyzes matches (never the Grand Tour) — the **Grand Tour fires only on an explicit tour request**, and an unrecognized command **asks for clarification** instead of defaulting to a tour. All P111/P119/P125/P126/P128 behavior preserved.
