@@ -4413,3 +4413,30 @@ When the mic **isn't ready and voice would be used**, show a clear, calm **"acti
 
 ### Acceptance
 On opening the assistant, the mic permission is **detected up front** (`granted`/`denied`/`prompt`/no-device/unsupported) and reflected in the indicator, updating **live** on permission change. When action is needed, the assistant shows a **specific, browser-tailored message telling the user what to do** — allow-when-prompted for `prompt`, the exact site-settings steps for `denied`/blocked, connect-a-mic for no device, type-instead for unsupported — with a **Re-check** that clears the message once resolved. It never nags when `granted`, never blocks (buttons/typing remain), and preserves all P111/P114/P123 privacy and behavior.
+
+## P125 — A convenient push-to-talk button: hold to speak, release to run — with spoken confirmation + follow-up
+
+**Frontend. No backend change** — uses the live intent endpoint (`POST /api/v1/assistant/interpret`), the P119 single voice, and the P123/P124 mic states. Give the user one obvious button to **talk to the AI**: press and hold to speak, release and it runs the command and talks back.
+
+### 1. The button
+- A **prominent, convenient push-to-talk button** — a clear mic button on the assistant (full console **and** the P120 speaking bar), big tap target, obvious label ("**Hold to talk**"). It is the primary way to speak to the assistant.
+- **Press-and-hold = listen:** on `pointerdown`/hold, start the mic (`getUserMedia` on first use → prompt per P123/P124) and `SpeechRecognition`, and show the **Listening** state (pulsing mic + live caption of the words as they're recognized). 
+- **Release = stop:** on `pointerup`/leave/blur, **stop recognition and stop the tracks** (muted between interactions, P111). Also support **keyboard**: hold **Space** (or Enter) while the button is focused = hold-to-talk, with the same down/up semantics; `aria-pressed`/`aria-live` for screen readers.
+- If the mic is `prompt`/`denied`/no-device/unsupported, the button reflects it (P123) and shows the P124 action-needed guidance instead of silently doing nothing.
+
+### 2. Release → process automatically
+On release, take the final transcript and **process it without another tap**:
+- Call **`POST /api/v1/assistant/interpret`** with the transcript + context (`page`, `resume_id`/`cover_letter_id`, `focused_index`, on-screen `options`) → `{ intent, slots, confidence, needs_disambiguation }`.
+- **Map the intent to the action** (P121/P122): navigation, playbook step, choose/`use_bullet`, voice/rate, read/suggest, or free-form `ask`. 
+- If nothing was heard / empty transcript → say *"I didn't catch that — hold the mic and try again,"* no error.
+
+### 3. Spoken confirmation + follow-up (the "talk back")
+After processing, the assistant **speaks a confirmation and a follow-up** (one voice, P119; captions always, P105):
+- **Restate what it understood + what it's doing:** *"Okay — taking you to your matches."* / *"Adding 'Cut cloud spend 30%' to your résumé."*
+- **Safe actions** (navigate, read, suggest, choose) → do them and confirm, then **follow up** with the next step: *"Here are your top matches — want me to walk through them?"*
+- **Side-effectful actions** (apply, connect, enable auto-apply, submit, delete) → the spoken line **is the P114 confirm**: state specifics and **ask for the go-ahead** — *"I'll create an auto-apply rule for Software Engineer roles — say 'go' or tap Yes. I won't send anything."* — and **wait** (accept spoken yes/no, mic re-checked per P114, or the buttons). Nothing side-effectful runs on the voice command alone.
+- **Low confidence / `needs_disambiguation`** → ask to clarify and show the options as buttons: *"Did you mean auto-apply, or apply to one job?"*
+- Barge-in holds: pressing the button again cancels current speech (P119) and starts a new turn.
+
+### Acceptance
+There is a **prominent push-to-talk button**: **press-and-hold starts the mic and shows Listening** (with live caption), **release stops listening and stops the tracks**, and the spoken command is **processed automatically** via `POST /assistant/interpret` → the mapped action. The assistant then **speaks a confirmation of what it heard and is doing, plus a follow-up**, with captions; **safe actions run and confirm**, **side-effectful ones speak the P114 ask and wait for an explicit yes** (voice or button), empty/low-confidence input is handled gracefully, and mic-blocked/unavailable states show the P123/P124 guidance. Keyboard hold-to-talk and ARIA included; one voice at a time (P119); muted between interactions (P111).
