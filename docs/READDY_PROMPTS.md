@@ -4485,3 +4485,27 @@ The **push-to-talk button is on the Documents screen** and available as a **pers
 
 ### Acceptance
 While holding to talk, a **live visualizer reacts to the user's actual voice level** (moves when they speak, settles when silent), shown with the Listening state and caption, confirming the mic is hearing audio. A **granted-but-silent** mic is flagged after a moment ("not picking up any sound — check your mic"), distinct from the permission messages. On release the audio graph is torn down cleanly (RAF stopped, AudioContext closed, tracks stopped). Reduced-motion users get a non-animated level indicator; ARIA is preserved. No change to P125 hold-to-talk behavior or P111 privacy.
+
+## P128 — BUG: hold-to-talk never engages the mic (no permission prompt, no meter, no capture) — wire it to getUserMedia on press
+
+**Frontend. No backend change.** Verified live 2026-11-08: the bundle **contains** `getUserMedia`, `createMediaStreamSource`, `createAnalyser`, `SpeechRecognition` — so the code exists — but pressing hold-to-talk **never prompts for mic permission, shows no level meter, and captures nothing**, so the assistant can't hear (e.g. "analyze my matches" is never received). The intent endpoint is fine — `POST /assistant/interpret` correctly maps "analyze my matches" → `start_playbook/walk_matches` — so the failure is **upstream at mic capture**. Make the button actually engage the microphone on press.
+
+### 1. Press MUST call `getUserMedia` directly (this is what prompts + feeds the meter)
+- On `pointerdown`/hold of the push-to-talk button, **immediately call `navigator.mediaDevices.getUserMedia({ audio: true })`** — this is the only thing that triggers the browser's permission prompt and yields the MediaStream the P127 meter needs. **Do not gate it** behind a separate "enable voice input" toggle or any prior step; the press itself requests the mic. (If it's currently started only via `SpeechRecognition`, that's the bug — add the explicit `getUserMedia` call.)
+- When the promise resolves, **mount the P127 analyser/meter off that exact stream** and show **Listening** — so the user sees it's live. Start `SpeechRecognition` in parallel for the transcript.
+- On release, stop recognition, stop the meter, and **stop the stream tracks** (P111/P125/P127 teardown).
+
+### 2. Surface every failure — never silent
+- `getUserMedia` rejects **`NotAllowedError`/denied** → the P123/P124 blocked state + site-settings steps. 
+- **`NotFoundError`** (no device) → "no microphone found."
+- **Permission `prompt` never resolves / user dismisses** → return to idle with "tap and hold, then choose Allow."
+- **`SpeechRecognition` missing** (e.g. **Firefox**, which has no `webkitSpeechRecognition`) → still run the `getUserMedia` meter so the user sees the mic is connected, but clearly say **"voice commands need Chrome, Edge, or Safari — or type your request here,"** and keep the text input working. Never leave the user pressing a button that does nothing with no explanation.
+
+### 3. Put the push-to-talk where the user is (P126 §1 gap)
+Confirmed live: there is **no** push-to-talk/mic control on the **Documents** screen. Add the P125 push-to-talk button to the Documents screen and as the **persistent global** control, each wired to the §1 `getUserMedia` path (not a decorative mic icon).
+
+### 4. Prove it end-to-end
+Holding the button and saying "analyze my matches" should: prompt for the mic on first use → show the live meter reacting to the voice (P127) → capture the transcript → `POST /assistant/interpret` → `walk_matches` → the assistant refreshes/analyzes matches and speaks the brief result (P126 §6). Every stage visible; nothing silent.
+
+### Acceptance
+Pressing and holding the push-to-talk button **calls `getUserMedia` on the press** (prompting permission on first use), **mounts the live level meter from that stream** (P127), and **captures speech** via `SpeechRecognition` where supported; the Documents screen (and a global control) have a working push-to-talk, not a dead mic icon. Denied/no-device/unsupported-browser cases each show a **specific message** (never silent), with typing always available. End-to-end, holding and saying "analyze my matches" reaches `/assistant/interpret` and runs the matches analysis. All P111/P123/P124/P125/P127 behavior is preserved.
