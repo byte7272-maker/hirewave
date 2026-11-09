@@ -4440,3 +4440,34 @@ After processing, the assistant **speaks a confirmation and a follow-up** (one v
 
 ### Acceptance
 There is a **prominent push-to-talk button**: **press-and-hold starts the mic and shows Listening** (with live caption), **release stops listening and stops the tracks**, and the spoken command is **processed automatically** via `POST /assistant/interpret` → the mapped action. The assistant then **speaks a confirmation of what it heard and is doing, plus a follow-up**, with captions; **safe actions run and confirm**, **side-effectful ones speak the P114 ask and wait for an explicit yes** (voice or button), empty/low-confidence input is handled gracefully, and mic-blocked/unavailable states show the P123/P124 guidance. Keyboard hold-to-talk and ARIA included; one voice at a time (P119); muted between interactions (P111).
+
+## P126 — Push-to-talk on the Documents screen (and everywhere) + resume-where-you-left-off and a spoken status briefing
+
+**Frontend. No backend change** — orchestrates existing endpoints (`/dashboard/summary`, `/activity`, `/jobs/matches`, the highlights/auto-apply state, `/view-state`), the P125 push-to-talk, and the P119 voice.
+
+### 1. Push-to-talk on Documents + a persistent global button
+- Put the **P125 push-to-talk button on the main Documents screen** so the user can talk to the assistant right there — not only inside the console.
+- Better: make it a **persistent, global affordance** (a small always-present mic on the assistant launcher/app chrome) so hold-to-talk works from **any** screen. Same behavior as P125 (hold = listen, release = run → `POST /assistant/interpret` → act → spoken confirmation + follow-up), same P123/P124 mic-state handling. It targets the current page's context (`page`, current `resume_id`/`cover_letter_id`, on-screen `options`).
+
+### 2. Greet with continuity — offer to resume or brief the user
+On open/login (per the P121 greeting, non-nagging), the assistant **recognizes where things stand** and offers, e.g.: *"Welcome back. Would you like a **full status report**, to hear **what's changed since last time**, or to **pick up where you left off**?"* — spoken + captioned + as buttons. It waits (P121).
+
+### 3. Resume where the last session left off
+Detect an **in-progress task** from persisted state and offer to continue it, reporting **readiness**:
+- A bullet workshop in progress → `GET /resumes/{id}/highlights/latest` / `/highlights/runs` ("you had 5 suggested bullets — want to finish choosing?").
+- An auto-apply rule prepared/awaiting approval → `GET /auto-apply/approvals` / `GET /auto-apply/grants` ("your rule is ready to create" / "3 applications are waiting for your OK").
+- A document mid-edit → the current `selectedVersion` / last `recently-viewed` (`GET /api/v1/recently-viewed`) ("you were editing your cover letter — reopen it?").
+- State **readiness** plainly: what's done, what's the next action, and the one click/word to continue. Resume on confirm (P114).
+
+### 4. "Would you like a full status report?"
+On request, call **`GET /api/v1/dashboard/summary`** and **speak a brief report** (P119, captioned): strong-match count + the top match, applications by status, **pending approvals/actions**, connected sources, this-week progress (apps/interviews), and how many documents. Keep it short; offer to drill into any part ("want to hear the top matches?").
+
+### 5. "What's changed since last login?"
+- Keep a **last-seen timestamp** (persist via `PUT /api/v1/view-state/{view}` for cross-device, mirrored in localStorage). On request, call **`GET /api/v1/activity?since=<lastSeen>`** and summarize the **new** items — new matches, applications now awaiting approval (`requires_action`), new document versions, reconnect prompts — briefly, flagging anything that **needs action**. Then advance the last-seen marker.
+- If nothing changed, say so warmly ("nothing new since last time").
+
+### 6. Analyze & refresh matches — highlight the best, briefly
+On request (or as a suggested follow-up): optionally **refresh** matches (the Matches "pull now"/ingest the page uses), then `GET /api/v1/jobs/matches?limit=5` and **read the top few briefly with one reason each** — *"Top fit: Senior IT Lead at Acme, 92% — strong on leadership and cloud, close on location."* (from `score` + the strongest `reasons`/`breakdown`). Then offer to **walk them** (P115 Playbook 3), tailor, save, or apply — each confirmed (P114). Keep it brief: headline + why, not a monologue.
+
+### Acceptance
+The **push-to-talk button is on the Documents screen** and available as a **persistent global** control from any screen, behaving exactly like P125 against the current page's context. On open, the assistant offers **"full status report / what's changed since last time / resume where you left off."** It can **resume an in-progress task** (bullet workshop, pending auto-apply approvals, a document mid-edit) and **state readiness + the next step**; speak a **brief status report** from `/dashboard/summary`; summarize **what changed since last login** from `/activity?since=<lastSeen>` (persisting the marker, flagging items needing action); and **refresh + analyze matches, naming the best few and why, briefly**, then offer to act — all spoken (one voice, P119), captioned, mirrored as buttons, and confirmed before any side-effect (P114).
