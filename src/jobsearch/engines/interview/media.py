@@ -198,6 +198,82 @@ def voice_catalog(settings: Optional[Settings] = None) -> list[dict]:
     return []
 
 
+# ---- speech-to-text (transcribe recorded audio -> text) --------------------
+# Decouples capture (universal: getUserMedia + MediaRecorder) from transcription,
+# so voice input works on ANY browser/device, not just those with the browser's
+# SpeechRecognition API. The client records audio and POSTs it here.
+
+@runtime_checkable
+class TranscribeProvider(Protocol):
+    @property
+    def enabled(self) -> bool: ...
+
+    def transcribe(
+        self, audio: bytes, *, filename: str = "audio.webm", content_type: str = "", language: str = ""
+    ) -> Optional[str]: ...
+
+
+class NullTranscribeProvider:
+    """STT off — the endpoint returns 501 and the client falls back to the browser's
+    own SpeechRecognition (where available)."""
+
+    enabled = False
+
+    def transcribe(self, audio, *, filename="audio.webm", content_type="", language=""):  # noqa: D401
+        return None
+
+
+class OpenAITranscribeProvider:
+    """OpenAI speech-to-text (``POST /v1/audio/transcriptions``). Model defaults to
+    ``whisper-1``; any recordable audio container (webm/ogg/mp3/wav/m4a) works."""
+
+    enabled = True
+    _URL = "https://api.openai.com/v1/audio/transcriptions"
+
+    def __init__(self, api_key: str, *, model: str = "whisper-1", timeout: float = 30.0) -> None:
+        self._api_key = api_key
+        self._model = model or "whisper-1"
+        self._timeout = timeout
+        self.last_error = ""
+
+    def transcribe(  # pragma: no cover - network
+        self, audio: bytes, *, filename: str = "audio.webm", content_type: str = "", language: str = ""
+    ) -> Optional[str]:
+        import httpx
+
+        files = {"file": (filename or "audio.webm", audio, content_type or "application/octet-stream")}
+        data = {"model": self._model}
+        if language:
+            data["language"] = language
+        try:
+            resp = httpx.post(
+                self._URL,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                data=data,
+                files=files,
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+        except httpx.HTTPStatusError as e:
+            self.last_error = f"{e.response.status_code}: {e.response.text[:300]}"
+            return None
+        except (httpx.HTTPError, ValueError) as e:
+            self.last_error = str(e)[:300]
+            return None
+        self.last_error = ""
+        return (body.get("text") if isinstance(body, dict) else "") or ""
+
+
+def build_transcribe_provider(settings: Optional[Settings] = None) -> TranscribeProvider:
+    s = settings or get_settings()
+    if s.stt_provider == "openai":
+        key = s.stt_api_key or s.tts_api_key  # reuse the OpenAI TTS key by default
+        if key:
+            return OpenAITranscribeProvider(key, model=s.stt_model, timeout=s.stt_timeout_seconds)
+    return NullTranscribeProvider()
+
+
 def build_speech_provider(settings: Optional[Settings] = None) -> SpeechProvider:
     s = settings or get_settings()
     if s.tts_provider == "elevenlabs" and s.tts_api_key:

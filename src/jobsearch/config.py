@@ -170,6 +170,15 @@ class Settings(BaseSettings):
     tts_model: str = ""  # e.g. "eleven_turbo_v2_5" or "gpt-4o-mini-tts"; blank=vendor default
     tts_media_type: str = "audio/mpeg"
     tts_timeout_seconds: float = 30.0
+    # Speech-to-text (transcribe recorded audio -> text) so voice input works on any
+    # browser/device, including those without the browser SpeechRecognition API
+    # (Firefox, many mobile browsers). "none"=off (client falls back to browser
+    # SpeechRecognition), "mock"=offline stub (dev/tests), "openai"=real
+    # (OpenAI /v1/audio/transcriptions). Reuses the TTS key when stt_api_key is blank.
+    stt_provider: str = "none"
+    stt_api_key: str = Field(default="", validation_alias="JOBSEARCH_STT_API_KEY")
+    stt_model: str = "whisper-1"
+    stt_timeout_seconds: float = 30.0
     # Voice cloning — produce a custom neural voice from uploaded audio samples.
     # "none" = off, "mock" = offline stub (fake voice ids, for dev/tests),
     # "elevenlabs" = real (uses tts_api_key unless voice_clone_api_key is set).

@@ -15,8 +15,10 @@ from jobsearch.engines.interview.media import (
     NullSpeechProvider,
     OpenAISpeechProvider,
     SpeechProvider,
+    TranscribeProvider,
     build_avatar_provider,
     build_speech_provider,
+    build_transcribe_provider,
     voice_catalog,
 )
 from jobsearch.engines.interview.voice_clone import (
@@ -51,9 +53,11 @@ __all__ = [
     "PersonaLibrary",
     "QuestionBank",
     "SpeechProvider",
+    "TranscribeProvider",
     "VoiceCloneProvider",
     "build_avatar_provider",
     "build_speech_provider",
+    "build_transcribe_provider",
     "build_voice_clone_provider",
     "infer_category",
     "suggested_answer_seconds",

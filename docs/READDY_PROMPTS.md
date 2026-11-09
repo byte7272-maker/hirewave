@@ -4865,3 +4865,21 @@ The assistant can, on request ("show my versions", "what have I sent this to"), 
 
 ### Acceptance
 The Documents page is **decluttered**: the "Start with these" cards are **collapsed into a menu/overflow** (assistant lists them on demand), and the résumé recommendations are **behind an on-demand "Review & suggestions" trigger**, not always shown. Lists of options open as a **larger on-demand overlay** where the user picks manually or tells the assistant to choose. The assistant **presents versions with last-updated + what each was used for** (via `version-usage`: source, tailored-for, applied-to jobs) and can activate one. The **static Job selector is removed or demoted**; the assistant instead **recommends which jobs the résumé fits and which to tailor (and how)** on request, from `/jobs/matches` gaps, offering to tailor (P129). No always-on clutter; everything reachable on demand by click or voice. All P101/P103/P104/P121/P129/P135 behavior preserved.
+
+<!-- P142 intentionally skipped (Readdy flagged a version-number collision) — next prompt is P143. -->
+
+## P143 — Universal voice input: record audio and transcribe server-side (works on any browser, incl. Firefox/mobile)
+
+**Frontend. Backend endpoint is LIVE** — `POST /api/v1/narration/transcribe` (spec: `docs/TRANSCRIBE_ENDPOINT.md`). This makes voice input **device/OS/browser-agnostic** by decoupling capture from transcription: record with the universal `MediaRecorder` and transcribe on the server, instead of relying on the browser's `SpeechRecognition` (which Firefox lacks and mobile mishandles).
+
+### Do
+1. **Record with MediaRecorder (universal).** On hold-to-talk, besides the P140 live meter (`getUserMedia → AnalyserNode`), start a `MediaRecorder(stream)` on the **same stream**; collect `dataavailable` chunks into a Blob (`audio/webm` where supported, else the browser's default).
+2. **On release, transcribe server-side.** `POST /api/v1/narration/transcribe` as **multipart** with the Blob as `file` (optional `language`). On **200** → use the returned `text` → `POST /assistant/interpret` (exactly the same path as a typed command, P128/P138). Show the text as the caption.
+3. **Graceful capability ladder:**
+   - If `/transcribe` returns **501** (no server STT) → fall back to the browser `SpeechRecognition` where available; if that's missing too (Firefox) → *"voice typing isn't available here — type instead,"* with the text box right there (P128).
+   - Prefer the **server transcription** when available (more reliable + works everywhere); keep browser `SpeechRecognition` only as the offline fallback.
+4. **Keep everything else:** the live input meter (P140), the Stop button (P138 §1), green→red button, muted-safe output wave + captions (P138 §3), confirm-before-acting (P114). Audio is sent once and not stored (server contract); stop tracks on release (P111).
+5. **No UI difference to the user** — hold, speak, release, it acts. Whether the words came from the server or the browser recognizer is invisible; only the reliability changes.
+
+### Acceptance
+Holding the mic records audio via `MediaRecorder` on the same `getUserMedia` stream that drives the live meter; on release the Blob is POSTed to **`/api/v1/narration/transcribe`**, and the returned `text` is dispatched through `/assistant/interpret` like any command. When server STT is unavailable (501), it falls back to browser `SpeechRecognition`, and when that's also absent it cleanly tells the user to type — so **voice input works on every browser that can record audio** (Chrome, Edge, Safari, Firefox, mobile), with typing as the universal floor. Meter, Stop, output wave/captions and confirms all preserved (P111/P114/P127/P138/P140).

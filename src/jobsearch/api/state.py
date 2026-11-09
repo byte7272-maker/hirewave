@@ -23,6 +23,7 @@ from jobsearch.engines.interview import (
     VocabularyAnalyzer,
     build_avatar_provider,
     build_speech_provider,
+    build_transcribe_provider,
     build_voice_clone_provider,
 )
 from jobsearch.engines.integration import (
@@ -198,6 +199,9 @@ class AppState:
         self.persona_library = PersonaLibrary.from_settings(self.settings)
         self.question_bank = QuestionBank.from_settings(self.settings)
         self.speech = build_speech_provider(self.settings)
+        # Speech-to-text so voice input works on any browser (incl. those without
+        # the SpeechRecognition API); the client records audio and POSTs it.
+        self.transcribe = build_transcribe_provider(self.settings)
         self.avatar_video = build_avatar_provider(self.settings)
         # Voice cloning — produce a custom neural voice from user audio samples.
         self.voice_clone = build_voice_clone_provider(self.settings)

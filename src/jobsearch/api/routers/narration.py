@@ -17,7 +17,8 @@ so setting ``JOBSEARCH_TTS_PROVIDER`` + key lights up AI voices everywhere.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile, status
+from pydantic import BaseModel
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import NarrationPrefsUpdate, TtsRequest
@@ -121,3 +122,51 @@ def speak(body: TtsRequest, user: CurrentUser, state: StateDep) -> Response:
         media_type=state.settings.tts_media_type,
         headers={"Cache-Control": "no-store"},
     )
+
+
+#: Cap the audio a single transcription accepts (~25 MB, matching common STT limits).
+_MAX_AUDIO_BYTES = 25 * 1024 * 1024
+
+
+class TranscribeOut(BaseModel):
+    text: str
+    provider: str = ""
+
+
+@router.post("/transcribe", response_model=TranscribeOut)
+async def transcribe(
+    user: CurrentUser,
+    state: StateDep,
+    file: UploadFile = File(..., description="recorded audio (webm/ogg/mp3/wav/m4a)"),
+    language: str = Form("", description="optional ISO language hint, e.g. 'en'"),
+) -> TranscribeOut:
+    """Transcribe recorded audio to text so **voice input works on any browser/device**
+    — including those without the browser ``SpeechRecognition`` API (Firefox, many
+    mobile browsers). The client records with ``MediaRecorder`` and POSTs the blob here;
+    the returned text then goes to ``/assistant/interpret`` exactly like a typed command.
+
+    Returns **501** when no server STT source is configured — the client then falls back
+    to the browser's own ``SpeechRecognition`` where available. Audio is transient
+    (never stored) and used only to produce the transcript."""
+    if not state.transcribe.enabled:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "no speech-to-text source configured"
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty audio")
+    if len(data) > _MAX_AUDIO_BYTES:
+        raise HTTPException(413, f"audio too large (max {_MAX_AUDIO_BYTES // (1024 * 1024)} MB)")
+    text = state.transcribe.transcribe(
+        data,
+        filename=file.filename or "audio.webm",
+        content_type=file.content_type or "",
+        language=language.strip(),
+    )
+    if text is None:
+        detail = "transcription failed"
+        err = getattr(state.transcribe, "last_error", "")
+        if err:
+            detail = f"{detail} ({err})"
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
+    return TranscribeOut(text=text.strip(), provider=state.settings.stt_provider)
