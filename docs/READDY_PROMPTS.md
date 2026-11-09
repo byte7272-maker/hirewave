@@ -4592,3 +4592,30 @@ Everything is **visible text + buttons**, not audio-only — a user with dead sp
 "Check my audio / hardware check / test my speakers" (or the button) runs a **full hardware check**: a **speakers/output test** (play a test tone/voice → "did you hear it?" → targeted fixes + replay) **then** the **microphone test** (support → permission → device → live meter capture), each reported ✓/✗ with the specific fix and a Re-check. "You can't hear me" runs the mic section; "I can't hear you / no sound" runs the speaker section. The whole guide is **readable and button-driven** (works with broken audio), spoken where possible (P119), and ties into P123/P124/P127/P128. 
 
 > Note: the web can't read or change **system** volume/mute or force an output device — the speaker guide **instructs** the user through those OS-level steps and verifies by playback ("did you hear it?"), which is the correct and only reliable check.
+
+## P132 — Mic layout (green→red metered button + text input under it) and a hardware checklist that covers BROWSER *and* OS blocks (fix "still can't get mic audio")
+
+**Frontend. No backend change** (intents live). Diagnosed live 2026-11-08: the app **does** call `getUserMedia` (the browser shows a mic request), the page is **not** iframed, and there's **no blocking `Permissions-Policy`** — `micAllowedHere` is **true**. So "the AI cannot get mic audio" is a **permission BLOCK**, not missing code: on **Edge/Windows** the usual culprits are the site permission set to **Block** *or* the **Windows microphone privacy** setting blocking Edge — both throw a silent `NotAllowedError` with no prompt. Fix the layout and make the hardware checklist actually resolve these.
+
+### 1. Button + input layout
+- **Put the text input directly UNDER the hold-to-talk button** — "Type to the assistant…" sits immediately below the mic button, same width, always available (works when the mic doesn't).
+- **Green → red state:** the hold-to-talk button is **green when idle** ("Hold to talk"), and turns **red while engaged** (held/listening). 
+- **Superimpose the P127 meter on the button:** render the live audio-level visualizer **on the button itself** (rings/fill/bars over the red button) so the level pulses *in* the button while held — one clear control that shows idle/active/hearing.
+
+### 2. "Check my hardware" must kick off the checklist
+Both the **voice** command ("check my hardware", "test my mic and speakers" → `check_audio`; "is my mic working" → `check_mic`) **and** a visible **"Check my hardware"** button launch the P131 checklist. Wire the button — don't leave it inert.
+
+### 3. The checklist must cover BROWSER *and* OS blocks (this is the actual fix)
+When capture fails (`NotAllowedError`) or the user runs the check, walk **both** layers, because JS can't tell which one is blocking:
+- **Tab/site:** the tab isn't muted; the **site mic permission** is Allow. **Edge:** click the **padlock / "View site information"** in the address bar → **Permissions for this site** → set **Microphone = Allow**, then reload (or `edge://settings/content/microphone`). (Chrome: padlock → Site settings → Microphone; Safari: Settings for This Website.)
+- **Operating system (the one people miss):**
+  - **Windows:** **Settings → Privacy & security → Microphone** → turn on **Microphone access**, **Let apps access your microphone**, and **Let desktop apps access your microphone** / ensure **Microsoft Edge** is allowed. (A Windows OS block throws the same `NotAllowedError` even when the site is "allowed.")
+  - **macOS:** **System Settings → Privacy & Security → Microphone** → enable your browser.
+- **Device:** a mic is connected/selected (`enumerateDevices`), not muted in hardware, correct input device.
+- After each fix, a **Re-check** re-runs `getUserMedia` + the P127 meter; on success → ✓ "I can hear you now."
+
+### 4. Never fail silently on a block
+On `NotAllowedError` / `NotFoundError`, **automatically surface this checklist** (not just a dead red button): "I couldn't get the microphone — let's fix it," then §3. Keep the **text input** fully working throughout so the user is never stuck.
+
+### Acceptance
+The **text input sits directly under** the hold-to-talk button; the button is **green when idle and red while engaged**, with the **P127 level meter superimposed on it** reacting to the voice. **"Check my hardware"** (button or voice) **launches the checklist**, which walks **both browser site-permission and OS microphone-privacy** steps (Edge + Windows called out explicitly, Chrome/macOS too) plus device selection, with a **Re-check** that confirms capture via the meter. A capture failure (`NotAllowedError`) **auto-opens the checklist** instead of failing silently, and typing always works. All P119/P123/P124/P127/P128/P131 behavior is preserved.
