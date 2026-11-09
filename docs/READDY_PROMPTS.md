@@ -4509,3 +4509,29 @@ Holding the button and saying "analyze my matches" should: prompt for the mic on
 
 ### Acceptance
 Pressing and holding the push-to-talk button **calls `getUserMedia` on the press** (prompting permission on first use), **mounts the live level meter from that stream** (P127), and **captures speech** via `SpeechRecognition` where supported; the Documents screen (and a global control) have a working push-to-talk, not a dead mic icon. Denied/no-device/unsupported-browser cases each show a **specific message** (never silent), with typing always available. End-to-end, holding and saying "analyze my matches" reaches `/assistant/interpret` and runs the matches analysis. All P111/P123/P124/P125/P127 behavior is preserved.
+
+## P129 — Assistant playbook: guided tailoring of a résumé AND cover letter to a specific job, explaining its reasoning on request
+
+**Frontend. No backend change** — expands the P115 "Tailor" playbook into a full step-by-step walkthrough over existing endpoints, with the assistant explaining *why* when asked and asking permission at each actionable step (P114). Drivable by voice (P125/P128) or click.
+
+*Triggers: "tailor my résumé/cover letter to this job," "aim my application at this role," "make my documents fit this job."*
+
+### Steps
+1. **Pick the target job.** From Matches (or a saved job) — the assistant needs a `job_posting_id`. If the user is on a match, use it; otherwise help them choose (P115 Playbook 3). If the job's full description isn't loaded, offer to **pull it** (P31) — **confirm** first.
+2. **Pick what to tailor.** Résumé, cover letter, or both. Open them in the Workspace (P109/P110).
+3. **Analyze the fit (read-only) and show the reasoning.**
+   - **Cover letter:** `POST /api/v1/cover-letters/{id}/tailor { job_posting_id }` → `{ fit_score, addressed[], missing_points[], qualifications, summary, tailoring[] }`. The assistant says the **fit score**, what the letter **already addresses**, what's **missing**, and the concrete **tailoring** changes.
+   - **Résumé:** `POST /api/v1/resumes/{id}/suggest-edits { context: <job description>, job_posting_id }` → `suggestions[] { action, section, before, after, rationale }`. Also use the match **`gap_skills` / `reasons` / `breakdown`** (`GET /jobs/matches`) for the "why it fits / where it's short."
+4. **Walk the suggestions one at a time** (P119 one voice, captioned): for each, say what it changes and — briefly — **why** (its `rationale`, the requirement it addresses, or the gap it fills). "Next / skip / use that one" move through them (P122/P128).
+5. **Explain reasoning on demand.** When the user asks **"why?"** / "why that change?" / "why does this fit?" / "why is it missing?", give the **specific reasoning**, not a generic answer: tie it to the job's `requirements`/`missing_points`, the résumé `gap_skills`, the fit_score, or the suggestion's `rationale`. Keep it brief unless they ask for more. (Intent: the P122 `ask`/`suggest_bullets` path; the assistant has the analysis in context.)
+6. **Apply with permission.** Nothing changes without the user's go-ahead (P114):
+   - Résumé: apply chosen edits → `POST /resumes/{id}/apply-edits` → preview → `POST /resumes/{id}/versions` (Undo = version switch).
+   - Cover letter: `POST /cover-letters/{id}/revise { job_posting_id, … }` (or apply the tailoring) → `POST /cover-letters/{id}/versions`. Enforce the P97 cover-letter rules.
+   - Confirm each apply (or "apply all") via the P103 overlay / spoken yes; report what changed.
+7. **Do both, then offer next.** Tailor the résumé and the cover letter for the same job, then suggest: **download/send** (Playbook 4), or **apply to this job** (Playbook 6 / auto-apply, P116 scopes) — each with its own permission.
+
+### Permissions where needed
+Tailoring analysis is read-only. The assistant asks consent for the **actionable** steps: pulling the job description (P31), applying an edit / saving a version (P114), and — only if the user continues into applying — the automation scopes (P116). It never saves or sends without an explicit yes.
+
+### Acceptance
+The assistant **walks the user through tailoring a résumé and a cover letter to a chosen job**, step by step: it loads the job, analyzes fit via `cover-letters/{id}/tailor` and `resumes/{id}/suggest-edits` (read-only), and presents the **fit score, addressed vs missing points, gap skills, and concrete suggestions**. It walks the suggestions one at a time and, **when asked "why," explains the specific reasoning** (requirement addressed / gap filled / rationale / fit score) — briefly. It **applies chosen changes only on confirmation** (résumé `apply-edits`→`versions`; cover letter `revise`→`versions`, P97 rules), tailors **both** documents, and offers download or apply next. All actionable steps ask permission (P114/P116); spoken (one voice, P119), captioned, and voice- or click-driven.
