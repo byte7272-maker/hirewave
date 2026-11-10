@@ -585,18 +585,32 @@ def replace_in_resume(
 def suggest_resume_edits(
     resume_id: str, body: SuggestEditsRequest, user: CurrentUser, state: StateDep
 ) -> SuggestEditsResponse:
-    """Paste any data (notes, a job description, feedback, raw work data) and the AI
-    compares it to the résumé and proposes specific add/remove/reword edits to review —
-    nothing is changed. Approve the ones you want, then POST them to /apply-edits."""
+    """Propose specific add/remove/reword edits to review — nothing is changed. Approve
+    the ones you want, then POST them to /apply-edits.
+
+    Two modes:
+    - **Paste mode** — send ``context`` (notes, a job description, feedback, raw work
+      data); the AI compares it to the résumé.
+    - **Critique mode** — send an **empty** ``context`` and the AI reviews the résumé
+      itself and turns its own critique into concrete edits (reword a weak line, quantify
+      with a placeholder, and — when ``job_posting_id`` is given — tailor it to that job,
+      e.g. insert the target company and mirror missing requirements). This is what the
+      assistant offers on the Documents/Matches screens."""
     plan_limits.consume_ai_edit(state, user)
     plan_limits.enforce_ai_input(state, user, body.context or "")
     resume = get_resume(resume_id, user, state)
-    if not body.context.strip():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "paste some text for the AI to work from")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
-    edits = state.resume_assistant.suggest_edits(resume, body.context, job=job, avoid=body.avoid)
+    ctx = (body.context or "").strip()
+    if ctx:
+        edits = state.resume_assistant.suggest_edits(resume, body.context, job=job, avoid=body.avoid)
+        mode, prompt = "suggest", body.context
+    else:
+        # Critique mode: no paste — derive edits from the résumé's own review (+ the job).
+        review = state.resume_assistant.review(resume, job=job, narrative=False)
+        edits = state.resume_assistant.suggest_from_review(resume, review, job=job, avoid=body.avoid)
+        mode, prompt = "critique", ""
     state.highlights_history.record(
-        user_id=user.id, resume_id=resume.id, mode="suggest", prompt=body.context,
+        user_id=user.id, resume_id=resume.id, mode=mode, prompt=prompt,
         items=edits, job_posting_id=body.job_posting_id or "",
     )
     return SuggestEditsResponse(suggestions=[EditSuggestion(**e) for e in edits])

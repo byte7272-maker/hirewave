@@ -671,13 +671,50 @@ def test_api_suggest_and_apply_edits_flow():
     assert s.status_code == 200
     sug = s.json()["suggestions"]
     assert len(sug) == 1 and sug[0]["action"] == "reword"
-    # empty context -> 400
-    assert client.post(f"/api/v1/resumes/{rid}/suggest-edits", headers=h,
-                       json={"context": "  "}).status_code == 400
+    # empty context -> critique mode: the AI reviews the résumé itself and returns
+    # apply-able edits (no paste needed) — this is what the assistant offers.
+    c = client.post(f"/api/v1/resumes/{rid}/suggest-edits", headers=h,
+                    json={"context": "  "})
+    assert c.status_code == 200
+    assert c.json()["suggestions"], "critique mode should derive edits from the review"
 
     a = client.post(f"/api/v1/resumes/{rid}/apply-edits", headers=h,
                     json={"suggestions": [{"action": "add", "section": "Skills", "after": "AWS"}]})
     assert a.status_code == 200 and a.json()["applied"] == 1 and "AWS" in a.json()["rendered_text"]
+
+
+def test_api_suggest_edits_critique_mode_tailors_to_the_job():
+    # Critique mode with a job_posting_id must feed the target role + company into the
+    # prompt (so the assistant can "input company names as part of tailoring") and the
+    # placeholder-honesty rule must be present (no fabricated metrics).
+    captured = {}
+
+    class _TailorLLM:
+        name = "tailor"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            captured["prompt"] = prompt
+            return ('[{"action":"reword","section":"Summary","before":"Backend engineer.",'
+                    '"after":"Backend engineer targeting the Senior Backend Engineer role at Globex.",'
+                    '"rationale":"tailor to the target role"}]')
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _TailorLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client, email="tailor@demo.com")
+    uid = state.user_by_email("tailor@demo.com").id
+    rid = _upload(client, h, "## Summary\nBackend engineer.\n\n## Experience\n- Built APIs")["id"]
+    job = JobPosting(source_platform="linkedin", title="Senior Backend Engineer", company="Globex",
+                     owner_id=uid, description="Python FastAPI on AWS",
+                     requirements=["Python", "FastAPI", "AWS"])
+    state.jobs.add(job)
+    r = client.post(f"/api/v1/resumes/{rid}/suggest-edits", headers=h,
+                    json={"context": "", "job_posting_id": job.id})
+    assert r.status_code == 200
+    sug = r.json()["suggestions"]
+    assert sug and any("Globex" in s["after"] for s in sug)
+    # the prompt actually carried the tailoring target and the no-fabrication rule
+    assert "Globex" in captured["prompt"] and "Senior Backend Engineer" in captured["prompt"]
+    assert "PLACEHOLDER" in captured["prompt"] and "NEVER invent" in captured["prompt"]
 
 
 def test_api_ai_edit_applies_targeted_change_immediately():

@@ -1627,6 +1627,90 @@ class ResumeAssistant:
             edits = [e for e in edits if id(e) not in dup]
         return edits
 
+    def suggest_from_review(
+        self,
+        resume: Resume,
+        review: "ResumeReview",
+        *,
+        job: Optional[JobPosting] = None,
+        avoid: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Turn the résumé's own *critique* (a :class:`ResumeReview`) into concrete,
+        apply-able edits — no pasted notes required. Each finding ("quantify impact",
+        "swap weak verbs", "cover the job's requirements") becomes a specific
+        ``reword``/``add`` with the EXACT line to change, so the assistant can OFFER
+        them and the user can accept each one (→ ``/apply-edits`` → ``/versions``).
+
+        Honesty rules match :meth:`suggest_edits`: use ONLY facts already in the résumé
+        (and, for tailoring, the job's own name + stated requirements). Never fabricate a
+        number — when a bullet SHOULD be quantified but the résumé has no figure, the
+        reword inserts a **bracketed placeholder** (e.g. ``[add %]``) for the user to
+        fill, not an invented metric. Returns ``[{action, section, before, after,
+        rationale}]``; LLM-backed with an empty deterministic fallback (no guessing)."""
+        text = (resume.rendered_text or "").strip()
+        if not text:
+            return []
+        findings = [f"{s.title}: {s.detail}" for s in (review.suggestions or [])][:8]
+        if not findings and not (job and getattr(job, "requirements", None)):
+            return []
+        critique = "\n".join(f"- {f}" for f in findings) or "- Tighten and tailor the résumé."
+        tailor = ""
+        if job:
+            miss = ", ".join((review.missing_keywords or [])[:8])
+            tailor = (
+                "\n\nTAILORING — target role: " + (job.title or "this role")
+                + (f" at {job.company}" if getattr(job, "company", "") else "")
+                + ". Where the résumé has a summary/objective or profile line, reword it to "
+                "name the target role" + (f" and the company '{job.company}'" if getattr(job, "company", "") else "")
+                + " so it reads as written for this job. "
+                + (f"Surface these requirements the résumé is missing IF its facts legitimately support them (never claim experience that isn't there): {miss}." if miss else "")
+            )
+        avoid = [a.strip() for a in (avoid or []) if a and a.strip()]
+        avoid_block = ""
+        if avoid:
+            avoid_block = (
+                "\n\nAlready on the résumé or suggested before — do NOT restate; only add a line "
+                "that COMPLEMENTS these with a different accomplishment or metric:\n"
+                + "\n".join(f"- {a}" for a in avoid[:40])
+            )
+        try:
+            out = self.premium.complete(
+                "You are improving a résumé by acting on a reviewer's critique. For each point, "
+                "propose a specific edit as a JSON array; each item: {\"action\":\"add\"|\"remove\"|"
+                "\"reword\", \"section\":<e.g. Summary/Experience/Skills>, \"before\":<the EXACT "
+                "existing résumé text to change, copied verbatim; empty for add>, \"after\":<the new "
+                "text; empty for remove>, \"rationale\":<which critique point this fixes, one short "
+                "line>}. 'reword' = rewrite a specific weak/generic/duplicated line stronger — lead "
+                "with an action verb and keep it truthful. 'add' = a line the résumé's own facts "
+                "justify that fills a gap the critique names. "
+                "QUANTIFY HONESTLY: when a line should show a number but the résumé states none, keep "
+                "the real wording and append a BRACKETED PLACEHOLDER for the user to fill — e.g. "
+                "'[add %]', '[# of people]', '[$ amount]' — NEVER invent a figure. "
+                "Use ONLY facts present in the résumé" + (" or the target job's name/requirements" if job else "")
+                + " — never invent employers, titles, dates, metrics, or skills. For reword/remove, "
+                "'before' MUST be copied verbatim from the résumé so it can be located. Return ONLY the "
+                "JSON array (max 12)."
+                + tailor + avoid_block
+                + "\n\nReviewer's critique:\n" + critique
+                + "\n\nRésumé:\n" + text,
+                system="You convert résumé critique into precise, verifiable, apply-able edits and output only a JSON array.",
+                max_tokens=2200,
+            )
+            edits = _coerce_edits(json.loads(_extract_json_array(out)))
+        except Exception:  # noqa: BLE001 - no guessing on failure
+            return []
+        # Complement guard: an 'add' that merely restates an existing bullet is dropped.
+        guard = [b["text"] for b in extract_resume_bullets(text)] + avoid
+        adds = [e for e in edits if (e.get("action") or "").lower() == "add" and (e.get("after") or "").strip()]
+        if guard and adds:
+            targets = [{"line": g, "text": _strip_inline_md(g)} for g in guard]
+            dup = {
+                id(e) for e, m in zip(adds, match_bullets([e["after"] for e in adds], targets, threshold=0.6))
+                if m["recommend"] == "replace"
+            }
+            edits = [e for e in edits if id(e) not in dup]
+        return edits
+
     def is_formatting_instruction(self, instruction: str) -> bool:
         """True when the instruction is a pure formatting op (bold/unbold/bullets),
         so it is handled deterministically and needs no LLM anywhere in the flow."""
