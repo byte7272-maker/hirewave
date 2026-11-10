@@ -5461,3 +5461,19 @@ When the assistant answers (including a formulated-question result), the reply i
 
 ### Acceptance
 On an Android phone, opening the assistant shows a **bottom sheet at partial height with the page content still visible above it**, draggable to expand and collapsible to an obvious floating bubble (the mobile minimize). **Push-to-talk works via touch** (plus tap-to-toggle), requests mic permission on first tap, shows a moving input meter, and falls back to an always-visible typing field with a clear "couldn't hear" message — no silent failure. TTS audio unlocks on the first gesture. The newest answer auto-reveals above the input, and the **"Connect a job board" CTA is a full-width touch button**. No part of the UI requires hover or a desktop-size click target.
+
+## P170 — URGENT HOTFIX: the whole dashboard is crashing on "connectionsKnown" (undefined) after the latest publish
+
+**Frontend only. No backend change. TOP PRIORITY — the app is down.** Verified live (signed-in, `hlrtlg.readdy.co`): **every authenticated page crashes to the error boundary** with:
+
+> **Cannot read properties of undefined (reading 'connectionsKnown')** — at `index-CnMGBNrC.js`
+
+Confirmed on **both `/dashboard` and `/dashboard/matches`**, reproducible (Try again does not recover), and the assistant never mounts (`.hw-glass` absent) because the page dies first. This appeared **after the latest publish** (the new-user / connection-detection work, P167). The code reads `.connectionsKnown` off an **undefined** object — which is exactly the state a **brand-new / not-yet-connected user has**, so this likely also explains the tester's experience.
+
+### Fix
+- Find the read of **`connectionsKnown`** (introduced with the new-user/"is the user connected" detection, P167) and **guard it**: it's being accessed on an object that is `undefined` (the connections/profile/setup state before it loads, or for a user who has no connections). Use optional chaining + a safe default, e.g. `state?.connectionsKnown ?? false` / `(connections ?? {}).connectionsKnown`, and treat **undefined as "new / not connected yet"** (show the welcome + Connect CTA, P167) rather than throwing.
+- **Default the whole new-user detection to null-safe:** any field it reads (connections known, source linked, intro seen, setup state) must tolerate `undefined`/not-loaded and fall back to the new-user path — never crash. While the data is still loading, render a normal/empty state, not an exception.
+- This runs in a **shared layout/provider** (it's on every dashboard page), so an unguarded read takes down the entire app — wrap the detection so a failure there can **never** blank the page (and the error boundary should degrade to the app, not a full stop).
+
+### Acceptance
+`/dashboard` and `/dashboard/matches` **load without the error boundary** for a signed-in user, including a brand-new/not-yet-connected user whose connection state is undefined (they see the P167 welcome + Connect CTA, not a crash). No `connectionsKnown` (or related undefined-read) exception appears in the console. The assistant (`.hw-glass`) mounts again. Re-verify on the live published site.
