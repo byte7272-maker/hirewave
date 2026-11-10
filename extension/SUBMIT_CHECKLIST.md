@@ -95,7 +95,8 @@ content*. Expect a fresh review.
 - [ ] **Used/transferred for purposes unrelated to the single purpose?** → **No**
 - [ ] **Used to determine creditworthiness / lending?** → **No**
 - [ ] **Certify** the disclosures are accurate + comply with the Limited Use policy.
-- [ ] **Privacy policy URL:** the public URL where `privacy.html` is hosted.
+- [ ] **Privacy policy URL:** `https://hirewave-production-3db3.up.railway.app/static/privacy.html`
+      (live — verified 200; reflects the v1.4.1 pull + fill + one-click-enable flow).
 
 ## Before you hit Submit
 
