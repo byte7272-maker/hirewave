@@ -5437,3 +5437,27 @@ She couldn't get the window out of the way. P166 (compact side-dock default + po
 
 ### Acceptance
 When the assistant answers (including a formulated-question result), the reply is **immediately visible where the user is acting** — newest content auto-revealed next to the input, never stranded at the top requiring a scroll. Voice input either works or **clearly tells the user why not** (permission prompt, "I didn't catch that", visible meter) with an always-obvious **typing fallback** — no silent failure. The window can be **reliably minimized/docked** to free the screen (P166), and new users start in the compact docked form.
+
+## P169 — Mobile / Android phone: the assistant must be a collapsible bottom sheet, with touch push-to-talk and a visible content area (the tester is on an Android phone)
+
+**Frontend only. No backend change.** Tester sundaij2@gmail.com is on an **Android phone**, which reframes her three issues (P168): on a phone a floating panel is the *whole screen*, push-to-talk needs **touch** events, and mobile mic/autoplay permissions behave differently. Make the assistant genuinely mobile-first. (This recasts P166/P168 for phones; desktop behavior from those stays.)
+
+### 1. On phone widths, the assistant is a bottom sheet — never a full-screen floating panel
+- Detect phone width (and touch) and render the assistant as a **bottom sheet**, not the desktop floating window. Default to a **partial "peek" height** (about 40–55% of the screen) so the **content above it stays visible** — the user can see their matches/page while the assistant is open. This is the fix for "blocking too much of the screen."
+- **Drag the sheet handle up/down** to expand to near-full or collapse. A collapsed state leaves a small, obvious **floating assistant bubble/FAB** (and/or a slim bar) to reopen — this is the mobile "minimize" she couldn't find. Minimize must be a **big, obvious touch target**, not a tiny desktop icon.
+- Honor safe-area insets (notch/home bar), no horizontal overflow, full-width sheet with rounded top. The P166 "never cover the content center" rule becomes "never occupy the whole phone screen by default."
+
+### 2. Touch push-to-talk that actually captures on Android Chrome
+"Couldn't hear her" is most likely mobile input wiring:
+- Wire the hold-mic to **touch/pointer events** (`pointerdown`/`pointerup`, `touchstart`/`touchend`) — not just `mousedown` — and call `preventDefault` so holding doesn't select text or scroll the sheet. Also offer **tap-to-toggle** record (hold-to-talk is awkward one-handed on a phone).
+- **Request mic permission on the first tap** (Android requires a user gesture); show a clear inline state if it's not granted or is blocked, with a one-tap path to typing. Never appear to listen with no stream — the **input meter must visibly move**; if it's flat, say the mic isn't being heard.
+- Use the pre-warmed MediaRecorder→server transcribe path (P156); on empty/failed capture show **"I didn't catch that — try again or type it"**. Keep the **"Type to the assistant" field always visible** so she can report issues by typing when voice fails.
+- Respect mobile **autoplay rules**: unlock audio output on the same first tap so TTS can play (P150's unlock-in-the-gesture), or the voice stays silent on mobile.
+
+### 3. Mobile response placement + connect path
+- The newest answer **auto-scrolls into view inside the sheet** right above the input (P168 §1) — on a small screen she must never scroll up past the input to find the reply.
+- The P167 **"Connect a job board" CTA is a full-width, unmissable button** in the sheet and in the empty state, sized for touch — the first thing a new mobile user sees.
+- All controls are **≥44px touch targets**, no hover-only affordances, and the transport/mic/mute (P161) stay pinned and reachable one-handed.
+
+### Acceptance
+On an Android phone, opening the assistant shows a **bottom sheet at partial height with the page content still visible above it**, draggable to expand and collapsible to an obvious floating bubble (the mobile minimize). **Push-to-talk works via touch** (plus tap-to-toggle), requests mic permission on first tap, shows a moving input meter, and falls back to an always-visible typing field with a clear "couldn't hear" message — no silent failure. TTS audio unlocks on the first gesture. The newest answer auto-reveals above the input, and the **"Connect a job board" CTA is a full-width touch button**. No part of the UI requires hover or a desktop-size click target.
