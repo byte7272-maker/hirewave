@@ -5015,3 +5015,33 @@ Because consent + **audio unlock** now happen inside the wizard's first gesture 
 
 ### Acceptance
 A new user's setup wizard includes an **assistant step as step 2** that **greets them, overviews what Project Harbor does and why it helps**, and offers **"Yes, talk me through it."** Clicking Yes **turns the voice on and unlocks audio in that one gesture** — the user **hears a confirmation immediately** — and from then on the assistant **speaks by default**, including the **Matches brief on a plain refresh** (P149 now both shows **and** speaks). After setup (or on a never-introduced user's first dashboard load) the assistant **greets and offers the Grand Tour**, which runs the **existing** tour playbook (not a rebuild) and can be re-run via "Show me around" / *"give me the tour."* Declining leaves it silent with no nag, the visible walk-throughs still work, and the 🔊 toggle can enable voice later. The intro shows **once** (`hw_intro_seen`). No backend change.
+
+## P151 — BUG: the quick-action buttons do nothing — wire every chip to execute immediately (no second permission), and declutter the busy assistant
+
+**Frontend. Backend ready (one new understood command shipped — see below).** The assistant's **quick-action buttons / chips don't work**: pressing **"Refresh my matches"** or **"Rate my matches"** does **nothing**. Two bugs, then a declutter.
+
+### 1. Chips must actually run their command (the main bug)
+- Each quick-action chip must **send its command text through the normal pipeline** — `POST /api/v1/assistant/interpret` → the matching action handler — **on click**, exactly as if the user had typed/spoken it (P148 §1 promised this; it isn't wired). Right now the chips are decorative. Wire the **onClick** of every chip to the same `runCommand(text)` the typed command box uses. A chip that does nothing on tap is the bug.
+- **"Refresh my matches"** → `interpret` returns `navigate {section:"matches", refresh:true}` → go to Matches and reload them. **"Rate my matches"** → now returns `start_playbook {playbook:"walk_matches"}` → run the read-only scored brief (count + top matches by score + why they fit, reusing P146/P149). Both must visibly do their thing.
+
+### 2. Read-only actions execute automatically — NO secondary permission
+- The P114 "confirm before acting" gate is **only** for side-effectful / outbound actions (apply, submit an application, send, auto-apply a job, save/bookmark that writes). **Read-only and navigation commands run immediately with no confirm dialog**: `navigate`, `refresh`, `start_playbook` for the read-only briefs (`walk_matches`), `status_report`, `whats_new`, `read_options`, `check_mic`, `check_audio`, `change_voice`, `set_rate`, and the Matches/fit briefs. Pressing "Refresh my matches" or "Rate my matches" must **just happen** — no "are you sure?", no extra tap.
+- Keep the confirm **only** where something leaves the app or changes external state (apply/submit/send). Everything informational is instant.
+- Give **instant feedback** on tap: the chip shows a brief active/spinner state and the assistant says/【caption】what it's doing ("Refreshing your matches…", "Scoring your matches…") so it never feels dead.
+
+### 3. Only ever show chips that are real, and keep them honest
+- Populate the quick actions **from `GET /api/v1/assistant/suggestions?section=<screen>&job_id=<id>`** — every item there is verified to parse and act (P148 §3). **Don't hand-author chips** that aren't backed by a real command (that's how "Rate my matches" became a dead button — it wasn't an understood command; it now is, and is returned by `/suggestions` on Matches). If a label isn't in the suggestions response, don't render it.
+
+### 4. Declutter — the assistant page is very busy
+Reduce it to a calm, focused surface:
+- **One primary input row**: the mic button + the command box, with **3–5** quick-action chips (the top screen-relevant ones from `/suggestions`), and a **"More…"** that reveals the rest on demand. Don't show every chip at once.
+- **Collapse secondary panels by default** (voice/rate controls, "Voice & privacy", the transport/skip controls, the console list): tuck them behind the console's **menu / a single ⚙ or "Options"** (keep P112's minimize). The default view is: greeting/caption + wave, the input row, a few chips.
+- **One caption area, one wave** — no duplicated status text. **One speaker at a time** (P119) and one visible "what I'm doing now" line.
+- Respect P141's principle (on-demand, not wall-of-options) and the design system (P9 one accent, P60 dark mode). Nothing is removed — it's **progressive disclosure**, so power controls are one tap away but not crowding the default screen.
+
+### Backend (already implemented — no work for you)
+- New understood command: **"rate / score / rank / grade my matches (or jobs)"** → `start_playbook {playbook:"walk_matches"}` (the read-only scored brief). It's returned as a **"Rate my matches"** chip from `GET /api/v1/assistant/suggestions?section=matches`. "rate" **without a number** is not read as a voice-speed change.
+- Everything else is existing: `POST /api/v1/assistant/interpret`, `GET /api/v1/assistant/suggestions`, `GET /api/v1/jobs/matches`, `GET /api/v1/jobs/{job_id}/fit-brief`.
+
+### Acceptance
+Pressing **any** quick-action chip **runs that command immediately**: "Refresh my matches" reloads Matches, "Rate my matches" runs the scored brief — **with no secondary confirmation** and visible feedback. Read-only/navigation commands never show a confirm dialog; only outbound actions (apply/submit/send) still confirm (P114). Chips are sourced from `/assistant/suggestions`, so every one is a command that actually works (no dead labels). The assistant surface is **decluttered**: one input row + a few chips + "More…", with voice/privacy/transport controls collapsed behind a menu, one caption and one wave. No invented/non-functional controls remain.
