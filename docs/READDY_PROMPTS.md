@@ -5317,3 +5317,28 @@ When the user runs "rate/score my matches" (or lands on Matches with a current b
 
 ### Acceptance
 Starting the grand tour or any assistant-driven navigation/playbook **auto-minimizes** the overlay to a small translucent transport+caption bar so the **subject screen stays fully visible and unobstructed** (it repositions rather than cover the highlighted target). The user can **pause/stop, step next/previous, and re-expand** from the minimal bar at any time; voice guidance continues while minimized; and when the tour ends the overlay **restores** to its prior size/position. The ask-don't-monologue pacing is preserved throughout.
+
+## P164 — The assistant auto-shrinks and moves aside WHENEVER it points something out (not just the formal tour), with a visible pointer to the target
+
+**Frontend only. No backend change.** P163 added a minimize-during-tour mode, but it isn't firing in practice: the window still covers the screen when the assistant **points something out**. Broaden and strengthen the trigger so the overlay **automatically gets out of the way any time it references, highlights, or navigates to something on screen** — and make that moment feel interactive and enjoyable.
+
+### 1. Enter "pointing / showing" mode on ANY of these — not only the grand tour
+Whenever the assistant's turn does any of the following, it must **auto-shrink to the compact transport+caption bar (P161/P163) and reposition clear of the target**:
+- Highlights / points at / references a specific on-screen element ("see this button", "up here", "your matches are here", "notice the score").
+- **Navigates** the user to a page or scrolls to a section on their behalf.
+- Runs any playbook step (walk_matches, tailor, apply, upload/download — P115), or the grand tour.
+- Opens a document/item it's about to talk about (P156).
+Detection: if the assistant's action/response **targets a UI element or a route** (it has a target selector/ref or a nav intent), that alone triggers pointing mode — don't gate it behind a "tour" flag. Default to showing mode for anything that directs the user's attention to the screen.
+
+### 2. Actually clear the target + point to it
+- **Shrink + move:** collapse to the minimal bar AND **move it to the opposite edge from the highlighted target** so the target is never covered. If the target is near the bar's docked spot, relocate the bar; never let them overlap.
+- **Spotlight the target:** apply a coach-mark/highlight (ring, dim-the-rest, or arrow) on the element being pointed at, and draw a subtle **connector/pointer** from the minimized assistant to the target so it's obvious the assistant is referring to *that* thing — this is the interactive, enjoyable cue the user wants.
+- **Smooth + fast:** animate the shrink/move (respect `prefers-reduced-motion`); it should feel like the assistant stepping aside to show you, not a jarring resize.
+
+### 3. Control + restore
+- From the minimal bar, keep Pause/Stop, Next/Previous, mic, and one-tap **re-expand** (P161/P163). Voice keeps narrating while minimized.
+- When the pointing/showing moment ends (the step completes, the user moves on, or they re-expand), **restore** the overlay to its prior size/position (persisted `hw_assist_*`, P157) and remove the highlight.
+- Honor ask-don't-monologue (P153/P158): point, say one short line, then the "continue?"/Next control — don't re-expand to a big panel to read at length.
+
+### Acceptance
+Any time the assistant **points something out, highlights an element, navigates, scrolls to a section, or opens an item** — not just during the named tour — the overlay **automatically shrinks to the compact bar and moves to the opposite edge so the target stays fully visible**, with a coach-mark on the target and a visible pointer/connector from the assistant to it. The shrink/move is smooth (reduced-motion safe), controls (pause/stop/next/mic/re-expand) stay available, voice continues, and the overlay **restores** to its prior size/position when the moment ends. It never covers the thing it's talking about.
