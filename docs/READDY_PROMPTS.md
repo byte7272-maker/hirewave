@@ -5122,3 +5122,40 @@ On the Documents page, look for a component that, on mount or via `hw_narration_
 
 ### Acceptance
 On Documents, **nothing auto-reads the summary** and there is **no second voice**. The **assistant overlay is the only narrator** — it greets, **names the page**, and offers (P153), and it is the first (and only) thing that speaks; the embedded AI summary is **printed** and, if the user asks, is spoken **by the assistant** (in the overlay, wave in the overlay), not by a separate player. No component besides the assistant's single manager calls `/narration/speak`, `/interview/tts`, `speechSynthesis`, or owns an `<audio>`. The previously-seen behavior (page silently reading the summary while the overlay stays quiet) is gone. No backend change.
+
+## P155 — Assistant overlay: more translucent, larger, and resizable from every edge/corner (user-controlled, readable)
+
+**Frontend only. No backend change.** The assistant is close to right, but the overlay is **too small and too opaque** to comfortably read its content (suggestions, before→after edits, captions). Give the user control over its size and make it a proper translucent panel.
+
+### 1. Translucency
+- Make the overlay a **translucent glass panel**, not a solid card: a semi-transparent background (around **80–88% opacity**, i.e. `rgba(...,0.84)`) with a **backdrop blur** (`backdrop-filter: blur(14px)` + a subtle 1px hairline border and soft shadow) so the app shows through faintly but the text stays crisp. Works in **both light and dark** (P60): light → translucent white; dark → translucent near-black. **Readability first:** keep text at full contrast/opacity even though the panel is see-through (don't fade the content with the background).
+- One **opacity** affordance is fine (a slider in the overlay's ⚙ menu, persisted), but the default must already be comfortably translucent.
+
+### 2. Larger by default + resizable from EVERY edge and corner
+- **Bigger default size** so a few suggestions and the caption are readable without scrolling — e.g. default width ~**380–460px** and a taller body, capped to the viewport with internal scroll.
+- **Resizable from all eight handles** — the four **edges** (N/E/S/W) and the four **corners** (NE/NW/SE/SW) — so the user can widen, heighten, or grow it diagonally by dragging any border. Implement real drag handles (don't rely on the single-corner CSS `resize`, which only does SE). Show a resize cursor on hover over each edge/corner; a comfortable **min size** (so it can't collapse) and a **max = viewport** with margin.
+- **Draggable to reposition** (keep P112/P120), and **remember** the chosen size + position + opacity across sessions (`localStorage`: `hw_assist_w`, `hw_assist_h`, `hw_assist_x`, `hw_assist_y`, `hw_assist_opacity`). A small **reset-to-default** in the ⚙ menu.
+- Keep the **minimize** state (P120) — collapses to the speaking bar — and the **declutter** (P151 §4): even at the larger size, the default view is caption + wave + input row + a few chips, with deeper controls behind the menu.
+
+### 3. Readability
+- Comfortable type size and line-height for the captions and suggestion cards; the moving caption (P138) and the before→after diffs (P152) must be easy to read at the new size. The **wave + mic meter stay anchored in the overlay** (P153 §2).
+- On small/phone widths, the panel goes to a near-full-width sheet with the same translucency (don't let it overflow the viewport).
+
+### Acceptance
+The assistant overlay is a **translucent, blurred glass panel** (readable text over a see-through background) in light and dark, **larger by default**, and **resizable by dragging any edge or corner** (all 8 handles), draggable to reposition, with size/position/opacity **remembered** and a reset. It never collapses below a usable min or overflows the viewport, keeps the minimize + declutter behavior, and the wave/mic meter remain in the overlay.
+
+## P156 — Voice input: release-to-run (no manual Run), instant mic, and "go to my cover letter" opens the cover letter and says so
+
+**Backend fixes already shipped (server transcription + the cover-letter/résumé distinction).** Three voice problems the user hit, now fixed end-to-end:
+
+### Context — what the backend just fixed (no work for you)
+- **Server transcription was failing on every call** and silently falling back to the browser's truncating `SpeechRecognition`. Root cause: the client sent `language: "en-US"` but Whisper requires ISO-639-1 (`"en"`) and 400'd it. **`POST /api/v1/narration/transcribe` now normalizes the language server-side**, so the MediaRecorder→server path returns the **whole** sentence reliably. Keep sending the clip; you can also just send `language: "en"` (or omit it).
+- **Navigation now distinguishes documents.** `POST /api/v1/assistant/interpret` on "go to my cover letter" returns `{"intent":"navigate","slots":{"section":"documents","doc":"cover_letter"}}` (and `doc:"resume"` for the résumé). Use `slots.doc`.
+
+### Frontend fixes
+1. **Release = run (stop waiting for a manual "Run").** When the user **lets go of the push-to-talk** (or hits Stop), the captured command must **execute automatically** — transcribe → `interpret` → act — exactly as if typed (P151 §2: read-only/nav commands run with no confirm). Today the transcript is dropped into an "I heard this — fix before it runs" box that waits for a manual **Run** click; that's the bug. **Auto-submit on release.** Keep an editable confirm box **only** as an *optional* correction affordance (and only surface it if transcription is low-confidence/empty), never as a required step for a clean transcript.
+2. **Mic must engage instantly (kill the init lag).** Pressing the mic takes too long to start, so the first word is lost. **Pre-warm** the mic: acquire the `getUserMedia` stream **once** (on the first voice use / when the assistant opens) and **keep it**, then start/stop a `MediaRecorder` on the held stream per press — so a press starts capturing in <100ms. Respect privacy (P111 §3): the stream is held only while the assistant is active; release it when the assistant closes or after idle, and the mic indicator reflects actual listening. Show the live meter immediately on press.
+3. **Honor the document target + announce it.** On `navigate {section:"documents", doc:"cover_letter"}`, open **Documents and select the cover letter** (not whatever doc was showing); for `doc:"resume"`, select the résumé. Then the assistant **confirms what it did with brief, useful meta** — e.g. *"Here's your cover letter — 'Williams, Bayete', last updated 3 days ago, v4."* (title, last-updated, active version; for a résumé you can add its score). Spoken (if voice on) + printed (P138). Generalize: whenever a nav command targets a specific item, land on it and say what it is in one short line.
+
+### Acceptance
+Holding the mic and saying "go to my cover letter" **transcribes the whole sentence** (server path, no truncation), and on **release it runs automatically** — the app switches to Documents, **opens the cover letter** (not the résumé), and the assistant says a brief line naming it with useful meta (last updated / version). The mic **starts capturing instantly** on press (pre-warmed stream), with the live meter showing immediately. No manual "Run" is needed for a clean transcript; the editable box appears only to fix a bad/empty capture.
