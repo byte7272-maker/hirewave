@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import NarrationPrefsUpdate, TtsRequest
 from jobsearch.engines.interview import voice_catalog
+from jobsearch.engines.interview.media import _iso_639_1
 from jobsearch.models import NarrationPrefs, UserProfile
 
 router = APIRouter(prefix="/api/v1/narration", tags=["narration"])
@@ -161,7 +162,8 @@ async def transcribe(
         data,
         filename=file.filename or "audio.webm",
         content_type=file.content_type or "",
-        language=language.strip(),
+        # Browsers send a BCP-47 tag ("en-US"); Whisper wants ISO-639-1 ("en").
+        language=_iso_639_1(language),
     )
     if text is None:
         detail = "transcription failed"

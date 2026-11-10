@@ -80,6 +80,18 @@ def test_start_playbook():
     assert interpret("walk through my matches").slots["playbook"] == "walk_matches"
 
 
+def test_navigate_to_cover_letter_vs_resume_carries_the_doc():
+    # "go to my cover letter" must open the COVER LETTER, not just the Documents section
+    # (which was defaulting to the résumé).
+    r = interpret("go to my cover letter")
+    assert r.intent == "navigate"
+    assert r.slots["section"] == "documents" and r.slots.get("doc") == "cover_letter"
+    assert interpret("show my cover letter").slots.get("doc") == "cover_letter"
+    assert interpret("open my resume").slots.get("doc") == "resume"
+    # a plain "open my documents" names no specific doc
+    assert "doc" not in interpret("open my documents").slots
+
+
 def test_every_suggested_command_is_understood():
     # The promise behind suggestions: anything the assistant offers, it can parse.
     from jobsearch.engines.assistant.intent import _SUGGESTIONS, suggest_commands

@@ -203,6 +203,16 @@ def voice_catalog(settings: Optional[Settings] = None) -> list[dict]:
 # so voice input works on ANY browser/device, not just those with the browser's
 # SpeechRecognition API. The client records audio and POSTs it here.
 
+def _iso_639_1(lang: str) -> str:
+    """Whisper's ``language`` param wants an ISO-639-1 code (``en``), not a browser
+    BCP-47 tag (``en-US`` / ``en-us``). Browsers send ``navigator.language`` verbatim,
+    which 400s the API ("Invalid language 'en-us'"). Keep only the primary subtag,
+    lowercased; drop anything that isn't a 2-3 letter alphabetic code (then no hint is
+    sent and the model auto-detects)."""
+    code = (lang or "").strip().replace("_", "-").split("-", 1)[0].lower()
+    return code if code.isalpha() and 2 <= len(code) <= 3 else ""
+
+
 @runtime_checkable
 class TranscribeProvider(Protocol):
     @property
@@ -243,8 +253,9 @@ class OpenAITranscribeProvider:
 
         files = {"file": (filename or "audio.webm", audio, content_type or "application/octet-stream")}
         data = {"model": self._model}
-        if language:
-            data["language"] = language
+        lang = _iso_639_1(language)
+        if lang:
+            data["language"] = lang
         try:
             resp = httpx.post(
                 self._URL,

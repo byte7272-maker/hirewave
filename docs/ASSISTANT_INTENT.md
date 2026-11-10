@@ -56,7 +56,7 @@ Map to the P121 command set, the P115 playbooks, the app sections, and the bulle
 | `decline` | — | no / stop that / not now |
 | `stop` / `pause` / `continue` / `next` / `back` / `repeat` / `skip` / `cancel` | — | flow control |
 | `choose` | `index`, `option_id`, `label` | pick an offered option ("the second one", by name) |
-| `navigate` | `section` ∈ `matches\|documents\|auto_apply\|design\|interview\|inbox\|connect\|community\|dashboard` | "go to / take me to …" |
+| `navigate` | `section` ∈ `matches\|documents\|auto_apply\|design\|interview\|inbox\|connect\|community\|dashboard`; `doc` ∈ `cover_letter\|resume` (Documents only) | "go to / take me to …"; "go to my cover letter" → `{section:documents, doc:cover_letter}` so the right doc opens |
 | `start_playbook` | `playbook` ∈ `connect_source\|auto_apply\|walk_matches\|apply_job\|upload\|download\|design\|tailor\|practice\|bullets` | start a P115 playbook |
 | `read_options` / `what_can_i_do` | — | read the action groups (P121 §2) |
 | `read_bullets` | — | read the current bullet suggestions aloud |

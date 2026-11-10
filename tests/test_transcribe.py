@@ -15,6 +15,7 @@ from jobsearch.config import Settings
 from jobsearch.engines.interview.media import (
     NullTranscribeProvider,
     OpenAITranscribeProvider,
+    _iso_639_1,
     build_transcribe_provider,
 )
 
@@ -58,6 +59,32 @@ def test_transcribe_returns_text():
     assert body["text"] == "analyze my matches"  # stripped
     assert _FakeTranscribe.last["bytes"] == 10
     assert _FakeTranscribe.last["language"] == "en"
+
+
+def test_transcribe_normalizes_browser_language_to_iso_639_1():
+    # Browsers send a BCP-47 tag ("en-US"); Whisper 400s on it ("Invalid language
+    # 'en-us'"). The endpoint must hand the provider the ISO-639-1 primary subtag.
+    _FakeTranscribe.last = {}
+    state = AppState()
+    state.transcribe = _FakeTranscribe()
+    client = TestClient(create_app(state=state))
+    h = _auth(client, email="stt5@demo.com")
+    r = client.post("/api/v1/narration/transcribe", headers=h,
+                    files={"file": ("clip.webm", b"0123456789", "audio/webm")},
+                    data={"language": "en-US"})
+    assert r.status_code == 200, r.text
+    assert _FakeTranscribe.last["language"] == "en"
+
+
+def test_iso_639_1_normalization():
+    assert _iso_639_1("en-US") == "en"
+    assert _iso_639_1("en-us") == "en"
+    assert _iso_639_1("en_GB") == "en"
+    assert _iso_639_1("EN") == "en"
+    assert _iso_639_1("es") == "es"
+    assert _iso_639_1("") == ""
+    assert _iso_639_1("english") == ""   # not a 2-3 letter code → no hint (auto-detect)
+    assert _iso_639_1("zh-Hant") == "zh"
 
 
 def test_transcribe_rejects_empty_audio():

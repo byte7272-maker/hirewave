@@ -168,6 +168,16 @@ def _match_section(text: str) -> Optional[str]:
     return None
 
 
+def _doc_target(text: str) -> Optional[str]:
+    """Which document the user named within the Documents section — so a nav command
+    opens the right one. 'cover letter' wins over 'resume' when both appear."""
+    if re.search(r"cover\s*-?\s*letter", text):
+        return "cover_letter"
+    if re.search(r"\b(resume|résumé|resumé|cv)\b", text):
+        return "resume"
+    return None
+
+
 def _match_playbook(text: str) -> Optional[str]:
     best, score = None, 0.0
     for key, syns in _PLAYBOOKS.items():
@@ -246,11 +256,19 @@ def _deterministic(text: str, context: dict) -> IntentResult:
 
     # navigate ("go to / take me to / open <section>") — a nav verb + a section wins
     # over the playbook matcher, so "go to auto apply" navigates but "set up auto
-    # apply" starts the playbook.
-    if has("go to", "take me to", "open", "show me", "switch to", "navigate"):
+    # apply" starts the playbook. When the section is Documents, carry WHICH document
+    # the user named (cover letter vs résumé) so "go to my cover letter" opens the cover
+    # letter, not whatever doc is showing.
+    if has("go to", "take me to", "open", "show me", "show my", "switch to", "navigate",
+           "bring me to", "pull up"):
         sec = _match_section(t)
         if sec:
-            return IntentResult("navigate", 0.9, {"section": sec})
+            slots: dict[str, Any] = {"section": sec}
+            if sec == "documents":
+                dt = _doc_target(t)
+                if dt:
+                    slots["doc"] = dt
+            return IntentResult("navigate", 0.9, slots)
 
     # save / bookmark the current job ("save this one for later", "bookmark it")
     if has("save this", "save it", "save the job", "save for later", "save this one",
