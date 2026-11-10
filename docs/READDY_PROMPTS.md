@@ -5251,3 +5251,29 @@ The mic button is hard to find/hit. In the **pinned Voice bar** (P158), make the
 
 ### Acceptance
 Every time the assistant asks a question or offers options, it appears as a **readable, clearly-separated choice overlay**: Yes/No (and "Want me to continue?") render as prominent **buttons**, and multiple choices render as **numbered selectable bubble cards** (tap / say the number / keyboard) — never lost in narration, readable-sized, scrollable when long. The **hold-mic button is large, labeled, high-contrast, and always visible** in the pinned Voice bar at any window size, shows clear idle/listening states with the live meter, and runs the command on release. P153/P158 "ask, don't monologue" is preserved — the assistant points to the cards rather than reading them all.
+
+## P161 — Give the assistant a modern "player" transport: replay / play-pause / stop / skip + mic + speed in one control, with suggestions paced in sync below
+
+**Frontend only. No backend change.** The voice controls are still too scattered — there's **no easy replay**, you **can't see the suggestion it's currently talking about** (the paced list below isn't tied to the speech), and **stop/pause/mic aren't concentrated** in one obvious place. Pull them together into a single, **modern media-player-style transport** (think a clean podcast/music player bar), and sync the spoken item with what's shown below.
+
+### 1. One concentrated transport bar (the pinned Voice zone, P157/P158 — now a real player)
+Replace the loose buttons with a **single modern player strip** that holds, left-to-right, as clearly-labeled icon controls:
+- **Replay / restart** (↺) — re-speak the current item from the start. *This is the missing "easy replay."*
+- **Previous / back** (⏮) — jump to the previous spoken segment/suggestion.
+- **Play / Pause** (▶/⏸) — one prominent primary button; pauses/resumes speech instantly (P158 §3).
+- **Stop** (⏹) — ends narration now.
+- **Next / skip** (⏭) — skip to the next segment/suggestion.
+- **Mic / push-to-talk** — the big, always-visible hold-mic (P160 §2), grouped into the same transport so voice-in and voice-out controls live together.
+- **Speed** — the always-reachable speed control (1.0× chip → slider/steppers, P158 §2).
+- **Mute** 🔊/🔇.
+Modern styling: a compact rounded bar, clear hit targets, the **output wave + mic meter** integrated as the player's "now-playing" visualization (P157 Voice zone), with an optional **thin progress indicator** showing position through the current read. It stays **pinned and fully visible at every window size** (P158) — the transport never gets clipped.
+
+### 2. The suggestions it's talking about are visible and paced in sync below
+The list the assistant narrates (suggestion bubbles, P159) sits **directly below the transport**, and the player and the list are **linked**:
+- As the assistant speaks each item, **highlight/elevate the matching bubble** (active state) and **auto-scroll it into view**, so the user can always see the one being discussed — "paced below" actually tracks the speech.
+- **Replay / Previous / Next on the transport move through these same items** — replay re-reads the highlighted bubble; next advances the highlight to the next bubble and speaks it; previous steps back. Tapping a bubble jumps the player to it.
+- Honor **ask-don't-monologue** (P153/P158): by default it speaks one item, highlights it, then the P158 "continue?" check-in — the transport's **Next** is how the user advances, instead of it auto-reading the whole list.
+- Keep **tap/keyboard parity**: every bubble is still directly actionable (Apply/drag, P159) regardless of the player.
+
+### Acceptance
+The assistant's voice controls are consolidated into **one modern player-style transport** — **Replay, Previous, Play/Pause, Stop, Next, mic, speed, mute** in a single pinned bar with the wave/meter as its visualization and a position indicator — easy to find and fully visible at any window size. **Replay is one tap.** As it speaks, the **matching suggestion bubble below is highlighted and scrolled into view**, and the transport's **Previous/Next/Replay navigate those same items**; tapping a bubble jumps the player to it. Pause/Stop are immediate, speed is always reachable, and the ask-don't-monologue pacing (one item + "continue?") is preserved with Next as the advance control.
