@@ -5558,3 +5558,23 @@ At **every** window size including the smallest, the **"Type to the assistant…
 
 ### Acceptance
 Confirming the assistant's "walk through a match" offer (by voice or tap) runs the **match walk in the Matches context** — it stays on Matches, **reads the brief and the match's basic on-screen info** (role, company, score, why-it-fits) with ask-don't-monologue pacing — and **never navigates to a blank Documents page**. A "yes" to any offer executes that offer's action, not an unrelated route. If a document is opened, it is never blank (offer to generate it instead).
+
+## P176 — Restore the mic transcript display; assistant must detect a blank/failed document render; broken cover-letter viewer ("text could not be read", 14 versions, none showing)
+
+**Frontend only. No backend change (except where a document's content genuinely can't be read — then surface it honestly).** Follow-ups after P175. Verified live: the assistant's **"Brief me" button works** (stays on Matches, reads the brief — "Your strongest right now is Technology at Bryan Cave Leighton Paisner LLP at 42"). Four things still wrong:
+
+### 1. Show the live transcript of what the mic heard (regressed)
+- The displayed **text received from the mic stream** (the recognized transcript) is gone — it used to show what the user said. **Restore it:** while/after the mic captures, show the **recognized transcript text** in the assistant (interim text while speaking if available, and the final transcript before/with running it). The user needs to see what it heard — both for confidence and to catch mis-hears (ties P168 §2).
+
+### 2. The assistant must KNOW when the page/document didn't render
+- The assistant says "a brief is at the top" and narrates as if content is present **even when the view is blank or errored**. It must **detect render failure**: if the target view shows an error ("text could not be read from this file"), is empty, or didn't load, the assistant must **not claim the content is there**. Instead: acknowledge it ("that document didn't load / couldn't be read"), **not** read a non-existent brief, and offer a next step (retry, pick another version, regenerate, or go back to the match). Never narrate over a blank screen.
+
+### 3. Any "walk/go through the match brief" entry point must behave like "Brief me"
+- The **"Brief me" button** correctly stays on Matches and reads the brief; the **voice/offer path** ("go through the match brief") still opens a cover-letter document instead. Route **every** brief/walk entry point (voice "yes", the offer, chips) to the **same action as "Brief me"** — stay on Matches, read the brief + on-screen match info (P175). Don't open a document for a "brief the match" request.
+
+### 4. The cover-letter viewer shows blank with "text could not be read from this file" (14 versions, none rendering)
+- A cover letter with **14 versions renders none** and shows **"text could not be read from this file."** The viewer must **render an available version** rather than blank: if the active version can't be read, **fall back** to the latest readable version and show it (with a note), and make the version switcher actually display the selected version's content. If **no** version is readable (genuine backend/content problem), show a clear, honest empty-state with the reason and a **Regenerate/Re-tailor** action — never a blank page that silently fails.
+- Surface which version is active and that 14 exist, and ensure selecting a version loads its text.
+
+### Acceptance
+The recognized **mic transcript is shown** again (interim + final) so the user sees what was heard. When a document/view **fails to render or is blank**, the assistant **detects it, says so, does not read a phantom brief**, and offers a recovery action. **Every** "walk/brief the match" entry point behaves like the working "Brief me" (stays on Matches, reads the brief) rather than opening a document. The cover-letter viewer **renders a readable version** (falling back if the active one can't be read) or shows an honest error + Regenerate — never a blank with a silent "text could not be read."
