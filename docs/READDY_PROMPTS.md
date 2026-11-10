@@ -5388,3 +5388,27 @@ The overlay must know where it sits relative to the content and move itself so t
 
 ### Acceptance
 On load, the assistant comes up as a **compact panel docked to a side (~380–440px), not covering the content center** (`coversContentCenter` must be false at rest). Whenever the content screen is refreshed, navigated, re-scored, or pointed at, the assistant **shrinks/docks aside so the content stays visible** and the user can follow the action, then returns to its resting dock. It **never floats large over the center of the content**; a stored/forced size that would cover the content is clamped or re-docked. Compact/docked, it still shows suggestions + the pinned voice transport and remains fully usable. The big/expanded view is strictly user-opt-in.
+
+## P167 — New-user welcome + obvious "get connected" path, and periodic tips for returning users
+
+**Frontend only. No backend change.** Real tester feedback: a new user (sundaij2@gmail.com) signed in and **couldn't find how to get connected**. The assistant must **notice a new user**, give a short, friendly, non-technical welcome, and make getting connected the obvious first action — then offer the wizard or a grand tour. Returning users should get the occasional helpful tip, not the welcome.
+
+### 1. Detect a new user and greet them specially
+- On sign-in, detect "new / not set up yet" — e.g. first session (`hw_intro_seen` unset) **or** nothing connected yet (no job source linked / empty state). Treat that user as new even if they've logged in before but never connected.
+- Show a **special welcome** (distinct from the per-page greeting, P153): a warm one-liner + a **2–3 bullet "what this does / how to start"** overview in plain language — no jargon, nothing time-consuming. Example tone: *"Welcome! Project Harbor finds jobs that fit you and helps you apply. The quickest start: connect a job board so I can pull in matches. Want me to set that up?"*
+
+### 2. Make "get connected" the obvious next step (the actual pain)
+- The welcome's **primary, prominent call-to-action is "Connect a job board"** (a big, unmissable button) — because that's what the tester couldn't find. One tap launches the connect-source step **stand-alone** (P165 §2), the fastest path, without forcing the whole wizard.
+- Also surface a persistent, obvious **"Get connected"** affordance in the empty/matches state itself (not only inside the assistant), so a user who dismisses the assistant can still find it.
+
+### 3. Offer the wizard or the grand tour — as a simple choice
+- Right in the welcome, ask with **choice cards** (P160): **"Set me up" (run the setup wizard, P150/P165)** · **"Give me the tour" (grand tour, P163/P164)** · **"I'll explore" (dismiss)**. Keep it to a quick, friendly question — not a wall of steps.
+- The wizard/tour honor Skip for anything already done or unavailable (P165 §3), and the assistant minimizes/docks while touring so the screen stays visible (P164/P166).
+- Mark `hw_intro_seen` once they've been welcomed so it doesn't repeat every load, but re-offer "Connect a job board" until a source is actually connected.
+
+### 4. Returning users: periodic tips, not the welcome
+- For established users, **don't** show the new-user welcome. Instead, **occasionally** (periodically, with a sensible cooldown — e.g. once every few sessions, persisted like `hw_last_tip_ts`) surface a **single tip/trick card**: a short "Did you know…" pointing at a **useful feature they haven't used much** (detect from their activity — e.g. never tailored a résumé, never tried auto-apply, never used voice) or a getting-more-from-it tip for a feature they do use.
+- Tips are **one at a time, dismissible, non-nagging** (never block the screen; respect a "don't show tips" toggle), use the choice-card style, and each offers a one-tap **"Show me"** that runs/opens that feature (stand-alone, P165 §2).
+
+### Acceptance
+A new or not-yet-connected user gets a **special, plain-language welcome** with a prominent **"Connect a job board"** CTA that launches connecting stand-alone, plus a simple **"Set me up / Give me the tour / I'll explore"** choice — quick, non-technical, skippable, and not repeated every load (but "get connected" persists until a source is linked). A separate persistent "Get connected" affordance exists in the empty state. **Returning users don't see the welcome**; they occasionally get a **single, dismissible tip card** highlighting an underused or useful feature with a one-tap "Show me", on a cooldown and with an off switch.
