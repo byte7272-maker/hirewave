@@ -5504,3 +5504,20 @@ Typing a message and pressing **Enter sends it** (fires `/assistant/interpret`, 
 
 ### Acceptance
 With the assistant open and focus outside any text field, pressing **Space** toggles the assistant voice between play and pause (matching the transport button), without scrolling the page. Typing in the assistant input still inserts a normal space and never toggles playback. The transport button reflects the current state.
+
+## P173 — "Voice input isn't available" is a FALSE check; the mic must actually capture and show a red/listening state (verified live)
+
+**Frontend only. No backend change.** Verified live on `/dashboard/matches` (desktop Chrome): holding the mic shows **"Voice input isn't available here — Type instead"** and the button **never turns red / shows no listening state or wave**. But the environment fully supports voice — measured on the same page:
+`getUserMedia: true, MediaRecorder: true, SpeechRecognition: true, webkitSpeechRecognition: true, isSecureContext: true, audio/webm;opus supported, mic permission: GRANTED`. So the availability gate is **falsely failing** and blocking voice for everyone on desktop.
+
+### Fix the capability check
+- **Detect voice as available** whenever `navigator.mediaDevices?.getUserMedia` **and** `window.MediaRecorder` exist in a **secure context** — that's the P156 MediaRecorder→`/narration/transcribe` path. **Do NOT gate availability on `SpeechRecognition`/`webkitSpeechRecognition`** (the server path doesn't need it), and don't gate on a single mimeType — probe with `MediaRecorder.isTypeSupported` and pick a supported one (`audio/webm;codecs=opus`, `audio/webm`, `audio/mp4`).
+- Whatever the current check is, it returns "unavailable" despite all of the above being true — find it and correct it. Treat "unavailable" as a genuine last resort (no `getUserMedia` at all / insecure context), **not** the default.
+- **Distinguish states accurately** (P168 §2): *supported + permission granted* → capture; *supported + permission denied/blocked* → "Allow mic access…"; *truly unsupported* → the "isn't available, type instead" message. The current blanket "isn't available" is wrong when it's actually supported and permitted.
+
+### The press must show it's listening (red + live wave)
+- On press-and-hold (pointer/touch, P169/P171), **acquire the stream and enter an active "listening" state**: the mic button turns **red/active**, the **input meter/wave animates** with the real audio (Web Audio analyser), and a "Listening…" caption shows — so the user can see the mic is working. Today it stays the same color with no feedback.
+- On release, stop and run transcription (P156 release-to-run). If capture genuinely fails, show the specific reason + the typing fallback — never a silent no-op or a false "not available".
+
+### Acceptance
+On a desktop browser with `getUserMedia` + `MediaRecorder` in a secure context and mic permission granted, pressing the mic **captures** — the button turns **red/active with a live animating wave** and a "Listening…" state — and **never** shows "Voice input isn't available". The unavailable message appears only when voice is genuinely unsupported; permission-denied shows its own message; and all states keep the typing fallback.
