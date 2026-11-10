@@ -5159,3 +5159,26 @@ The assistant overlay is a **translucent, blurred glass panel** (readable text o
 
 ### Acceptance
 Holding the mic and saying "go to my cover letter" **transcribes the whole sentence** (server path, no truncation), and on **release it runs automatically** — the app switches to Documents, **opens the cover letter** (not the résumé), and the assistant says a brief line naming it with useful meta (last updated / version). The mic **starts capturing instantly** on press (pre-warmed stream), with the live meter showing immediately. No manual "Run" is needed for a clean transcript; the editable box appears only to fix a bad/empty capture.
+
+## P157 — Assistant window: make resizing EASY and obvious, and give the audio visuals their own dedicated feature
+
+**Frontend only. No backend change.** Sharpens P155. The glass translucency landed (good), but two things still aren't right on the live overlay: it is **not easily resizable** (`resize: none`, only a couple of handles), and the **audio wave/meter isn't a real, placed feature**. Fix both so the user can comfortably size the window to work with the assistant's sections, and so the voice visualization reads as its own element.
+
+### 1. Easy, obvious resizing (the important one)
+The user must be able to resize the window **effortlessly** — to read suggestions, before→after diffs, and sections without fighting a tiny handle.
+- **Drag from any edge or corner, with generous hit zones.** All four edges and four corners resize; make the grab areas **large** (edges ≈ 10–12px deep, corners ≈ 18–20px) so they're easy to catch, each showing the correct resize cursor on hover (`ns-/ew-/nwse-/nesw-resize`). Don't rely on the single-corner CSS `resize`.
+- **A visible, discoverable grip.** Show an obvious **resize grip** in the bottom-right corner (the diagonal-lines affordance) and a subtle highlight on edges when hovered, so users can SEE the window is resizable without hunting.
+- **One-tap sizing too (not only drag).** Add a header control group: an **expand / maximize ⤢ toggle** (grow to a large comfortable size ↔ restore) and optional **S · M · L** size presets. Many users won't drag-resize — give them a one-click way to make it bigger.
+- **Comfortable defaults + limits.** Widen the default a bit (reading before→after diffs at 382px is cramped — aim ~**420–460px**), enforce a usable **min** (so it never collapses) and **max = viewport** with a margin, and **reflow content with internal scroll** as it resizes (no clipping, no layout jank).
+- **Works on touch** (drag handles + the preset/expand buttons respond to touch), and the chosen **size + position persist** (`hw_assist_w/h/x/y`) with a **reset** in the ⚙ menu. Keep drag-to-move (P112/P120) and minimize.
+
+### 2. The audio visuals are their own feature — placed well
+Right now the wave/meter isn't a standing element. Give the voice visualization a **dedicated, deliberately-designed zone** in the overlay (ties P153 §2):
+- **A distinct "Voice" strip/section** — its own clearly separated area (e.g. a slim panel directly under the header, or a fixed footer bar), visually set apart (subtle inset/background), that is **always present** so the user always knows where the voice lives and how to control it.
+- **It houses, together:** the **output wave** (animates while the assistant speaks, driven by the real audio via Web Audio analyser — P138), the **mic input meter** (animates while listening, visually distinct from the output wave), the **speaking caption** line, and the **mute 🔊/🔇 + Stop** controls — grouped as one coherent "voice" feature, not scattered.
+- **Idle state:** when nothing is speaking/listening, show a calm idle baseline (a flat/low shimmer) so the zone still reads as the voice feature and stays discoverable — never an empty gap.
+- **Clear source-of-sound:** because this zone lives in the overlay and animates with the real output, the user can always see the speech is coming from the assistant and reach the controls in one place.
+- **Resizes gracefully:** the Voice zone stays legible and proportioned as the window is resized; the wave scales to the available width.
+
+### Acceptance
+The assistant window is **easy to resize** — grab any edge/corner via a generous hit zone (correct cursors), a visible bottom-right grip signals it, and a header **expand/maximize toggle (+ S/M/L presets)** resizes it in one tap; default is a comfortably readable width, with a sane min, viewport max, reflowing content, persisted size/position, and a reset. The **audio visuals are a dedicated, well-placed "Voice" zone** — output wave + mic meter + caption + mute/stop grouped in their own always-present section that animates with the real audio, shows a calm idle state, makes the speech source obvious, and scales with the window. Translucency/drag/minimize from P155 are preserved.
