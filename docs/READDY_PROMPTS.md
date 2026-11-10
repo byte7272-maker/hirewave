@@ -5521,3 +5521,22 @@ With the assistant open and focus outside any text field, pressing **Space** tog
 
 ### Acceptance
 On a desktop browser with `getUserMedia` + `MediaRecorder` in a secure context and mic permission granted, pressing the mic **captures** — the button turns **red/active with a live animating wave** and a "Listening…" state — and **never** shows "Voice input isn't available". The unavailable message appears only when voice is genuinely unsupported; permission-denied shows its own message; and all states keep the typing fallback.
+
+## P174 — Text input + player controls must ALWAYS stay pinned/visible at any size; manual resize must stick (not snap back) — verified live
+
+**Frontend only. No backend change.** Verified live on `/dashboard/matches`: when the window is small, the **text input is pushed 246px below the visible area and can't be reached** — the "scrollable body" collapses to ~24px (scrollHeight 1214 vs clientHeight 24), so the input and player controls scroll out of view instead of staying pinned. And **manual resize snaps back** to a forced size. Both make the assistant unusable when scaled down. The three-band pin from P158 isn't actually holding — fix it for real.
+
+### 1. The input + basic player controls are ALWAYS pinned and visible (never scroll away)
+- Lay the overlay out as **header (pinned) / message body (the ONLY scrolling region) / footer (pinned)**, using flex with the body as `flex: 1 1 auto; min-height: 0; overflow-y: auto;` and **both header and footer `flex-shrink: 0`**. Right now the footer contents are being swept into the scroll area and the body collapses to ~24px — that's the defect.
+- The **pinned footer must always show, at every window size (down to the minimum):** the **"Type to the assistant…" input** (with its Send button) **and the basic player controls** (Play/Pause, Stop, Mic, plus the mute + speed reachable per P165). These must **never** be hidden, clipped, or require scrolling to reach — they are the floor of the window.
+- Enforce a **minimum height** large enough to always fit the pinned footer (input + a one-row transport) + at least a sliver of body. If the user/stored size is shorter, the **body shrinks (and scrolls), the footer never does**. Below that, don't hide the input — stop shrinking.
+
+### 2. Scrolling must actually work in the (scaled-down) body
+- The message body must scroll normally at any size so the latest response is reachable (P168). Verify a small window still scrolls the body — not a 24px dead sliver — and the newest content auto-reveals.
+
+### 3. Manual resize must STICK; only snap/move when the assistant is showing something
+- **Honor the user's manual resize** — dragging the window to a size keeps that size and **persists** it (`hw_assist_w/h`, P157). It must **not snap back** to a forced size. The current clamp (from P166) is over-firing on every resize and reverting it.
+- **Only** snap/move/shrink automatically when the assistant is **actively pointing something out / navigating** on the content screen (P164) — do that, then **return to the user's chosen size**, not to a hardcoded one. When the user is just resizing, leave it exactly where they put it (clamped only to a sane min and the viewport max).
+
+### Acceptance
+At **every** window size including the smallest, the **"Type to the assistant…" input and the basic player controls (Play/Pause, Stop, Mic) are visible in a pinned footer** — never scrolled away, clipped, or hidden; only the message body scrolls, and it scrolls properly (no 24px dead zone) with the newest reply reachable. A **manual resize sticks and persists** (no snap-back); the window only auto-snaps/moves while the assistant is actively showing something on the content screen (P164), then returns to the user's chosen size. A minimum height guarantees the footer always fits.
