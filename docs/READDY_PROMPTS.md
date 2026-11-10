@@ -5366,3 +5366,25 @@ The setup wizard (P150: connect a job source, résumé/documents setup, AI-assis
 
 ### Acceptance
 Muting silences audio **without stopping narration**: the caption/printed output keeps advancing and the **wave keeps animating** (driven by the narration timeline) so the user can read along and still see it's speaking; muted state is clear, persisted, and independent of pause. The assistant can **launch any individual wizard step stand-alone** (by voice or a Setup menu) to complete that one task and return, not only run the whole wizard. The full wizard **detects each step's state and offers Skip** for already-set-up or unavailable steps (non-destructive, reversible, not re-nagged), presented as a clear choice.
+
+## P166 — The assistant must DOCK to a side and never cover the content; default size is far too large and it isn't position-aware
+
+**Frontend only. No backend change.** Verified live on `/dashboard/matches`: the assistant window renders at **961×730 on a 1264×768 viewport — 76% of the width, 95% of the height — floating dead-center over the content** (`coversContentCenter: true`, `isDockedToEdge: false`). It stays there statically while the matches/content are manipulated, so the user can't see what's happening. The minimize-on-point-out (P163/P164) isn't engaging, and the **default resting size is itself the problem.** Fix both.
+
+### 1. Default resting state = a compact SIDE-DOCKED panel, never a centered cover
+- The assistant's **default/resting** form is a **narrow panel docked to one edge** (right rail by default), roughly **380–440px wide** and **not full height** — it must **never cover the center of the content area** and must **leave the main content column visible** beside it. It is **not** a near-fullscreen centered modal. (Today's 961×730 center float is the bug.)
+- The large size is **opt-in only** (the user's own expand/maximize or drag, P157) — never the default, and even then it's the user's explicit choice, not the resting state. On load and after any reset, come up compact and docked.
+- Keep it draggable/resizable (P157), but **persist a sane compact default**; if a stored size would cover the content center, clamp it back to the docked compact form.
+
+### 2. Position-awareness: get out of the way whenever the content is being used
+The overlay must know where it sits relative to the content and move itself so the user can watch:
+- **While any action manipulates the content screen** — refresh, matches re-scoring, navigation, scroll-to, a playbook step, or pointing something out (P164) — the assistant **shrinks and docks to a side/corner** so the content is fully visible and the user can follow along, then returns to its resting dock when idle.
+- **Never occlude the content center at a large size.** If the assistant (at any size) would cover the content the user needs to see, it **auto-docks to the opposite side** or shrinks to the compact bar (P161/P163). Detect overlap with the active content region and reposition — don't sit on top of it.
+- The side it docks to should avoid the element being pointed at (P164's opposite-edge rule) and avoid the left nav rail.
+
+### 3. Still fully usable while docked/compact
+- Docked compact still shows the essentials: greeting/one line, the suggestion bubbles (P159), the Voice transport + mic + mute (P160/P161/P165) pinned, with the body scrollable (P158). The user can read suggestions and drive voice without the window ever blocking the matches.
+- One-tap **expand** when the user *wants* the big view (e.g. to read a long before→after), and it collapses back to docked when they move on or an action starts.
+
+### Acceptance
+On load, the assistant comes up as a **compact panel docked to a side (~380–440px), not covering the content center** (`coversContentCenter` must be false at rest). Whenever the content screen is refreshed, navigated, re-scored, or pointed at, the assistant **shrinks/docks aside so the content stays visible** and the user can follow the action, then returns to its resting dock. It **never floats large over the center of the content**; a stored/forced size that would cover the content is clamped or re-docked. Compact/docked, it still shows suggestions + the pinned voice transport and remains fully usable. The big/expanded view is strictly user-opt-in.
