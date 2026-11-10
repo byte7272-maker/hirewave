@@ -5277,3 +5277,23 @@ The list the assistant narrates (suggestion bubbles, P159) sits **directly below
 
 ### Acceptance
 The assistant's voice controls are consolidated into **one modern player-style transport** — **Replay, Previous, Play/Pause, Stop, Next, mic, speed, mute** in a single pinned bar with the wave/meter as its visualization and a position indicator — easy to find and fully visible at any window size. **Replay is one tap.** As it speaks, the **matching suggestion bubble below is highlighted and scrolled into view**, and the transport's **Previous/Next/Replay navigate those same items**; tapping a bubble jumps the player to it. Pause/Stop are immediate, speed is always reachable, and the ask-don't-monologue pacing (one item + "continue?") is preserved with Next as the advance control.
+
+## P162 — Make the Matches Brief prominent: an engaging, eye-catching results reveal
+
+**Frontend only. No backend change.** The **Matches Brief** (the scored rundown from the `walk_matches` / "Rate my matches" playbook — P115/P151) still reads as plain text tucked into the assistant and is easy to overlook. Give the **results their own prominent, engaging introduction** so they land as the highlight of the Matches page, not a footnote.
+
+### 1. A headline results reveal — eye-catching, not a paragraph
+- Open the brief with a **hero/summary card** at the top of Matches: a bold headline + a **top-line stat** — e.g. *"You have 12 matches — 3 strong fits this week"* — with the standout number large and styled. Use the design tokens (P60) so it reads as a designed moment, not body text.
+- Add a light **reveal animation** when the brief arrives (count-up on the number, cards easing in) so it's clearly the result of the action and draws the eye — tasteful, fast, and respects reduced-motion (`prefers-reduced-motion`).
+- If voice is on, the assistant gives a short, upbeat one-liner pointing at it ("Here's your brief — 3 strong fits, take a look") and then the P153/P158 ask-don't-monologue pacing — it does not read the whole list.
+
+### 2. The matches themselves as prominent, scannable cards
+- Below the hero, show the top matches as **ranked result cards** — each with the **match score** shown prominently (a ring/badge/meter, color-graded strong→weak via tokens), the role + company, and a one-line "why it fits / gap" (the brief's reasoning). Rank them clearly (1, 2, 3…).
+- Make them **actionable right there** (Apply / Save / Tailor / "tell me more"), consistent with the suggestion-bubble affordances (P159) — the brief is a launchpad, not just a readout.
+- Keep it **scannable first, detail on demand**: the strong fits and scores are visible at a glance; deeper reasoning expands on tap. Scrolls within its region (P158).
+
+### 3. Prominence + placement
+- The brief is the **top, dominant element** of the Matches section when it's current (above secondary filters/lists), with a clear **"Matches Brief"** label and a **timestamp/refresh** (works with "refresh my matches", P151). It shouldn't compete with or hide inside the assistant chat — the assistant *introduces* it, but the brief lives prominently on the page.
+
+### Acceptance
+When the user runs "rate/score my matches" (or lands on Matches with a current brief), the results **introduce themselves prominently**: a bold hero card with a standout headline stat and a tasteful reveal animation (reduced-motion safe), followed by **ranked match cards with prominent scores**, one-line reasoning, and inline actions — scannable at a glance, detail on tap, placed as the dominant element of the Matches page. Voice gives a short upbeat intro and points to it without reading the whole list (P153/P158).
