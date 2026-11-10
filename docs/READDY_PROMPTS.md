@@ -5412,3 +5412,28 @@ On load, the assistant comes up as a **compact panel docked to a side (~380–44
 
 ### Acceptance
 A new or not-yet-connected user gets a **special, plain-language welcome** with a prominent **"Connect a job board"** CTA that launches connecting stand-alone, plus a simple **"Set me up / Give me the tour / I'll explore"** choice — quick, non-technical, skippable, and not repeated every load (but "get connected" persists until a source is linked). A separate persistent "Get connected" affordance exists in the empty state. **Returning users don't see the welcome**; they occasionally get a **single, dismissible tip card** highlighting an underused or useful feature with a one-tap "Show me", on a cooldown and with an off switch.
+
+## P168 — Put the assistant's answer where the user is looking, fix "can't hear me", and make minimize/dock actually work
+
+**Frontend only. No backend change.** Tester sundaij2@gmail.com hit three things. Two are verified live on `/dashboard/matches`.
+
+### 1. The answer lands at the TOP; the user has to scroll up to find it (verified)
+Measured region order inside the window: **response area at top (y≈82)**, but the **input is in the middle (y≈446)** and the **mic/transport below it (y≈523–659)**. So a user asks from the bottom and the reply appears up top, out of view — "a response at the top she had to scroll to find."
+- **Make the latest answer appear where the user is acting.** Either lay it out like a normal chat (newest message at the **bottom, directly above the input**, conversation scrolls up) **or** keep the current order but **auto-scroll the new response into view** the instant it arrives and briefly highlight it. The user must **never have to hunt** for the reply.
+- **Keep the input + response visually adjacent.** The question field, the answer, and the voice transport should read as one connected exchange, not separated by other panels. When a response (or a formulated question's result) is produced, it is the thing in view.
+- Respect P158 scroll + P161 pacing, but the **newest content is always auto-revealed**, not stranded.
+
+### 2. "The assistant couldn't hear her"
+Voice input failed for her entirely. Make capture robust and, when it can't hear, **say so and offer a fallback** instead of failing silently:
+- **Mic permission:** if the mic permission isn't granted, the first press must **trigger the browser permission prompt** and show a clear inline state ("Allow mic access to talk, or type below"). If denied/blocked, show that plainly with a one-tap path to typing. Never appear to listen while actually having no stream.
+- **Reliable capture:** use the pre-warmed MediaRecorder→server transcribe path (P156); confirm the live input meter actually moves on her voice (if the meter is flat, the stream isn't live — surface that). On empty/failed transcription, show **"I didn't catch that — try again or type it"**, not silence.
+- **Always-available typing fallback:** the "Type to the assistant" field stays obvious so a user whose mic won't work is never stuck (this is how she should have been able to report her issue).
+- If feasible, a quick **mic check** affordance in the voice zone ("tap to test your mic") so a new user can confirm it's working.
+
+### 3. Still blocking the screen; couldn't minimize (reinforces P166)
+She couldn't get the window out of the way. P166 (compact side-dock default + position-awareness) is the core fix; additionally:
+- **Minimize must be obvious and must work:** a clearly-labeled minimize/collapse control that reliably shrinks the window to the small "Assistant" pill, leaving the content fully visible, with an equally obvious way to reopen. Verify the collapse actually frees the screen (no leftover full-size overlay).
+- On first welcome (P167), default to the **compact docked** form so a new user is never confronted with a near-fullscreen panel they must figure out how to shrink.
+
+### Acceptance
+When the assistant answers (including a formulated-question result), the reply is **immediately visible where the user is acting** — newest content auto-revealed next to the input, never stranded at the top requiring a scroll. Voice input either works or **clearly tells the user why not** (permission prompt, "I didn't catch that", visible meter) with an always-obvious **typing fallback** — no silent failure. The window can be **reliably minimized/docked** to free the screen (P166), and new users start in the compact docked form.
