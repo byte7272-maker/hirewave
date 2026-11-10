@@ -5490,3 +5490,17 @@ The push-to-talk button computes `touch-action: auto`, so on a touch device a pr
 
 ### Acceptance
 Typing a message and pressing **Enter sends it** (fires `/assistant/interpret`, clears the field, runs it) on desktop and via the mobile keyboard's send key; Shift+Enter is a newline only if multiline. The hold-mic control computes **`touch-action: none`** with `preventDefault` on press so a press-and-hold on touch reliably captures without the page scrolling/selecting; tap-to-toggle and the typing fallback remain. Response placement (reply visible without scrolling) and the Send-button path continue to work.
+
+## P172 — Spacebar toggles AI voice play/pause for keyboard users
+
+**Frontend only. No backend change.** Give keyboard users the standard media shortcut: **Spacebar starts/stops the assistant's voice playback** (play ↔ pause on the P161 transport).
+
+### Behavior
+- When the assistant is active and **focus is not in a text field**, pressing **Space** toggles the voice: if speaking → **pause**; if paused/idle with something to say → **play/resume** (the same action as the transport's Play/Pause). `preventDefault` so the page doesn't scroll on Space.
+- **Never hijack typing:** if the focus is in the "Type to the assistant…" input/textarea or any editable field, Space types a space as normal — do **not** toggle playback.
+- Scope it to when the assistant overlay is **open/focused** (or make it global only while the assistant is the active surface), so Space elsewhere on the page behaves normally.
+- Reflect it in the UI: the transport Play/Pause button shows the resulting state, and (optionally) a small hint/tooltip "Space = play/pause". Respect the muted state (P165) — Space still pauses/resumes the narration timeline even when muted.
+- Pair with the existing voice controls (P161): Space = Play/Pause specifically; it doesn't need to map to Stop/Next (those stay on their buttons / existing keys).
+
+### Acceptance
+With the assistant open and focus outside any text field, pressing **Space** toggles the assistant voice between play and pause (matching the transport button), without scrolling the page. Typing in the assistant input still inserts a normal space and never toggles playback. The transport button reflects the current state.
