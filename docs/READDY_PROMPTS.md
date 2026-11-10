@@ -5540,3 +5540,21 @@ On a desktop browser with `getUserMedia` + `MediaRecorder` in a secure context a
 
 ### Acceptance
 At **every** window size including the smallest, the **"Type to the assistant…" input and the basic player controls (Play/Pause, Stop, Mic) are visible in a pinned footer** — never scrolled away, clipped, or hidden; only the message body scrolls, and it scrolls properly (no 24px dead zone) with the newest reply reachable. A **manual resize sticks and persists** (no snap-back); the window only auto-snaps/moves while the assistant is actively showing something on the content screen (P164), then returns to the user's chosen size. A minimum height guarantees the footer always fits.
+
+## P175 — "Walk me through a match" must stay on the match and read its brief/info, not open a blank Document
+
+**Frontend only. No backend change.** Tester flow: the assistant **offered** to walk through one of the user's matches, the user **said yes (by voice — it heard them)**, and it then **navigated to the Documents page showing a blank document**, saying "a brief is at the top" but **not reading it or giving the basic match info on screen**. Verified the counter-case live: typing *"walk me through one of my matches"* on Matches works correctly — it **stays on Matches and reads the brief** ("Your strongest right now is Technology at Bryan Cave Leighton Paisner LLP at 42"). So the brief content is fine; the **voice-confirmation branch misroutes**.
+
+### 1. Confirming the offer must run the walk-match action, not navigate to Documents
+- When the assistant asks "want me to walk through one of your matches?" and the user **confirms** (voice "yes"/"sure"/"go ahead", or taps Yes — P160/P114), run the **walk_matches / walk-this-match** action **in the Matches context**. It must **not** navigate to `/dashboard/documents` or open a document. The confirm handler is resolving to the wrong target — bind "yes" to the **offered action**, not a documents route.
+- A "yes" to a specific offer should carry the offer's intent (the thing just proposed), so confirming "walk a match" starts the match walk — the same thing the typed command does.
+
+### 2. Walking a match reads the brief AND the on-screen basics
+- On a match walk, **stay on the match** (the matches list / that match's card) and **read + show** the brief that's "at the top": the **ranked brief** (strongest match, score) plus the **basic info already on screen** for that match — role, company, match score/%, and the one-line "why it fits / gap". Don't just say "a brief is at the top" — actually narrate it and surface it (P162 brief + P168 response placement), with the ask-don't-monologue pacing (one item, then "continue?" — P158).
+- If the walk is meant to drill into a single match, highlight that match card (P164 point-out) and read its specifics — never present a **blank** screen.
+
+### 3. Never land on a blank document
+- If any step legitimately opens a document (e.g., a tailored résumé/cover letter for the match), it must **not show blank**: if the document isn't generated yet, say so and offer to create/tailor it (don't navigate to an empty Documents view). Prefer keeping the walk in the Matches context unless the user asks to open the document.
+
+### Acceptance
+Confirming the assistant's "walk through a match" offer (by voice or tap) runs the **match walk in the Matches context** — it stays on Matches, **reads the brief and the match's basic on-screen info** (role, company, score, why-it-fits) with ask-don't-monologue pacing — and **never navigates to a blank Documents page**. A "yes" to any offer executes that offer's action, not an unrelated route. If a document is opened, it is never blank (offer to generate it instead).
