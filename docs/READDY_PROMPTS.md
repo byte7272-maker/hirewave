@@ -5231,3 +5231,23 @@ At **any** window size (including the smallest), the overlay body **scrolls** to
 
 ### Acceptance
 The assistant's suggestions appear as **prominent, clearly-labeled bubbles** in their own surface (count + heading, highlighted on arrival) — easy to find, never buried in narration — using the app's existing AI-suggestion bubble style. The user can **drag a bubble onto the rendered résumé** and drop it on a line (replace) or a section (insert), with a visible drop-zone highlight, and it applies through the normal versions save path with immediate preview update and Undo. The **editable document render and manual editor remain** and work alongside drag-and-drop; every bubble also has Apply/Replace/Undo buttons so drag is optional, not required.
+
+## P160 — Assistant prompts as a readable choice overlay (Yes/No + multiple-choice bubble cards), and a big, obvious hold-mic button
+
+**Frontend only. No backend change.** When the assistant asks the user something — "Want me to continue?" (P158), yes/no confirmations (P114), disambiguation ("which cover letter?"), or "pick one of these" — it currently reads/prints into the clutter and is easy to miss. Present every choice as a **distinct, readable choice overlay** with real tappable options, and make the **push-to-talk (hold-mic) button big and easy to find**.
+
+### 1. Questions/options become a readable choice overlay — not buried text
+Whenever the assistant poses a decision, show a **dedicated choice card** (its own panel, comfortably sized and readable per P155 translucency — not tiny, not inline in a paragraph):
+- **Yes/No questions** → a clear prompt line + two prominent buttons **Yes / No** (and, where it fits, "Not now"). "Want me to continue?" (P158) renders this way: the question + **Continue / Stop** as big buttons, not a sentence the user has to act on by voice alone.
+- **Multiple choice** → render each option as a **selectable bubble card** (reuse the suggestion-bubble style, P159): one card per choice, each showing a short readable label (+ brief meta when useful — e.g. "Cover letter · Williams, Bayete · v4"). Tapping a card selects it. Number them so voice ("the second one" / "number 2") and the P-NLU `choose`/`index` path (ASSISTANT_INTENT) map onto the same cards.
+- The overlay is **readable-sized** (grows to fit the question + options, scrolls within if many — P158 scroll rules), clearly separated from the chat narration, and dismissable. If voice is on, the assistant asks the question **once** and points to the cards ("pick one below, or say the number") — it does **not** read every option aloud (P153/P158 ask-don't-monologue).
+- Every choice is actionable by **tap, voice, or keyboard** (focusable cards, Enter to pick) — parity, nothing voice-only.
+
+### 2. Make the hold-mic (push-to-talk) button big, visible, and easy to access
+The mic button is hard to find/hit. In the **pinned Voice bar** (P158), make the push-to-talk control the **primary, prominent affordance**:
+- A **large, clearly-labeled mic button** (generous tap target, mic icon + a short "Hold to talk" / "Tap to talk" label), high-contrast, always visible in the pinned bar at **every** window size (never clipped — P158 §2).
+- **Obvious states:** idle → clearly tappable; pressed/listening → active color + the live input meter animates right there (P157 Voice zone) so it's unmistakable it's capturing; releasing runs the command (P156 release-to-run).
+- Keep it reachable the same way across sizes — if the bar is narrow it stays as a prominent icon button (don't shrink it into the chip cluster). Support **both** press-and-hold and a tap-to-toggle mode for accessibility.
+
+### Acceptance
+Every time the assistant asks a question or offers options, it appears as a **readable, clearly-separated choice overlay**: Yes/No (and "Want me to continue?") render as prominent **buttons**, and multiple choices render as **numbered selectable bubble cards** (tap / say the number / keyboard) — never lost in narration, readable-sized, scrollable when long. The **hold-mic button is large, labeled, high-contrast, and always visible** in the pinned Voice bar at any window size, shows clear idle/listening states with the live meter, and runs the command on release. P153/P158 "ask, don't monologue" is preserved — the assistant points to the cards rather than reading them all.
