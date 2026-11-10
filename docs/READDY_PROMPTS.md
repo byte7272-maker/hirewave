@@ -5342,3 +5342,27 @@ Detection: if the assistant's action/response **targets a UI element or a route*
 
 ### Acceptance
 Any time the assistant **points something out, highlights an element, navigates, scrolls to a section, or opens an item** — not just during the named tour — the overlay **automatically shrinks to the compact bar and moves to the opposite edge so the target stays fully visible**, with a coach-mark on the target and a visible pointer/connector from the assistant to it. The shrink/move is smooth (reduced-motion safe), controls (pause/stop/next/mic/re-expand) stay available, voice continues, and the overlay **restores** to its prior size/position when the moment ends. It never covers the thing it's talking about.
+
+## P165 — Read-along mute (wave keeps moving), assistant can run any wizard step stand-alone, and the wizard offers Skip for done/unavailable steps
+
+**Frontend only. No backend change.** Three things:
+
+### 1. A Mute that lets the user READ while still seeing it's "speaking"
+Some users prefer to read the assistant's output rather than hear it — but they still want assurance it's actively narrating.
+- **Mute button** in the player transport / Voice zone (P161) that **silences the audio output only** — it does **not** stop narration. When muted, the assistant keeps "speaking" on its timeline: the **caption/printed output advances** (P138) and the **audio wave keeps animating** so the user can see it's still going, just with no sound.
+- Drive the wave from the **narration timeline** when muted (not the muted audio's amplitude, which would read as flat/silent) so it visibly moves in step with the words being shown — the reassurance the user asked for.
+- Muted state is **obvious and persisted** (`hw_voice_muted`): a clear 🔇 icon, and the output text is shown prominently so reading is comfortable. Unmuting resumes audio from the current point. Mute is independent of Pause/Stop (muted ≠ paused; the read continues).
+- Pair with the pacing rules (P158/P160): even muted, it still **pauses to ask "continue?"** as a printed Continue/Stop prompt.
+
+### 2. The assistant can pull up any wizard step on its own, to run stand-alone
+The setup wizard (P150: connect a job source, résumé/documents setup, AI-assistant/voice setup, preferences, etc.) shouldn't only run start-to-finish.
+- Give each wizard **step/section a stable id**, and let the **assistant launch any one of them individually** on demand — by voice or chip ("set up my résumé", "connect a job board", "set up the assistant voice", "redo onboarding step X"). Map these through the NLU (a `start_playbook`/`open_setup` intent with a `step` slot) so a single step opens as a **focused, stand-alone task** (its own panel/overlay), completes, saves, and returns — without forcing the whole wizard.
+- A **"Setup" menu** lists every step so the user can jump to any one directly too (tap parity, not voice-only). Completing a stand-alone step updates the same setup state the full wizard reads.
+
+### 3. The general wizard offers Skip for already-done or unavailable steps
+- When running the **full wizard**, **detect each step's state** and offer **Skip** (clearly, per step) when it's **already set up** (e.g. a source is already connected, a résumé already exists) — show it as done/optional with a "Skip" / "Review" choice rather than forcing the user through it again.
+- Offer **Skip** when a step is **unavailable** (e.g. a capability not ready, no account for it yet) — mark it skipped with a short reason, don't dead-end.
+- Skip is **non-destructive** (skipping never clears existing setup), reversible (the step stays reachable later via the Setup menu / the assistant, §2), and the wizard tracks completion so finished/skipped steps aren't re-nagged. Use the P160 choice-card style for the Skip/Continue/Review prompt.
+
+### Acceptance
+Muting silences audio **without stopping narration**: the caption/printed output keeps advancing and the **wave keeps animating** (driven by the narration timeline) so the user can read along and still see it's speaking; muted state is clear, persisted, and independent of pause. The assistant can **launch any individual wizard step stand-alone** (by voice or a Setup menu) to complete that one task and return, not only run the whole wizard. The full wizard **detects each step's state and offers Skip** for already-set-up or unavailable steps (non-destructive, reversible, not re-nagged), presented as a clear choice.
