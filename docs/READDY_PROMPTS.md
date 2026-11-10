@@ -5472,3 +5472,21 @@ Confirmed on **both `/dashboard` and `/dashboard/matches`**, reproducible (Try a
 
 ### Acceptance
 `/dashboard` and `/dashboard/matches` **load without the error boundary** for a signed-in user, including a brand-new/not-yet-connected user whose connection state is undefined (they see the P167 welcome + Connect CTA, not a crash). No `connectionsKnown` (or related undefined-read) exception appears in the console. The assistant (`.hw-glass`) mounts again. Re-verify on the live published site.
+
+## P171 — Enter must send the message, and the hold-mic must set touch-action:none (both found live)
+
+**Frontend only. No backend change.** Two concrete bugs verified live on `/dashboard/matches` while testing voice + response placement. (Good news first: **response placement works** — the latest reply renders at the top of the compact panel, fully visible without scrolling; and the backend path is healthy — typing + Send fires `/assistant/interpret` and `/narration/speak`.)
+
+### 1. Pressing Enter does not send — only the Send button works (verified)
+With text in the "Type to the assistant…" field, pressing **Enter sends nothing** (no `/assistant/interpret` call, the text stays in the field). Only clicking the arrow/Send button submits. Users — especially on a phone keyboard's Go/Enter — expect Enter to send, so their message silently goes nowhere.
+- **Wire Enter to submit** the assistant input (same handler as the Send button): on `Enter` (without Shift) in the field, submit the message, clear the field, and run it (P151 §2 auto-run for read-only/nav). `Shift+Enter` = newline if it's a multiline field.
+- On mobile, the on-screen keyboard's **"Go/Send/Enter"** key must trigger the same submit (handle `form submit` / `enterkeyhint="send"`).
+- Make sure submit reads the **current input value** (controlled-input state), so a fast type-then-Enter still sends the full text.
+
+### 2. The hold-mic button has `touch-action: auto` — must be `none` (mobile capture breaker)
+The push-to-talk button computes `touch-action: auto`, so on a touch device a press-and-hold can trigger scrolling/selection and **interrupt the hold**, which likely contributes to "the assistant couldn't hear" on Android.
+- Set **`touch-action: none`** (and `user-select: none`) on the hold-mic control, and `preventDefault` on `pointerdown`/`touchstart`, so holding it captures audio instead of the browser hijacking the gesture (reinforces P169 §2).
+- Keep the **tap-to-toggle** alternative (P169) for one-handed phone use, and the visible input meter + "Not hearing you? Type…" fallback (already present).
+
+### Acceptance
+Typing a message and pressing **Enter sends it** (fires `/assistant/interpret`, clears the field, runs it) on desktop and via the mobile keyboard's send key; Shift+Enter is a newline only if multiline. The hold-mic control computes **`touch-action: none`** with `preventDefault` on press so a press-and-hold on touch reliably captures without the page scrolling/selecting; tap-to-toggle and the typing fallback remain. Response placement (reply visible without scrolling) and the Send-button path continue to work.
