@@ -5182,3 +5182,30 @@ Right now the wave/meter isn't a standing element. Give the voice visualization 
 
 ### Acceptance
 The assistant window is **easy to resize** — grab any edge/corner via a generous hit zone (correct cursors), a visible bottom-right grip signals it, and a header **expand/maximize toggle (+ S/M/L presets)** resizes it in one tap; default is a comfortably readable width, with a sane min, viewport max, reflowing content, persisted size/position, and a reset. The **audio visuals are a dedicated, well-placed "Voice" zone** — output wave + mic meter + caption + mute/stop grouped in their own always-present section that animates with the real audio, shows a calm idle state, makes the speech source obvious, and scales with the window. Translucency/drag/minimize from P155 are preserved.
+
+## P158 — Assistant overlay: scrollable body + a control bar that NEVER disappears, speed/pause always reachable, and narration that checks in
+
+**Frontend only. No backend change.** Follow-up to P155–P157. Resizing now works, but it broke the layout: when the window is made smaller the **content can't be scrolled**, and the **audio wave + push-to-talk (hold-mic) button get clipped off the bottom and vanish**. Essential controls must never disappear when the window is resized. Also: make the speaker easier to control and have it pause and check in instead of monologuing.
+
+### 1. Split the overlay into a fixed frame + a scrollable middle (fixes the clipping)
+Lay the overlay out as **three bands** so sizing never hides the controls:
+- **Header (pinned top):** title + ⚙ menu + expand/preset + minimize/close (P157).
+- **Scrollable body (flex, the only part that scrolls):** suggestions, captions, before→after edits, tabs/sections. Give it `flex: 1 1 auto; min-height: 0; overflow-y: auto;` so it **always scrolls** when content exceeds the available height — at **every** window size, including the smallest. (The missing `min-height:0` is almost certainly why it won't scroll today.) Keep a thin scrollbar; never let content get cut off with no way to reach it.
+- **Voice/control bar (pinned bottom, the P157 "Voice" zone — `flex-shrink:0`, never scrolls away):** this bar is **always visible regardless of window size** and holds the always-on controls below.
+
+### 2. These controls must ALWAYS be visible and reachable (never clipped by resize)
+Dock all of these in the pinned bottom bar so shrinking the window can never remove them:
+- **The output audio wave + mic input meter** (P153/P157) — the user lost sight of the wave; it lives here permanently.
+- **The push-to-talk / hold-mic button** — it disappeared on resize; it must be in the pinned bar, always tappable.
+- **A Pause/Resume speaker control** — always present (see §3).
+- **The speaker speed slider** must be **always accessible** — if the bar is too narrow to show the full slider inline, keep a one-tap **speed control** in the bar (e.g. a `1.0×` chip that opens the slider in a popover, and/or −/+ steppers), so speed is reachable at any window size. Never bury speed behind a menu the user has to hunt for.
+- Mute 🔊/🔇 + Stop stay here too.
+If the bar gets narrow, let these controls **wrap or collapse into compact icon/chip forms** — but they stay **on screen**; they are never scrolled away or clipped.
+
+### 3. Easy pause + "want me to continue?" check-ins (stop the monologue)
+- **A prominent, always-visible Pause/Resume control** for the speaker (in the pinned bar and respond to a spoken "pause"/"stop"/"continue" — P121/P131 barge-in). One tap pauses speech immediately; tap again (or say "continue") resumes.
+- **Pause more often and ask.** Chunk narration into **short segments** (e.g. per suggestion, per sentence-group, or ~every 8–12s of speech) and, after each segment of any longer read, **pause and ask**: *"Want me to keep going?"* — spoken (if voice on) **and** shown as a small inline **Continue / Stop** prompt (P138 caption area). Don't read a long list or summary straight through; offer the next chunk. This is the user-pacing rule from P153 (ask, don't monologue) applied to ongoing speech, not just the greeting.
+- Default to **short** by design: after the greeting and a couple of printed suggestions, stop and wait for the user rather than continuing automatically.
+
+### Acceptance
+At **any** window size (including the smallest), the overlay body **scrolls** to reach all content, and the **wave, hold-mic button, Pause/Resume, speed control, and mute/stop are always visible in a pinned bottom bar** — resizing never clips or hides them. The **speed slider/stepper is reachable at every size**, and the speaker can be **paused and resumed** by button or voice. Longer narration is **chunked**: the assistant pauses after each segment and **asks "want me to continue?"** (spoken + a Continue/Stop prompt) instead of reading straight through. Translucency/resize/drag/minimize from P155–P157 are preserved.
