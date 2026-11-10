@@ -71,6 +71,9 @@ Map to the P121 command set, the P115 playbooks, the app sections, and the bulle
 
 Also added since: a **refresh/reload verb + a section** → `navigate` with `slots.refresh=true`
 (so "refresh my matches" refreshes, and is **not** read as the `walk_matches` grand tour).
+"**rate / score / rank / grade my matches (or jobs)**" → the read-only `walk_matches` playbook
+(the scored brief), so the "Rate my matches" quick action resolves to a real command — and "rate"
+without a number is **not** read as `set_rate` (voice speed).
 
 ## Suggestions — wording the assistant can understand
 Two helpers teach/recover phrasing, both drawn from the **same** NLU so a suggestion is always a

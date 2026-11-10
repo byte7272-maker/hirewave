@@ -50,7 +50,9 @@ _PLAYBOOKS = {
     "auto_apply": ("set up auto apply", "auto apply", "apply for me", "automate applications",
                    "automate applying"),
     "walk_matches": ("walk through my matches", "walk my matches", "go through my matches",
-                     "review my matches", "which jobs fit"),
+                     "review my matches", "which jobs fit", "rate my matches", "score my matches",
+                     "rank my matches", "grade my matches", "rate my jobs", "score my jobs",
+                     "how do my matches rank", "how good are my matches"),
     "apply_job": ("apply to this job", "apply to a job", "apply to this one", "fill this application",
                   "help me apply"),
     "upload": ("upload a document", "upload my resume", "upload my résumé", "upload a cover letter",
@@ -380,6 +382,7 @@ _SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Talk slower", ("*",)),
     # matches
     ("Refresh my matches", ("matches",)),
+    ("Rate my matches", ("matches",)),
     ("Which jobs fit?", ("matches",)),
     ("Walk me through my matches", ("matches",)),
     ("Apply to this job", ("matches", "job")),

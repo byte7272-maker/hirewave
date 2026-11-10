@@ -134,6 +134,19 @@ def test_refresh_matches_navigates_not_grand_tour():
     assert interpret("review my matches").slots["playbook"] == "walk_matches"
 
 
+def test_rate_my_matches_rates_them_and_does_not_set_voice_speed():
+    # the "Rate my matches" quick action must execute (the read-only walk that scores
+    # them), not fall through to unknown and do nothing — and "rate" here must NOT be
+    # read as a voice-speed command (which needs a number).
+    for phrase in ("rate my matches", "score my matches", "rank my matches",
+                   "grade my matches", "how good are my matches"):
+        r = interpret(phrase)
+        assert r.intent == "start_playbook", (phrase, r.intent)
+        assert r.slots["playbook"] == "walk_matches", (phrase, r.slots)
+    # a genuine voice-speed command with a number still sets the rate
+    assert interpret("set the rate to 1.2").slots == {"rate": 1.2}
+
+
 def test_set_rate_direction_and_value():
     assert interpret("faster").slots == {"direction": "faster"}
     assert interpret("set the speed to 1.5").slots == {"rate": 1.5}
