@@ -5297,3 +5297,23 @@ The assistant's voice controls are consolidated into **one modern player-style t
 
 ### Acceptance
 When the user runs "rate/score my matches" (or lands on Matches with a current brief), the results **introduce themselves prominently**: a bold hero card with a standout headline stat and a tasteful reveal animation (reduced-motion safe), followed by **ranked match cards with prominent scores**, one-line reasoning, and inline actions — scannable at a glance, detail on tap, placed as the dominant element of the Matches page. Voice gives a short upbeat intro and points to it without reading the whole list (P153/P158).
+
+## P163 — When the assistant takes control or runs a tour, it shrinks to a minimal form so the subject screens stay visible
+
+**Frontend only. No backend change.** When the assistant **drives** — the grand tour (P150), a playbook walkthrough (P115), or any "let me show you / take me there" sequence — the full overlay **covers the very screens it's demonstrating**. While it's in control, the assistant must **get out of the way**: collapse to a minimal, compact presence so the user can actually see the subject screen.
+
+### 1. A "driving / tour" mode that auto-minimizes the overlay
+- The moment the assistant **starts a tour or takes control of navigation**, it **auto-collapses** from the full panel to a **minimal bar/pill** (reuse the P120 minimize + P161 player transport): just the essential **transport + caption** — play/pause, stop, next, mic, and a one-line "what we're looking at" caption — docked to an edge (bottom or corner) and **small**, so the **subject screen is unobstructed**.
+- The minimal bar is **translucent** and sits out of the way (P155); it must never cover the element being pointed at. If it would overlap the highlighted target, it **repositions** to the opposite edge.
+- **Spotlight the subject, not the assistant:** when the tour highlights a screen/feature, keep the overlay minimal and let the page (and any P-tour highlight/coach-mark) be the focus.
+
+### 2. Control stays available while minimal
+- From the minimal bar the user can always **Pause/Stop the tour**, go **Next/Previous** step (P161), and **re-expand** the assistant to full size with one tap when they want the detail back. Ending/stopping the tour restores the user's previous overlay size/position (P157 persisted `hw_assist_*`).
+- Honor **ask-don't-monologue** (P153/P158): each tour step shows its short caption + the "continue?" / Next control rather than the big panel reading at length.
+- **Voice keeps working** minimized (the player/caption is enough); the user hears the guidance while seeing the screen.
+
+### 3. Scope: taking control in general, not just the named tour
+- Applies whenever the assistant **navigates on the user's behalf or runs a multi-step playbook** (walk_matches, tailor, apply, upload/download — P115): minimize during the action so the result screen is visible; re-expand (or offer to) when it's done and wants to show suggestions/choices (P159/P160).
+
+### Acceptance
+Starting the grand tour or any assistant-driven navigation/playbook **auto-minimizes** the overlay to a small translucent transport+caption bar so the **subject screen stays fully visible and unobstructed** (it repositions rather than cover the highlighted target). The user can **pause/stop, step next/previous, and re-expand** from the minimal bar at any time; voice guidance continues while minimized; and when the tour ends the overlay **restores** to its prior size/position. The ask-don't-monologue pacing is preserved throughout.
