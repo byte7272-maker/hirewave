@@ -4980,3 +4980,38 @@ Each screen shows a few **"Try saying…"** commands pulled from `/assistant/sug
 
 ### Acceptance
 **Refreshing `/dashboard/matches` (not just navigating to it) makes the assistant walk the user through the screen**: the assistant surfaces, shows the count / new / saved / top-matches summary with a moving caption and wave, and offers the next step — **even with `hw_narration_auto_read` off** (it speaks too when `hw_narration_enabled` is on and unmuted). It is never silent-and-blank on arrival. A "Brief me" control and *"walk me through my matches"* re-run it. `hw_last_matches_seen` is written after the first brief. No backend change.
+
+## P150 — Make the assistant part of the setup wizard: a new-user greeting (product overview + why it helps) that turns the voice on and offers the Grand Tour
+
+**Frontend only. All endpoints are LIVE; no backend change.** Two linked problems:
+
+1. **The assistant still isn't talking by default on Matches** (and everywhere). Root cause: P111 only lets the assistant *speak* once a **one-time voice consent** is granted, and that **"Yes" click is also the browser's required audio-unlock gesture**. If a user never passed that step, `hw_voice_consent` is unset, narration stays off, and a cold page load / refresh **cannot autoplay** TTS even after P149 fires the visible walk. So the walk-through shows but **says nothing**.
+2. **There's no real introduction.** New users land with no idea what Project Harbor is, what it does, or that there's a talking guide at all.
+
+Fix both by making the **assistant its own first-class step in the P83 setup wizard**, opening with a **greeting** that overviews the product and **turns the voice on with the same click**, then offering the **Grand Tour**.
+
+### 1. Add an "assistant / talking guide" step to the P83 wizard — make it step 2 (right after Welcome)
+A dedicated wizard step, shown to every new user, before the résumé/email steps:
+- **Greeting + product overview (spoken-capable, but readable first).** A warm card from the assistant: who it is and, in **3–4 plain lines**, **what Project Harbor does and why it's useful** — e.g. *"I'm your Harbor guide. Project Harbor finds jobs that match you, tailors your résumé and cover letter to each one, and can even help you apply — I'll walk you through all of it. Want me to talk you through things out loud?"* Keep it concrete and benefit-led (matches → tailor → apply), not a feature dump; one short line each for **Matches**, **Tailoring**, **Apply help**, **Your guide (me)**.
+- **The consent control IS the audio unlock (critical).** Primary button **"Yes, talk me through it"** / secondary **"No, stay silent"**. The **Yes click must, in the same user gesture**: (a) set `hw_voice_consent="granted"`, `hw_narration_enabled=true` (persist via `PUT /api/v1/narration/prefs`), (b) **unlock browser audio** — play a priming `POST /api/v1/narration/speak` line **synchronously in that click handler** (or resume the shared `AudioContext`), and (c) **speak a one-line confirmation right then** (*"Great — you'll hear me as we go."*) so the user hears it working. Set a session flag `hw_audio_unlocked="1"` once this succeeds. This is what makes the voice actually play on Matches afterward.
+- **"No, stay silent"** → `hw_voice_consent="declined"`, voice off, never nag again; the visible walk-throughs (P149) still work silently, and the sleek 🔊 toggle (P111 §2) can turn it on later (that click re-runs the unlock).
+- **Mic is a separate, skippable sub-step** (keep P111 §3 verbatim): offer "Let me listen while you hold the mic button" as its own opt-in; muted by default; fully skippable; denying it never blocks anything.
+- **Screen-reader users:** default voice **off** even on consent (P105/P111), offer opt-in.
+- This step is **skippable and resumable** like the rest of P83, and the whole assistant setup is **re-runnable** from the assistant's "Voice & privacy" panel and the Connect hub.
+
+### 2. After the wizard (or on first dashboard load for an existing user who never consented): greet and offer the Grand Tour
+- Once setup is done — or when a returning user who has **never** seen the intro lands on the dashboard (`hw_intro_seen` not set) — the assistant **greets by name if known**, gives the **same one-paragraph overview**, and **offers the Grand Tour**: *"Want the 60-second tour, or should I take you to your matches?"* Buttons/chips: **Take the tour** · **Go to my matches** · **I'll explore** (all tappable **and** speakable).
+- **Take the tour** runs the existing **Grand Tour playbook** (P100 coach-marks / P115 "Walk the matches" family / P121 turn-taking): a short guided pass over Matches → Documents → Apply, each stop a one-line "what this is / what you can do here" with the caption + wave, confirm-before-moving, and an always-available **Skip tour**. Don't rebuild the tour — **invoke the existing playbook**.
+- Set `hw_intro_seen="1"` after it's shown (greet once, not every load); a **"Show me around"** control + the spoken command *"give me the tour"* (NLU already understands the tour/playbook intents) re-run it on demand.
+- If voice consent was granted, **all of this is spoken** (audio is already unlocked from step 1); if declined/skipped, it's the same flow **on screen, silently**.
+
+### 3. Result: talking by default on Matches
+Because consent + **audio unlock** now happen inside the wizard's first gesture and persist (`hw_voice_consent`, `hw_audio_unlocked`), when the user later reaches **Matches** — by nav **or cold refresh** — the P149 brief both **shows and speaks** by default. Belt-and-suspenders for a brand-new browser session where autoplay re-locks: on the **first user gesture of any session** (any click/keypress), silently re-prime the audio (resume `AudioContext` / fire a 0-length speak) so the next proactive narration plays; until then, keep P149's visible walk so it's **never silent-and-blank**. Never show a dead mic/▶ with no speech when consent is granted.
+
+### Endpoints (all LIVE — no backend work)
+- `PUT /api/v1/narration/prefs`, `POST /api/v1/narration/speak` (consent, unlock, speaking) — P106/P111.
+- Wizard host + progress/resume = P83; greeting/turn-taking = P121; Grand Tour = P100 / P115 / P121 playbooks; proactive Matches brief = P146/P149 (`GET /api/v1/jobs/matches`, `GET /api/v1/jobs/{job_id}/fit-brief`).
+- Local flags: `hw_voice_consent`, `hw_audio_unlocked`, `hw_intro_seen` (+ existing `hw_narration_enabled`, `hw_voice_muted`).
+
+### Acceptance
+A new user's setup wizard includes an **assistant step as step 2** that **greets them, overviews what Project Harbor does and why it helps**, and offers **"Yes, talk me through it."** Clicking Yes **turns the voice on and unlocks audio in that one gesture** — the user **hears a confirmation immediately** — and from then on the assistant **speaks by default**, including the **Matches brief on a plain refresh** (P149 now both shows **and** speaks). After setup (or on a never-introduced user's first dashboard load) the assistant **greets and offers the Grand Tour**, which runs the **existing** tour playbook (not a rebuild) and can be re-run via "Show me around" / *"give me the tour."* Declining leaves it silent with no nag, the visible walk-throughs still work, and the 🔊 toggle can enable voice later. The intro shows **once** (`hw_intro_seen`). No backend change.
