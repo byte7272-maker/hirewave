@@ -5209,3 +5209,25 @@ If the bar gets narrow, let these controls **wrap or collapse into compact icon/
 
 ### Acceptance
 At **any** window size (including the smallest), the overlay body **scrolls** to reach all content, and the **wave, hold-mic button, Pause/Resume, speed control, and mute/stop are always visible in a pinned bottom bar** — resizing never clips or hides them. The **speed slider/stepper is reachable at every size**, and the speaker can be **paused and resumed** by button or voice. Longer narration is **chunked**: the assistant pauses after each segment and **asks "want me to continue?"** (spoken + a Continue/Stop prompt) instead of reading straight through. Translucency/resize/drag/minimize from P155–P157 are preserved.
+
+## P159 — Make the assistant's suggestions PROMINENT: show them as draggable bubbles you can drop onto the résumé
+
+**Frontend only. No backend change.** The suggestions the assistant produces (P152 critique→apply-able edits, P6 highlights, bullet recommendations) are **getting lost in a wall of text** — the user can't find them. Surface them as **distinct, well-advertised suggestion bubbles**, and let the user **drag a bubble onto the résumé** to apply it — *in addition to* editing the rendered document directly.
+
+### 1. Suggestions are their own prominent surface — not buried in prose
+- Render each suggestion as a **discrete card/bubble**, visually set apart from the assistant's chat text (its own panel/section with a clear label like **"Suggestions"** / **"Suggested edits"**), so they're immediately findable. Never inline them inside a paragraph of narration.
+- **Advertise them:** a count + heading ("3 suggested edits"), and when new ones arrive, a brief highlight/badge so the user notices. If voice is on, the assistant points to them ("I've put 3 suggestions below — drag one onto your résumé, or tap Apply") per the ask-don't-monologue rule (P153/P158) — it does **not** read them all straight through.
+- Each bubble shows, compactly: the **action** (Add / Replace / Reword / Insert metric / Tailor), a short **before→after** or the new line, and the **rationale** in one line (P152). Keep them scannable — the detail expands on tap, it isn't all shown at once.
+
+### 2. Bubble format the AI produces (reuse, don't reinvent)
+- Use the **existing suggestion-bubble styling** the app already uses for AI output so these read as first-class AI suggestions (consistent shape, color, affordances). Group by target section when helpful (Summary / Experience / Skills).
+- Each bubble has **explicit buttons too** — **Apply** (and **Replace which line?** / **Undo**) — so drag is never the *only* way to act (accessibility + non-drag users). Drag is an enhancement, not a requirement.
+
+### 3. Drag-and-drop onto the résumé — in addition to the editable render
+- The user can **drag a suggestion bubble and drop it onto the résumé** to apply it. This complements (does **not** replace) the editable document render and the manual editor — both paths stay.
+- **Drop targets on the rendered résumé:** dropping a bubble **onto a specific bullet/line** → replace that line (the P4 "drag right→left to replace" interaction, now also driven from the suggestion bubbles); dropping into a **section** (Experience, Summary, Skills) → insert/add there; a clear **drop-zone highlight** shows where it will land while dragging, and a **snap/confirm** on drop.
+- **Applies through the one save path** (`POST /api/v1/resumes/{id}/versions` via the existing apply-edits/match-bullets flow, P4/P152) → new version → the **preview updates immediately** with the "Updated — N change(s)" cue (P4b), and **Undo** = version switch. Honesty rule intact: placeholder brackets for metrics, never fabricated numbers (P152).
+- **Touch + keyboard parity:** drag works on touch; for keyboard/non-drag, the bubble's **Apply** (with a "replace which line?" picker) does the same thing. Nothing is drag-only.
+
+### Acceptance
+The assistant's suggestions appear as **prominent, clearly-labeled bubbles** in their own surface (count + heading, highlighted on arrival) — easy to find, never buried in narration — using the app's existing AI-suggestion bubble style. The user can **drag a bubble onto the rendered résumé** and drop it on a line (replace) or a section (insert), with a visible drop-zone highlight, and it applies through the normal versions save path with immediate preview update and Undo. The **editable document render and manual editor remain** and work alongside drag-and-drop; every bubble also has Apply/Replace/Undo buttons so drag is optional, not required.
