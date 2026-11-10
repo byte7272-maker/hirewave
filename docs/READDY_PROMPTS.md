@@ -5045,3 +5045,58 @@ Reduce it to a calm, focused surface:
 
 ### Acceptance
 Pressing **any** quick-action chip **runs that command immediately**: "Refresh my matches" reloads Matches, "Rate my matches" runs the scored brief — **with no secondary confirmation** and visible feedback. Read-only/navigation commands never show a confirm dialog; only outbound actions (apply/submit/send) still confirm (P114). Chips are sourced from `/assistant/suggestions`, so every one is a command that actually works (no dead labels). The assistant surface is **decluttered**: one input row + a few chips + "More…", with voice/privacy/transport controls collapsed behind a menu, one caption and one wave. No invented/non-functional controls remain.
+
+## P152 — Roll the résumé critique into the assistant's offerings: concrete, choosable edits the user can apply with one tap
+
+**Backend ready — a new "critique mode" ships for this (no paste needed).** Today the assistant can *review* a résumé (a prose critique) but doesn't turn that into **things the user can act on**. It should present the critique as **specific, choosable edit suggestions** — a reworded line, an inserted metric, the target company name folded in for tailoring — each with **Apply**, so the user picks the ones they want and the résumé updates.
+
+### Where this shows up
+- On **Documents / the résumé Workspace**: an **"Assistant suggestions"** offering — the assistant says (and prints) *"I spotted a few ways to strengthen this résumé — want to see them?"* and lists the edits.
+- On **Matches → a focused job** (tailoring): the same offering, **tailored to that job** — *"Here's how I'd tailor your résumé to [Job] at [Company]."* This is part of the P146/P149 fit-brief follow-up ("what to tailor" → now actual edits).
+
+### Get the suggestions (critique mode — no paste)
+- Call **`POST /api/v1/resumes/{resume_id}/suggest-edits`** with **`{ "context": "", "job_posting_id": "<focused job, if any>" }`**. An **empty `context`** triggers critique mode: the backend reviews the résumé itself (and tailors to the job when `job_posting_id` is given) and returns apply-able edits. (Non-empty `context` is still the old paste-mode.)
+- Response: **`SuggestEditsResponse { suggestions: [{ action, section, before, after, rationale }] }`** — `action` ∈ `add | remove | reword`; `before` = the exact existing line (empty for add); `after` = the new text; `rationale` = which critique point it fixes.
+- **Honesty is built in:** the backend never fabricates a number — when a line should be quantified but the résumé has none, `after` contains a **bracketed placeholder** (e.g. `[add %]`, `[# of people]`) for the user to fill. Render placeholders as an editable field, not as final text. For tailoring it inserts the **real** target company name / job keywords the résumé supports — never invented experience.
+
+### Present them as choosable offerings
+1. **Each suggestion is a card** (spoken + printed, P138): a short label ("Reword your summary", "Add a metric to the billing bullet", "Name the target company"), the **before → after** diff, and the one-line rationale. The assistant can **read them aloud**, but the list is always **printed so the user can choose** (don't force voice).
+2. **One-tap apply, per item or batched.** Each card has **Apply** (and Dismiss). Applying sends the chosen subset to **`POST /api/v1/resumes/{resume_id}/apply-edits { suggestions: [...] }`** → a new version; the shared preview updates immediately (P4b "Updated — N change(s)"). **Apply all** applies the lot. Undo = version switch.
+3. **Edit before applying.** Because some `after` values carry placeholders, let the user tweak the text inline before Apply (send the edited `after`).
+4. **It's an offer, not an auto-run.** Generating/showing the suggestions is read-only (no confirm). **Applying** changes the document — that's the one step the user explicitly taps (per item or Apply-all); don't auto-apply.
+5. **Reuse, don't rebuild.** This is the same suggestion/accept surface as My Work Highlights / the Bullets review (P2.3/P4) — fold these critique suggestions into that same accept-before-save list rather than inventing a new one.
+
+### Endpoints (all LIVE)
+- `POST /api/v1/resumes/{id}/suggest-edits` — **empty `context` = critique mode** (new), optional `job_posting_id` to tailor; returns `{action,before,after,rationale}[]`.
+- `POST /api/v1/resumes/{id}/apply-edits` — apply the chosen subset → new version.
+- Context for the offer: `GET /api/v1/jobs/{job_id}/fit-brief` (the spoken "why/what to tailor") and `GET /api/v1/resumes/{id}/review` (the score/grade) remain available.
+
+### Acceptance
+On Documents (and on a focused job for tailoring), the assistant **offers concrete, choosable edits** drawn from its own critique — reworded lines, added metrics (as fillable placeholders, never fabricated), and the target company folded in — each **printed** with a before→after and rationale, **readable aloud**, and **Apply**-able per item or all at once via `/apply-edits`, updating the preview immediately. Generating the list asks no permission; only **Apply** changes the document. Suggestions come from `suggest-edits` critique mode (empty `context`), so they're grounded in the résumé (and job), never invented.
+
+## P153 — Per-page greeting that ASKS (don't monologue), the voice meter lives in the assistant overlay, and the assistant knows the app and navigates it fast
+
+**Frontend. All endpoints LIVE; no backend change.** Three connected fixes to how the assistant shows up on every screen. This **refines P146/P149**: the assistant must still never be dead-silent, but it should **greet and ask**, not auto-read a long summary at the user.
+
+### 1. Greet per page — "Hello, you're on [Section]. What would you like to do here?"
+- On entering **any** section, the assistant gives a short **greeting that names the section**: *"Hello — you're on your **Dashboard**. What would you like me to help with here?"* / *"Hi — this is **Matches**. Want me to rate them, refresh, or tailor to one?"* Map the route to a friendly section name (Dashboard, Matches, Documents, Auto-apply, Design, Interview, Inbox, Connect, Community).
+- **Greet once per session, and again only after a long pause.** Say the full "Hello" greeting on the **first** page of the session (or right after the P150 intro) and after the user has been **idle a while** (≳20–30 min) or returns from away; on ordinary navigation between pages **within** an active session, use a **brief orient** ("You're on Documents — want your suggestions?") not the full hello. Persist last-greeted time in `localStorage` (`hw_last_greet_ts`) and the current session id.
+- **Ask — don't monologue.** Do **not** auto-read the full summary/brief on arrival. **Greet → name the section → ask what they want**, and **show the choosable suggestions** (the P151 chips + P152 offering) **printed** so the user can pick. Speak the greeting + the offer (if voice is on), but read the full summary **only when the user asks** ("Rate my matches", "Brief me") or if they've explicitly opted into auto-brief. ("New since last run" counts etc. become an *offer* — "Want the rundown?" — not an unprompted monologue.)
+- **Read the suggestions, especially when printed.** When suggestions/offerings are on screen, the assistant's spoken line should point at them ("I've got three suggestions here — tap one or say the number"), so voice and the printed choices match (P138 muted-safe).
+
+### 2. The voice meter/wave lives IN the assistant overlay (make the source obvious)
+- The **output wave** (and the **mic input meter**) must render **inside the assistant console/overlay**, anchored to it — not floating detached elsewhere on the page. The user should always see **where the speaking is coming from** and how to control it.
+- Co-locate the controls with the meter: the 🔊/🔇 mute, Stop, and the caption all sit in the same overlay as the wave, so "that voice" has one obvious home with one-tap control (ties P111 §2 / P112 / P120). When the assistant speaks, the wave animates **in the overlay**; the overlay is the single source of voice + the place to stop/mute it.
+- Keep it decluttered (P151 §4): the meter + caption + a few chips are the default; deeper controls stay behind the overlay's menu.
+
+### 3. The assistant knows the app and navigates it fast
+- The assistant understands the **core sections and what each is for**, and can **navigate instantly** on request via the existing NLU (`POST /api/v1/assistant/interpret` → `navigate {section}`; sections already recognized: matches, documents, auto_apply, design, interview, inbox, connect, community, dashboard). "Take me to my matches", "open documents", "go to auto-apply" must jump straight there (read-only, no confirm — P151 §2).
+- On **"what can I do here?"** / **"what is this page?"**, the assistant gives a **one-line description of the current section and its core offering** plus the top 2–3 actions (from `GET /api/v1/assistant/suggestions?section=<screen>`), so it can orient a user anywhere in the app.
+- Navigation during a conversation is **fluid**: the user can say "actually, take me to Design" mid-flow and the assistant goes, keeping the greeting rules above (brief orient on arrival, not a fresh full hello).
+
+### Endpoints (all LIVE — no backend change)
+- `POST /api/v1/assistant/interpret` (navigate + commands), `GET /api/v1/assistant/suggestions?section=&job_id=` (per-page offerings), `GET /api/v1/jobs/matches`, `GET /api/v1/jobs/{job_id}/fit-brief`, `POST /api/v1/narration/speak`.
+- Local flags: `hw_last_greet_ts`, session id (+ existing narration prefs).
+
+### Acceptance
+Entering a section, the assistant **greets and names it** ("Hello — you're on Dashboard. What would you like to do?") and **asks**, showing the printed, choosable suggestions rather than **monologuing the summary** — the full brief is read **only on request**. The full "Hello" fires **once per session and after a long idle**; plain in-session navigation gives a **brief orient**, not a repeat hello. The **voice wave and mic meter render inside the assistant overlay**, co-located with mute/stop/caption, so the speech source and its controls are obvious. The assistant **navigates the app instantly** by voice/typed command (no confirm), and can describe **any page's purpose and top actions** on request. Never dead-silent on arrival, never an unprompted monologue.
