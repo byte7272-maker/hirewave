@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Project Harbor Connect",
   "version": "1.4.1",
-  "description": "Connect a job board to Project Harbor and pull your matches — captures your session (cookies only, never your password).",
+  "description": "Connect a job board, pull jobs you view, and fill applications with your saved details — you submit, never your password.",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
     "16": "icons/icon16.png",
