@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.4.1",
-  "description": "Connect a job board, pull jobs you view, and fill applications with your saved details — you submit, never your password.",
+  "version": "1.5.0",
+  "description": "Connect a job board, pull jobs you view, research employers, fill applications with your details — you submit, never a password.",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
     "16": "icons/icon16.png",
@@ -11,6 +11,7 @@
     "128": "icons/icon128.png"
   },
   "permissions": ["cookies", "tabs", "storage", "scripting"],
+  "optional_host_permissions": ["*://*/*"],
   "host_permissions": [
     "https://*.linkedin.com/*",
     "https://*.indeed.com/*",

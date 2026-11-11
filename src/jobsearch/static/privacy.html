@@ -75,6 +75,13 @@
       asks your Project Harbor account to map them to your own saved details, and fills those
       values into the form in your browser. It highlights what it filled; <strong>you review
       and submit</strong>.</li>
+    <li><strong>Research an employer (optional, off by default):</strong> if you turn on
+      <strong>Web research</strong> and approve a specific search, the extension looks up the
+      company on the open web using this browser, reads the <em>public</em> pages it finds, and
+      sends their readable text to your Project Harbor account to summarize into job-search
+      notes (leadership, keywords, tailoring hints). It requests broad site access only when
+      you enable this feature, reads public pages only (requests are made without your
+      cookies), and never your logged-in or private data.</li>
   </ul>
   <p>The extension takes <strong>no action on its own</strong> — every action is a direct
     response to your click, on a supported job-site page.</p>
@@ -99,6 +106,10 @@
     <li><strong>Local storage</strong> — the Project Harbor API address, and (if you enable
       pull/fill) your own Project Harbor session token, stored only in this browser to request
       short-lived access tokens for your account.</li>
+    <li><strong>Open-web access (optional)</strong> — granted only if you enable Web research,
+      and used only to fetch the public pages you approve for a search. Requests are made
+      without your cookies, so only publicly visible content is read; private or logged-in
+      pages are not accessed.</li>
   </ul>
 
   <h2>What it never accesses</h2>
@@ -115,9 +126,10 @@
 
   <h2>What is sent, where, and how it is stored</h2>
   <ul>
-    <li><strong>Sent:</strong> connected sessions, pulled job listings, and application-form
-      field labels — only to your own Project Harbor account over HTTPS, to perform the action
-      you requested.</li>
+    <li><strong>Sent:</strong> connected sessions, pulled job listings, application-form
+      field labels, and — if you use Web research — the readable text of the public pages you
+      approve for a search, only to your own Project Harbor account over HTTPS, to perform the
+      action you requested.</li>
     <li><strong>Stored by Project Harbor:</strong> connected sessions are stored
       <strong>encrypted at rest</strong>, scoped to your account, and used solely to perform
       actions you request.</li>

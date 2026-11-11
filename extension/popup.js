@@ -265,6 +265,47 @@ async function pullJobs() {
   }
 }
 
+// --- web research opt-in (broad OPTIONAL host permission, granted on a click) ---
+const WEB_ORIGIN = { origins: ["*://*/*"] };
+
+function setResearchStatus(msg, kind) {
+  const el = $("researchStatus");
+  el.textContent = msg;
+  el.className = "status " + (kind || "muted");
+}
+
+async function refreshResearchUI() {
+  let granted = false;
+  try { granted = await chrome.permissions.contains(WEB_ORIGIN); } catch (_) {}
+  const btn = $("researchToggle");
+  btn.textContent = granted ? "Turn off web research" : "Enable web research";
+  btn.dataset.granted = granted ? "1" : "0";
+  setResearchStatus(
+    granted ? "✓ On — the assistant can research on your approval." : "Off — enable to let the assistant research employers.",
+    granted ? "ok" : "muted",
+  );
+}
+
+async function toggleResearch() {
+  const btn = $("researchToggle");
+  const granted = btn.dataset.granted === "1";
+  btn.disabled = true;
+  try {
+    if (granted) {
+      await chrome.permissions.remove(WEB_ORIGIN);
+    } else {
+      // Must be called in a user gesture — this click qualifies.
+      const ok = await chrome.permissions.request(WEB_ORIGIN);
+      if (!ok) setResearchStatus("Permission not granted.", "err");
+    }
+  } catch (e) {
+    setResearchStatus("Error: " + ((e && e.message) || e), "err");
+  } finally {
+    btn.disabled = false;
+    await refreshResearchUI();
+  }
+}
+
 (async function init() {
   $("apiBase").value = await loadApiBase();
   const savedRefresh = (await chrome.storage.local.get("refreshToken")).refreshToken;
@@ -277,4 +318,6 @@ async function pullJobs() {
   $("connect").addEventListener("click", connect);
   $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
   $("pull").addEventListener("click", pullJobs);
+  $("researchToggle").addEventListener("click", toggleResearch);
+  await refreshResearchUI();
 })();

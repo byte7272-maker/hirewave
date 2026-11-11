@@ -28,7 +28,8 @@
     }
     try {
       chrome.runtime.sendMessage(
-        { type: msg.type, provider: msg.provider, token: msg.token, refreshToken: msg.refreshToken, apiBase: msg.apiBase, label: msg.label },
+        { type: msg.type, provider: msg.provider, token: msg.token, refreshToken: msg.refreshToken,
+          apiBase: msg.apiBase, label: msg.label, query: msg.query, url: msg.url, max: msg.max },
         function (resp) {
           if (chrome.runtime.lastError) {
             reply({ ok: false, error: chrome.runtime.lastError.message || "extension error" });

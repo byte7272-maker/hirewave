@@ -27,6 +27,106 @@ function mapSameSite(s) {
   return { no_restriction: "None", lax: "Lax", strict: "Strict", unspecified: "Lax" }[s] || "Lax";
 }
 
+// --- open-web research (opt-in; uses the broad OPTIONAL host permission) ------
+// The user grants "*://*/*" on demand from the popup (a user gesture). We fetch
+// PUBLIC pages with credentials omitted (never the user's logged-in/private view),
+// return READABLE TEXT ONLY, and never execute page scripts — the page text is data,
+// summarized server-side. Internal/loopback hosts and non-http(s) schemes are refused.
+const WEB_ORIGIN = { origins: ["*://*/*"] };
+
+async function hasWebPermission() {
+  try { return await chrome.permissions.contains(WEB_ORIGIN); } catch (_) { return false; }
+}
+
+function safeUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch (_) { return null; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  const h = u.hostname;
+  if (/^(localhost|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|127\.)/i.test(h)) return null;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === "[::1]" || h === "::1") return null;
+  return u.toString();
+}
+
+function stripTags(s) {
+  return String(s || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#x27;|&#39;/gi, "'")
+    .replace(/&quot;/gi, '"').replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ").trim();
+}
+
+function extractReadable(html) {
+  let title = "";
+  const tm = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (tm) title = stripTags(tm[1]).slice(0, 200);
+  const body = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<head[\s\S]*?<\/head>/gi, " ");
+  return { title, text: stripTags(body).slice(0, 20000) };
+}
+
+function decodeResultHref(href) {
+  try {
+    const u = new URL(href.startsWith("//") ? "https:" + href : href, "https://duckduckgo.com");
+    const uddg = u.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : u.toString();
+  } catch (_) { return href; }
+}
+
+function parseSearchResults(html, max) {
+  const results = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) && results.length < max) {
+    const url = decodeResultHref(m[1]);
+    const title = stripTags(m[2]);
+    if (url && title && /^https?:/i.test(url)) results.push({ title, url, snippet: "" });
+  }
+  const sre = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  let i = 0, sm;
+  while ((sm = sre.exec(html)) && i < results.length) { results[i].snippet = stripTags(sm[1]).slice(0, 300); i++; }
+  return results;
+}
+
+async function fetchText(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs || 12000);
+  try {
+    const res = await fetch(url, { method: "GET", credentials: "omit", redirect: "follow", signal: ctrl.signal });
+    const ct = res.headers.get("content-type") || "";
+    if (!/text\/html|text\/plain|application\/xhtml/i.test(ct) && ct) {
+      return { ok: false, status: res.status, error: "unsupported content type" };
+    }
+    const body = await res.text();
+    return { ok: res.ok, status: res.status, body: body.slice(0, 400000) };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function researchSearch(query, max) {
+  if (!(await hasWebPermission())) return { ok: false, needsPermission: true, error: "web research not enabled" };
+  const q = String(query || "").trim().slice(0, 200);
+  if (!q) return { ok: false, error: "empty query" };
+  const r = await fetchText("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q), 12000);
+  if (!r.ok || !r.body) return { ok: false, error: "search failed (" + (r.status || "no response") + ")" };
+  return { ok: true, results: parseSearchResults(r.body, Math.min(Math.max(max || 6, 1), 10)) };
+}
+
+async function researchFetch(rawUrl) {
+  if (!(await hasWebPermission())) return { ok: false, needsPermission: true, error: "web research not enabled" };
+  const url = safeUrl(rawUrl);
+  if (!url) return { ok: false, error: "unsupported or private URL" };
+  const r = await fetchText(url, 12000);
+  if (!r.ok || !r.body) return { ok: false, error: "fetch failed (" + (r.status || "no response") + ")" };
+  const { title, text } = extractReadable(r.body);
+  return { ok: true, data: { url, title, text } };
+}
+
 async function buildStorageState(provider) {
   const domain = DOMAINS[provider];
   if (!domain) return { count: 0, storage_state: "" };
@@ -100,6 +200,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // Best-effort outcome ping from apply.js (what got filled) — no-op for now.
       if (msg.type === "harbor-apply-report") {
         return sendResponse({ ok: true });
+      }
+
+      // --- open-web research (opt-in; the app has already gotten the user's consent) ---
+      // Feature-detect whether the broad web-access permission has been granted.
+      if (msg.type === "harbor-research-status") {
+        return sendResponse({ ok: true, granted: await hasWebPermission() });
+      }
+      // Search the open web on the user's connection → [{title,url,snippet}].
+      if (msg.type === "harbor-research-search") {
+        return sendResponse(await researchSearch(msg.query, msg.max));
+      }
+      // Fetch one public page → {url,title,text} (readable text only).
+      if (msg.type === "harbor-research-fetch") {
+        return sendResponse(await researchFetch(msg.url));
       }
 
       if (msg.type !== "harbor-connect") {
