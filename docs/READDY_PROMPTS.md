@@ -5957,3 +5957,42 @@ Add a short note in the shared layout/connection module: *"connectionsKnown and 
 - A brand-new user (no connections) and a still-loading state both render fine (treated as "not connected" → shown the connect path), not a crash.
 - A fault in one widget shows an inline fallback + Reload, never a full white screen.
 
+
+## P187 — 🚨 HOTFIX: new crash "Cannot read properties of undefined (reading 'length')" on Matches, + fix the assistant speaking the wrong thing for the current screen
+
+**Frontend. No backend change.** P186 fixed the `connectionsKnown` crash (confirmed: the live build no longer throws it). But the rebuild surfaced a **second null crash**, and narration isn't resyncing on navigation. Two parts — Part A is the urgent crash.
+
+---
+
+### Part A — 🚨 Matches crash: reading `.length` of undefined
+Live console on the current build:
+```
+Route render error: TypeError: Cannot read properties of undefined (reading 'length')
+```
+Something renders `<collection>.length` (a list of matches, suggestions, bullets, versions, options, sources, …) before that collection has loaded — it's `undefined` on first render, so `.length` throws and the route crashes.
+
+**Fix — the same null-safety discipline as P186, applied to collections:**
+1. **Find every `.length` (and `.map`, `.filter`, `[0]`, index access) on data that can be undefined** — matches, results, suggestions, bullets, versions, options, sources, leadership, tailoring, etc.
+2. **Guard each**: `(list ?? []).length`, `(list ?? []).map(...)`, `list?.[0]`. Never a bare `list.length` on data that loads async.
+3. **Initialize every collection to `[]`** (and every state object to a default shape) so it is **never `undefined`** — fix it at the source, not only the call site. A list prop/state defaults to `[]`; an object defaults to its shape.
+4. This is almost certainly in a component the recent rebuild regenerated (Matches brief/results, the assistant's suggestion/bubble rendering, or the P181 docked panel). Fix it there.
+5. Keep the **route-level error boundary** so one bad widget shows an inline fallback + Reload, never a white screen.
+
+**Make it permanent (now the 3rd null-crash):** add to the shared note from P186 — *"ALL collections render guarded (`?? []`) and initialize to `[]`; ALL state objects initialize to a default shape, never undefined. Bare `.length`/`.map`/`.connectionsKnown` on async data white-screens the app (P170, P186, P187)."*
+
+---
+
+### Part B — the assistant speaks the wrong thing for where you navigated
+When the user (or the assistant) navigates — e.g. lands on or returns to the **dashboard** — the assistant **keeps speaking narration tied to the previous screen** (e.g. the Matches walk) instead of speech appropriate to the current screen. Narration isn't resynced to the nav.
+
+**Fix:**
+1. **On every navigation / section change, hard-stop the current narration first** (cancel in-flight + queued speech + timers — the P183 Stop path). Nothing from the old screen may keep speaking after the route changes.
+2. **Re-derive what to say from the NEW screen's context**, then speak that (or stay silent if nothing is pending). The spoken line must match where the user now is — dashboard narration on the dashboard, matches narration on Matches. Never carry a stale utterance across a nav.
+3. Tie the narration to the **current route/section** as its source of truth (not a stale closure/state captured before the nav), consistent with P181 (drive-the-view) and P183 (authoritative Stop + fire-once).
+4. If the assistant navigated *to show something*, it may speak about that thing — but only after switching context, and only about the new screen.
+
+### Acceptance
+- **Matches (and every route) renders without throwing** — no "reading 'length'" (or any "reading '…' of undefined") in the console; empty/loading collections render as empty, not a crash.
+- After navigating, the assistant **stops the old narration** and only speaks what fits the **current** screen; it never talks over the dashboard with matches (or any other screen's) content.
+- A widget fault shows an inline fallback + Reload, never a full white screen.
+
