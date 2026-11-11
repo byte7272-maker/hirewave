@@ -1284,6 +1284,12 @@ class ResearchLeader(BaseModel):
     title: str = ""
 
 
+class ResearchStock(BaseModel):
+    ticker: str = ""
+    exchange: str = ""
+    price: str = ""
+
+
 class ResearchOut(BaseModel):
     company: str = ""
     query: str = ""
@@ -1293,6 +1299,12 @@ class ResearchOut(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
     tailoring: list[str] = Field(default_factory=list)
+    headquarters: str = ""
+    locations: list[str] = Field(default_factory=list)
+    stock: ResearchStock = Field(default_factory=ResearchStock)
+    headlines: list[str] = Field(default_factory=list)
+    employee_feedback: str = ""
+    rank: str = ""
     sources: list[ResearchSource] = Field(default_factory=list)
     caution: str = ""
 

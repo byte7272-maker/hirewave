@@ -21,7 +21,7 @@ from typing import Any, Optional
 INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
-    "choose", "navigate", "start_playbook", "save", "search_jobs",
+    "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -212,6 +212,37 @@ def _generic_walk(t: str) -> bool:
     return bool(_GENERIC_WALK_RE.search(t))
 
 
+_RESEARCH_TRIG_RE = re.compile(
+    r"\b(tell me about|what do you know about|look .{0,20}up|look up|research|who (?:is|are)|"
+    r"info(?:rmation)? on|background on|details on|learn about|whats? .{0,20}like to work)\b"
+)
+_COMPANY_CTX_RE = re.compile(
+    r"\bthis (?:company|employer|place|one|job|role|match)\b|\bthe (?:company|employer)\b"
+    r"|\bthis match\b|\btop (?:match|job)\b|\bthem\b|\bit up\b"
+)
+_COMPANY_WORD_RE = re.compile(r"\b(compan(?:y|ies)|employer|headquarter|stock|reviews?|ceo|leadership)\b")
+
+
+def _research_company(t: str) -> Optional[str]:
+    """If this is a 'look up / tell me about a company' request, return the company name
+    (``""`` = resolve from context — the focused/top-matched company), else None.
+    Rejects document/section/job-search phrasings so it doesn't hijack those."""
+    m = _RESEARCH_TRIG_RE.search(t)
+    if not m:
+        return None
+    if _COMPANY_CTX_RE.search(t):
+        return ""  # "this company" / "the top match" → frontend resolves from context
+    residual = t[m.end():].strip(" ?.!,")
+    residual = re.sub(r"\b(the|a|an|company|employer|please|more|some|info|details)\b", " ", residual)
+    residual = re.sub(r"\s+", " ", residual).strip()
+    # A job search ("research VP jobs") or a doc/section is not company research.
+    if _JOB_NOUN_RE.search(t) or _match_section(residual) or _doc_target(residual):
+        return None
+    if _COMPANY_WORD_RE.search(t) and not residual:
+        return ""  # "look up the company" with no name → context
+    return residual or None
+
+
 def _extract_search_query(t: str) -> Optional[str]:
     """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
 
@@ -299,6 +330,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # research a company ("tell me about Acme", "look up this company", "research the top
+    # match") — distinct from a job search. company="" means resolve from context (the
+    # focused / top-matched company). Checked before job-search and navigate.
+    rc = _research_company(t)
+    if rc is not None:
+        return IntentResult("research_company", 0.85, {"company": rc})
 
     # job search ("find all jobs that are vice president or VP", "remote senior python
     # roles") — a free-text query with OR-alternatives + synonym expansion. Checked

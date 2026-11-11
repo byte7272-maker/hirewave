@@ -86,3 +86,36 @@ def test_research_endpoint_after_consent_returns_brief():
     assert any(l["name"] == "Jane Doe" for l in body["leadership"])
     assert body["tailoring"] and body["keywords"]
     assert "web_research" in c.get("/api/v1/assistant/consent", headers=h).json()["granted"]
+
+
+_RICH = """
+Globex Corporation is headquartered in Boston, with offices in New York, Austin and London.
+Globex (NASDAQ: GLBX) trades around $142.50. It is a Fortune 500 company and one of the
+largest logistics-software firms. On Globex employee reviews, staff rate it 4.1 out of 5 and
+praise the culture. In 2026 Globex announced a new AI platform and acquired a robotics startup.
+Priya Sharma is the Chief Technology Officer.
+"""
+
+
+def test_research_extracts_hq_stock_headlines_feedback_rank():
+    out = web_research.research([{"text": _RICH}], company="Globex", user_skills=["Python"])
+    assert "Boston" in out["headquarters"]
+    assert "Boston" in out["locations"] and any("London" in l for l in out["locations"])
+    assert out["stock"]["ticker"] == "GLBX" and out["stock"]["exchange"] == "NASDAQ"
+    assert out["stock"].get("price", "").startswith("$14")
+    assert "4.1/5" in out["employee_feedback"] or "4.1" in out["employee_feedback"]
+    assert out["headlines"]  # picked up the 2026 announce/acquire news
+    assert "fortune 500" in out["rank"].lower() or "largest" in out["rank"].lower()
+
+
+def test_research_out_shape_has_new_fields_via_endpoint():
+    _, c = _app()
+    h = _auth(c)
+    c.put("/api/v1/assistant/consent", headers=h, json={"scopes": ["web_research"]})
+    r = c.post("/api/v1/assistant/research/summarize", headers=h,
+               json={"company": "Globex", "sources": [{"text": _RICH}]})
+    assert r.status_code == 200
+    b = r.json()
+    for k in ("headquarters", "locations", "stock", "headlines", "employee_feedback", "rank"):
+        assert k in b
+    assert b["stock"]["ticker"] == "GLBX"
