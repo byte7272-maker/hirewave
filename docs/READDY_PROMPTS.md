@@ -5578,3 +5578,21 @@ Confirming the assistant's "walk through a match" offer (by voice or tap) runs t
 
 ### Acceptance
 The recognized **mic transcript is shown** again (interim + final) so the user sees what was heard. When a document/view **fails to render or is blank**, the assistant **detects it, says so, does not read a phantom brief**, and offers a recovery action. **Every** "walk/brief the match" entry point behaves like the working "Brief me" (stays on Matches, reads the brief) rather than opening a document. The cover-letter viewer **renders a readable version** (falling back if the active one can't be read) or shows an honest error + Regenerate — never a blank with a silent "text could not be read."
+
+## P177 — When the assistant says "I put suggestions below," auto-adjust so they're immediately visible; the speaking indicator must never be clipped
+
+**Frontend only. No backend change.** At smaller window sizes, when the assistant makes suggestions and says "I've put them below," the suggestions are **below the fold / hidden** and the user has to hunt for them. Also, the **blinking "AI is engaged/speaking" indicator (the wave)** is **partially clipped under a scroll/overflow edge**. Fix both so what the assistant references is actually shown.
+
+### 1. Presenting suggestions must make them immediately visible (auto-adjust the pane)
+- Whenever the assistant **produces suggestions and refers to them** ("I've put 3 suggestions below — tap one or say the number"), the pane must **automatically ensure they're in view** at that moment:
+  - **Grow the window** if needed (up to a comfortable height, capped to the viewport) so the suggestion group is visible, **and/or auto-scroll** the body to bring the suggestions into view with the first one at/near the top of the body.
+  - Never leave the assistant saying "below" while the suggestions sit off-screen. If it's referenced, it's visible.
+- Respect the user's manual size (P174) — prefer **auto-scrolling to the suggestions** first; only grow the window when scrolling alone can't reveal at least the first suggestion(s). When the user moves on, don't fight their chosen size.
+- Briefly highlight the suggestion group on arrival (P159) so the eye lands on it.
+
+### 2. The speaking/engaged indicator must be fully visible, never clipped
+- The **blinking wave / "speaking" indicator** (P157/P161 Voice zone) is being **partially hidden under a scroll/overflow edge**. It must live in the **always-visible pinned zone** (P174 footer) and render **fully** — not cut off by an `overflow:hidden`/scroll boundary, and not requiring a scroll to see. Give its container enough room so the whole indicator shows at every window size.
+- Ensure the pinned footer (input + transport + wave) reserves space for the wave so it isn't the thing that gets clipped when space is tight; the **message body** is what shrinks/scrolls, never the speaking indicator.
+
+### Acceptance
+When the assistant says it has placed suggestions below, those suggestions are **immediately visible** — the pane auto-scrolls (and grows if necessary, within the viewport) so the first suggestions show without the user hunting. The **speaking/blink indicator is fully visible at every window size**, never partially clipped under a scroll or overflow edge; only the message body scrolls. The user's manually chosen size is respected (scroll-first, grow-only-if-needed).
