@@ -20,6 +20,8 @@ from jobsearch.api.schemas import (
     PrepareDraftsOut,
     PrepareDraftsRequest,
     SuggestionsOut,
+    TelemetryBatch,
+    TelemetryIngestOut,
 )
 from jobsearch.engines.assistant import FormField, build_browser_driver, demo_application_form
 from jobsearch.engines.assistant.intent import interpret as interpret_intent
@@ -61,6 +63,24 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         utterance=res.utterance,
         suggestions=[CommandSuggestion(**s) for s in res.suggestions],
     )
+
+
+#: Max events accepted in one telemetry flush (protects the store from a runaway client).
+_TELEMETRY_BATCH_CAP = 200
+
+
+@router.post("/telemetry", response_model=TelemetryIngestOut)
+def telemetry(body: TelemetryBatch, user: CurrentUser, state: StateDep) -> TelemetryIngestOut:
+    """Record a batch of assistant-interaction events for the learning digest (P182).
+
+    Product telemetry only — the utterance is PII-scrubbed and length-capped server-side
+    before storage, and no document content is accepted. Best-effort and non-blocking:
+    a storage hiccup returns ``accepted: 0`` rather than failing the user's session."""
+    from jobsearch.analytics import assistant_telemetry
+
+    events = [e.model_dump() for e in body.events[:_TELEMETRY_BATCH_CAP]]
+    accepted = assistant_telemetry.record(state.documents, user.id, events)
+    return TelemetryIngestOut(accepted=accepted)
 
 
 @router.get("/suggestions", response_model=SuggestionsOut)

@@ -1241,6 +1241,29 @@ class SuggestionsOut(BaseModel):
     suggestions: list[CommandSuggestion] = Field(default_factory=list)
 
 
+class TelemetryEvent(BaseModel):
+    """One assistant interaction, for the learning digest (P182). Product telemetry —
+    no document content; the server scrubs PII from the utterance before storing it."""
+
+    utterance: str = ""                       # what the user said/typed (clustered, PII-stripped server-side)
+    path: str = ""                            # "chip" | "typed" | "voice"
+    intent: str = ""                          # resolved intent, if any
+    status: str = ""                          # "resolved" | "clarified" | "failed"
+    failure_class: str = ""                   # when failed: not_understood | understood_no_action | action_errored | missing_capability
+    feature: str = ""                         # design | versions | bullets | tailor | ask_ai | highlights | matches | doc_switch | archive_delete | review_brief | walkthrough
+    outcome: str = ""                         # "completed" | "abandoned"
+
+
+class TelemetryBatch(BaseModel):
+    """A batch of buffered events flushed from the client. Capped per request."""
+
+    events: list[TelemetryEvent] = Field(default_factory=list)
+
+
+class TelemetryIngestOut(BaseModel):
+    accepted: int
+
+
 class EmailImportOut(BaseModel):
     source: str  # detected board (linkedin/indeed/…)
     parsed: int  # postings found in the email

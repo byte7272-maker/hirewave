@@ -21,7 +21,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from jobsearch.analytics import ai_usage, feature_activity
+from jobsearch.analytics import ai_usage, assistant_telemetry, feature_activity
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.engines import plans
 from jobsearch.engines.sourcing.imap_source import is_imap_provider
@@ -349,6 +349,24 @@ class PruneAccountsRequest(BaseModel):
     emails: Optional[list[str]] = None
     #: Safety cap: refuse to execute if the selection exceeds this many accounts.
     max_delete: int = 200
+
+
+@router.get("/assistant/insights")
+def assistant_insights(
+    user: CurrentUser,
+    state: StateDep,
+    months: int = Query(1, ge=1, le=12, description="how many months back to aggregate"),
+    top: int = Query(20, ge=1, le=100, description="max top questions to return"),
+) -> dict:
+    """Assistant learning digest (P182): the most common questions, the failures it
+    couldn't answer or act on (ranked, with example phrasings + class), the features it
+    drives (with completion/abandonment), status/path totals, and a per-month trend.
+
+    Aggregated server-side across all users from PII-scrubbed telemetry — never any
+    document content. Admin-only."""
+    _require_admin(state, user)
+    user_ids = [u.id for u in state.users.all()]
+    return assistant_telemetry.insights(state.documents, user_ids, months=months, top=top)
 
 
 @router.post("/accounts/prune")
