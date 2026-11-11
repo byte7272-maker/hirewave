@@ -6238,3 +6238,35 @@ So for a pool topping at 80 with matches at 79–80, **`matches.strong` is ≥ 1
 - With matches at 79–80, the brief reads "**N strong fits** … best scores 80" (N ≥ the number of matches ≥ 60), never "0 strong fits."
 - The strong-fit count equals the backend's `matches.strong` (score ≥ 60); the dashboard brief and the Matches-page brief agree.
 
+
+## P197 — Fix the Matches walkthrough: walk the SAME list shown on screen, read full details, use fresh matches, working Replay, highlight + reposition to each match
+
+**Frontend. No backend change required.** The counts are right, but the walk itself is broken in several ways. Fix all of the following for the Matches walkthrough (the "walk me through my matches" / "from the top" flow).
+
+### 1. Walk the SAME ranked list that's on screen (biggest bug)
+- The walk currently cites a match that **isn't in the top-5 visible cards**. It must iterate the **exact same ranked list shown on the Matches page / dashboard `top_matches`**, in the **same order**, starting at **#1 (the top card)**. One source of truth — the walk reads from the displayed list, never a separate/stale array. (Same root cause as the earlier Matches split-source bug.)
+
+### 2. Read the full opportunity details for each match
+For every match in the walk, speak and show: **title · company · fit score · salary range · location ("based out of {location}", or Remote)**. The data is on each match (`title, company, score, salary_range`/`salary_display`, `location`, `remote`). Don't cite a match by company alone — give the name/title, salary, and where it's based (ties to P195).
+
+### 3. Use FRESH matches — never repeat a prior session's job
+- The walk **repeats the same job as yesterday even though matches refreshed** — it's reading persisted/cached walk state. **Always re-read the current matches list** at the start of a walk; never resume a stale walk or a cached item from a previous session (ties to P191: don't restore stale state).
+
+### 4. Show freshness + offer to refresh
+- State **when the matches were last updated** (e.g. "updated just now / 3h ago" — from the matches' freshness, the most recent `added_ago`, or the last sourcing run), and **offer to refresh** ("Want me to pull the latest first?"). On yes, refresh the matches (re-fetch / the P194 `navigate … refresh:true` path or re-call `/jobs/matches`) and walk the **new** list.
+
+### 5. Fix the Replay control
+- **Replay in the player must re-speak the assistant's last statement(s)** — right now it does nothing. Keep the last spoken utterance(s) and re-narrate them on Replay (honor the current speed/mute; interruptible via Stop/Pause per P183).
+
+### 6. Highlight each match as it walks
+- As the assistant narrates each match, **highlight / visually mark the current match card on screen** (outline, focus ring, or scroll-into-view emphasis) so the user can follow along. This regressed — restore it (P181 "highlight the element it's talking about"). Highlight moves with Next/Previous and clears on Stop.
+
+### 7. Reposition / dock to keep the current match visible
+- The assistant **used to reposition and point to the match as it went; it no longer does.** Restore it: while walking, **dock/position the assistant so the current match card stays visible** (P179/P181 in-pane dock), and scroll the list so the highlighted match is on screen — the overlay must not cover the match it's talking about.
+
+### Acceptance
+- The walk goes through the **same top-ranked list shown on screen**, in order from #1, and never cites a match that isn't in the visible list.
+- Each step speaks **title, company, fit score, salary range, and location** of the match.
+- It uses the **current refreshed matches** (never yesterday's), **states last-updated** and **offers to refresh**; after refresh it walks the new list.
+- **Replay** re-speaks the last statement; the **current match is highlighted** and stays visible; the assistant **repositions/docks** so it never hides the match it's narrating.
+
