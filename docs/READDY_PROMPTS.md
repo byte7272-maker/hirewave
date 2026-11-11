@@ -6112,3 +6112,42 @@ Remote guesses have missed twice. Readdy can see its own source + the runtime er
 ### Acceptance
 - `/dashboard/matches` renders the **match cards** (not "Something went wrong"); no "reading 'length'" error; "Try again" never needed.
 
+
+## P193 — 🚨 EXACT crash fix: the Saved Searches widget reads `saved.length` when `saved` is undefined (NOT the matches list) + make the dashboard a thorough spoken landing
+
+**Frontend. No backend change.** Two parts. Part A is the precise Matches-crash fix — I read the minified code at the crash site, so this is exact, not a guess.
+
+---
+
+### Part A — 🚨 The crash is in the Saved Searches component, not the matches list
+The crashing function (minified `Iye`) is the **Saved Searches** list on the Matches page. Its code is:
+```js
+function Iye({ saved, checking, onOpen, onCheck, onCheckAll, onRemove }) {
+  if (!saved.length) return null;   // ← throws: `saved` is undefined
+  let o = saved.reduce(...)
+  ...
+}
+```
+`saved` (the saved-searches array) arrives **undefined**, so `!saved.length` throws "Cannot read properties of undefined (reading 'length')" and the whole Matches route falls to the error card. **This is why guarding the matches list four times never worked — it was never the matches list.**
+
+**Fix:**
+1. In the Saved Searches component, change the guard to **`if (!saved?.length) return null;`** and treat `saved` as `saved ?? []` everywhere in it (the `.reduce`, `.map`, etc.).
+2. **Default the `saved` prop/state to `[]`** at its source — the saved-searches data (from `GET /api/v1/sourcing/searches`) must initialize to `[]` and stay `[]` on loading/empty/error, never `undefined`. A failed or pending fetch must not leave `saved` undefined.
+3. Also guard the sibling props it reduces/maps over (`checking` etc.) the same way if any can be undefined.
+
+**Verify:** `/dashboard/matches` renders the match cards (Saved Searches shows its empty state or list) — no "Something went wrong," no "reading 'length'."
+
+---
+
+### Part B — the dashboard should speak a thorough welcome on landing (refines P191)
+The assistant is silent on the dashboard; as the **default authenticated landing page**, it should give a **thorough spoken greeting/overview**. This does **not** conflict with P191 — P191 stopped it auto-reading the *stale last job match on the wrong screen*; here it speaks the **current dashboard** content.
+
+1. **On the dashboard (home) specifically, proactively narrate a thorough overview** of the current state: greet the user, summarize what's waiting (e.g. matches count, interviews, résumé/work-highlights status, anything new since last visit), and offer the top next steps — read from the dashboard's own data, paced ("here's X … want me to go on?"). Other screens stay invite-driven; the **dashboard is the proactive-speaking exception**.
+2. **Respect the autoplay policy:** browsers block audio before a user gesture, so render the greeting **text immediately** and **speak it as soon as it's allowed** — auto on load if permitted, otherwise on the first user interaction (autoplay-unlock, per P169/P171), or a clear one-tap "play" so the thorough read is never lost.
+3. **Honor mute and the transport:** read-along mute keeps the wave moving with audio off (P165/P177); Stop/Pause/Replay and Space all work (P183); it's interruptible at any point.
+4. Content is **current and dashboard-specific** — never the stale matches walk (P191 still holds for other screens and for stale state).
+
+### Acceptance
+- Matches renders the cards (no error card); Saved Searches shows empty-state or its list.
+- Landing on / reloading the **dashboard** gives a **thorough spoken overview** of the current state (greeting + what's waiting + next steps), honoring mute, Stop/Pause, and autoplay-unlock; other screens remain quiet unless invited.
+
