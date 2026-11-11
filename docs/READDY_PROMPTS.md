@@ -6270,3 +6270,47 @@ For every match in the walk, speak and show: **title · company · fit score · 
 - It uses the **current refreshed matches** (never yesterday's), **states last-updated** and **offers to refresh**; after refresh it walks the new list.
 - **Replay** re-speaks the last statement; the **current match is highlighted** and stays visible; the assistant **repositions/docks** so it never hides the match it's narrating.
 
+
+
+## P198 — Follow-up (yes/no) awareness; stop the "default to Documents" fall-through; center + highlight a shown document; offer next steps after showing it
+
+**Frontend. No backend change.** The NLU already returns `confirm` / `decline` / `next` / `continue` correctly; the bug is that the UI **interprets each "yes" in isolation** and doesn't remember what it just offered — and when a response has nowhere to go it **silently falls through to a default route: open Documents and show the cover letter.** Builds on P183 (player control / stop-pause), P194 (one dispatcher + `context`), P197 (matches walk), P180 (doc-awareness + confirm-before-destructive), P185 (web-research consent), P179/P181 (dock + highlight).
+
+### The bug (reproduced by the user)
+"Want to review the top matches?" → user says **"yes"** → assistant replies **"nothing is waiting on a yes."** Then "review the matches" works (good first match), it asks **"go to the next one?"**, user says **"yes"** → it **jumps to Documents and shows the cover letter.** The default jump is the tell: a `confirm` it can't place is routed to a hardcoded default instead of being tied to the thing just offered.
+
+### 1. Track the pending offer (the core fix)
+- Keep one **`pendingOffer`** in assistant state. **Every time the assistant asks a yes/no question or offers a next step** — "Want me to…?", "Should I go to the next one?", "Review the matches?" — set `pendingOffer` **before the user can answer**, carrying the concrete action:
+  `pendingOffer = { prompt, onYes: {…action…}, onNo?: {…action…}, context }`.
+- When `interpret` returns **`confirm`** (or a bare "yes/yeah/sure/ok/go ahead"), run **`pendingOffer.onYes`**. On **`decline`** ("no/nope/not now"), run `onNo` if present, else acknowledge ("Okay, I'll leave it there.") and **stop — do not navigate.**
+- **Clear** `pendingOffer` once it resolves, when the user gives a new explicit command, and on **Stop/Cancel** (P183). Only one offer armed at a time; a new offer replaces the previous.
+- During a **matches walk** (P197): the "go to the next one?" question's **yes / next / continue / go on** advances to the **next match in the same on-screen list** and re-arms the offer for the one after it. On a yes it must **never leave the Matches list.**
+
+### 2. Never fall through to a default navigation (remove the hidden route)
+- A `confirm` / `decline` (or bare yes/no) with **no `pendingOffer` armed** must **not navigate anywhere.** **Delete the "default to Documents / show the cover letter" path.** Instead say: *"I don't have anything waiting on a yes — here's what you can do,"* and show the on-screen suggestions (P182/P194 `suggest_commands`). Same for **any** response the assistant can't place: clarify / show-options, never a silent jump to a section the user didn't ask for.
+- This applies everywhere, not just on Matches.
+
+### 3. Bind consent and destructive confirmations to their own prompt
+- The web-research consent prompt (P185) and the **delete/archive** confirmation (P180) are pending offers too. "Yes" after *"Archive this résumé?"* must **archive** (that offer); "yes" after *"Research Acme on the web?"* must **run that search** — not a default, and not each other. Route every confirm/decline to the specific `pendingOffer` that's armed, and keep P180's "confirm before removing anything."
+
+### 4. Center and highlight the document when asked to show it
+- When the user asks to **show / open / pull up** the résumé or cover letter (`navigate section=documents, doc=resume|cover_letter`, incl. "show me my current cover letter" by voice): after switching, **scroll the document into view, center it, and highlight it** (focus ring / emphasis, P181-style) so it is visible **without the user scrolling.** Works for **both** résumé and cover letter, and for "show me the current one."
+- Honor doc-awareness (P180): if a specific document/version is named or is the current one, present **that** one — centered and highlighted.
+
+### 5. Presenting a document offers concrete next steps
+- Right after showing a document, **proactively offer next steps** (spoken + tappable chips, dispatched through the single P194 path): **Review it** (read / critique), **Modify it** (edit / Ask AI), **Use it for a job application**, **Tailor it to a job.**
+- Each offer is a `pendingOffer` per #1, so "yes" / tapping a chip / saying the action all run the same thing — "review it" → yes works; "tailor it" asks which job.
+
+### 6. Audit the same class of breakage (fix all found)
+Apply one rule everywhere: **never ask a yes/no without arming a pending offer, and never fall through to a default route when a response can't be placed.**
+- **Matches walk** (P197): next / previous / repeat / skip and the end-of-list "start over?" resolve against the walk, never navigate away.
+- **Playbooks** (tailor, apply, bullets, connect, auto-apply): each step's yes/no resolves **that step**; a stray yes never restarts the playbook or jumps sections.
+- **Repeat / Replay** (P197 #5): "again / repeat" after an offer **re-speaks the offer**, it doesn't re-run a default.
+- **Reload / landing** (P191): pending offers **do not survive a tab reload**; nothing from a prior session is auto-confirmed or auto-advanced.
+- **Consent / destructive** (P185 / P180): confirm/decline stays bound to the exact prompt that armed it.
+
+### Acceptance
+- "Review the top matches?" → "yes" **starts the review**; "Go to the next one?" → "yes" **advances within Matches** (never Documents / cover letter).
+- A "yes" or "no" with **nothing pending does not navigate** — it says there's nothing waiting and shows what you can do.
+- "Show my résumé" / "show my cover letter" **centers and highlights** the document with **no manual scrolling**, then **offers Review / Modify / Use for application / Tailor**, each runnable by voice, chip, or typing.
+- Archive/delete and web-research confirmations each resolve **their own** pending prompt; "confirm before removing anything" still holds.
