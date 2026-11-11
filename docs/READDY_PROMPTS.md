@@ -5786,3 +5786,35 @@ Add an **admin-only** section (gated to admin accounts; regular users never see 
 - The **admin** (and only the admin) sees a digest of **top questions, top failures with example phrasings + class, and top features engaged with completion/abandonment**, filterable by period.
 - Failures feed both per-user learning (P180) and the admin aggregate; the admin can promote a common miss into a globally recognized command/synonym.
 
+
+## P183 — Fix the assistant getting stuck/looping on Matches (Stop & Pause ignored, can't advance), and audit EVERY feature for player-control runaway / stuck loops
+
+**Frontend. Bug + a cross-feature audit.** On Matches the assistant focuses and positions well but **gets stuck on the first match**: it asks if you want it to read the next one but **never advances**, it **repeats itself**, and the **Stop and Pause** transport controls **do nothing** — it can't move on.
+
+### 1. Stop and Pause must be authoritative — nothing may ignore them
+- **Stop** = end narration **immediately**, **cancel any queued or in-flight speech**, and **clear the queue/timers** so nothing re-fires. Hard-cancel the actual audio: `speechSynthesis.cancel()` / `audio.pause()+src=''` / `AbortController.abort()` on any narration fetch, and clear every `setTimeout/Interval` the walkthrough set.
+- **Pause** = halt now and **resume from where it left off**; a second press (or Play) resumes.
+- These must win over any ongoing walkthrough. No code path may keep speaking after Stop.
+
+### 2. "Read the next one" must actually advance
+- Track an explicit **`currentIndex`** for the match walkthrough. **Next** = `currentIndex + 1`, bounded to the list length. Reading an item must use `currentIndex`, not a captured/stale `0`.
+- Guard against **re-reading the same item**. At the end of the list, **say so and stop** — never silently loop back to the first match.
+
+### 3. Kill the self-retriggering loop (the cause of the repeat)
+The repeat is almost certainly a narration that **re-enqueues itself**: a `useEffect` re-running on each render, an auto-advance that re-reads index 0, or a TTS `onend`/promise that re-queues the same item. Fix:
+- Narration fires **once per item** and is **idempotent** — completion must **not** auto-enqueue the same item again.
+- Use a single **speak request id / token**; when speech completes, **ignore stale completions** (a completion whose id ≠ the current one does nothing). This stops old callbacks from relaunching narration.
+
+### 4. Circuit-breaker (last line of defense)
+- If the **same item is narrated more than twice in a row**, **stop** and surface: *"I seem to be stuck here — want me to try the next one, or stop?"* — never loop forever.
+- Stop/Pause (§1) always override the breaker.
+
+### 5. Audit the pattern across ALL features with narration or a transport
+Every feature that uses the player/transport or step-by-step narration must be audited and fixed to the same four rules — **honor Stop/Pause · advance correctly · fire once · circuit-breaker**:
+- **Matches walk** (this bug) · **Design walkthrough** · **Review-brief read-aloud** (résumé & matches) · **My Work Highlights** pipeline · **tours / grand tour / walkthroughs** · the **"one item then continue?"** pacing · **Versions** step-through · **Bullets** walk.
+- Also audit input **auto-repeat / runaway**: a held key or a d-pad/Enter that re-fires Next/Play many times, and double-fire on the mic/OK path — debounce and gate so one press = one step.
+
+### Acceptance
+- On Matches: **Stop** halts immediately and clears the queue (silence, no re-fire); **Pause** halts and resumes; **"next"** advances to the next match and reads **that** one (never re-reads match 1); at the end it says so and stops.
+- **No feature** loops, re-reads, or ignores Stop/Pause; a genuinely stuck step **trips the breaker and asks** instead of repeating; held keys / repeated OK presses don't run away (one press = one step).
+
