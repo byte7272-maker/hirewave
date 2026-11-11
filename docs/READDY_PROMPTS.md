@@ -6051,3 +6051,26 @@ Dashboard, Matches (+ brief), Documents list, the Workspace/résumé editor (pre
 - Full-screen/expanded is only the result of the user pressing Expand, and even then leaves content partly visible with Minimize reachable.
 - On phones it's a bottom sheet (peek height), never a full takeover.
 
+
+## P190 — 🚨 TARGETED HOTFIX: the Matches PAGE body still crashes on `.length` of undefined (P187 missed this exact spot)
+
+**Frontend. No backend change.** P187's general `.length` sweep did **not** fix the Matches crash. Verified live: the Matches page still shows "Something went wrong," the error is the **same** on every build (`reading 'length'` at the same module position), and **"Try again" does not recover it** — so the collection is **structurally undefined**, not just loading. Fix this specific component.
+
+### Exactly where it is
+- It is the **main Matches page content** — the component the error boundary replaces with the "Something went wrong" card.
+- It is **NOT the assistant overlay**: the overlay renders the same matches data correctly (it shows "Your matches 1/45" and the brief), so **the matches data exists** and is reachable.
+- Conclusion: the Matches page body reads `something.length` where `something` is **always undefined** — it's reading from a **different / renamed / missing field** than the one that's actually populated (the one the overlay/brief reads).
+
+### Fix
+1. **Find the Matches page body's list render** (the matches results/cards/grid that the error card replaces) and the `.length` (or `.map`/`[0]`) it runs on. Guard it: `(matches ?? []).length`, `(matches ?? []).map(...)`, and **initialize that state/prop to `[]`.**
+2. **Point it at the source that's actually populated.** The assistant overlay/brief already renders the matches list correctly — have the page body read the **same matches array** (same hook/store/field) instead of the undefined one it reads now. A rename or shape change left the page reading a field that no longer exists.
+3. Because **"Try again" doesn't help**, defaulting to `[]` alone will stop the crash but show an empty page — so step 2 (reading the correct, populated source) is required to actually show the matches.
+4. Keep the route error boundary, but this component must **not throw** on normal data.
+
+### Verify (how I'll check)
+- `/dashboard/matches` renders the **matches list/cards** (not the "Something went wrong" card), with the same matches the assistant brief references (e.g. the 45 in the pool).
+- No "reading 'length'" error in the console; "Try again" is never needed.
+
+### Note
+This is the 4th null-crash from the rebuilds (P170, P186, P187, P190). The permanent rule still stands: every collection initializes to `[]` and renders guarded; every state object initializes to its shape. **Also: the Matches page body and the assistant must read matches from one shared source of truth**, so one can't be populated while the other is undefined.
+
