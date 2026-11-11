@@ -6034,3 +6034,20 @@ Dashboard, Matches (+ brief), Documents list, the Workspace/résumé editor (pre
 - The assistant renders as a **bottom sheet** that never exceeds the viewport; input/transport/wave stay visible; push-to-talk works by touch.
 - All controls are ≥44×44px; inputs are ≥16px (no focus-zoom); full-height elements use `dvh` and respect safe-area insets; modals fit and scroll internally.
 
+
+## P189 — The assistant overlay opens covering the whole screen on Matches — it must open compact and right-docked (P179), never covering content
+
+**Frontend. No backend change.** Tested live on Matches: the assistant panel opens at nearly **full viewport width and height**, hiding the entire page behind it (including, right now, the error card). This violates P179's default. Fix the opening size/position on **every** screen.
+
+### Fix
+1. **Default open state = compact, docked to the right edge, ~400–440px wide**, at a height that leaves the page clearly visible beside/around it. `coversContentCenter` must be **false** at rest. This is the P179 rule — it is not being applied on Matches (it opens expanded/huge).
+2. **The large/expanded (maximize) state is opt-in only** — reached by the user pressing Expand/maximize, never the default on load or on navigation. Remember the user's chosen size (`hw_assist_w/h`), but the *initial* size when the overlay first mounts on a screen is the compact dock, not full-screen.
+3. **Even when expanded, it must not fully occupy the viewport on desktop** — cap it (e.g. max ~60% width / leave a margin) so content stays partly visible, or dim-and-reveal rather than a solid full cover. The user must always be able to see what the assistant is talking about (P181) and reach Minimize/Close.
+4. **On phone widths** this is the bottom sheet from P188/P169 (partial peek height, page visible above) — not a full-screen takeover.
+5. Make sure Minimize/Close/Expand are always visible and tappable in every state (they are in the minimized state; keep them reachable in the default and expanded states too).
+
+### Acceptance
+- Opening or navigating to Matches (and every screen) shows the assistant as a **compact, right-docked** panel with the page visible beside it — **not** a near-full-screen cover.
+- Full-screen/expanded is only the result of the user pressing Expand, and even then leaves content partly visible with Minimize reachable.
+- On phones it's a bottom sheet (peek height), never a full takeover.
+
