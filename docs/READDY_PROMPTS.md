@@ -5596,3 +5596,39 @@ The recognized **mic transcript is shown** again (interim + final) so the user s
 
 ### Acceptance
 When the assistant says it has placed suggestions below, those suggestions are **immediately visible** — the pane auto-scrolls (and grows if necessary, within the viewport) so the first suggestions show without the user hunting. The **speaking/blink indicator is fully visible at every window size**, never partially clipped under a scroll or overflow edge; only the message body scrolls. The user's manually chosen size is respected (scroll-first, grow-only-if-needed).
+
+## P178 — Consolidated assistant overlay layout spec (one source of truth), extended to résumés with their own features intact
+
+**Frontend only. No backend change.** This is the **single, authoritative spec** for the assistant overlay's layout and behavior. It consolidates and **supersedes the layout rules** scattered across P155, P157, P158, P166, P174, P177 (keep their intent; this is the one to build to). Build the overlay exactly as below, then apply the **same assistant experience to the résumé/Documents editor**, keeping every résumé-specific feature.
+
+### A. The overlay is a strict three-band layout
+1. **Header (pinned, never scrolls):** title + section subtitle, ⚙ menu, expand/preset, minimize, close.
+2. **Message body (the ONLY scrolling region):** `flex: 1 1 auto; min-height: 0; overflow-y: auto;`. Everything that can grow (greeting, responses, suggestion bubbles, before→after diffs) lives here and scrolls. It must scroll correctly at **every** size (no collapsed dead-zone).
+3. **Footer (pinned, never scrolls, `flex-shrink: 0`):** always visible at every size, containing — the **"Type to the assistant…" input + Send**, the **player transport** (Replay · Prev · Play/Pause · Stop · Next · Mic), **speed** + **mute**, and the **speaking/wave + mic-meter indicator with guaranteed reserved space** so it is **never clipped**. If space is tight, the **body** shrinks; the footer never does.
+- Enforce a **minimum window height** that always fits header + footer + a sliver of body. Below that, stop shrinking (don't hide the footer).
+
+### B. Size, position, resize
+- **Default:** compact, **docked to the right edge**, ~**400–440px** wide, **never covering the content center** (`coversContentCenter` must be false at rest). Translucent glass (P155), draggable, minimizes to a small "Assistant" pill/FAB.
+- **Resizable** from any edge/corner with generous hit zones + a visible grip; **header expand/maximize toggle + S/M/L presets**.
+- **Manual resize STICKS and persists** (`hw_assist_w/h/x/y`) — **no snap-back**. The only automatic move/shrink is when the assistant is **actively pointing something out / navigating** (P164): it docks aside so the content stays visible, then **returns to the user's chosen size**. Clamp only to a sane min and the viewport max.
+
+### C. Showing what it references (auto-reveal)
+- When the assistant **produces a response or suggestions and refers to them** ("I've put 3 below"), the pane **auto-scrolls** (and **grows if needed**, capped to viewport) so they're **immediately visible** — newest content revealed near the input, first suggestion at/near the top of the body. Never say "below" while it's off-screen. Briefly highlight on arrival. Scroll-first, grow-only-if-needed; respect the user's size.
+- Ask-don't-monologue pacing throughout (greet + ask, one item then "continue?").
+
+### D. Voice + input
+- Voice available whenever `getUserMedia`+`MediaRecorder` exist in a secure context (P173); pressing the mic turns it **red/active with a live wave** and shows the **recognized transcript** (P176); release runs it. **Enter sends** (P171); **Space toggles play/pause** when the overlay is the active surface and not typing (P172, `preventDefault`). Always-visible typing fallback.
+
+### E. Mobile (phone widths)
+- Render as a **bottom sheet** at partial "peek" height with page content visible above, draggable to expand, collapsible to a floating bubble (the mobile minimize). **Touch push-to-talk** (`touch-action:none`, pointer/touch handlers), tap-to-toggle, autoplay unlock on first gesture, ≥44px targets (P169/P171). All of A–D still apply within the sheet.
+
+### F. Apply the SAME assistant experience to résumés — keep every résumé feature
+On the résumé/Documents editor, the assistant uses the identical overlay (A–E) and the same interaction model, adapted to résumés:
+- **Per-page greeting + ask** (P153): names the section ("You're on your résumé — want a review, a tailor to a role, or specific edits?"), doesn't monologue.
+- **A résumé "brief" like the matches brief** (P162 analog): "review my résumé" / a **Review** action produces a prominent, readable brief — **score + top findings** — read aloud with pacing, surfaced as **suggestion bubbles** (P159), **staying on the résumé** (never opening a blank doc; detect failed renders per P176).
+- **Apply-able suggestion bubbles**: critique → concrete, choosable edits (reworded line, inserted metric placeholder, company/keyword tailoring — P152), each a **draggable bubble you can drop onto the résumé** (onto a line = replace, into a section = insert) **and** with Apply/Replace/Undo buttons. Applies through the one versions save path with immediate preview update (P159/P4b).
+- **Keep the résumé's unique features fully intact** (do not remove or hide): the interactive **bullet board** (P4), the **versions** marquee, **manual edit** + find & replace, the **design/template** chooser, the **My Work Highlights** evidence pipeline, and the editable document render. The assistant *complements* these — it can open/trigger them (stand-alone, P165) and read/choose from them — but the résumé editor keeps all its own tools and the drag-and-drop works **in addition** to the editable render.
+- Cover letters get the same treatment with their reduced tool set.
+
+### Acceptance
+The overlay renders as header / scrolling-body / pinned-footer at **every** size; the **input, transport, and speaking/wave indicator are always visible and never clipped** (only the body scrolls), with an enforced min height. Default is compact, right-docked, not covering content; **manual resize sticks and persists** (no snap-back); it only docks aside while actively showing something, then restores. **Referenced suggestions/responses auto-reveal** (scroll, then grow if needed). Voice shows red+wave+transcript, Enter sends, Space toggles play/pause, mobile is a collapsible bottom sheet with touch push-to-talk. The **same assistant experience runs on the résumé editor** — greeting, a prominent résumé **Review brief**, and **draggable apply-able suggestion bubbles** — **while every résumé-specific feature (bullet board, versions, manual edit, design, Highlights, editable render) remains**.
