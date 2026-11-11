@@ -5660,3 +5660,43 @@ Rather than trying to make a floating window perfectly shrink / grow / repositio
 - The résumé screen has **no second AI pane** — the one assistant handles all AI; the right pane shows **past suggested bullets + drag-and-drop**.
 - When the assistant **starts a tour / points something out / navigates**, it **moves into the right pane under the summary** and the content screen stays fully visible; it returns to floating when the guidance ends.
 
+
+## P180 — Make the assistant document-aware and command-literate: switch between résumés and cover letters, know the current document + version, select/archive/delete with confirmation, recommend the right document, and learn from misses
+
+**Frontend-first. No backend change required for routing/selection/confirmation.** The fix is a **deterministic client-side intent layer** that handles these high-value commands reliably **regardless of what the `/assistant/interpret` NLU returns** — so document-switching can't be misclassified the way it is now. The NLU call augments open-ended language; it is never the sole gate for these command families. Recommendation reuses existing match/scoring data if present, else a transparent heuristic.
+
+### 1. Understand document TYPE and actually switch between résumés and cover letters
+Today a verbal or typed "show my current cover letter" **routes to Documents and stays on résumés** — it never switches type. Fix:
+- Build a client-side **doc-type resolver**. Map words → type: `resume / résumé / CV / "my resume"` → **résumés**; `cover letter / CL / "cover" / "letter"` → **cover letters**. "show / open / pull up / go to / switch to my cover letter" must select the **cover-letter** tab/filter **and open the active cover letter** in the Workspace — not dump the user on the résumé list.
+- `current / active / latest / "the one I'm using"` → the **active document of that type**.
+- If type is genuinely ambiguous ("show my latest document") and both types exist, ask a **one-tap clarify** ("Résumé or cover letter?") instead of guessing wrong.
+
+### 2. Know the CURRENT document and its VERSION — and learn the app's own words
+- The assistant must answer **"which document is current?"** and **"what version is this?"** from live state: the active document (id + human name/role/company), the active version (`active_version` / `selectedVersion`), and the version count. "show me the current one," "what version am I on," "how many versions" all resolve from that state — it should never say it can't tell.
+- **Teach it the UI vocabulary.** It doesn't understand "marquee." Maintain a **UI-term glossary** the resolver consults: **marquee = the versions strip/carousel**; "the strip," "the carousel," "version bar" → **versions**. Add the other named surfaces too (bullet board, brief, Workspace tabs, Highlights) so the app's own jargon resolves to the right action.
+
+### 3. Select, open, archive, delete on demand — with CONFIRMATION before any removal
+- **Select / open:** "open my Technology résumé," "switch to the cover letter for Bryan Cave," "open version 3" → fuzzy-match by name / role / company / number and load it in the Workspace. If several match, present them as **choosable bubbles**.
+- **Archive / delete:** "archive this," "delete the old cover letter," "remove version 5" are **destructive → always confirm first.** Show exactly what will be affected (document name + version + whether it is reversible) and require an explicit **Yes** before calling the endpoint. **Never archive or delete on a single ambiguous utterance.**
+  - Prefer **archive** when the user says "get rid of / hide / clear out" and permanence isn't explicit; reserve **delete** for an explicit "permanently delete." After acting, state what was done and offer **Undo** where the API allows.
+- Use the existing endpoints (documents list, archive/flag/delete, versions delete) through the one save/versions path.
+
+### 4. Recommend the RIGHT document for a use or tailoring opportunity
+- "which résumé is best for this role / this match / a product job at X?" → recommend one, with a one-line **why** (matched skills/keywords, highest match score, most recent tailor). If match/scoring data exists (the Matches brief / match endpoints), rank by it; otherwise use a **transparent heuristic** (keyword overlap with the target role + recency + completeness) and name the signal it used. Then offer to **tailor** the chosen one.
+- Same for cover letters: recommend the best existing CL for a company/role, or offer to generate/tailor one.
+
+### 5. Get smarter — anticipate, learn, and recover from misses
+- **Deterministic first, NLU second.** For these command families (switch type · open/select · current/version · archive/delete · recommend), run the client resolver (command grammar + synonym/glossary + fuzzy match) **before/alongside** the interpret call. If the resolver is confident, act — don't let a weak NLU classification override an obvious command. Use interpret for genuinely open-ended language.
+- **Clarify instead of misfiring.** On low confidence or an unknown term, ask one short, specific question ("Did you mean your cover letter or your résumé?") and **record the mapping** of what was said → the resolved intent in a **learned-synonyms store** (localStorage), so the same phrasing is recognized next time.
+- **Learn from mishears/typos.** Keep the raw transcript/typed text; on a correction, bind the original phrasing to the corrected intent. Normalize common ASR slips ("covered letter"→cover letter, "see V"→CV, "résumé" variants). Grow a small learned-alias table with use.
+- **Log the misses.** Record unresolved utterances (locally, and optionally POST to interpret as a "miss") together with the eventual resolved intent, so the recognized-command set expands over time.
+- **Anticipate the follow-up.** After showing a document, proactively offer the obvious next steps as one-tap bubbles (switch to its résumé/cover-letter counterpart · see versions · tailor to a role · recommend the best one), so the user rarely has to phrase the hard request at all.
+
+### Acceptance
+- "show my current cover letter" **switches to cover letters and opens the active one** (no longer stuck on résumés).
+- The assistant can **state the current document and version** on request; **"marquee" / "strip" / "carousel"** resolve to the versions surface.
+- **Select/open by name, role, company, or version number** works; ambiguous matches become choosable bubbles.
+- **Archive and delete always confirm first** with an explicit summary and never remove on an ambiguous command; archive is preferred unless the user explicitly asks for permanent deletion; Undo offered where possible.
+- It **recommends a best résumé/cover letter with a reason** and offers to tailor it.
+- **Unknown or misheard phrasings trigger a clarify**, and the resolved mapping is **remembered** so it's recognized next time.
+
