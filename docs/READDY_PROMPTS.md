@@ -5880,3 +5880,49 @@ Every feature that uses the player/transport or step-by-step narration must be a
 - Synonyms work from the UI (searching "VP" finds "Vice President" titles; "sr engineer" finds "Senior Software Engineer"); **OR** works ("director or VP").
 - Structured phrases apply filters (remote / seniority / salary); empty results prompt a broaden/refine offer; chip, typed, and voice all run the same search.
 
+
+## P185 — Open-web research: the assistant researches a company (leadership + web data) using the user's browser, always with permission, and returns a tailored job-search brief
+
+**Architecture (decided): the user's browser extension does the fetching on their own connection; the backend summarizes.** The summarize endpoint + consent scope are **LIVE and deployed**. This prompt covers the assistant's permission flow, the extension handoff, and rendering. Page text from the web is **untrusted** — the backend already treats it as data, never instructions; the frontend must not send the user's PII into search queries.
+
+### Permission model (both, always gated)
+- **Pre-approved:** a `web_research` scope in **Assistant settings** ("Research companies on the open web using my connection"). Off by default. Granting it is the standing permission.
+- **Real-time:** even with the scope on, **every research action shows a one-line confirm** before anything is fetched — *"Research **Acme Robotics** on the web using your browser? I'll read their public site + search results."* — with a clear **Yes / Not now**. No fetch ever happens without the scope **and** (at least the first time per target / per session) an explicit yes. Never research silently.
+- If the scope is off, the first attempt offers to turn it on (links the settings toggle), then still confirms the specific search.
+
+### Flow
+1. Trigger: "research Acme", "who runs this company?", "look up this employer", or an offer on a job card / match ("Want me to research the company first?").
+2. **Confirm** (above). On yes:
+3. Ask the **extension** to fetch on the user's connection (see Extension contract): a search for the company (+ "leadership"/"executives"/"news") and the top public pages (the company's own About/Leadership page first).
+4. POST the returned pages to **`/api/v1/assistant/research/summarize`** with the current `resume_id` so it tailors to the user's skills.
+5. **Drive the view (P181):** dock the assistant, render the brief prominently, speak a short summary.
+
+### Render — a brief that's useful for the job search
+- **Overview** (2–3 sentences) + **Useful facts** (size, funding, products, locations, recent news).
+- **Leadership** — names + titles (for outreach / interview prep).
+- **"Use this in your job search"** (make this the hero block):
+  - **Keywords** — ATS terms from the company's own materials to mirror.
+  - **Skills to emphasize** — the user's skills the company also signals.
+  - **Tailoring** — concrete hooks; each item is **actionable**: "Apply to résumé" / "Add to cover letter" routes it through the assistant (P181/P180), so research flows straight into tailoring.
+- **Sources** (clickable) + the **caution** line the API returns. Never present unverified names/figures as certain.
+
+### Backend contract (LIVE)
+- **Scope:** `web_research` in `GET/PUT /api/v1/assistant/consent` (`available`/`granted` arrays). Grant via `PUT {scopes:[..., "web_research"]}`.
+- **Summarize:** **`POST /api/v1/assistant/research/summarize`** (user Bearer; **403 if the scope isn't granted**). Body:
+  ```json
+  { "company": "Acme Robotics", "query": "", "resume_id": "res_…",
+    "sources": [ { "url": "https://acme.co/about", "title": "About", "text": "<readable page text>" } ] }
+  ```
+  Returns: `{ company, query, summary, facts[], leadership[{name,title}], keywords[], skills[], tailoring[], sources[{url,title}], caution }`.
+
+### Extension contract (TO BUILD — this is the Project Harbor extension, not Readdy)
+The extension exposes a research capability the web app can call:
+- **`research.search(query)` → `[{ title, url, snippet }]`** — run a web search on the user's connection and return the top results (links + snippets).
+- **`research.fetch(url)` → `{ url, title, text }`** — fetch a public page and return **readable text only** (strip scripts/markup; never execute page JS; cap length).
+- **Permission:** request web access at runtime with **optional host permissions** (`chrome.permissions.request({ origins: ["*://*/*"] })`) so the default install isn't broad and access is **granted on demand** ("always with permission"); a previously-granted permission is the pre-approval. (Note: this is an expanded-permission change → a new Chrome Web Store review; keep it as an optional permission so existing users aren't force-prompted.)
+- **Privacy/safety:** fetch only public pages; **never** scrape the user's logged-in/private content, and never put the user's name/email into a search query. Return text to the page; the backend sanitizes + treats it as data.
+
+### Acceptance
+- With `web_research` granted, "research Acme" shows a **confirm**, then the assistant uses the **browser** to fetch and renders a brief with **overview, facts, leadership, and a 'use this in your job search' block (keywords / skills / tailoring)**, each tailoring item applyable to the résumé/cover letter.
+- Nothing is fetched without the scope **and** a real-time yes; sources + caution are shown; no private/logged-in data is scraped and no PII goes into queries.
+
