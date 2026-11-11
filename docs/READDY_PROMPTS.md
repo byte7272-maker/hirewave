@@ -5996,3 +5996,41 @@ When the user (or the assistant) navigates — e.g. lands on or returns to the *
 - After navigating, the assistant **stops the old narration** and only speaks what fits the **current** screen; it never talks over the dashboard with matches (or any other screen's) content.
 - A widget fault shows an inline fallback + Reload, never a full white screen.
 
+
+## P188 — Mobile audit & fixes: make the whole app fit and work on iOS Safari and Android Chrome (it renders too large now)
+
+**Frontend. No backend change.** The app renders too large / doesn't reflow on phones. The **viewport meta is already correct** (`width=device-width, initial-scale=1.0`) and there's no desktop horizontal overflow — so the problem is **desktop-fixed layout that doesn't collapse at phone widths**, plus the assistant overlay not becoming a mobile sheet. Audit **every** screen and fix to the rules below. Target widths **360–430px**; test on **real iOS Safari and Android Chrome**.
+
+### 1. Responsive reflow (the "too large" root cause)
+- **No fixed pixel widths on layout containers.** Replace fixed `width:###px` / large `min-width` with fluid units: `width:100%`, `max-width`, `%`, `clamp()`, and `minmax(0, 1fr)` in grids. A child with `min-width:auto` in a flex/grid row is the classic overflow cause — set `min-width:0`.
+- **Collapse multi-column layouts to one column** below ~768px (dashboard cards, matches grid, document + side pane, settings). Use `grid-template-columns: 1fr` / `flex-direction: column` at the breakpoint.
+- **No element may exceed the viewport width.** `img, video, canvas, pre, code, table { max-width:100% }`; long unbreakable strings (URLs, IDs, emails) get `overflow-wrap:anywhere`. Verify `document.scrollWidth <= innerWidth` at 360px — **zero horizontal scroll**.
+- **Fluid type & spacing**: scale headings/padding down on small screens (`clamp()` or breakpoint overrides); desktop padding (e.g. 24–32px gutters) → ~16px side gutters on phones.
+
+### 2. The assistant overlay on phones → bottom sheet (P169, make it real)
+- At phone widths the floating ~400–700px glass panel is **wider/taller than the screen**. It must render as a **bottom sheet**: full width, pinned to the bottom, at a partial "peek" height with page content visible above, draggable to expand to (near) full height, collapsible to a floating bubble. It must **never exceed the viewport** or cover the whole screen by default.
+- Keep the three-band layout (pinned header/footer, scrolling body) **within** the sheet; the input, transport, and wave stay visible (P178/P179). Size the sheet with **`dvh`**, not `vh` (see §4).
+
+### 3. Touch targets & interactions
+- Every tappable control (buttons, chips, player transport, mic, nav, menu items, close/minimize) is **≥44×44px (iOS) / 48dp (Android)** with adequate spacing — no tiny icon-only hit zones.
+- **No hover-only affordances**: tooltips, dropdowns, "Up Next"/menus that only appear on hover must have a tap equivalent. Remove `:hover`-gated content on touch.
+- **Push-to-talk works by touch** (`touch-action:none`, pointer/touch handlers, autoplay unlock on first gesture) — per P169/P171.
+- Inputs: **font-size ≥16px** on all text inputs/textarea — iOS auto-zooms the page when focusing a <16px field (a common "it jumped/zoomed" complaint).
+
+### 4. Mobile viewport height & safe areas (iOS notch / Android nav bar)
+- **Use `dvh`/`svh`, not `vh`.** `100vh` is taller than the visible area on mobile browsers (the URL bar), causing content cut off under the chrome and footers pushed off-screen. Full-height elements and the assistant sheet use `100dvh` (fallback `vh`).
+- **Respect safe-area insets**: add `padding: env(safe-area-inset-*)` to top/bottom bars and the sheet so content isn't under the iOS notch/home indicator; add `viewport-fit=cover` to the viewport meta if using insets.
+- **Sticky headers/footers**: account for the mobile browser chrome; don't let a fixed footer overlap the input or get hidden behind the keyboard (scroll the focused input into view on focus).
+
+### 5. Overlays, modals, menus
+- Modals/dialogs/confirms (including the P180 archive/delete confirm and the P185 research confirm) **fit the phone** — full-width, max-height `dvh`, internal scroll; no modal wider than the screen; close button reachable.
+- Dropdowns/pickers (document switcher, versions, template chooser) open as full-width sheets or fitted menus, not clipped desktop popovers.
+
+### 6. Specific screens to check
+Dashboard, Matches (+ brief), Documents list, the Workspace/résumé editor (preview + side pane → stack on mobile), cover-letter editor, the assistant overlay, settings/consent, onboarding/welcome (P167), auto-apply, interview/practice. Each: no horizontal scroll, one-column reflow, ≥44px targets, readable type, sheet-style overlays.
+
+### Acceptance
+- On a 360–430px viewport (real iOS Safari **and** Android Chrome): **no horizontal scrolling anywhere**, nothing overflows the screen, layouts are single-column and readable without pinch-zoom.
+- The assistant renders as a **bottom sheet** that never exceeds the viewport; input/transport/wave stay visible; push-to-talk works by touch.
+- All controls are ≥44×44px; inputs are ≥16px (no focus-zoom); full-height elements use `dvh` and respect safe-area insets; modals fit and scroll internally.
+
