@@ -5700,3 +5700,53 @@ Today a verbal or typed "show my current cover letter" **routes to Documents and
 - It **recommends a best résumé/cover letter with a reason** and offers to tailor it.
 - **Unknown or misheard phrasings trigger a clarify**, and the resolved mapping is **remembered** so it's recognized next time.
 
+
+## P181 — Make the assistant DRIVE THE VIEW and dock while it works: fix the Design walkthrough, and apply "switch doc → open the section → dock → walk through → run a real example" to every major feature
+
+**Frontend. Builds on P179 (right-pane dock) and P180 (deterministic intent layer) — both must be live for full effect.** This fixes a pattern, not one screen.
+
+**Live audit findings (current behavior, to correct):**
+- Typed "show my current cover letter" resolves **client-side** and navigates to the cover letter correctly — **no `/interpret` call** needed. Good: the deterministic typed path works for doc navigation.
+- Typed "**design my resume**" (from a cover-letter context) is **not recognized as the design command**: it did **not** switch to a résumé, did **not** open the Design section (even though a Design tab was right there), and just went into "Talking it through / Speaking" with generic bubbles.
+- The **"Design my document" suggested-action chip** renders a proper *Choose a style · Modern/Classic* step **inside the overlay**, but it **never switches the page view to the Design section and never docks** — so the user can't see the design area or follow along.
+- The **right-pane dock (P179) is not live yet** — the overlay still floats over the content.
+
+### 1. Universal rule: narration must be accompanied by DRIVING THE VIEW
+Whenever the assistant starts **any** feature or walkthrough, it must do these in order and only then speak:
+1. **Switch to the correct document TYPE and document** if the command names one — "design my **resume**" must switch to a résumé even from a cover letter.
+2. **Open/activate the relevant SECTION or tab** on the content screen (Design, Versions, Bullets, Highlights, Manual edit, Matches brief, …).
+3. **Scroll it into view and highlight** the exact element being discussed.
+4. **Dock into the right pane (P179)** so the content stays fully visible.
+5. **Then narrate**, paced. **Never narrate a step whose target isn't on screen.** "I'll open the design section" must actually open it.
+
+### 2. Fix the Design walkthrough specifically
+"design my resume" (typed **or** spoken) and the Design suggested-action must all do the same thing:
+- Switch to the résumé → open the **Design** section/tab → **dock** into the right pane.
+- Offer a clear fork: **full walkthrough** or **jump to a specific task** (change template, restyle a section, improve ATS readability, adjust spacing/length).
+- For each template, **render a live mock/preview of the user's actual résumé in that design** (Modern, Classic, etc.) in the content area — not a verbal description — driven by the user's choice **or** the assistant's recommendation ("Modern reads most reliably in applicant systems — want me to preview your résumé in it?").
+- Walk it **visibly**: highlight the template card → show the preview of their résumé → explain the trade-off → confirm → apply (reversible, content preserved) → show the result. Preview before apply.
+
+### 3. Audit + apply the pattern to EVERY major feature
+Each of these must **open its section + dock + highlight + run a concrete example**, not just talk. (Switch type/doc if the command names one; confirm destructive steps per P180.)
+- **Design** — open Design, preview templates as live mocks of the user's doc, recommend, apply. (§2)
+- **Versions / "marquee"** — open the versions strip, point to the **current/active** version and its number, step through what changed between versions, restore on request (confirm first).
+- **Bullets** — open the bullet board, demonstrate **drag-to-replace** with a real suggested bullet, show before→after.
+- **My Work Highlights** — open the Highlights pipeline and run an example: generate prompts → show where to paste → surface extracted suggestions as choosable bubbles.
+- **Tailor / Ask AI** — open the editor, take a target role, show a **concrete tailored edit as a preview bubble** with Apply/Undo.
+- **Review brief (résumé & matches)** — open the brief in-page and read it with pacing while **highlighting each finding where it lives**, not reciting it blind.
+- **Matches** — open the Matches view, walk the top match, show the **score and why**, offer to tailor or open the posting.
+- **Cover letter** — same model with its reduced toolset (Ask AI, Manual edit, Design, Versions).
+- **Documents / select / archive / delete** — open the list, show the current doc, perform select/archive/delete **visibly** with the P180 confirmation.
+
+### 4. Examples must be real mocks, not descriptions
+When the assistant says it will "show an example" (a design, a tailored bullet, a version diff, a match), it must **render that example** in the content area or as an interactive preview bubble the user can see and apply/undo — **never describe it in words only.**
+
+### 5. One dispatcher for chip, typed, and voice
+Route the **suggested-action chip**, **typed text**, and **voice transcript** through the **same intent→action dispatcher** (P180's deterministic layer). Audit finding: the Design chip half-works while typed "design my resume" isn't recognized — that divergence must go. "design my resume" typed or spoken must do exactly what clicking the Design action does.
+
+### Acceptance
+- "design my resume" from **any** context switches to the résumé, **opens the Design section, docks into the right pane**, and offers a full walkthrough or specific tasks with **live template mocks** of the user's own résumé driven by choice/recommendation.
+- Every major feature **opens its section + docks + highlights + runs a real example** instead of only narrating; the assistant never talks about something that isn't on screen.
+- The **chip, typed, and voice** paths behave identically (one dispatcher).
+- Destructive steps confirm first (P180); applies are reversible with visible before→after.
+
