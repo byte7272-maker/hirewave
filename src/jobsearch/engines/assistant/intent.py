@@ -37,8 +37,11 @@ _SECTIONS = {
     "auto_apply": ("auto apply", "auto-apply", "autoapply", "apply bot", "automation"),
     "design": ("design", "styles", "style", "templates", "template", "look"),
     "interview": ("interview", "interviews", "practice interview", "practice", "mock interview"),
+    # connect is matched BEFORE inbox so "the email connect section" / "email sources"
+    # resolves to the sources page, not the mail inbox (both mention "email").
+    "connect": ("connect", "connections", "integrations", "sources", "email sources",
+                "email source", "job sources", "accounts"),
     "inbox": ("inbox", "email", "mailbox"),
-    "connect": ("connect", "connections", "integrations", "sources"),
     "community": ("community", "people"),
     "dashboard": ("dashboard", "home", "overview"),
 }
@@ -46,7 +49,10 @@ _SECTIONS = {
 #: P115 playbooks (slot ``playbook``), with spoken synonyms.
 _PLAYBOOKS = {
     "connect_source": ("connect a source", "connect my email", "connect email", "connect gmail",
-                       "connect icloud", "add a job source", "connect a job source"),
+                       "connect icloud", "connect outlook", "add a job source", "connect a job source",
+                       "connect a new email account", "add an email account", "add an email address",
+                       "add a new email", "link my email", "set up an email", "add an email source",
+                       "use my email for applications", "connect an email account"),
     "auto_apply": ("set up auto apply", "auto apply", "apply for me", "automate applications",
                    "automate applying"),
     "walk_matches": ("walk through my matches", "walk my matches", "go through my matches",
@@ -243,6 +249,83 @@ def _research_company(t: str) -> Optional[str]:
     return residual or None
 
 
+# --- manage a resource: connect / add / remove / change -----------------------
+# A general verb+object layer so "connect a new email account", "add an email source",
+# "disconnect my inbox", "replace the email on my résumé" all resolve to the right
+# action instead of falling through. The three verb classes map to: add->connect_source
+# playbook, remove/change of a SOURCE->the connect section (to manage it), and change of
+# a field ON a document->open that document for an edit.
+_MANAGE_ADD_RE = re.compile(
+    r"\b(connect|add|link|hook ?up|set ?up|sign ?in|attach|re-?connect|enroll)\b"
+)
+_MANAGE_REMOVE_RE = re.compile(
+    r"\b(remove|disconnect|unlink|detach|revoke|delete|get rid of|take off)\b"
+)
+_MANAGE_CHANGE_RE = re.compile(
+    r"\b(change|switch|replace|update|swap|edit|modify|fix|correct)\b"
+)
+# The thing being managed.
+_EMAIL_OBJ_RE = re.compile(r"\b(e-?mail|mailbox|gmail|icloud|outlook|inbox|hotmail|yahoo)\b")
+_SOURCE_OBJ_RE = re.compile(
+    r"\b(source|sources|integration|integrations|connection|connections|account|accounts|provider|feed)\b"
+)
+# Document/profile CONTEXT — "on/in my résumé", "used on the resume", "in my cover letter".
+_DOC_CTX_RE = re.compile(
+    r"\b(resume|résumé|resumé|cv|cover\s*-?\s*letter|document|profile)\b"
+)
+# An explicit "go/take/bring me to / open / show / switch to" means the user wants to
+# NAVIGATE — so "bring me to the email connect section" is a nav, even though it
+# contains the word "connect". (The document-edit case is resolved before this guard.)
+_NAV_VERB_RE = re.compile(
+    r"\b(go to|take me to|bring me to|navigate|pull up|open|show me|show my|switch to)\b"
+)
+
+
+def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
+    """Resolve an explicit connect/add/remove/change request to a concrete action.
+
+    - add/connect an email or source  -> start the ``connect_source`` playbook
+    - remove/change a source/account   -> navigate to the connect section to manage it
+    - change/replace an email FIELD ON a document -> open that document to edit it
+    Returns None when there is no management verb, or no recognizable object.
+    """
+    add = bool(_MANAGE_ADD_RE.search(t))
+    rem = bool(_MANAGE_REMOVE_RE.search(t))
+    chg = bool(_MANAGE_CHANGE_RE.search(t))
+    if not (add or rem or chg):
+        return None
+    email = bool(_EMAIL_OBJ_RE.search(t))
+    src = bool(_SOURCE_OBJ_RE.search(t))
+    doc = _doc_target(t)
+    doc_ctx = bool(doc) or bool(_DOC_CTX_RE.search(t))
+
+    # 1) Changing/replacing a field (e.g. the email address) ON a document or profile —
+    #    that's a document edit, not a source. Open the named doc and hand the frontend
+    #    the instruction to run through Ask-AI (it confirms before applying, P180).
+    if email and doc_ctx and (chg or rem or add):
+        return IntentResult(
+            "navigate", 0.85,
+            {"section": "documents", "doc": doc or "resume", "edit": t},
+        )
+
+    # An explicit navigation verb ("bring me to the email connect section") means GO
+    # there — let the navigate matcher resolve the section (connect wins over inbox now).
+    if _NAV_VERB_RE.search(t):
+        return None
+
+    # 2) Connect / add an email account or a job source -> the connect playbook.
+    if add and (email or src):
+        return IntentResult("start_playbook", 0.85, {"playbook": "connect_source"})
+
+    # 3) Remove / change a source or account -> the connect section, flagged to manage.
+    if (rem or chg) and (email or src):
+        return IntentResult(
+            "navigate", 0.85,
+            {"section": "connect", "manage": "remove" if rem else "change"},
+        )
+    return None
+
+
 def _extract_search_query(t: str) -> Optional[str]:
     """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
 
@@ -330,6 +413,14 @@ def _deterministic(text: str, context: dict) -> IntentResult:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # manage a resource ("connect a new email account", "add an email source",
+    # "disconnect my inbox", "replace the email on my résumé") — an explicit
+    # connect/add/remove/change verb + an object. Checked before research/search/navigate
+    # so the user's intent to USE the app's basic services is honored by voice or text.
+    ma = _manage_action(t, context)
+    if ma is not None:
+        return ma
 
     # research a company ("tell me about Acme", "look up this company", "research the top
     # match") — distinct from a job search. company="" means resolve from context (the

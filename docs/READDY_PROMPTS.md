@@ -6314,3 +6314,52 @@ Apply one rule everywhere: **never ask a yes/no without arming a pending offer, 
 - A "yes" or "no" with **nothing pending does not navigate** — it says there's nothing waiting and shows what you can do.
 - "Show my résumé" / "show my cover letter" **centers and highlights** the document with **no manual scrolling**, then **offers Review / Modify / Use for application / Tailor**, each runnable by voice, chip, or typing.
 - Archive/delete and web-research confirmations each resolve **their own** pending prompt; "confirm before removing anything" still holds.
+
+
+## P199 — Recognize "connect / add / remove / change" a service by voice OR text, and guide + highlight the next steps when you arrive
+
+**Backend is LIVE** (NLU now resolves these deterministically — no reliance on the LLM, so voice works like typing). **Frontend** must route the new intents/slots and, crucially, **guide the user once it gets there** (the page you reached had no next steps and highlighted no buttons). Builds on P115 (connect_source playbook), P181 (highlight the element it's talking about), P194 (one dispatcher + `context`), P198 (pending offers / next-step prompts), P180 (confirm before changing a document).
+
+### What broke
+- "connect a new email account" and "bring me to the email connect section" **worked when typed but not by voice** — the matcher was too literal and "email" was routing to the mail **inbox** instead of the **connect/sources** page.
+- When it finally reached the connect page, it **said nothing about what to do next** — no recommended step, no highlight of which button to press or what it's for.
+
+### Backend contract (LIVE)
+`POST /assistant/interpret` now returns, for the connect/add/remove/change family:
+- **Connect/add an email account or source** ("connect a new email account", "add an email source", "link my email", "connect gmail") → `intent: "start_playbook"`, `slots.playbook: "connect_source"`.
+- **Go to the sources page** ("bring me to the email connect section", "take me to my email sources", "open connections") → `intent: "navigate"`, `slots.section: "connect"`.
+- **Remove/change a source** ("disconnect my email account", "change my email source") → `intent: "navigate"`, `slots.section: "connect"`, `slots.manage: "remove" | "change"`.
+- **Change a field ON a document** ("replace the email address used on my résumé") → `intent: "navigate"`, `slots.section: "documents"`, `slots.doc: "resume" | "cover_letter"`, `slots.edit: "<the instruction>"`.
+
+### 1. Route the new intents/slots (one dispatcher — typed, voice, chip)
+- `start_playbook connect_source` → **run the connect-a-source playbook** (don't just open a page).
+- `navigate connect` (optionally `manage`) → open the **sources/connect** section; if `manage` is set, open it focused on the user's existing sources to remove/change one.
+- `navigate documents doc + edit` → open **that document**, prefill **Ask AI** with `slots.edit` (e.g. "replace the email address with ___"), and **confirm before applying** (P180). If the new address isn't in the instruction, ask for it first.
+- All of the above must work identically by **voice and text** (the backend no longer needs the exact wording).
+
+### 2. On arrival, GUIDE — recommend the next step and highlight the control (the core UX fix)
+When the assistant navigates to a section (especially **Connect / Sources**), it must not go silent. It should:
+- **State the section's purpose** in one line ("This is where you add the email accounts and job boards Project Harbor pulls from").
+- **Recommend the next step** and **highlight the exact control** to use (P181-style ring + label), saying **what each does**: e.g. highlight **"Add email source"**, and the provider buttons **Gmail / iCloud / Outlook** — "Tap Gmail to connect a Google account; you'll sign in on Google's page, then approve read access."
+- Offer the steps as **pending next-step prompts** (P198): "Want me to walk you through connecting Gmail?" → yes advances and highlights the next control. Never leave the user on a page with no guidance.
+
+### 3. Run the connect-a-source playbook as a guided, highlighted walkthrough
+- `connect_source` (P115) must **drive the view and highlight each control in turn**, not narrate abstractly: (1) highlight **Add source / provider buttons** → (2) explain the sign-in happens on the provider's own page (the user signs in; the assistant never handles the password) → (3) after connect, highlight where the new source appears and confirm it's active.
+- If a step needs the user to act (sign in, approve), say so plainly and **wait** (pending offer), then continue on their confirmation.
+
+### 4. Support the two-step flow the user described
+The user's real goal was two distinct actions — the assistant should recognize and guide both, and connect them:
+1. **Add a new email address as a source** → `connect_source` (above).
+2. **Replace the email address used on the résumé** → the document-edit route (`navigate documents doc=resume edit=…`): open the résumé, prefill Ask AI with the replacement, confirm, apply, save a new version.
+- After step 1 succeeds, **offer step 2 as a next step** ("Want me to update the email address on your résumé to match?") — a pending offer per P198.
+
+### 5. Generalize the resolver (works for other services/contexts)
+Treat **connect / add / remove / change + {a thing}** as a first-class pattern everywhere, and **rationalize intent out loud** before acting ("You want to add an email source — here's how," "You want to change the email on your résumé — I'll open it and make the edit, okay?"):
+- Objects beyond email: **job sources / integrations**, **documents** (add/replace/remove a résumé or cover letter), **designs/templates**, **auto-apply**. Map each add/remove/change to its section or playbook and **guide + highlight** on arrival the same way.
+- When the object is ambiguous ("change my email" with no "on my résumé" and no source context), **ask one clarifying question** — "Do you mean the email *account* you pull from, or the email *address* on your résumé?" — then route accordingly.
+
+### Acceptance
+- By **voice or text**: "connect a new email account" / "add an email source" **starts the connect flow**; "bring me to the email connect section" **opens the Connect/Sources page** (not the inbox).
+- On arrival the assistant **states the purpose, recommends the next step, and highlights the specific button(s)** with what each does — never a silent page.
+- "Replace the email on my résumé" **opens the résumé and makes that edit** (with confirmation), distinct from connecting a source; after connecting a new email, the assistant **offers** to update the résumé's email.
+- The connect-a-source playbook runs as a **highlighted, step-by-step** walkthrough that waits for the user's sign-in and never asks for a password.

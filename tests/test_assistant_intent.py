@@ -80,6 +80,47 @@ def test_start_playbook():
     assert interpret("walk through my matches").slots["playbook"] == "walk_matches"
 
 
+def test_connect_email_variants_resolve_to_connect_source():
+    # Voice variants that previously fell through (only the exact "connect my email"
+    # synonym worked). All should start the connect_source playbook now.
+    for phrase in (
+        "connect a new email account",
+        "add an email account",
+        "add a new email address as a source",
+        "link my email",
+        "set up an email source",
+        "connect gmail",
+    ):
+        r = interpret(phrase)
+        assert r.intent == "start_playbook", (phrase, r.intent)
+        assert r.slots.get("playbook") == "connect_source", (phrase, r.slots)
+
+
+def test_email_connect_section_navigates_to_connect_not_inbox():
+    # "email" appears in both the inbox and the connect intents; the connect/sources
+    # page must win when the user asks for the connect section.
+    for phrase in ("bring me to the email connect section",
+                   "take me to my email sources",
+                   "open connections"):
+        r = interpret(phrase)
+        assert r.intent == "navigate", (phrase, r.intent)
+        assert r.slots["section"] == "connect", (phrase, r.slots)
+
+
+def test_change_email_on_resume_is_a_document_edit_not_a_source():
+    # Replacing the email ADDRESS ON the résumé is a document edit, not connecting a source.
+    r = interpret("replace the email address used on the resume")
+    assert r.intent == "navigate"
+    assert r.slots["section"] == "documents" and r.slots.get("doc") == "resume"
+    assert r.slots.get("edit")  # instruction carried for Ask-AI
+
+
+def test_remove_source_navigates_to_connect_to_manage():
+    r = interpret("disconnect my email account")
+    assert r.intent == "navigate"
+    assert r.slots["section"] == "connect" and r.slots.get("manage") == "remove"
+
+
 def test_navigate_to_cover_letter_vs_resume_carries_the_doc():
     # "go to my cover letter" must open the COVER LETTER, not just the Documents section
     # (which was defaulting to the résumé).
