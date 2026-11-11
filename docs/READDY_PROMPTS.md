@@ -6074,3 +6074,20 @@ Dashboard, Matches (+ brief), Documents list, the Workspace/résumé editor (pre
 ### Note
 This is the 4th null-crash from the rebuilds (P170, P186, P187, P190). The permanent rule still stands: every collection initializes to `[]` and renders guarded; every state object initializes to its shape. **Also: the Matches page body and the assistant must read matches from one shared source of truth**, so one can't be populated while the other is undefined.
 
+
+## P191 — On tab reload the assistant must know it's on Home and must NOT auto-start reading the last job match
+
+**Frontend. No backend change.** After reloading the tab (landing on **Home/dashboard**), the assistant (a) is **unaware it's on Home** — it keeps the previous screen's context — and (b) **auto-starts narrating the last job match** from the prior session, even though the user is not on Matches. Nothing should auto-speak on load, and the context must be the current screen. Extends P187 Part B to the **initial mount / reload** case.
+
+### Fix
+1. **On initial mount / tab reload, derive the assistant's screen context from the CURRENT route** (Home = dashboard home), not from persisted or last-session state. The header/greeting and any spoken line must reflect **where the user actually is now** ("On your dashboard / Home"), not "On your job matches."
+2. **Do NOT auto-start narration/TTS on load.** No autoplay of the previous Matches walk (or any reading). The player opens **idle/paused**; speech begins only when the user starts it (Play / a command / pressing the mic). A brand-new load never speaks on its own.
+3. **Reset stale walk/narration state on a fresh load.** Any persisted `currentIndex`, "Your matches 1/45", SPEAKING flag, or queued utterances from the prior session must be **cleared/not resumed** on reload — especially when the current screen isn't the one that state belongs to. Don't restore a Matches walk onto Home.
+4. **At most, a context-appropriate, silent-by-default greeting** for the current screen (e.g. Home), waiting for the user — not an auto-read. If you ever offer to resume a prior task, it must be an explicit, **opt-in** prompt ("Pick up where you left off?"), never auto-playing.
+5. Keep this consistent with P183 (authoritative Stop, fire-once, no auto-enqueue) and P187 Part B (current route = source of truth): narration is always tied to the current screen and is user-initiated.
+
+### Acceptance
+- Reloading the tab on **Home** shows the assistant aware it's on Home (correct header/greeting) and **silent** — it does **not** auto-start reading the last job match or anything else.
+- No narration auto-plays on any fresh load; the player is idle until the user starts it.
+- Prior-session walk state (matches index, SPEAKING) does not resume onto a different screen; resuming a task is only ever an explicit opt-in.
+
