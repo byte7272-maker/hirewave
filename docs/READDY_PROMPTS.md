@@ -6151,3 +6151,36 @@ The assistant is silent on the dashboard; as the **default authenticated landing
 - Matches renders the cards (no error card); Saved Searches shows empty-state or its list.
 - Landing on / reloading the **dashboard** gives a **thorough spoken overview** of the current state (greeting + what's waiting + next steps), honoring mute, Stop/Pause, and autoplay-unlock; other screens remain quiet unless invited.
 
+
+## P194 — Logic-flow audit: pass screen context to the NLU, never default an unclear command to Documents, and resolve generic/pronoun commands against the current screen
+
+**Frontend. The backend NLU was fixed** so a generic "walk me through / from the top / start over" now resolves to the current screen's walkthrough (on Matches → walk the matches) — **but only if the frontend sends the screen context.** And the real lapse was the fallback: an unrecognized command **silently navigated to Documents**. Fix both, and audit the pattern.
+
+### 1. Always send screen context to `/assistant/interpret`
+Every interpret call must include the **`context`** object with the current state so the NLU can resolve context-dependent commands:
+- `section` — the current screen as one of: `matches`, `documents`, `dashboard`, `auto_apply`, `design`, `interview`, `inbox`, `connect`, `community`. (This is what makes "from the top" on Matches walk the matches.)
+- `resume_id` / `cover_letter_id` — the open document, `job_id` — the focused job.
+- `options` — the on-screen choices as `[{id,label}]`, and `focused_index` — the item currently highlighted (so "this one" / "the top one" / "number 2" resolve).
+Without `section`, the backend cannot route generic commands — this is required, not optional.
+
+### 2. Never default an unclear command to Documents (the actual bug)
+When interpret returns **`ask`** (free-form/unrecognized) or low confidence, the assistant must **NOT navigate to Documents** (or any unrelated screen). Instead:
+- **Stay on the current screen** and either (a) act on it if the intent is obvious in context, or (b) **ask a short clarifying question** ("Did you mean walk through your matches?") with one-tap options.
+- A command the assistant doesn't understand must **never cause a silent navigation**. Navigation happens only for an explicit navigate/`start_playbook` intent that names or implies a destination.
+
+### 3. Handle the context-resolved intents correctly
+- `start_playbook: walk_matches` from a generic phrase on Matches → **walk the matches from the top, staying on Matches** (don't route to Documents or a doc walkthrough).
+- Generic **next / previous / repeat / from the top / start over** operate on the **current** walk/list, not a different one (ties to P183 fire-once + P187 Part B route-as-truth).
+
+### 4. Audit these other flow lapses
+- **Deixis/pronouns** ("this", "that one", "these", "the top one", ordinals) resolve against the **current screen's `options`/`focused_index`** — never a stale list from another screen.
+- **"walk / review / brief / go through" on any screen act on THAT screen's content** (matches → matches; a résumé → that résumé), not a hardcoded default.
+- **After completing an action, don't bounce to Documents** as a catch-all landing. Return to or stay on the relevant screen.
+- **A named target wins over a fuzzy guess**: "walk me through my résumé" opens the résumé (not the matches walk) — the backend now avoids the mis-match, so the frontend should route the résumé/doc intents to the résumé.
+- **Destructive actions still confirm** (P180); **navigation that leaves unsaved work** warns first.
+
+### Acceptance
+- On Matches, "walk me through from the top" (and "start over", "go through these") **walks the matches from the top, staying on Matches** — never Documents.
+- An unrecognized command keeps the user on the current screen and asks to clarify; it never silently navigates to Documents.
+- "This one / the top one / number 2" resolve to the on-screen item; "walk me through my résumé" opens the résumé; every interpret call sends `section` (+ `options`/ids) so context commands work.
+
