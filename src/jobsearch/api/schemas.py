@@ -1264,6 +1264,39 @@ class TelemetryIngestOut(BaseModel):
     accepted: int
 
 
+class ResearchSource(BaseModel):
+    """One web page the user's browser fetched (their connection, their permission)."""
+
+    url: str = ""
+    title: str = ""
+    text: str = ""  # untrusted page text — the server treats it as data, never instructions
+
+
+class ResearchRequest(BaseModel):
+    company: str = ""
+    query: str = ""
+    resume_id: str = ""  # optional: tailor against this résumé's skills
+    sources: list[ResearchSource] = Field(default_factory=list)
+
+
+class ResearchLeader(BaseModel):
+    name: str = ""
+    title: str = ""
+
+
+class ResearchOut(BaseModel):
+    company: str = ""
+    query: str = ""
+    summary: str = ""
+    facts: list[str] = Field(default_factory=list)
+    leadership: list[ResearchLeader] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    tailoring: list[str] = Field(default_factory=list)
+    sources: list[ResearchSource] = Field(default_factory=list)
+    caution: str = ""
+
+
 class EmailImportOut(BaseModel):
     source: str  # detected board (linkedin/indeed/…)
     parsed: int  # postings found in the email

@@ -19,6 +19,7 @@ AUTOMATION_SCOPES = {
     "form_autofill": "Auto-fill application forms with my profile (I review before it submits)",
     "draft_prep": "Auto-prepare application drafts (résumé + cover letter) for strong matches",
     "submit_after_review": "Submit applications once I've reviewed and approved them",
+    "web_research": "Research companies and roles on the open web using my connection (I approve each search)",
 }
 
 

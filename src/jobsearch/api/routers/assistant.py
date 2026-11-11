@@ -19,6 +19,8 @@ from jobsearch.api.schemas import (
     LiveFillResultOut,
     PrepareDraftsOut,
     PrepareDraftsRequest,
+    ResearchOut,
+    ResearchRequest,
     SuggestionsOut,
     TelemetryBatch,
     TelemetryIngestOut,
@@ -81,6 +83,42 @@ def telemetry(body: TelemetryBatch, user: CurrentUser, state: StateDep) -> Telem
     events = [e.model_dump() for e in body.events[:_TELEMETRY_BATCH_CAP]]
     accepted = assistant_telemetry.record(state.documents, user.id, events)
     return TelemetryIngestOut(accepted=accepted)
+
+
+@router.post("/research/summarize", response_model=ResearchOut)
+def research_summarize(body: ResearchRequest, user: CurrentUser, state: StateDep) -> ResearchOut:
+    """Summarize web pages the user's browser fetched into a job-search research brief:
+    overview, useful facts, executive leadership, and how to use it (ATS keywords, skills
+    to emphasize, tailoring against the user's experience).
+
+    Requires the ``web_research`` consent scope (the pre-approval). The browser does the
+    fetching on the user's connection with the user's real-time approval; this endpoint
+    only summarizes. The page text is treated as **untrusted data** — never instructions."""
+    if not state.assistant.has(user.id, "web_research"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "grant the 'web_research' permission in Assistant settings first",
+        )
+    from jobsearch.engines.assistant import web_research
+
+    # Tailor against the user's skills: their structured profile + the chosen résumé.
+    profile = state.profiles.get(user.id)
+    skills = list(profile.skills) if profile else []
+    if body.resume_id:
+        resume = state.resumes.get(body.resume_id)
+        if resume is not None and resume.user_id == user.id:
+            from jobsearch.api.routers.documents import ensure_rendered_text
+            from jobsearch.engines.sourcing.skills import extract_skills
+
+            resume = ensure_rendered_text(state, resume)
+            skills = list(dict.fromkeys([*skills, *extract_skills(resume.rendered_text or "", limit=25)]))
+
+    llm = getattr(state.resume_assistant, "_premium", None)
+    result = web_research.research(
+        [s.model_dump() for s in body.sources],
+        company=body.company, query=body.query, user_skills=skills, llm=llm,
+    )
+    return ResearchOut(**result)
 
 
 @router.get("/suggestions", response_model=SuggestionsOut)
