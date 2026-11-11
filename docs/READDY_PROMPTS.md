@@ -5779,7 +5779,37 @@ Add an **admin-only** section (gated to admin accounts; regular users never see 
 
 ### 4. Close the learning loop
 - A `failed`/`clarified` utterance feeds **both**: P180's **per-user** learned-alias store (immediate, local) **and** the P182 **cross-user** aggregate (admin-reviewed).
-- The admin can **promote a common miss** into a recognized command/synonym **globally** (or flag it as a capability to build). Optional endpoint: **`POST /api/v1/admin/assistant/aliases`** to add a global synonym the dispatcher then recognizes for everyone.
+- The admin can **promote a common miss** into a recognized command/synonym **globally** (or flag it as a capability to build). *(The global-alias endpoint `POST /api/v1/admin/assistant/aliases` is **not built yet** — don't call it. For now the admin reads the digest and acts; per-user learning from P180 still applies locally.)*
+
+### Backend contract (LIVE — build the frontend to exactly this)
+The two endpoints below are **implemented and deployed**. Match these shapes.
+
+**Emit — `POST /api/v1/assistant/telemetry`** (user Bearer auth). Body:
+```json
+{ "events": [ {
+  "utterance": "design my resume",   // PII is also scrubbed server-side; still strip + keep short client-side
+  "path": "typed",                   // one of: chip | typed | voice
+  "intent": "design",                // resolved intent, optional
+  "status": "resolved",              // one of: resolved | clarified | failed
+  "failure_class": "",               // when status=failed: not_understood | understood_no_action | action_errored | missing_capability
+  "feature": "design",               // design | versions | bullets | tailor | ask_ai | highlights | matches | doc_switch | archive_delete | review_brief | walkthrough
+  "outcome": "completed"             // completed | abandoned (for feature engagement)
+} ] }
+```
+Returns `{ "accepted": <int> }`. **Batch up to 200 events per flush** (extras are dropped), buffer locally, flush non-blocking, retry/backoff; a failure returns `accepted: 0` and must never break the session. Unknown enum values are ignored server-side, so send clean values.
+
+**Read (admin) — `GET /api/v1/admin/assistant/insights?months=1&top=20`**. Gated to **admin accounts** by the existing admin-email allowlist (the signed-in user's JWT — **no separate admin token**). Use the existing **`GET /api/v1/admin/me` → `{ is_admin }`** to decide whether to show the digest nav at all. `months` 1–12, `top` 1–100. Returns:
+```json
+{
+  "period": { "months": ["2026-11"], "from": "2026-11", "to": "2026-11" },
+  "totals": { "events": 0, "status": {"resolved":0,"clarified":0,"failed":0}, "paths": {"chip":0,"typed":0,"voice":0} },
+  "top_questions": [ { "text": "design my resume", "count": 2 } ],
+  "top_failures": [ { "class": "missing_capability", "count": 1, "examples": [ { "text": "export to pdf", "count": 1 } ] } ],
+  "feature_usage": [ { "feature": "design", "completed": 1, "abandoned": 1, "total": 2, "completion_rate": 0.5 } ],
+  "trend": [ { "month": "2026-11", "events": 2, "failed": 1 } ]
+}
+```
+Aggregation is monthly (storage granularity); the period filter maps to `months` (today/7d ≈ `months=1`, 30d ≈ `months=1–2`), and `trend` is per-month oldest→newest for charting.
 
 ### Acceptance
 - Every assistant request emits a telemetry event (chip/typed/voice; resolved/clarified/failed; feature + outcome) that flushes to the backend without blocking or breaking the UI, with PII stripped and no document text stored.
