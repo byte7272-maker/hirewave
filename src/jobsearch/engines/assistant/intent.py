@@ -21,7 +21,7 @@ from typing import Any, Optional
 INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
-    "choose", "navigate", "start_playbook", "save",
+    "choose", "navigate", "start_playbook", "save", "search_jobs",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -190,6 +190,38 @@ def _match_playbook(text: str) -> Optional[str]:
     return best if score >= 0.5 else None
 
 
+_JOB_NOUN_RE = re.compile(r"\b(jobs?|roles?|positions?|openings?|listings?|postings?|vacanc(?:y|ies)|gigs?)\b")
+_SEARCH_VERB_RE = re.compile(r"\b(find|search|look for|look up|filter|get me|show me all|show all|list all)\b")
+# "<job noun> that/which/with/for/titled/…" — a filter clause attached to a job noun.
+_SEARCH_CLAUSE_RE = re.compile(
+    r"\b(jobs?|roles?|positions?|openings?|listings?|postings?)\s+(that|which|with|for|titled|called|matching|like|about|in)\b"
+)
+
+
+def _extract_search_query(t: str) -> Optional[str]:
+    """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
+
+    Recognizes a search verb ("find/search/list …"), a filter clause ("jobs that are …"),
+    or a keyword+job-noun phrase ("VP roles"). Defers to playbooks and to document/section
+    navigation so "which jobs fit" (a playbook) and "find my résumé" (nav) aren't hijacked."""
+    if not (_SEARCH_VERB_RE.search(t) or _SEARCH_CLAUSE_RE.search(t) or _JOB_NOUN_RE.search(t)):
+        return None
+    # A concrete playbook phrase ("which jobs fit", "rate my jobs") wins over search.
+    if _match_playbook(t):
+        return None
+    from jobsearch.engines.sourcing.job_query import parse_alternatives
+
+    alts = parse_alternatives(t)
+    query = " or ".join(alts).strip()
+    if len(query) < 2:
+        return None
+    # If what's left is really a section/document ("find my résumé", "show matches"),
+    # let the navigation matcher handle it instead of searching for that word.
+    if _match_section(query) or _doc_target(query):
+        return None
+    return query
+
+
 # ---- deterministic matcher -------------------------------------------------
 
 def _deterministic(text: str, context: dict) -> IntentResult:
@@ -253,6 +285,14 @@ def _deterministic(text: str, context: dict) -> IntentResult:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # job search ("find all jobs that are vice president or VP", "remote senior python
+    # roles") — a free-text query with OR-alternatives + synonym expansion. Checked
+    # before navigate so "find VP jobs" searches rather than just opening the jobs list,
+    # but it defers to playbooks and to section/document nav (see _extract_search_query).
+    sq = _extract_search_query(t)
+    if sq:
+        return IntentResult("search_jobs", 0.85, {"query": sq})
 
     # navigate ("go to / take me to / open <section>") — a nav verb + a section wins
     # over the playbook matcher, so "go to auto apply" navigates but "set up auto

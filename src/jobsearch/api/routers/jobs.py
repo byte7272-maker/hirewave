@@ -86,6 +86,33 @@ def list_jobs(
     return results
 
 
+@router.get("/search", response_model=list[JobPosting])
+def search_jobs(
+    state: StateDep,
+    _user: CurrentUser,
+    q: str = Query(..., min_length=1, description="free text, e.g. 'vice president or VP', 'remote senior python'"),
+    remote: Optional[bool] = None,
+    seniority: str = Query("", description="exact field filter: junior|mid|senior|lead|staff|principal|director"),
+    employment_type: str = Query("", description="exact field filter: full-time|part-time|contract|…"),
+    min_salary: Optional[int] = None,
+    include_hidden: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+) -> list[JobPosting]:
+    """Robust free-text search over the user's own postings. Understands OR-alternatives
+    ("vice president **or** VP"), expands title/seniority abbreviations (VP == vice
+    president, sr == senior, swe == software engineer, …), and ranks title hits above
+    description hits. This is what the assistant's 'find all … jobs' request maps to —
+    unlike the plain list filter, a single term matches its synonyms."""
+    from jobsearch.engines.sourcing import job_query
+
+    pool = [j for j in _match_pool(state, _user.id) if include_hidden or _visible(state, j)]
+    ranked = job_query.search(
+        pool, q, remote=remote, seniority=seniority,
+        employment_type=employment_type, min_salary=min_salary, limit=limit,
+    )
+    return [s.job for s in ranked]
+
+
 def _matching_profile(state: StateDep, user_id: str, resume_id: str) -> UserProfile:
     """The profile to rank against. With ``resume_id`` the ranking is driven by
     that résumé's text + the skills mined from it (so matches reflect the résumé
