@@ -302,3 +302,23 @@ def test_interpret_endpoint_offers_suggestions_on_a_miss():
     body = r.json()
     assert body["suggestions"], "a miss should come back with wording it understands"
     assert all("text" in s and "intent" in s for s in body["suggestions"])
+
+
+def test_generic_walk_resolves_to_current_screen():
+    """A generic 'walk me through / from the top / start over' with no named target
+    must resolve against the CURRENT screen — on Matches it walks the matches, so it
+    doesn't fall through to a default route (which had sent it to Documents)."""
+    for phrase in ("walk me through from the top", "from the top", "start over",
+                   "go through these one by one", "take me through these", "walk me through"):
+        r = interpret(phrase, context={"section": "matches"})
+        assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches", phrase
+
+    # Off Matches, a bare generic walk doesn't get wrongly routed to the matches walk.
+    assert interpret("walk me through from the top", context={"section": "documents"}).intent != "start_playbook"
+    assert interpret("walk me through from the top", context={"section": "dashboard"}).intent != "start_playbook"
+
+    # Naming a different target wins over the fuzzy matches-walk match.
+    assert interpret("walk me through my resume", context={"section": "matches"}).slots.get("playbook") != "walk_matches"
+
+    # Explicit matches phrasing still works from anywhere.
+    assert interpret("walk through my matches", context={"section": "dashboard"}).slots.get("playbook") == "walk_matches"

@@ -198,6 +198,20 @@ _SEARCH_CLAUSE_RE = re.compile(
 )
 
 
+_GENERIC_WALK_RE = re.compile(
+    r"\b(walk|take|run|guide|lead) me through\b"
+    r"|\bwalk through\b|\brun through\b|\bgo through (these|them|it|this|the)\b"
+    r"|\bfrom the top\b|\bstart over\b|\bstart from (the )?(top|beginning|start)\b"
+    r"|\b(one by one|one at a time)\b|\btake me through\b"
+)
+
+
+def _generic_walk(t: str) -> bool:
+    """True for a 'walk/take me through / from the top / start over / go through these'
+    request that names no specific target — resolve it against the current screen."""
+    return bool(_GENERIC_WALK_RE.search(t))
+
+
 def _extract_search_query(t: str) -> Optional[str]:
     """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
 
@@ -364,7 +378,23 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     # playbooks (a concrete task phrase)
     pb = _match_playbook(t)
     if pb:
-        return IntentResult("start_playbook", 0.85, {"playbook": pb})
+        # Guard the fuzzy 'walk_matches' match from stealing a request that names a
+        # DIFFERENT target — "walk me through my resume" token-overlaps "walk through my
+        # matches" but is about the résumé, not the matches.
+        _other_section = _match_section(t) not in (None, "matches")
+        if pb == "walk_matches" and (_doc_target(t) or _other_section):
+            pass
+        else:
+            return IntentResult("start_playbook", 0.85, {"playbook": pb})
+
+    # Generic walkthrough with NO named target ("walk me through from the top",
+    # "from the top", "start over", "go through these one by one") — resolve against the
+    # CURRENT screen so it doesn't fall through to a default route (which sent it to
+    # Documents). On Matches it walks the matches from the top-ranked.
+    if _generic_walk(t) and not _match_section(t) and not _doc_target(t):
+        section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+        if "match" in section:
+            return IntentResult("start_playbook", 0.8, {"playbook": "walk_matches"})
 
     # options / help
     if has("what can i do", "read my options", "what are my options", "my options", "what now",
