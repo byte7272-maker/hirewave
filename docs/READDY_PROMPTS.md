@@ -6184,3 +6184,35 @@ When interpret returns **`ask`** (free-form/unrecognized) or low confidence, the
 - An unrecognized command keeps the user on the current screen and asks to clarify; it never silently navigates to Documents.
 - "This one / the top one / number 2" resolve to the on-screen item; "walk me through my résumé" opens the résumé; every interpret call sends `section` (+ `options`/ids) so context commands work.
 
+
+## P195 — "Look up / tell me about a company" works for any match: web research with rank, employee feedback, stock, headlines, HQ/locations; and show where the job is based
+
+**Frontend. Backend is LIVE** (new `research_company` intent + expanded research brief). Builds on P185 (web-research consent + flow). The assistant must now understand company lookups — including for the company in the top job match — and show richer info.
+
+### Backend contract (LIVE)
+- **NLU:** `POST /assistant/interpret` returns **`intent: "research_company"`** with **`slots.company`**: a company name, or **`""`** meaning *resolve from context* ("this company", "the top match", "tell me about this employer"). So **send `context` with `job_id` and the current `section`** (P194) — when `company` is `""`, resolve it to the **focused job's company**, or if none is focused on Matches, the **top-ranked match's** company.
+- **Summarize:** `POST /assistant/research/summarize` now also returns **`headquarters`, `locations[]`, `stock{ticker,exchange,price}`, `headlines[]`, `employee_feedback`, `rank`** alongside `summary, facts[], leadership[], keywords[], skills[], tailoring[], sources[], caution`.
+
+### 1. Recognize and run a company lookup
+- When `interpret` returns `research_company`, resolve the company (slots.company or context) and run the **P185 research flow**: confirm (web_research consent + real-time "Research **{company}** on the web?"), have the **extension** fetch — the company site/about/leadership, plus searches for **reviews, stock, recent news, headquarters** — then POST the pages to `/research/summarize` with the current `resume_id`.
+- **Any company in the matches list is researchable.** Add a one-tap **"Research this company"** on each match card / in the brief, and make "tell me about {company}", "look up this company", "what do you know about them", "research the top match" all work (typed, voice, chip — one dispatcher, P194).
+- If `web_research` isn't enabled, offer to turn it on (P185), then confirm the specific search.
+
+### 2. Render the richer brief
+Show, prominently and clearly labeled (omit any field the API returns empty):
+- **Overview** + **rank/notability** (e.g. "Fortune 500") and **HQ + locations**.
+- **Stock** — ticker · exchange · price (mark it indicative/verify).
+- **Recent headlines** — a short list of news lines.
+- **Employee feedback** — the summary + any rating (e.g. "~4.1/5"), clearly attributed to public reviews.
+- **Leadership**, **useful facts**, and the **"use this in your job search"** block (keywords / skills / tailoring, each applyable) from P185.
+- Always show **sources** + the **caution** line; never present unverified figures (stock, ratings, names) as certain — label them "from public web, verify."
+
+### 3. Put where the job is based into the match description
+- In each match's **general description/brief**, include **where the job is based** — e.g. "Based out of {location}" (and "Remote" when applicable). The data is already on the match (`location`, `remote`); surface it in the card and in the spoken/written brief ("Technology at Acme — based out of Austin, remote-friendly — fit score 42").
+- When researching that company, tie its **headquarters/locations** to the job's location so the user sees both ("role is in Austin; company HQ is Boston").
+
+### Acceptance
+- "tell me about {company}", "look up this company", "research the top match" (typed or voice) **run a company lookup** — not silence, not a job search — and render a brief with **rank, HQ/locations, stock, recent headlines, employee feedback**, plus leadership/keywords/skills/tailoring, with sources + caution.
+- Every match exposes **"Research this company"**; "this company"/"the top match" resolves from context.
+- Each match's description shows **where the job is based** (location + remote).
+
