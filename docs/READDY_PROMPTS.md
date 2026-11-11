@@ -6091,3 +6091,24 @@ This is the 4th null-crash from the rebuilds (P170, P186, P187, P190). The perma
 - No narration auto-plays on any fresh load; the player is idle until the user starts it.
 - Prior-session walk state (matches index, SPEAKING) does not resume onto a different screen; resuming a task is only ever an explicit opt-in.
 
+
+## P192 — 🚨 Matches crash is a DERIVED/VIEW-STATE array, not the matches data — guard it, and defensively wrap the route
+
+**Frontend. No backend change.** P187 and P190 did not fix the Matches crash. New finding that explains why: **the matches API always returns every array field populated** (`reasons`, `matching_skills`, `gap_skills`, `breakdown`, `cross_posting_ids`, `consolidated_sources` all have defaults and are always present). So the `.length`-of-undefined is **NOT a field of a match** — guarding the matches list can't fix it. It is something the **page derives or reads elsewhere**.
+
+### Where to actually look (in priority order)
+1. **A derived/grouped/filtered array the Matches page builds** from the matches — e.g. grouping by category/company/score bucket, a "top N", a de-dupe/cross-posting group, a filtered subset, a selected-match's nested list. One of these is **undefined** (a lookup that missed, a group key that doesn't exist, a `find()` that returned undefined and then `.length` is read on it).
+2. **The `/api/v1/view-state/matches` response** (the page fetches it) — if the page reads an array off that view-state and it's absent/omitted, `.length` throws. Guard it and default to `[]`/`{}`.
+3. **A selected/active match object** read via `matches.find(...)` or `matches[selectedIndex]` that is `undefined`, then `.something.length`. Guard the lookup result before reading.
+
+### Fix
+- In the Matches page, **guard every `.length`/`.map`/`[0]` on a DERIVED value, a `find()`/lookup result, and any `view-state` field** — `(x ?? []).length`, `found?.list?.length ?? 0`. Initialize all derived arrays and view-state-backed state to `[]`/`{}`.
+- **Defensively wrap the Matches route content** so no single undefined read white-screens it (the route error boundary already catches it, but this component must not throw on valid data).
+
+### ⭐ Faster path (recommended): let Readdy's builder pinpoint it from the live error
+Remote guesses have missed twice. Readdy can see its own source + the runtime error, so hand it the exact error and ask it to fix that line:
+> On `/dashboard/matches` the page throws **`TypeError: Cannot read properties of undefined (reading 'length')`** (the error card's DETAILS shows it, at the matches results component). The matches API data is fine (all arrays populated). Find the exact `.length` in the Matches page that runs on an **undefined derived/grouped array, a `find()` result, or a `view-state` field**, guard it with `?? []`, and initialize that value so it's never undefined. Then confirm the matches cards render instead of the error card.
+
+### Acceptance
+- `/dashboard/matches` renders the **match cards** (not "Something went wrong"); no "reading 'length'" error; "Try again" never needed.
+
