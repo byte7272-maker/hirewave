@@ -5750,3 +5750,39 @@ Route the **suggested-action chip**, **typed text**, and **voice transcript** th
 - The **chip, typed, and voice** paths behave identically (one dispatcher).
 - Destructive steps confirm first (P180); applies are reversible with visible before→after.
 
+
+## P182 — Assistant learning telemetry: capture common questions + failures (couldn't answer/act), summarize them for the admin, and track top features engaged
+
+**Frontend emits events + renders the admin digest; a small backend is REQUIRED for cross-user aggregation** (a per-browser store like P180's can't tell the admin the *most common* anything). This complements P180: P180 learns per-user in the browser; P182 learns across all users for the admin to act on.
+
+### 1. What to capture (one lightweight event per assistant interaction)
+Emit an event whenever the assistant handles (or fails to handle) a request:
+- **utterance** — the typed text or the voice transcript, and whether it came from a **chip / typed / voice** path.
+- **resolved intent** (from P180's dispatcher) and **status**: `resolved` · `clarified` (needed a follow-up) · `failed`.
+- **failure class** when status=failed: `not_understood` · `understood_no_action` · `action_errored` · `missing_capability` (we don't do that yet).
+- **feature engaged** — design · versions · bullets · tailor · ask-ai · highlights · matches · doc-switch · archive/delete · review-brief · walkthrough — and **outcome**: `completed` · `abandoned`.
+- **context** — page/route, document type (résumé/cover letter), anonymized user id, app version, timestamp.
+- **Privacy:** this is product telemetry, not content capture. Store the short utterance for clustering but **strip obvious PII** (emails, phone numbers) and **never store full document text** or résumé content. Keep payloads small.
+
+### 2. Where it goes (buffer → flush → backend)
+- Buffer events in memory/localStorage and **flush in batches** to a backend ingest endpoint; **never block the UI** and never lose the interaction if the flush fails (retry/backoff, drop silently on repeated failure).
+- Required backend endpoint: **`POST /api/v1/assistant/telemetry`** (accepts a batch of events). *(See note — I can build this and the two below.)*
+
+### 3. Admin digest (admin-only view)
+Add an **admin-only** section (gated to admin accounts; regular users never see it) that reads aggregates from the backend and shows:
+- **Top questions asked** — clustered by normalized intent / fuzzy-grouped phrasing, with counts.
+- **Top failures — what it couldn't answer or act on** — ranked by frequency, each with **example phrasings + failure class**, so the admin knows exactly what to build or teach next (e.g., "47 asks for 'export to PDF' → `missing_capability`").
+- **Top features engaged** — a usage leaderboard with **completion vs abandonment** rates per feature.
+- **Trend over time** with a period filter (today / 7d / 30d).
+- Presented as an **actionable digest**, not raw logs.
+- Required backend endpoints: **`GET /api/v1/admin/assistant/insights`** (summaries: top questions, top failures, feature usage, trends) — admin-authenticated.
+
+### 4. Close the learning loop
+- A `failed`/`clarified` utterance feeds **both**: P180's **per-user** learned-alias store (immediate, local) **and** the P182 **cross-user** aggregate (admin-reviewed).
+- The admin can **promote a common miss** into a recognized command/synonym **globally** (or flag it as a capability to build). Optional endpoint: **`POST /api/v1/admin/assistant/aliases`** to add a global synonym the dispatcher then recognizes for everyone.
+
+### Acceptance
+- Every assistant request emits a telemetry event (chip/typed/voice; resolved/clarified/failed; feature + outcome) that flushes to the backend without blocking or breaking the UI, with PII stripped and no document text stored.
+- The **admin** (and only the admin) sees a digest of **top questions, top failures with example phrasings + class, and top features engaged with completion/abandonment**, filterable by period.
+- Failures feed both per-user learning (P180) and the admin aggregate; the admin can promote a common miss into a globally recognized command/synonym.
+
