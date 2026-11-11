@@ -5926,3 +5926,34 @@ The extension exposes a research capability the web app can call:
 - With `web_research` granted, "research Acme" shows a **confirm**, then the assistant uses the **browser** to fetch and renders a brief with **overview, facts, leadership, and a 'use this in your job search' block (keywords / skills / tailoring)**, each tailoring item applyable to the résumé/cover letter.
 - Nothing is fetched without the scope **and** a real-time yes; sources + caution are shown; no private/logged-in data is scraped and no PII goes into queries.
 
+
+## P186 — 🚨 URGENT HOTFIX: site crashes with "Cannot read properties of undefined (reading 'connectionsKnown')" (regression of P170)
+
+**Frontend. No backend change. This is crashing the live site right now** — every route render throws, white-screening pages. It is the **same crash P170 fixed, which has regressed** (a later rebuild of the shared layout dropped the null-guard). Re-apply it and make it permanent.
+
+### The error (from the live console, build `index-CnMGBNrC.js`)
+```
+Route render error: TypeError: Cannot read properties of undefined (reading 'connectionsKnown')
+```
+Something reads `.connectionsKnown` off an object that is `undefined` on first render (before connection/profile data has loaded, or for a brand-new user who has no connection state yet — the P167 new-user path). When it's undefined, the read throws and the **whole route crashes**.
+
+### Fix (make every access null-safe, and treat undefined as "new / not connected")
+1. **Find every read of `connectionsKnown`** (and the object it hangs off — the connection/onboarding/new-user detection state, likely shared by the dashboard, matches, and the P167 welcome logic).
+2. **Guard each one** with optional chaining + a default, e.g.:
+   ```js
+   const connectionsKnown = connectionState?.connectionsKnown ?? false;
+   // and never: something.connectionsKnown   (throws when `something` is undefined)
+   ```
+   Default to **`false`** — i.e. treat missing/loading state as **"connections not known yet / new user, not connected."** That's the safe, correct assumption and it drives the P167 "connect a job board" path.
+3. **Initialize the state object** so it's never `undefined`: give the detection/onboarding state a default shape (`{ connectionsKnown: false, connected: false, isNew: true, … }`) instead of `undefined`, so no consumer can hit this.
+4. **Audit the components that recently changed** (P179 layout/scroll, P180 dispatcher, P181 docking, P167 welcome) — one of them rebuilt the shared layout and reintroduced the unguarded read. Fix it there, not just at the call site.
+5. **Keep a route-level error boundary** so a single component fault shows a small inline fallback and a Reload, never a white screen for the whole app.
+
+### Make it permanent (this is the 2nd time)
+Add a short note in the shared layout/connection module: *"connectionsKnown and all connection/new-user state must be read null-safe (`?.` + default false); the state object is always initialized, never undefined — a bare read white-screens the app (P170, P186)."* so the next rebuild doesn't drop it again.
+
+### Acceptance
+- The dashboard, matches, and every route **render without throwing**; no "reading 'connectionsKnown'" in the console.
+- A brand-new user (no connections) and a still-loading state both render fine (treated as "not connected" → shown the connect path), not a crash.
+- A fault in one widget shows an inline fallback + Reload, never a full white screen.
+
