@@ -5848,3 +5848,35 @@ Every feature that uses the player/transport or step-by-step narration must be a
 - On Matches: **Stop** halts immediately and clears the queue (silence, no re-fire); **Pause** halts and resumes; **"next"** advances to the next match and reads **that** one (never re-reads match 1); at the end it says so and stops.
 - **No feature** loops, re-reads, or ignores Stop/Pause; a genuinely stuck step **trips the breaker and asks** instead of repeating; held keys / repeated OK presses don't run away (one press = one step).
 
+
+## P184 — Wire up robust job search: the assistant acts on "find all jobs that are vice president or VP" and shows ranked results
+
+**Frontend. The backend is LIVE and deployed** — build the assistant to use it. Today a search request like *"find all jobs that are vice president or VP"* does nothing; now there's a real intent + endpoint behind it, so the assistant must recognize the request, run the search, and **drive the view** to the results (per P181).
+
+### Backend contract (LIVE — build to exactly this)
+- **NLU:** `POST /api/v1/assistant/interpret` now returns **`intent: "search_jobs"`** with **`slots.query`** = the cleaned, OR-joined query (e.g. `"vice president or vp"`). It already handles synonym/abbreviation expansion server-side (**VP == vice president, sr == senior, swe == software engineer, mgr == manager, …**) and splits OR-alternatives, and it **defers** to navigation/playbooks so "find my résumé" and "which jobs fit" are *not* treated as searches.
+- **Search:** **`GET /api/v1/jobs/search`** (user Bearer). Params:
+  - `q` (**required**, the query — pass `slots.query`, or the raw typed text),
+  - optional `remote` (bool), `seniority` (junior|mid|senior|lead|staff|principal|director), `employment_type` (full-time|part-time|contract|…), `min_salary` (int), `include_hidden` (bool), `limit` (1–200, default 50).
+  - Returns a **ranked `list[JobPosting]`** (best match first; title hits outrank description hits), each with `id, title, company, location, remote, seniority, salary_range, match_score, url, …`.
+
+### 1. Recognize and run the search
+- When `interpret` returns `search_jobs`, **call `GET /api/v1/jobs/search?q=<slots.query>`** and show the results. Don't try to pre-filter or expand synonyms on the client — the engine does it; just pass the query through.
+- Route the **chip, typed, and voice** paths through the same handler (P180/P181 one dispatcher): typing "VP or vice president" in the assistant input runs the same search as saying it.
+- When the utterance clearly carries a structured filter, pass it as a param too for precision: **remote** ("remote", "work from home"→`remote=true`), **seniority** word, **salary** ("over $200k"→`min_salary=200000`). Otherwise just send `q` (the engine still canonicalizes "remote", "senior", etc.).
+
+### 2. Drive the view (don't just talk — P181)
+- Switch to **Matches/Jobs**, **dock** the assistant into the right pane, and render the returned jobs **prominently** as a ranked results list (title · company · location · match score), newest/strongest first. Highlight that this is a filtered view ("Vice President / VP — 7 results").
+- **Speak a short summary** ("Found 7 roles matching vice president or VP — the top one is VP of Marketing at Acme"), paced, not a monologue. Each result is clickable to open the job, with quick actions (open · save · tailor to this).
+
+### 3. No results / refine
+- If the search returns empty, **say so and offer to broaden**: drop a filter, try a synonym, or search everything ("No VP roles in your current jobs — want me to pull new ones from your sources, or search a different title?"). Never leave a blank screen or claim results that aren't there (per P176 failed-render detection).
+
+### 4. Log it (P182)
+- Emit a telemetry event: `feature: "matches"` (or a `search` tag), `status: resolved` when results shown / `failed` + `missing_capability` only if the endpoint can't serve it, and the utterance — so the admin digest surfaces common searches and misses.
+
+### Acceptance
+- Saying or typing **"find all jobs that are vice president or VP"** returns and displays the VP/Vice-President roles (both spellings), ranked, on the Matches view with the assistant docked — not silence and not the jobs list unfiltered.
+- Synonyms work from the UI (searching "VP" finds "Vice President" titles; "sr engineer" finds "Senior Software Engineer"); **OR** works ("director or VP").
+- Structured phrases apply filters (remote / seniority / salary); empty results prompt a broaden/refine offer; chip, typed, and voice all run the same search.
+
