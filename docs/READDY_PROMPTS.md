@@ -6216,3 +6216,25 @@ Show, prominently and clearly labeled (omit any field the API returns empty):
 - Every match exposes **"Research this company"**; "this company"/"the top match" resolves from context.
 - Each match's description shows **where the job is based** (location + remote).
 
+
+## P196 — Matches Brief says "0 strong fits — best scores 80" when there are several 79–80 matches (wrong threshold)
+
+**Frontend. No backend change.** The dashboard Matches Brief shows **"0 strong fits in your pool — the best one scores 80"** even though the pool has several matches at **79–80**. The brief is computing "strong fits" with its **own threshold that's higher than the data**, instead of using the count the backend already provides.
+
+### The truth (backend, already correct)
+The dashboard endpoint (`GET /api/v1/dashboard`, `matches` object) returns:
+- `total` — number of matches,
+- **`strong`** — count of matches with **score ≥ 60** (the canonical "strong" definition),
+- `top` — the top match (with `score`), `top_matches` — the top 5.
+So for a pool topping at 80 with matches at 79–80, **`matches.strong` is ≥ 1** (here it should be several), not 0.
+
+### Fix
+1. **Use `matches.strong` from the dashboard API for the "strong fits" count** — do **not** recompute it with a different, higher local threshold. A match scoring 80 or 79 is a strong fit.
+2. If the brief must compute client-side anywhere, use the **same threshold (score ≥ 60)** as the backend, and apply it consistently in the dashboard brief **and** the Matches-page brief (one definition of "strong").
+3. **Fix the wording to match the data**: never say "0 strong fits" when `matches.strong > 0`. Say e.g. "**{strong} strong fits** in your pool — the best scores {top.score}." When `strong` is genuinely 0, keep the current "best one scores {top.score}" phrasing.
+4. Keep "Ranked best-first / take the top card" guidance.
+
+### Acceptance
+- With matches at 79–80, the brief reads "**N strong fits** … best scores 80" (N ≥ the number of matches ≥ 60), never "0 strong fits."
+- The strong-fit count equals the backend's `matches.strong` (score ≥ 60); the dashboard brief and the Matches-page brief agree.
+
