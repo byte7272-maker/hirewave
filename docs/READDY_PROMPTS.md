@@ -6532,3 +6532,66 @@ Live `GET /api/v1/resumes` returns the user's real résumés, current-first (sam
 ### Acceptance
 - "Review now" produces the review brief (no "Method Not Allowed").
 - Review and assistant actions target the résumé currently open, falling back to the current (first) real résumé.
+
+
+## P206 — CONSOLIDATED assistant + documents UI spec (publish this once; folds P193, P197–P205)
+
+**Frontend. Every backend endpoint below is LIVE and verified on production (commit 010825b).** This single prompt replaces publishing P193, P197, P198, P199, P200, P201, P202, P203, P204, P205 one at a time — implement all of it together. The detailed per-topic prompts remain as reference. Treat this as the current target state of the assistant and the Documents workspace.
+
+---
+### 0. Architecture — one generic assistant runtime from the capability manifest (P201)
+- On sign-in, fetch **`GET /api/v1/assistant/capabilities`** (cache it). It returns `version, behaviors[], verbs{}, destructive_verbs[], playbooks[], sections[]`; each section has `purpose, current, walkthrough, actions[] (label, verb, objects[], intent, slots, destructive, confirm), controls[] (label, does), offers[], aliases[]`.
+- Build the **seven behaviors once**, driven by the manifest (not per screen): **guide-on-arrival, recognize verb+object, pending-offer (yes/no), confirm-destructive, highlight+dock, speak-on-update, one-source-of-truth.** Do **not** hard-code per-section purpose text, buttons, offers, or confirm rules — read them from the manifest. Adding a feature later = one manifest entry, no new UI code.
+
+### 1. Overlay = ONE global, repositionable, highlighting component, site-wide (P179/P181/P199/P204)
+- Mount a single `AssistantOverlay` on **every** page. It must:
+  - **Reposition:** draggable by its header, snap/dock to edges/corners, position persisted per device (localStorage, try/catch). The user *and* the assistant can move it. Present on every screen.
+  - **Highlight API:** `highlight(target)` rings any element and scrolls it into view; `clearHighlight()` removes it. Used to point at whatever is being discussed (document, match card, button). Highlight follows the current step, clears on Stop.
+  - **Never cover focused content:** when discussing/focusing an element, auto-dock out of the way and scroll the target into view so it's fully visible with **no manual scrolling**; the overlay chrome must not sit on top of the document.
+- These are part of the shared runtime (§0), so they can't regress per page.
+
+### 2. Speak + guide on every screen (P193/P199/P200/P204)
+- **Speak on every update:** tie narration to the same state that renders the overlay text — speak on every screen, refresh, and document/item switch (it was silent on Documents). Never show words without speaking them unless muted.
+- **Guide on arrival (every section, incl. Dashboard and Auto-apply):** state the section `purpose`, name 2–3 things you can do (`actions[].label`), **offer the walkthrough** (pending offer), and **highlight the primary `controls[]`** speaking each `does`. The **Dashboard** is the default landing page — be thorough there.
+
+### 3. Follow-up yes/no awareness — pending offers, no default navigation (P198)
+- Every yes/no question or "want me to…?" arms a single **`pendingOffer`** (with the concrete `onYes`/`onNo`) **before** the user can answer. `confirm`→run `onYes`; `decline`→`onNo` or acknowledge and stop. Clear on resolve / new command / Stop.
+- **Remove the hidden "default to Documents / show cover letter" route.** A yes/no with nothing pending must **not navigate** — say "nothing's waiting on a yes" and show suggestions. During a Matches walk, "yes/next/continue" advances **within Matches**, never leaves it.
+- Consent (web_research) and destructive (archive/delete) confirmations resolve **their own** pending offer, never each other or a default.
+
+### 4. Documents — current doc, rendered with its template, centered + highlighted
+- **Current résumé, never a sample (LIVE):** `GET /api/v1/resumes` returns real résumés current-first with samples hidden once a real one exists (same for `/cover-letters`). Use the **currently-open document** when the user is viewing one (its `resume_id` from context), else the **first** from the list. `include_sample=true` only for the deliberate demo. One source of truth.
+- **Render with the template (same as the marquee) (P203/P204):** show the résumé from **`GET /api/v1/resumes/{id}/render`** → render **`data` onto `template.style`**, honoring the active version, **reusing the marquee's render component** — NOT `rendered_text`/`markdown` and NOT `preview.html` (that's only a raw-text fallback). The assistant's view and the marquee must be the **same** rendered output. Same for cover letters.
+- **On show:** center and highlight the **rendered** document (§1), name it and its version ("showing your résumé 'Senior PM v3', version 3 of 4"), and offer next steps: **Review it / Modify it / Use for a job application / Tailor it** (each a pending offer).
+- After an edit/version switch, re-render so the assistant view and marquee update identically.
+
+### 5. Matches — walkthrough fidelity (P193/P197)
+- **Fix the Saved Searches crash first (P193):** guard the Saved Searches widget — `saved?.length`, default `[]`, from `GET /api/v1/sourcing/searches`. (This crash currently blocks the Matches page; the walk can't be tested until it's fixed.)
+- **Walk the SAME on-screen ranked list** (dashboard `top_matches`), from #1; never cite a match not visible. For each match speak **title · company · fit score · salary range · location** ("based out of {location}" / Remote).
+- Use **fresh** matches (never a prior session's cached job); **state when matches were last updated** and **offer to refresh** (re-fetch on yes). **Replay** re-speaks the last statement. **Highlight** each match card and **reposition/dock** so the current match stays visible (§1).
+
+### 6. Email: address (document) vs account (source) vs ambiguous (ask) (P199–P202)
+- NLU (LIVE) returns: an email **address** edit → `navigate section=documents, doc=resume|cover_letter, edit="…"`; **connect/add an email account/source** → `start_playbook: connect_source`; **remove/change a source** → `navigate section=connect, manage=remove|change`; a bare ambiguous "change the email" → `intent: "ask", slots.clarify: "email_target"` with a `reply`.
+- **Address edit:** open the **current real résumé** (§4), **prefill Ask AI** with the instruction, **confirm** (P180), then save a version. If the new value is missing ("change my email address" with no address), **ask for it** — **never write the command text into the document.**
+- **Ambiguity → always ask, never guess/default.** On `ask`/`unknown`/`clarify`, or a missing required value, speak the question and wait; resolve the answer as a pending offer.
+
+### 7. Connect — multiple email sources, capped at 5 (P199/P200/P202)
+- On arrival, guide + highlight **Add email source** and the provider buttons (Gmail/iCloud/Outlook), explaining each; run `connect_source` as a highlighted, step-by-step walkthrough that waits for the user's sign-in and **never asks for a password**.
+- List connected addresses (`GET /api/v1/integrations` → provider + `account_email`), each with **Remove** (`DELETE /api/v1/integrations/{provider}?account_email=…`, confirm). Allow up to **5** ("3 of 5 used"); the 6th connect returns **402 `email_sources`** — show the cap message plainly, not a generic error.
+
+### 8. Review brief — POST not GET (P205, verified 405 fix)
+- Call **`POST /api/v1/resumes/{id}/review`** (and `POST /api/v1/cover-letters/{id}/review`) with `Content-Type: application/json` and body `{}`; render the returned review. **GET returns 405 ("Method Not Allowed")** — that's the current bug. Review acts on the open document (§4).
+
+### 9. Command history recall + logging + tester feedback (P202)
+- **Last-5 recall:** keep the last 5 entered commands (typed + final voice transcript) per device; **↑ recalls previous, ↓ next**, like Claude's input; a lost/unactioned command is recoverable with ↑ (no retyping). De-dupe consecutive, cap 5.
+- **Log every command** via `POST /api/v1/assistant/telemetry` (batches ≤200): `{utterance, path, intent, status, failure_class?, feature?, outcome?}` — **including not-understood** (`status:"failed", failure_class:"not_understood"`). This fills the admin command log (most-common + failing).
+- **Tester feedback:** a one-tap "Something off? Tell us" (and after a failed/clarified command) posts `{note, utterance?, intent?, section?}` to **`POST /api/v1/assistant/feedback`** (pre-fill from the current command). It appears, newest-first, in the admin digest `GET /api/v1/admin/assistant/insights` under `feedback[]`, alongside `top_questions`, `top_failures`, `feature_usage`.
+
+### Acceptance (publish-and-verify)
+- Résumé shows **templated render = marquee**, centered + highlighted; the overlay drags/docks (persists) and never hides the document; the assistant speaks and guides on every screen.
+- A yes/no with nothing pending doesn't navigate; a Matches "yes/next" advances in place; "Review the matches?"→yes starts the review.
+- Matches page doesn't crash; the walk reads the on-screen list with title/salary/location, fresh, with refresh offer, working Replay, highlight + reposition.
+- "replace my email address" edits the **current real résumé** (asks for the new address if missing, never writes the command verbatim); "connect an email account" → Connect; "change the email" → asks which.
+- Connect lists sources, adds up to 5 (with remove + cap message).
+- "Review now" works (POST, no 405).
+- ↑/↓ recalls the last 5 commands; every command (incl. not-understood) is logged; "Something off?" feedback reaches the admin digest.
