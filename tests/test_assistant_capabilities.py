@@ -61,13 +61,18 @@ def test_connect_declares_the_five_source_limit():
     assert caps.for_section("connect").get("limits", {}).get("email_sources") == 5
 
 
-def test_walkthroughs_have_narratable_steps():
-    # The connect/auto-apply walkthroughs carry ordered steps (say + highlight) so the
-    # generic runtime narrates and highlights them — never a silent page.
-    for s in ("connect", "auto_apply"):
-        steps = caps.arrival_brief(s)["steps"]
-        assert steps and all(st.get("say") and st.get("highlight") for st in steps)
-    # a step that needs the user to act is flagged to wait
+def test_every_section_has_narratable_steps_matching_its_controls():
+    # Every section carries ordered steps (say + highlight) so the generic runtime
+    # narrates and highlights them — never a silent page. Each step's highlight must
+    # name a real control label in that section.
+    for s in caps.manifest()["sections"]:
+        steps = s.get("steps", [])
+        assert steps, s["section"]
+        control_labels = {c["label"] for c in s.get("controls", [])}
+        for st in steps:
+            assert st.get("say") and st.get("highlight"), (s["section"], st)
+            assert st["highlight"] in control_labels, (s["section"], st["highlight"])
+    # a step that needs the user to act is flagged to wait (connect sign-in)
     assert any(st.get("wait") for st in caps.for_section("connect")["steps"])
 
 

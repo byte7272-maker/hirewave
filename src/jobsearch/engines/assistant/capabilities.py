@@ -100,6 +100,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Continue where you left off", "does": "Jump back into your last task."},
         ],
         "offers": ["Want a quick status report?", "Want me to walk your top matches?"],
+        "steps": [
+            {"say": "This is your dashboard — a quick read on your matches, documents, and what to do next.",
+             "highlight": "Matches brief"},
+            {"say": "Your Matches brief shows how many fits you have, best first — open it to dive in.",
+             "highlight": "Matches brief"},
+            {"say": "You can always pick up where you left off from here.",
+             "highlight": "Continue where you left off"},
+        ],
     },
     "matches": {
         "purpose": "Jobs ranked best-first for you — open one to see why it fits and the gaps.",
@@ -118,6 +126,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Refresh matches", "does": "Pull the latest roles and re-rank."},
         ],
         "offers": ["Want me to walk your top matches?", "Research the top company?"],
+        "steps": [
+            {"say": "These are your job matches, ranked best-first for you.",
+             "highlight": "Top match card"},
+            {"say": "Open the top card to see why it fits and what's missing.",
+             "highlight": "Top match card"},
+            {"say": "Pull the latest roles any time with Refresh matches.",
+             "highlight": "Refresh matches"},
+        ],
     },
     "documents": {
         "purpose": "Your résumés and cover letters — pick one to review, edit, tailor, or use to apply.",
@@ -139,6 +155,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Versions", "does": "Switch, rename, or activate a saved version."},
         ],
         "offers": ["Review it", "Modify it", "Use it for a job application", "Tailor it to a job"],
+        "steps": [
+            {"say": "This is your document, shown exactly as it renders.",
+             "highlight": "Document preview"},
+            {"say": "Describe any change in plain words and I'll make it — you confirm before it's applied.",
+             "highlight": "Ask AI"},
+            {"say": "Every change saves its own version, so you can switch back any time.",
+             "highlight": "Versions"},
+        ],
     },
     "connect": {
         "purpose": "Connect the email accounts and job boards Project Harbor pulls jobs from.",
@@ -201,6 +225,12 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Start practice", "does": "Begin a mock interview; answer by voice."},
         ],
         "offers": ["Want to run a quick practice interview?"],
+        "steps": [
+            {"say": "This is interview practice — I'll ask questions out loud and give you feedback.",
+             "highlight": "Start practice"},
+            {"say": "Tap Start practice and answer by voice whenever you're ready.",
+             "highlight": "Start practice", "wait": True},
+        ],
     },
     "inbox": {
         "purpose": "Job-alert emails you forwarded, with the roles pulled out.",
@@ -213,6 +243,12 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Forwarding address", "does": "Forward board alerts here to ingest their jobs."},
         ],
         "offers": ["Want your forwarding address to pull jobs from email alerts?"],
+        "steps": [
+            {"say": "This is your inbox — job-alert emails you forward here get their roles pulled out automatically.",
+             "highlight": "Forwarding address"},
+            {"say": "Forward board alerts to your forwarding address and the jobs show up in your matches.",
+             "highlight": "Forwarding address"},
+        ],
     },
 }
 
