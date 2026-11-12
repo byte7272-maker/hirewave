@@ -6514,3 +6514,21 @@ These behaviors regressed because they're re-built per screen. Build **one** alw
 
 ### Verify in the browser
 After publishing, this should be checked live: open a résumé, ask the assistant to show/walk it, and confirm (1) it renders with the template like the marquee, (2) the overlay can be dragged/docked and remembers where, (3) the résumé is focused + highlighted and never hidden behind the overlay.
+
+
+## P205 — "Review now" returns "Method Not Allowed" (405): call POST, not GET
+
+**Frontend. No backend change — verified live.** The résumé **Review brief → Review now** shows **"Method Not Allowed."** Confirmed against production (commit 010825b) with the signed-in session:
+- `GET /api/v1/resumes/{id}/review` → **405** (what the UI is doing)
+- `POST /api/v1/resumes/{id}/review` → **200** (correct)
+
+### Fix
+- Call the review endpoint with **POST**, not GET: `POST /api/v1/resumes/{resume_id}/review` (and likewise `POST /api/v1/cover-letters/{cover_letter_id}/review` for cover letters). Send `Content-Type: application/json` with a JSON body (`{}` is accepted). Render the returned `ResumeReview` as the Review brief.
+- Replace the "Method Not Allowed" text with the real brief on success, and a friendly retry on a genuine error.
+
+### Note — which résumé the review/assistant acts on
+Live `GET /api/v1/resumes` returns the user's real résumés, current-first (sample hidden) — verified working. When the user is **viewing/editing a specific résumé**, the review and the assistant must act on **that open document** (its `resume_id` from context), not the list's first — use the open doc when there is one, else the first from the list (P200/P202 one-source-of-truth).
+
+### Acceptance
+- "Review now" produces the review brief (no "Method Not Allowed").
+- Review and assistant actions target the résumé currently open, falling back to the current (first) real résumé.
