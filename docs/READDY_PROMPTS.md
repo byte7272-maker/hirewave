@@ -6412,7 +6412,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 - Everything below reads from this manifest. **Do not** hard-code per-section purpose text, button lists, offers, or confirm rules in the UI — read them from the section's entry.
 
 ### Build the nine generic behaviors once
-1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. (Supersedes the per-section guidance in P199/P200.)
+1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. **It must fire even when the assistant is collapsed (surface/announce; don't sit silent behind a launcher), and must not be suppressed just because the first-time greeting was already seen — the per-page announce is separate from the one-time greeting. Adaptive: for a frequent/active user, skip the static greeting and go straight to announcing the page + focal point + one relevant offer (see P216).** (Supersedes the per-section guidance in P199/P200.)
 2. **recognize_verb_object** — route `interpret`'s result to the matching `actions[]` entry (by `intent` + `slots`), and expand spoken synonyms from `verbs{}` so the same vocabulary works everywhere. New phrasings → extend `verbs` (one place), not per feature.
    - **Ambiguity → always ask for a decision (never guess, never default).** When `interpret` returns `intent: "ask"` (e.g. `slots.clarify: "email_target"`) or `intent: "unknown"`, the assistant must **speak the `reply`/clarifying question and wait** for the user to choose — it must not pick a side, run a default action, or navigate anywhere. Resolve the answer as a pending offer (P198). This covers the email **address vs account** split (`change the email` → "Do you mean the address on your résumé, or an account to connect?") and any future ambiguous object. An action's **missing required value** (e.g. "change my email address" with no new address given) is also ambiguity: **ask for the value, don't write the command text into the document.**
 3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. `offers[]` from the manifest are the arrival offers. (This is P198, now generic.)
@@ -6849,3 +6849,27 @@ When the assistant points to and highlights a target (e.g. "Add email source" on
 - "What's on my dashboard" makes the assistant **run through each value** (current résumé/cover letter, matches, strong, interviews, applications, résumés, saved jobs, weekly goal), speaking and **highlighting each tile** — not a generic description.
 - After the assistant points to a control, it **stays in position and keeps the highlight** (target unobstructed) until the user acts or the timeout expires; a drag or selecting elsewhere **interrupts immediately**.
 - The overlay never snaps back onto and covers the element it just highlighted.
+
+
+## P216 — The assistant must START on every new page (announce + offer help), adapt to a frequent user (skip the static greeting), and never sit silent behind the launcher
+
+**Frontend. No backend change** (the manifest already has purpose/controls/readouts/offers; `guide_on_arrival` is refined). Live test on the dashboard showed the assistant **collapsed to a launcher and silent** — it greeted once (`hw_intro_seen`, `hw_last_greet_ts`) and then stopped announcing on new pages. Fix: fire on every navigation, adaptively. Builds on P213 (steps), P214 (readouts), P207 (greeting/reload awareness), P201 (`guide_on_arrival`, `speak_on_update`, `narrate_values`).
+
+### 1. Start on every new-page visit — don't stay silent/collapsed
+- On navigating to a new page/section, the assistant must **start on its own**: **announce the page** (manifest `purpose`), **point at the focal point** (the primary `controls[]`/`readouts[]`), and **offer to help with something relevant** ("Want me to …?", from `offers[]` / the likely task). This must happen **even if the assistant is collapsed** — surface/speak the announcement and the offer (briefly expand or show a one-line prompt on the launcher); it must not sit silent behind "Open the Harbor Assistant."
+- **Separate the per-page announce from the one-time greeting.** `hw_intro_seen` / last-greet suppresses only the **first-time full greeting** — it must **not** suppress the per-page announce. Every new section still gets announced + offered.
+- The page is **silent only when the user mutes it** — otherwise arriving anywhere produces a short spoken announcement + an offer.
+
+### 2. Make the announcement relevant to the page, state, and activity
+- Tailor the opening to the **current page, its state, and recent activity** (use the stored command history/log and recent versions): e.g. on Documents after edits — *"You're on your résumé 'IT Director', version 35 — want me to review the latest changes or tailor it to a job?"*; on Matches — *"45 matches, 12 strong — want me to walk the top ones?"*; on Connect — *"No email sources yet — want me to connect one?"*.
+- **Always look to assist with a task or promote a relevant feature** tied to the user's likely intent on that page — not a generic "here's the page." Prefer the next useful action given what they just did.
+
+### 3. Adaptive greeting — don't be repetitive/mundane
+- **Detect frequent activity** (e.g. several navigations this session, or a returning active user via `hw_last_greet_ts` / nav count) and **skip the static greeting**. For a frequent/active user, go **straight to**: announce the page + focal point + one relevant offer. Reserve the fuller welcome for a first-time or long-absent user.
+- **Never repeat the same greeting/announcement back-to-back** (de-dupe), and keep the frequent-user announce to one short line + one offer. A plain refresh of the same page still doesn't re-announce (P207) — this is about **new** sections/pages.
+
+### Acceptance
+- Visiting any new page makes the assistant **speak a short, relevant announcement and offer help** on its own — even when collapsed — not sit silent.
+- A frequent/active user gets the **short announce + offer**, not the full static greeting; the same greeting never repeats back-to-back.
+- The opening reflects the page's state and the user's recent activity, and always offers a relevant task or feature.
+- Muting is the only thing that makes arrival silent.

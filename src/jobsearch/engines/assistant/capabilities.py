@@ -3,8 +3,10 @@
 Prompts P179–P200 each hand-specified the assistant's behavior for one feature. But
 they are all instances of the SAME small set of generic behaviors:
 
-  * guide-on-arrival   — on any navigate, say the section's purpose, what you can do,
-                         offer a walkthrough, and highlight the primary control(s)
+  * guide-on-arrival   — fires on EVERY navigation (never silent/collapsed): announce the
+                         section, point at the focal point, and offer a relevant action.
+                         Adaptive — skip the static greeting for a frequent/active user and
+                         go straight to the announce + offer; don't repeat the same greeting
   * recognize          — a verb (connect/add/remove/change/show/walk/tailor/research/…)
                          + an object resolves to one action
   * pending-offer      — every yes/no question arms a concrete follow-up; "yes" runs it

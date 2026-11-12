@@ -9,7 +9,7 @@ and it inherits all of them — no new per-feature logic.
 
 | Behavior | What it does | Replaces the per-feature prose in |
 |---|---|---|
-| `guide_on_arrival` | On any navigate: speak the section's purpose, name what you can do, offer a walkthrough, highlight the primary control(s). | P199, P200 |
+| `guide_on_arrival` | Fires on **every** navigation (never silent/collapsed): announce the section, point at the focal point, offer a relevant action. **Adaptive** — skip the static greeting for a frequent/active user and go straight to announce + offer; never repeat the same greeting. | P199, P200, P216 |
 | `recognize_verb_object` | A verb (connect/add/remove/change/show/walk/tailor/research/search/save) + an object → one action. | P181, P184, P195, P199 |
 | `pending_offer` | Every yes/no question arms a concrete follow-up; "yes" runs it; nothing pending never defaults to a random screen. | P198 |
 | `confirm_destructive` | Any action whose verb is remove/change confirms before running. | P180 |
