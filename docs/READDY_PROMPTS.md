@@ -6363,3 +6363,41 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 - On arrival the assistant **states the purpose, recommends the next step, and highlights the specific button(s)** with what each does — never a silent page.
 - "Replace the email on my résumé" **opens the résumé and makes that edit** (with confirmation), distinct from connecting a source; after connecting a new email, the assistant **offers** to update the résumé's email.
 - The connect-a-source playbook runs as a **highlighted, step-by-step** walkthrough that waits for the user's sign-in and never asks for a password.
+
+
+## P200 — Assistant must SPEAK on every screen, say what you can do + offer a walkthrough, name the current document, edit the REAL résumé (not the sample), and show multiple email sources (max 5)
+
+**Frontend, plus two LIVE backend changes** (noted inline). Fixes a batch of reported gaps. Builds on P180 (doc-awareness), P181 (highlight), P193 (speak on the dashboard), P194 (dispatcher + context), P198 (pending offers / next steps), P199 (guide + highlight on arrival).
+
+### Backend (LIVE after deploy)
+- NLU now routes **"replace my email address"** (and "change my email address", "update the email on my résumé") to a **document edit**: `intent: "navigate", section: "documents", doc: "resume"|"cover_letter", edit: "<instruction>"`. "connect/add an email account/source" still → `start_playbook: connect_source`. A bare ambiguous "change the email" returns `intent: "ask", slots.clarify: "email_target"` with a `reply` asking which they mean.
+- **Email sources are capped at 5 per user** (every tier). A 6th connect returns **HTTP 402** with `detail.resource: "email_sources"` and a message naming the cap. Multiple addresses are fully supported up to 5.
+
+### 1. The assistant must actually SPEAK (TTS silent on Documents)
+- On the résumé page, after a **refresh** and after **switching résumé ↔ cover letter**, the overlay showed its greeting/text **but never spoke.** Narration must fire **whenever the overlay text updates** — tie speech to the same state that renders the words, so text and voice never diverge. If speech is muted, show that; otherwise speak.
+- This applies on **every** screen and **every** navigation/refresh/doc-switch, not just the first load.
+
+### 2. On arrival, say what you can do here and offer a walkthrough — on EVERY section
+- Auto-apply spoke but **never said what the page is for or offered a walkthrough.** Generalize P199's guide-on-arrival to **all** sections (Dashboard, Documents, Matches, Auto-apply, Connect, Interview, Inbox): state the section's purpose in a line, **name the 2–3 things you can do here**, **offer a walkthrough** ("Want me to walk you through setting up auto-apply?"), and **highlight the primary control(s)** with what each does (P181/P199). The offer is a pending offer (P198) so "yes" works.
+
+### 3. On Documents, name the current document and version (not just "you're on documents")
+- When it lands on Documents it says "You're on Documents" but **never says whether it's showing a résumé or a cover letter, which one, or the version.** Announce it: "You're on Documents, showing your résumé 'Senior PM v3' (version 3 of 4)." Use the doc-awareness from P180 (current doc type, name, active version). Update this line whenever the shown document changes.
+
+### 4. Edit the user's CURRENT résumé — never the sample
+- "replace my email address in my résumé" **opened the SAMPLE résumé instead of the current one.** The edit (and any "show my résumé") must resolve to the user's **real, current résumé** — the active document / active version, the same one the Documents list shows — **never a seeded sample** (`is_sample`). This is the recurring split-source bug (see P193/P197): one source of truth for "the current résumé."
+- Flow for the `edit` slot: open that **current** document, **prefill Ask AI** with `slots.edit` (e.g. "replace the email address with ___"); if the new value isn't in the instruction, ask for it; **confirm before applying** (P180), then save a new version.
+
+### 5. Distinguish "replace my email address" from "connect an email source"
+- Honor the backend split: an email **address** is a résumé/profile **field** → document edit (#4); an email **account/source** → the Connect flow (P199). When the NLU returns `clarify: "email_target"`, **ask the user** ("Do you mean the email address on your résumé, or an email account to connect as a source?") and route by their answer — never guess the connection source.
+
+### 6. Multiple email sources on the Connect page, capped at 5
+- The Connect/Sources section must let a user **connect more than one email address** and **show the list** of connected addresses (`GET /api/v1/integrations` → provider + `account_email`), each with a **Remove** control (`DELETE /api/v1/integrations/{provider}?account_email=…`, confirm per P180).
+- Allow adding **up to 5**. Show remaining ("3 of 5 used"). On the **6th**, the connect call returns **402 `email_sources`** — surface the cap message plainly ("You can connect up to 5 email sources — remove one to add another"), don't show a generic error.
+- When the assistant guides the connect flow, mention they can add several (up to 5) and highlight **Add email source**.
+
+### Acceptance
+- After a refresh or a résumé↔cover-letter switch on Documents, the assistant **speaks** its text (not just displays it).
+- Arriving on **any** section, it **states the purpose, names what you can do, offers a walkthrough, and highlights the main control** — including Auto-apply.
+- On Documents it **names the current document (résumé vs cover letter), which one, and the version.**
+- "replace my email address" opens the **current** résumé (never the sample), prefills the edit, and confirms before saving; "connect an email account" goes to the Connect flow; a bare "change the email" **asks which**.
+- The Connect page lists connected email addresses, lets the user add **up to 5** (with remove), and shows the **cap message** on the 6th.

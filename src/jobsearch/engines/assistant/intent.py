@@ -266,6 +266,13 @@ _MANAGE_CHANGE_RE = re.compile(
 )
 # The thing being managed.
 _EMAIL_OBJ_RE = re.compile(r"\b(e-?mail|mailbox|gmail|icloud|outlook|inbox|hotmail|yahoo)\b")
+# An email ADDRESS is a contact FIELD ("my email address", "my email") — it lives on a
+# document/profile, NOT a connected source. This is the key distinction the user asked
+# for: "replace my email address" edits the résumé; "connect an email account" adds a
+# source.
+_EMAIL_ADDRESS_RE = re.compile(r"\bemail address(?:es)?\b|\bmy e-?mail\b")
+# Providers named as an ACCOUNT to connect.
+_PROVIDER_RE = re.compile(r"\b(gmail|icloud|outlook|yahoo|hotmail)\b")
 _SOURCE_OBJ_RE = re.compile(
     r"\b(source|sources|integration|integrations|connection|connections|account|accounts|provider|feed)\b"
 )
@@ -295,14 +302,20 @@ def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     if not (add or rem or chg):
         return None
     email = bool(_EMAIL_OBJ_RE.search(t))
-    src = bool(_SOURCE_OBJ_RE.search(t))
+    is_source = bool(_SOURCE_OBJ_RE.search(t)) or bool(_PROVIDER_RE.search(t))
+    address = bool(_EMAIL_ADDRESS_RE.search(t))
     doc = _doc_target(t)
     doc_ctx = bool(doc) or bool(_DOC_CTX_RE.search(t))
 
-    # 1) Changing/replacing a field (e.g. the email address) ON a document or profile —
-    #    that's a document edit, not a source. Open the named doc and hand the frontend
-    #    the instruction to run through Ask-AI (it confirms before applying, P180).
-    if email and doc_ctx and (chg or rem or add):
+    # 1) An email ADDRESS (a contact field), or any email edit scoped to a document,
+    #    is a DOCUMENT edit — not a source. "replace my email address" / "change the
+    #    email on my résumé" open the doc and hand the frontend the instruction for
+    #    Ask-AI (it confirms before applying, P180). This is the distinction the user
+    #    asked for, and it must open the user's CURRENT résumé, never a sample.
+    #    A connect/add verb is always a SOURCE action, so the address->document branch
+    #    only fires for change/replace (editing a field), or when a document is named
+    #    explicitly ("add my email to my résumé").
+    if ((chg or rem) and address and not is_source) or (email and doc_ctx and (chg or rem or add)):
         return IntentResult(
             "navigate", 0.85,
             {"section": "documents", "doc": doc or "resume", "edit": t},
@@ -313,15 +326,24 @@ def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     if _NAV_VERB_RE.search(t):
         return None
 
-    # 2) Connect / add an email account or a job source -> the connect playbook.
-    if add and (email or src):
+    # 2) Connect / add an email ACCOUNT or a job source -> the connect playbook.
+    if add and (is_source or email):
         return IntentResult("start_playbook", 0.85, {"playbook": "connect_source"})
 
-    # 3) Remove / change a source or account -> the connect section, flagged to manage.
-    if (rem or chg) and (email or src):
+    # 3) Remove / change an email ACCOUNT or source -> the connect section (manage).
+    if (rem or chg) and is_source:
         return IntentResult(
             "navigate", 0.85,
             {"section": "connect", "manage": "remove" if rem else "change"},
+        )
+
+    # 4) Bare, ambiguous email change ("change the email") with no address/source/doc
+    #    signal -> ask which they mean instead of guessing wrong (the reported bug).
+    if (chg or rem) and email and not address and not is_source and not doc_ctx:
+        return IntentResult(
+            "ask", 0.7, {"clarify": "email_target"},
+            reply="Do you mean the email address on your résumé, or an email account "
+                  "you connect as a source?",
         )
     return None
 

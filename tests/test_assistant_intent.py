@@ -121,6 +121,30 @@ def test_remove_source_navigates_to_connect_to_manage():
     assert r.slots["section"] == "connect" and r.slots.get("manage") == "remove"
 
 
+def test_replace_email_address_is_document_edit_not_source():
+    # The reported bug: "replace my email address" (no "in my resume") was going to the
+    # email CONNECTION source. An email ADDRESS is a contact field -> document edit.
+    for phrase in ("replace my email address",
+                   "change my email address",
+                   "update the email address on my resume"):
+        r = interpret(phrase)
+        assert r.intent == "navigate", (phrase, r.intent)
+        assert r.slots["section"] == "documents", (phrase, r.slots)
+        assert r.slots.get("doc") == "resume", (phrase, r.slots)
+
+
+def test_email_account_vs_address_are_distinguished():
+    # "account/source" -> connection; "address" -> document. Same verb, different object.
+    assert interpret("change my email source").slots["section"] == "connect"
+    assert interpret("change my email address").slots["section"] == "documents"
+
+
+def test_bare_ambiguous_email_change_asks_which():
+    r = interpret("change the email")
+    assert r.intent == "ask" and r.slots.get("clarify") == "email_target"
+    assert "résumé" in r.reply or "resume" in r.reply
+
+
 def test_navigate_to_cover_letter_vs_resume_carries_the_doc():
     # "go to my cover letter" must open the COVER LETTER, not just the Documents section
     # (which was defaulting to the résumé).

@@ -140,10 +140,26 @@ def enforce_new_cover_letter(state, user) -> None:
         _deny("cover_letters", f"Free accounts can keep up to {cap} cover letters — archive one to add another.")
 
 
+#: Absolute ceiling on connected email sources for EVERY user — applied regardless of
+#: tier or whether plan enforcement is on (testers included). A user may connect several
+#: addresses, up to this many.
+EMAIL_SOURCES_HARD_CAP = 5
+
+
+def email_sources_cap(state, user) -> int:
+    """The effective max email sources for this user: the tier cap (if any) clamped to
+    the absolute hard cap, and the hard cap even when the tier is unlimited."""
+    tier_cap = _cap(state, user, "email_sources")
+    return EMAIL_SOURCES_HARD_CAP if tier_cap is None else min(tier_cap, EMAIL_SOURCES_HARD_CAP)
+
+
 def enforce_connect_source(state, user) -> None:
-    cap = _cap(state, user, "email_sources")
-    if cap is not None and _email_sources_used(state, user) >= cap:
-        _deny("email_sources", f"Free accounts can connect up to {cap} email sources.")
+    cap = email_sources_cap(state, user)
+    if _email_sources_used(state, user) >= cap:
+        _deny(
+            "email_sources",
+            f"You can connect up to {cap} email sources — remove one to add another.",
+        )
 
 
 def enforce_autoapply(state, user) -> None:

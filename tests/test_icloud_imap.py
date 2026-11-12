@@ -85,6 +85,28 @@ def test_connect_icloud_stores_encrypted_and_lists():
     assert state.integration.imap_inboxes(uid, Provider.ICLOUD) == [("me@icloud.com", "abcd-efgh-ijkl-mnop")]
 
 
+def test_user_can_connect_several_email_sources():
+    # Multiple addresses are allowed (each is its own connection record).
+    state, c = _app()
+    h = _auth(c)
+    for i in range(3):
+        assert _connect_icloud(c, h, email=f"me{i}@icloud.com").status_code == 200
+    conns = [x for x in c.get("/api/v1/integrations", headers=h).json() if x["provider"] == "icloud"]
+    assert len(conns) == 3
+
+
+def test_email_sources_hard_capped_at_five_even_for_testers():
+    # Testers are "unlimited" by tier, but the absolute 5-per-user hard cap still applies.
+    state, c = _app(tester_emails=["cap@x.com"])
+    h = _auth(c, email="cap@x.com")
+    for i in range(5):
+        assert _connect_icloud(c, h, email=f"me{i}@icloud.com").status_code == 200, i
+    r = _connect_icloud(c, h, email="me5@icloud.com")  # the 6th
+    assert r.status_code == 402
+    detail = r.json()["detail"]
+    assert detail["resource"] == "email_sources" and "5" in detail["message"]
+
+
 def test_connect_icloud_unknown_provider_is_400():
     _, c = _app()
     h = _auth(c)
