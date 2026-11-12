@@ -6650,3 +6650,28 @@ The Documents view stacks several toolbars with **duplicate controls** on top of
 - The overlay body shows most of the panel height, scrolls, and always lands on the newest message/choices.
 - The overlay never hides the focused document (P204), and never announces choices that aren't actually rendered.
 - The Review brief shows the real brief (or a current-attempt error), never a stale "Method Not Allowed."
+
+
+## P209 — Number the bullets (reference by number), remove the Working-document toggle, and handle the Review error properly
+
+**Frontend, plus a LIVE backend improvement** (bullet-by-number resolution). Three items from live use.
+
+### 1. Number the "My Bullets" list so a user can reference a bullet by number
+- Show each bullet in **My Bullets** (and the suggested-bullets list) with a visible **number** — 1, 2, 3, … in order.
+- Pass the bullets to the assistant as the **ordered options context** (`context.options`, each `{id, label}`) in the **same order the numbers are shown**, so the number the user sees matches the option index. The NLU (LIVE) now resolves **"bullet 3" / "line 2" / "number 2" / "the third one"** to that option (returns its `option_id`/`index`).
+- Support referencing a bullet by number for the bullet actions: **"use bullet 3", "remove bullet 2", "reword bullet 5", "replace bullet 1"** → act on that numbered bullet (use/replace/remove/reword), with the usual confirm on removal (P180). Keep the numbers stable while the list is shown; renumber after a change.
+- When the assistant talks about a specific bullet, say its number ("bullet 3") and highlight it (P201 highlight), so speech and the on-screen number agree.
+
+### 2. Remove the Working-document toggle and section (clutter)
+- Remove the **Original / Working copy** toggle and its banner entirely from the Documents view — it's no longer useful and adds clutter on top of the document (supersedes P207 §1's softer "hide it").
+- Edits/tailoring simply operate on the document; the uploaded original stays downloadable from a single, unobtrusive **"Download original"** affordance (e.g. in Tools / Open in…), not a persistent toggle+banner stack.
+- Net result: the top of the document area is the document + one minimal toolbar (ties P207 §1 declutter), no Working-copy chrome.
+
+### 3. Review brief error — clear it; the endpoint is healthy
+- The error **"The review service refused that request — try again"** shown above the bullets is a **stale/transient** failure state, not a real block: `POST /api/v1/resumes/{id}/review` returns **200** with the brief (verified live). Transient failures can occur (e.g. an upstream LLM/egress hiccup during the Railway network incident).
+- Fix the handling: on **Try again**, **re-POST** `POST /api/v1/resumes/{id}/review` (JSON body `{}`) and render the returned review; **clear the error on success**. Don't keep showing a prior error once a later attempt succeeds, and don't render an error on load unless the current call actually failed (ties P208 §4). A single automatic retry on a transient failure is fine.
+
+### Acceptance
+- My Bullets shows numbered lines; "use/remove/reword/replace bullet N" acts on the Nth bullet; the assistant refers to bullets by the same numbers and highlights them.
+- The Original/Working-copy toggle and banner are gone; the original is still downloadable from a single affordance.
+- The Review brief renders (score/grade/summary) and the "refused that request" error clears on a successful attempt; Try again re-runs the POST.

@@ -137,8 +137,8 @@ def _resolve_reference(text: str, context: dict) -> tuple[Optional[str], Optiona
     Returns (option_id, index, disambiguation_options).
     """
     options = list(context.get("options") or [])
-    # explicit ordinal / number ("the second one", "number 3")
-    m = re.search(r"\b(?:number|option|#)\s*(\d+)\b", text) or re.search(r"\b(\d+)\b", text)
+    # explicit ordinal / number ("the second one", "number 3", "bullet 3", "line 3")
+    m = re.search(r"\b(?:number|option|#|bullet|line|item)\s*(\d+)\b", text) or re.search(r"\b(\d+)\b", text)
     idx = None
     if m:
         idx = int(m.group(1))

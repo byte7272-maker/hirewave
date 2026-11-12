@@ -145,6 +145,16 @@ def test_bare_ambiguous_email_change_asks_which():
     assert "résumé" in r.reply or "resume" in r.reply
 
 
+def test_reference_a_bullet_by_number():
+    # Numbered bullets: "bullet 3" / "line 2" resolve to that option so the user can
+    # reference a bullet by its number to the assistant.
+    ctx = {"options": [{"id": "b1", "label": "First"}, {"id": "b2", "label": "Second"},
+                       {"id": "b3", "label": "Third"}]}
+    assert interpret("use bullet 3", context=ctx).slots.get("option_id") == "b3"
+    assert interpret("bullet 1", context=ctx).slots.get("option_id") == "b1"
+    assert interpret("reword line 2", context=ctx).slots.get("index") == 1
+
+
 def test_use_email_address_on_resume_is_a_document_edit_not_a_bullet():
     # "use …" normally selects a bullet, but "use a different email address on my resume"
     # is a document edit (was misclassified as use_bullet).
