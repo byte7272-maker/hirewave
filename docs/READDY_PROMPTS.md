@@ -6595,3 +6595,31 @@ Live `GET /api/v1/resumes` returns the user's real résumés, current-first (sam
 - Connect lists sources, adds up to 5 (with remove + cap message).
 - "Review now" works (POST, no 405).
 - ↑/↓ recalls the last 5 commands; every command (incl. not-understood) is logged; "Something off?" feedback reaches the admin digest.
+
+
+## P207 — Declutter the Documents header, re-render cleanly after an edit, and make the assistant aware of a refresh vs a navigation (don't re-greet on reload)
+
+**Frontend, plus one LIVE backend fix** (noted). Follow-ups from live testing. Builds on P200/P204/P206 (render with template), P198/P201 (pending offers, speak-on-update).
+
+### 1. Declutter the Documents header — remove redundant/duplicate buttons
+The Documents view stacks several toolbars with **duplicate controls** on top of the document. Simplify to one clean header:
+- There are **multiple "Design" buttons** (in the top tool strip AND in the document sub-header) — keep **one**.
+- Remove the unnecessary **"WORKING ON" / "Working docs"** chrome and the duplicated **"Working copy"** labels cluttering the top of the document. The Original-vs-Working-copy concept can live behind a single small control, not a stack of banners.
+- Goal: the top of the document area shows the document and a single, minimal toolbar — not three rows of overlapping controls. Don't make the user scroll past clutter to see the résumé.
+
+### 2. Email (and any field) renders as text, never code — LIVE backend fix
+- An email that was a hyperlink in the uploaded DOCX was stored as `<a href="mailto:…">…</a>` and showed as **raw code** after an edit. The backend now **flattens inline HTML** (anchors → their text) in the résumé render/preview and on every save, so the contact line renders as a plain email. **No frontend change needed for the data** — just make sure the view renders the `/render` output (P206 §4).
+
+### 3. Re-render the templated doc immediately after an edit (don't drop to raw)
+- After an AI edit completes ("Applied: …"), **re-fetch `GET /api/v1/resumes/{id}/render` and re-render the templated document** with the change applied — do **not** leave the raw/markdown view or an un-refreshed page. The assistant says it completed the edit **and** the formatted view updates to match (same render as the marquee), showing the new value. Confirm the active version is the one rendered (P206 §4 one-source-of-truth) — never an older version.
+
+### 4. Greeting / reload awareness — refresh ≠ navigation (fixes the repeat)
+- The assistant must know it **already greeted this session**. On a **simple page refresh/reload of the same page**, it must **not re-greet or re-run the whole intro script** — resume quietly where it was (this is why it repeated itself when the page reloaded).
+- It **may** run its full scope again when the user **navigates to a different page/feature** (that's a real arrival → guide-on-arrival per P206 §2).
+- Implement: persist a per-session "greeted"/"intro-done" flag (sessionStorage, so it survives a reload but resets on a new session) keyed by nothing page-specific for the greeting, and a per-section "guided" flag so each section guides once per visit. Distinguish a **reload** (same URL/section) from a **navigation** (section/route changed): reload → skip greeting, continue; navigation → allowed to guide the new section. De-dupe: never speak the same greeting/intro twice in a row.
+- Pending offers and walkthrough state should **not** be auto-replayed on reload (P198/P202): a reload must not re-trigger the last utterance or re-run a walkthrough from the top.
+
+### Acceptance
+- The Documents header shows one minimal toolbar — no duplicate Design button, no "Working docs"/"Working copy" clutter stacked over the résumé.
+- After an edit, the **templated** document re-renders with the change (email as plain text, not code), matching the marquee and the current version.
+- Refreshing the page does **not** make the assistant greet again or repeat its intro; navigating to a different section still guides that section once.

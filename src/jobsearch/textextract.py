@@ -13,6 +13,37 @@ import re
 
 _TEXT_EXTS = {"txt", "md", "markdown"}
 
+# Inline HTML that can leak into résumé/cover-letter text (e.g. a DOCX email hyperlink
+# extracts as <a href="mailto:x">x</a>). Rendered as markdown it shows as raw code, so
+# we flatten anchors to their visible text and drop a few stray inline tags.
+_ANCHOR_RE = re.compile(r"<a\b[^>]*>(.*?)</a>", re.I | re.S)
+_MAILTO_HREF_RE = re.compile(r'href\s*=\s*["\']\s*mailto:([^"\']+)["\']', re.I)
+_BR_RE = re.compile(r"<br\s*/?>", re.I)
+_INLINE_TAG_RE = re.compile(r"</?(?:span|strong|em|u|b|i|font|small|sub|sup|mark|p|div)\b[^>]*>", re.I)
+
+
+def strip_inline_html(text: str) -> str:
+    """Flatten inline HTML that shouldn't appear in a plain/markdown résumé.
+
+    ``<a href="mailto:x">x</a>`` -> ``x`` (so an email renders as text, not code), other
+    anchors -> their link text (or the URL if empty), ``<br>`` -> newline, and a few stray
+    inline formatting tags removed. Leaves real markdown (``**bold**``) and plain ``<`` /
+    ``>`` comparisons untouched. Idempotent."""
+    if not text or "<" not in text:
+        return text or ""
+
+    def _anchor(m: "re.Match") -> str:
+        inner = _INLINE_TAG_RE.sub("", m.group(1) or "").strip()
+        if inner:
+            return inner
+        href = _MAILTO_HREF_RE.search(m.group(0))
+        return href.group(1).strip() if href else ""
+
+    out = _ANCHOR_RE.sub(_anchor, text)
+    out = _BR_RE.sub("\n", out)
+    out = _INLINE_TAG_RE.sub("", out)
+    return out
+
 
 def _docx_runs_md(para) -> str:
     """One paragraph's text as markdown, preserving bold/italic from its runs."""

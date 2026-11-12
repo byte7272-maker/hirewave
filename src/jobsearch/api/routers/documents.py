@@ -134,7 +134,7 @@ def _open_in_google_docs(state: StateDep, *, docx_bytes, name: str, user_id: str
     except DriveUploadError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Google Drive upload failed: {exc}") from exc
     return {"web_view_link": result.web_view_link, "file_id": result.file_id, "name": result.name}
-from jobsearch.textextract import extract_text
+from jobsearch.textextract import extract_text, strip_inline_html
 
 _EXT_FORMAT = {
     "pdf": ResumeFormat.PDF,
@@ -237,6 +237,9 @@ def _add_version(doc, *, text_attr, new_content, label, source, instruction, job
     ``content_html`` carries the rich word-processor body (Option B); it's stored on
     the version and mirrored to the document's active ``content_html`` (empty for a
     plain/markdown save, which also clears the active rich body)."""
+    # Keep inline HTML (e.g. a DOCX email hyperlink <a href="mailto:…">…</a>) out of the
+    # plain/markdown body, so the contact line never renders as raw code.
+    new_content = strip_inline_html(new_content)
     old = getattr(doc, text_attr) or ""
     old_html = getattr(doc, "content_html", "") or ""
     if not doc.versions:
@@ -453,7 +456,7 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     real fit-width / magnify controls. 404s when there's no readable text."""
     resume = get_resume(resume_id, user, state)
     doc = render_text_html(
-        resume.rendered_text or "",
+        strip_inline_html(resume.rendered_text or ""),
         # No injected heading — the résumé's own name + role lead (never the filename).
         title="",
     )
@@ -475,7 +478,7 @@ def resume_structured(
     resume = get_resume(resume_id, user, state)
     if deep:
         return state.resume_assistant.structure(resume)
-    return parse_resume_markdown(resume.rendered_text or "", label=resume.target_role or "")
+    return parse_resume_markdown(strip_inline_html(resume.rendered_text or ""), label=resume.target_role or "")
 
 
 def _pick_render_template(state: StateDep, user: CurrentUser, template_id: Optional[str], saved_template_id: str):
@@ -521,8 +524,9 @@ def render_resume_with_template(
     active = next((v for v in resume.versions if v.version == resume.active_version), None)
     saved_id = (active.template_id if active else "") or resume.template_id
     template = _pick_render_template(state, user, template_id, saved_id)
-    # Deterministic parse (no LLM) so rendering a preview is instant.
-    text = resume.rendered_text or ""
+    # Deterministic parse (no LLM) so rendering a preview is instant. Flatten any inline
+    # HTML (e.g. an email hyperlink) so the rendered doc never shows raw <a …> code.
+    text = strip_inline_html(resume.rendered_text or "")
     data = parse_resume_markdown(text, label=resume.target_role or "")
     return RenderedResume(template=template, data=data, markdown=text)
 
