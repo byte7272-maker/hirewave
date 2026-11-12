@@ -23,6 +23,8 @@ from jobsearch.api.schemas import (
     PrepareDraftsRequest,
     ResearchOut,
     ResearchRequest,
+    ResearchSearchOut,
+    ResearchSearchRequest,
     SuggestionsOut,
     TelemetryBatch,
     TelemetryIngestOut,
@@ -120,6 +122,24 @@ def submit_feedback(body: AssistantFeedback, user: CurrentUser, state: StateDep)
         utterance=body.utterance, intent=body.intent, section=body.section,
     )
     return AssistantFeedbackOut(accepted=ok)
+
+
+@router.post("/research/search", response_model=ResearchSearchOut)
+def research_search(body: ResearchSearchRequest, user: CurrentUser, state: StateDep) -> ResearchSearchOut:
+    """Find result URLs for a research query. Uses Google Programmable Search server-side
+    when configured (`GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX`), keeping the key off the client;
+    otherwise returns `use_client: true` so the extension searches DuckDuckGo on the
+    user's connection. Requires the `web_research` consent scope (P185); it only returns
+    public result links — the extension fetches the pages, this never does."""
+    if not state.assistant.has(user.id, "web_research"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "grant the 'web_research' permission in Assistant settings first",
+        )
+    from jobsearch.engines.assistant import web_search
+
+    res = web_search.search(body.query, settings=state.settings, limit=body.max)
+    return ResearchSearchOut(**res.as_dict())
 
 
 @router.post("/research/summarize", response_model=ResearchOut)

@@ -155,6 +155,18 @@ class Settings(BaseSettings):
     monitoring_max_identifiers: int = 10  # per-user cap (abuse prevention)
     verification_ttl_minutes: int = 15
 
+    # --- Assistant web-research search provider ---------------------------------
+    # Google Programmable Search (Custom Search JSON API). When BOTH key and cx are set,
+    # the assistant's research search uses Google by default; otherwise the client falls
+    # back to its DuckDuckGo search on the user's connection. The key stays server-side.
+    google_cse_key: str = Field(default="", validation_alias="GOOGLE_CSE_KEY")
+    google_cse_cx: str = Field(default="", validation_alias="GOOGLE_CSE_CX")
+
+    def research_search_provider(self) -> str:
+        """'google' when the Custom Search credentials are configured, else 'duckduckgo'
+        (the client-side fallback)."""
+        return "google" if (self.google_cse_key and self.google_cse_cx) else "duckduckgo"
+
     # --- Interview media + content (all user-directed, offline by default) ---
     # Everything below is a *pluggable source you point at your own service or
     # files* to upgrade the mock interview. Left at the defaults, the interview

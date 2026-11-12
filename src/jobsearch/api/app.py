@@ -235,6 +235,9 @@ def create_app(
             # scheduled reap + Scan); "mock" => offline, so a connected Gmail imports
             # nothing. Must be "http" in production for email-reap to work.
             "gmail_fetch": s.settings.gmail_fetch,
+            # "google" when Google Custom Search is configured (the assistant's default
+            # research search), else "duckduckgo" (client-side fallback).
+            "research_search": s.settings.research_search_provider(),
         }
 
     @app.get("/health/worker", tags=["meta"])

@@ -6873,3 +6873,37 @@ When the assistant points to and highlights a target (e.g. "Add email source" on
 - A frequent/active user gets the **short announce + offer**, not the full static greeting; the same greeting never repeats back-to-back.
 - The opening reflects the page's state and the user's recent activity, and always offers a relevant task or feature.
 - Muting is the only thing that makes arrival silent.
+
+
+## P217 — Make Google the default research search engine (server-side Google CSE), with DuckDuckGo fallback
+
+**Backend is LIVE** (server-side Google Custom Search + a consent-gated search endpoint). **Frontend/extension**: route research search through the backend first so Google is used when configured, and fall back to the extension's DuckDuckGo search otherwise. The Google key stays **server-side**; the extension still fetches the public pages on the user's connection (P185). **No new Chrome permission, no manifest change, no impact on the store submission.**
+
+### Backend contract (LIVE)
+- **`POST /api/v1/assistant/research/search`** (requires the `web_research` consent scope) → `{ provider, results: [{title,url,snippet}], use_client, error }`.
+  - `provider: "google"` with `results` when Google CSE is configured (the key is server-side).
+  - `provider: "duckduckgo", use_client: true, results: []` when it isn't — the client should run its own DuckDuckGo search on the user's connection (the extension already does this).
+- `GET /health` now reports **`research_search`** = `"google"` or `"duckduckgo"` so you can confirm which is live.
+
+### 1. Research flow — search via the backend first, DuckDuckGo fallback
+When the assistant runs a company/web research (P185/P195), after consent:
+1. Call **`POST /assistant/research/search`** with `{ query, max }`.
+2. If `provider: "google"` and `results` are returned → use those result URLs.
+3. If `use_client: true` → fall back to the extension's existing search (`harbor-research-search`, DuckDuckGo) on the user's connection.
+4. Either way, **fetch each result page via the extension** (`harbor-research-fetch`, unchanged) and POST the pages to `/assistant/research/summarize` (unchanged).
+- So Google is the default whenever it's configured; DuckDuckGo keeps research working with no key.
+
+### 2. Turn Google on (operator setup — no code, no store action)
+Set two env vars on the backend (Railway) and Google becomes the default automatically:
+- **`GOOGLE_CSE_KEY`** — a Google API key with the **Custom Search API** enabled (console.cloud.google.com → APIs & Services → enable "Custom Search API" → create an API key).
+- **`GOOGLE_CSE_CX`** — a Programmable Search Engine id set to **"Search the entire web"** (programmablesearchengine.google.com → create engine → copy the Search engine ID).
+- Free tier is 100 queries/day, then paid — budget accordingly.
+- After setting both, redeploy; `GET /health` shows `"research_search":"google"`. Until then it stays `"duckduckgo"` and the client fallback is used.
+
+### Note — this is independent of Chrome-store approval
+Google CSE runs **server-side**, so it works as soon as the env vars are set — it does **not** require the extension to be approved. The store approval only governs the extension's page-fetch host permission (already covered in the 1.5.0 submission). **Do not** add a `chrome_settings_overrides` default-search override — that changes the user's browser omnibox and is a store-policy risk; it's not needed here.
+
+### Acceptance
+- With `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` set, research search returns Google results (`provider:"google"`), and `/health` reports `research_search:"google"`.
+- Without them, `/assistant/research/search` returns `use_client:true` and the extension's DuckDuckGo search is used — research still works.
+- The Google key is never sent to the client; the extension only fetches the resulting public pages (credentials omitted), unchanged from P185.

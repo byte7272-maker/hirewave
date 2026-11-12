@@ -1278,6 +1278,27 @@ class AssistantFeedbackOut(BaseModel):
     accepted: bool
 
 
+class ResearchSearchRequest(BaseModel):
+    """Find result URLs for a research query. Search runs server-side via Google CSE when
+    configured; otherwise the client is told to search on the user's connection."""
+
+    query: str
+    max: int = 6
+
+
+class ResearchSearchResult(BaseModel):
+    title: str = ""
+    url: str = ""
+    snippet: str = ""
+
+
+class ResearchSearchOut(BaseModel):
+    provider: str                 # "google" | "duckduckgo"
+    results: list[ResearchSearchResult] = Field(default_factory=list)
+    use_client: bool = False      # true => client runs its own DuckDuckGo search
+    error: str = ""
+
+
 class ResearchSource(BaseModel):
     """One web page the user's browser fetched (their connection, their permission)."""
 
