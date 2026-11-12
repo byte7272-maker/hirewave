@@ -145,6 +145,20 @@ def test_bare_ambiguous_email_change_asks_which():
     assert "résumé" in r.reply or "resume" in r.reply
 
 
+def test_state_questions_are_answered_not_navigated():
+    # "what version is this?" is a factual question -> report_state, not a navigate/highlight.
+    assert interpret("what is the version of the current resume").intent == "report_state"
+    assert interpret("what version is this").slots.get("field") == "version"
+    assert interpret("what's my score").slots.get("field") == "score"
+    assert interpret("how many matches do i have").slots.get("field") == "matches"
+    assert interpret("which resume is this").slots.get("field") == "document"
+    assert interpret("what document am i on").slots.get("field") == "document"
+    # not stolen from real commands / other questions
+    assert interpret("what can i do").intent == "read_options"
+    assert interpret("tailor my resume").intent == "start_playbook"
+    assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
+
+
 def test_reference_a_bullet_by_number():
     # Numbered bullets: "bullet 3" / "line 2" resolve to that option so the user can
     # reference a bullet by its number to the assistant.

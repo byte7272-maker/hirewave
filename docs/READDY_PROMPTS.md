@@ -6733,3 +6733,34 @@ The assistant pauses at periods that are **not** sentence ends — "U.S." read w
 - A pulsing arrow appears whenever a scroll region hides content (overlay, bullets, render), fades at the end, never blocks controls, and scrolls toward the hidden content on tap — consistently across the site.
 - Asking about "bullet #1" highlights it **on the rendered résumé** (and the list), scrolls it into view, and the assistant can replace/add/reword it by number with the render updating immediately.
 - TTS reads "U.S.", "45.1%", "e.g." and "v3.4" naturally with no mid-token pause; genuine sentence breaks still pause.
+
+
+## P212 — Answer factual state questions ("what version is this?") instead of navigating/highlighting
+
+**Frontend. Backend is LIVE** (new `report_state` intent). The user asked **"what is the version of the current resume"** and the assistant **highlighted the applied-changes strip but never answered** — it treated a question as a command. Fix: a question about current state must be **answered** (spoken + shown), not turned into a navigate/highlight. Builds on P201 (`one_source_of_truth`, `speak_on_update`), P206 §4.
+
+### Backend contract (LIVE)
+`POST /assistant/interpret` now returns **`intent: "report_state"`** with **`slots.field`** ∈ {`version`, `score`, `matches`, `document`} for introspective questions:
+- "what version is this / which version am I on / version of the current résumé" → `field: "version"`
+- "what's my score / grade" → `field: "score"`
+- "how many matches do I have" → `field: "matches"`
+- "which résumé is this / what document am I on" → `field: "document"`
+
+### 1. Handle `report_state` by stating the answer
+On `report_state`, the assistant **answers from the data it already has** (context + API), speaks it, and shows it — it must not just highlight something:
+- **version** → the current document's **active version and total**, from `GET /api/v1/resumes/{id}` (`active_version`, `versions.length`, and the active version's `label`): e.g. *"You're on version 35 of 35 — 'Change the email address', last edited Nov 11."* Optionally highlight the Versions control as a supplement, but **say the number**.
+- **score** → the résumé's `quality_grade` / `quality_score` (e.g. *"Your résumé scores A (100)."*).
+- **matches** → the dashboard count (`GET /api/v1/dashboard` → `matches.total` / `matches.strong`): *"You have 45 matches, 12 strong."*
+- **document** → the current document's type + name + version (P206 §4 one-source-of-truth): *"You're viewing your résumé 'Williams, Bayete — IT Director', version 35."*
+- Always resolve against the **currently open document** (its `resume_id`), else the current one (P206 §4). Speak the answer (`speak_on_update`); a highlight may accompany it but never replaces it.
+
+### 2. General principle — questions get answered, commands get executed (applies everywhere)
+This is the general fix, not just for version: **an introspective question about current state must be answered, never silently turned into a navigate/highlight/else.** Apply across features:
+- "what/which/how many …" about the current résumé, cover letter, matches, score, connected sources, auto-apply status, etc. → **state the answer** from the API/context.
+- If a question maps to `report_state`, answer it; if it's a free-form `ask` the deterministic matcher didn't classify, the assistant should still **attempt a direct answer** from context before doing anything visual — and if it truly can't, say so and offer options (P182/P201), rather than performing an unrelated highlight or navigation.
+- Highlighting is a **supplement** to an answer, never a substitute for it.
+
+### Acceptance
+- "what is the version of the current résumé?" → the assistant **says the version number** (and total/label), not just a highlight.
+- "what's my score", "how many matches", "which résumé is this" are each **answered** from live data for the current document.
+- No state question results in a navigation or a bare highlight with no spoken answer.

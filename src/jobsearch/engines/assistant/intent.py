@@ -26,7 +26,7 @@ INTENTS = {
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
     "check_mic", "check_audio", "status_report", "whats_new", "resume_task",
-    "ask", "unknown",
+    "report_state", "ask", "unknown",
 }
 
 #: App sections a user can be sent to (slot ``section``), with spoken synonyms.
@@ -354,6 +354,30 @@ def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     return None
 
 
+# --- factual state questions ("what version is this?") ------------------------
+# A question about the CURRENT state must be ANSWERED, not turned into a navigate or a
+# highlight. Recognize "what/which/how many … <state noun>" and report the field.
+_STATE_Q_RE = re.compile(r"\b(what'?s?|which|how many|how much|do i have|tell me (?:the|my|how))\b")
+
+
+def _state_query(t: str, context: dict) -> Optional[IntentResult]:
+    """Map an introspective question about current state to ``report_state`` with the
+    field to answer (version/score/matches/document), else None. The frontend answers it
+    from context + the API (e.g. the résumé's active version), speaking the answer."""
+    if not _STATE_Q_RE.search(t):
+        return None
+    if re.search(r"\bversions?\b", t):
+        return IntentResult("report_state", 0.9, {"field": "version"})
+    if re.search(r"\b(score|grade|rating)\b", t):
+        return IntentResult("report_state", 0.9, {"field": "score"})
+    if re.search(r"\bmatch(?:es)?\b", t) and re.search(r"\b(how many|number|count|do i have)\b", t):
+        return IntentResult("report_state", 0.9, {"field": "matches"})
+    # "which résumé is this", "what document am I on / showing"
+    if (_doc_target(t) or re.search(r"\bdocument\b", t)) and re.search(r"\b(this|on|am i|current|showing|open)\b", t):
+        return IntentResult("report_state", 0.9, {"field": "document"})
+    return None
+
+
 def _extract_search_query(t: str) -> Optional[str]:
     """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
 
@@ -534,6 +558,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
            "resume where", "continue where i left off", "continue my task", "last session",
            "finish what i started", "back to what i was", "what i was doing"):
         return IntentResult("resume_task", 0.9)
+
+    # factual state question ("what version is this?", "what's my score", "how many
+    # matches do I have?") — ANSWER it; don't navigate or highlight. Checked before the
+    # fuzzy playbook/selection matchers so a question isn't mistaken for a command.
+    sq_state = _state_query(t, context)
+    if sq_state is not None:
+        return sq_state
 
     # playbooks (a concrete task phrase)
     pb = _match_playbook(t)
