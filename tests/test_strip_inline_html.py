@@ -49,3 +49,20 @@ def test_render_endpoint_flattens_anchor_in_markdown():
     body = c.get(f"/api/v1/resumes/{r.id}/render", headers=h).json()
     assert "<a href" not in body["markdown"]          # no raw HTML code in the rendered doc
     assert "bayete.williamsit@gmail.com · NY" in body["markdown"]  # shown as plain text
+
+
+def test_get_resume_migrates_stored_anchor_to_plain_text():
+    # The frontend reads rendered_text from GET /resumes/{id}; the stored anchor must be
+    # flattened (and persisted) on read, so it renders as text even without a re-save.
+    st = AppState(settings=Settings(), exchanger=MockTokenExchanger())
+    c = TestClient(create_app(state=st))
+    c.post("/api/v1/auth/register", json={"email": "m@x.com", "password": "supersecret", "full_name": "M"})
+    tok = c.post("/api/v1/auth/login", json={"email": "m@x.com", "password": "supersecret"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    uid = st.user_by_email("m@x.com").id
+    r = Resume(user_id=uid, rendered_text='Name\n<a href="mailto:x@y.com">x@y.com</a> · NY')
+    st.resumes.add(r)
+    got = c.get(f"/api/v1/resumes/{r.id}", headers=h).json()
+    assert "<a href" not in got["rendered_text"] and "x@y.com · NY" in got["rendered_text"]
+    # persisted: the stored doc is now clean
+    assert "<a href" not in (st.resumes.get(r.id).rendered_text or "")

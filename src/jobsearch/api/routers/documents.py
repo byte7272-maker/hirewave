@@ -1166,9 +1166,36 @@ def list_resumes(
     return [ensure_resume_grade(state, ensure_rendered_text(state, r)) for r in resumes]
 
 
+def _migrate_inline_html(state: StateDep, doc, *, text_attr: str = "rendered_text") -> None:
+    """One-time, idempotent cleanup: flatten inline HTML (e.g. a DOCX email hyperlink
+    ``<a href="mailto:…">…</a>``) in the live text and every saved version, and persist.
+    Runs lazily on read so already-saved documents render as text, not raw code, without
+    waiting for a re-save or a frontend change."""
+    changed = False
+    cur = getattr(doc, text_attr, "") or ""
+    if "<" in cur:
+        cleaned = strip_inline_html(cur)
+        if cleaned != cur:
+            setattr(doc, text_attr, cleaned)
+            changed = True
+    for v in getattr(doc, "versions", None) or []:
+        if v.content and "<" in v.content:
+            nc = strip_inline_html(v.content)
+            if nc != v.content:
+                v.content = nc
+                changed = True
+    if changed:
+        try:
+            (state.resumes if text_attr == "rendered_text" else state.cover_letters).add(doc)
+        except Exception:  # noqa: BLE001 - best effort; the output copy is clean regardless
+            pass
+
+
 def ensure_rendered_text(state: StateDep, resume: Resume) -> Resume:
     """Self-heal: if a résumé has no extracted text but its file is stored,
-    re-extract now (e.g. after the PDF/DOCX parser became available) and persist."""
+    re-extract now (e.g. after the PDF/DOCX parser became available) and persist.
+    Also flattens any inline HTML left in the stored text so it never renders as code."""
+    _migrate_inline_html(state, resume, text_attr="rendered_text")
     if resume.rendered_text or state.documents is None:
         return resume
     try:
@@ -1694,6 +1721,8 @@ def list_cover_letters(
     if flagged is not None:
         cls = [c for c in cls if c.flagged == flagged]
     cls = _current_first(cls, include_sample=include_sample)
+    for cl in cls:
+        _migrate_inline_html(state, cl, text_attr="content")
     return [ensure_cover_letter_grade(state, cl) for cl in cls]
 
 
@@ -1794,6 +1823,7 @@ def get_cover_letter(cover_letter_id: str, user: CurrentUser, state: StateDep) -
     cl = state.cover_letters.get(cover_letter_id)
     if cl is None or cl.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "cover letter not found")
+    _migrate_inline_html(state, cl, text_attr="content")  # flatten stray HTML (not content_html)
     if not cl.versions and (cl.content or "").strip():  # heal pre-seeding uploads
         _seed_original_version(cl, text_attr="content")
         state.cover_letters.add(cl)
