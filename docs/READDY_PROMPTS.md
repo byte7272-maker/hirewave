@@ -6483,3 +6483,34 @@ When the assistant shows/centers a résumé, it renders `resume.rendered_text` (
 - When the assistant shows a résumé (or cover letter), it displays the **formatted, templated** document — pixel-identical to the marquee/preview — not the raw text.
 - The assistant's preview and the marquee always show the **same version rendered the same way**; switching versions or applying an edit updates both identically.
 - Center + highlight and the next-step offers operate on the rendered document.
+
+
+## P204 — Restore guide/focus/highlight + a repositionable overlay as ONE global, site-wide feature; and render the résumé with its template (not raw text)
+
+**Frontend. No backend change.** Two regressions to fix together, and make them stop recurring by building them **once, globally** instead of per page. Supersedes the endpoint ambiguity in P203. Builds on P179/P181 (dock + highlight), P199/P200 (guide on arrival, center + highlight), P201 (`highlight_and_dock`, `one_source_of_truth`).
+
+### A. Render the résumé the SAME way the marquee does (correct source)
+- The marquee's formatted view comes from **`GET /api/v1/resumes/{id}/render`** → `{ template, data, markdown }`: render **`data` onto `template.style`**. That is the proper, templated document.
+- The assistant is showing **raw text** (`rendered_text` / `markdown`) or the plain `preview.html` wrap — **stop.** Use **`/render` + `template.style`**, honoring the **active version** (the endpoint already resolves the active version's own template), by **reusing the marquee's render component** — not a second implementation. One preview component, one source of truth (P201). Same for cover letters.
+- `preview.html` is only a raw-text fallback; do not use it as the assistant's primary résumé view.
+
+### B. Restore the overlay as a global, repositionable, highlighting component (site-wide, not per page)
+These behaviors regressed because they're re-built per screen. Build **one** always-mounted `AssistantOverlay` used on **every** page, exposing a small API every feature calls — so it can't fall off a page again:
+1. **Repositionable** — the user (and the assistant) can **move the overlay**: draggable by its header, snap to screen edges/corners, and remember the position (localStorage, per device). Provide a quick "move" affordance (e.g. dock left/right/top/bottom). This is a **consistent feature throughout the site**, present on Documents, Matches, Auto-apply, Connect, every screen.
+2. **Highlight API** — `highlight(target)` puts a focus ring on any element and **scrolls it into view**; `clearHighlight()` removes it. Used uniformly to point at the thing being discussed (a résumé, a match card, a button). Highlight follows the walkthrough step and clears on Stop. Works on every page.
+3. **Never cover the focused content (the reported bug)** — when the assistant discusses/focuses an element, it must **auto-dock out of the way** and ensure the element is fully visible: reserve space or move the overlay to the opposite side, then **scroll the target into view**. The résumé (or any focused item) must be readable **without the user scrolling** the overlay off; the overlay's chrome/clutter must not sit on top of the document.
+
+### C. Re-assert guide-on-arrival + focus the document (regressed)
+- On arrival / on show, the assistant must again: **focus and center the rendered résumé**, **highlight it** while talking about it (B2), and **guide** — state the purpose and next steps (P199/P200/P201 `guide_on_arrival`). It stopped focusing the résumé and stopped guiding; restore both, driven by the capability manifest (P201) so every section behaves the same.
+
+### Consistency rule (so this stops regressing)
+- Overlay **reposition** and **highlight** are part of the single shared assistant runtime (P201 `highlight_and_dock`) — **one component, one API, used everywhere**. No page re-implements them; adding a feature inherits them. Any screen where the assistant appears must have move + highlight + dock-away-from-focus working identically.
+
+### Acceptance
+- The assistant shows the résumé **rendered with its template** (identical to the marquee), not raw text.
+- The overlay can be **moved/repositioned** by the user and by the assistant, and the position persists; this works on **every** page.
+- While the assistant talks about the résumé (or any element), that element is **highlighted, scrolled into view, and not covered** by the overlay — no manual scrolling needed.
+- Guide-on-arrival and focus-the-document work again, consistently across sections.
+
+### Verify in the browser
+After publishing, this should be checked live: open a résumé, ask the assistant to show/walk it, and confirm (1) it renders with the template like the marquee, (2) the overlay can be dragged/docked and remembers where, (3) the résumé is focused + highlighted and never hidden behind the overlay.
