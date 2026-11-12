@@ -6401,3 +6401,32 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 - On Documents it **names the current document (résumé vs cover letter), which one, and the version.**
 - "replace my email address" opens the **current** résumé (never the sample), prefills the edit, and confirms before saving; "connect an email account" goes to the Connect flow; a bare "change the email" **asks which**.
 - The Connect page lists connected email addresses, lets the user add **up to 5** (with remove), and shows the **cap message** on the 6th.
+
+
+## P201 — One generic assistant runtime driven by the capability manifest (so every feature inherits the behavior — no per-feature wiring)
+
+**Frontend architecture. Backend is LIVE** (`GET /api/v1/assistant/capabilities`). This is the generalization of P179–P200: instead of hand-building the assistant's behavior on each screen, build the seven behaviors **once** and drive them from the manifest the backend serves. Adding a feature then needs **one manifest entry**, not a new prompt.
+
+### Load the manifest
+- On sign-in, fetch **`GET /api/v1/assistant/capabilities`** (cache it; it's small and static). It returns `version`, `behaviors[]`, `verbs{}`, `destructive_verbs[]`, `playbooks[]`, and `sections[]`. Each section has `purpose`, `current`, `walkthrough`, `actions[]` (`label, verb, objects[], intent, slots, destructive, confirm`), `controls[]` (`label, does`), `offers[]`, and `aliases[]`.
+- Everything below reads from this manifest. **Do not** hard-code per-section purpose text, button lists, offers, or confirm rules in the UI — read them from the section's entry.
+
+### Build the seven generic behaviors once
+1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. (Supersedes the per-section guidance in P199/P200.)
+2. **recognize_verb_object** — route `interpret`'s result to the matching `actions[]` entry (by `intent` + `slots`), and expand spoken synonyms from `verbs{}` so the same vocabulary works everywhere. New phrasings → extend `verbs` (one place), not per feature.
+3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. `offers[]` from the manifest are the arrival offers. (This is P198, now generic.)
+4. **confirm_destructive** — before running any action with `destructive: true` (or whose verb is in `destructive_verbs`), show its `confirm` prompt and require a yes. (P180, now automatic from the manifest.)
+5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. (P179/P181/P197, applied uniformly.)
+6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). (P193/P200, global.)
+7. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
+
+### Result: adding a feature
+When the backend adds a `CAPABILITIES` entry for a new section, the frontend should **already** guide it on arrival, recognize its verbs/objects, offer and run its walkthrough, highlight and explain its controls, arm its offers, and confirm its destructive actions — **with no new frontend work**. If a new feature needs a brand-new *control type* or *playbook UI*, build just that piece; everything else comes from the manifest.
+
+### Keep the specific prompts as the detail
+P179–P200 remain the detailed spec for each behavior's fine points (e.g. the Matches walk's list fidelity in P197, the email address-vs-source split in P199/P200). P201 says: implement those behaviors **generically, once**, reading the manifest — don't re-implement them per screen.
+
+### Acceptance
+- The assistant loads `/assistant/capabilities` and renders guide-on-arrival for **every** section purely from the manifest (no hard-coded per-section text).
+- A verb+object the manifest lists runs its action; a `destructive` action confirms first; a yes/no arms and resolves a pending offer; the assistant speaks on every update; "the current X" is always the real, active item.
+- Adding a section to the manifest (backend) makes it fully assistant-driven with **no** new frontend prompt — demonstrated by pointing the runtime at a manifest entry the UI has no bespoke code for.

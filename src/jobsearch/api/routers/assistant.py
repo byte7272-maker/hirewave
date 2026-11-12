@@ -67,6 +67,27 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
     )
 
 
+@router.get("/capabilities")
+def capabilities(
+    user: CurrentUser, state: StateDep, section: str = Query("", description="one section, or blank for all"),
+) -> dict:
+    """The assistant capability manifest — the single declarative description of what
+    the assistant can do, per feature, that the generic engines read.
+
+    The frontend drives guide-on-arrival, control highlighting, next-step offers, and
+    confirm-before-destructive from this instead of feature-specific code, so a new
+    feature inherits every assistant behavior by adding one manifest entry. See
+    ``docs/ASSISTANT_CAPABILITIES.md``."""
+    from jobsearch.engines.assistant import capabilities as caps
+
+    if section:
+        one = caps.for_section(section)
+        if one is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"no capability for section '{section}'")
+        return {"version": caps.VERSION, "behaviors": list(caps.BEHAVIORS), "section": one}
+    return caps.manifest()
+
+
 #: Max events accepted in one telemetry flush (protects the store from a runaway client).
 _TELEMETRY_BATCH_CAP = 200
 
