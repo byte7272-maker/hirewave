@@ -19,6 +19,8 @@ they are all instances of the SAME small set of generic behaviors:
                          (a pulsing arrow) signals content below the fold
   * narrate-values     — read a section's live `readouts` and, while narrating, speak each
                          value and highlight its element (aware of what's on screen)
+  * error-aware        — detect a visible error/empty/failed-load state on the page and
+                         surface it + offer a fix/retry, instead of narrating as if fine
   * one-source-of-truth— "the current X" always resolves the same way everywhere
 
 This module is the **single declarative place** those engines read. To give the
@@ -42,7 +44,7 @@ VERSION = 1
 BEHAVIORS = [
     "guide_on_arrival", "recognize_verb_object", "pending_offer", "confirm_destructive",
     "highlight_and_dock", "speak_on_update", "surface_choices", "narrate_values",
-    "one_source_of_truth",
+    "error_aware", "one_source_of_truth",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

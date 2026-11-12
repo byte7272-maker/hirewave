@@ -6421,7 +6421,8 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). (P193/P200, global.)
 7. **surface_choices** — whenever the assistant presents options/choices (suggested bullets, next-step chips, a list it "added"), **render them in view and reachable now**: auto-scroll the overlay body to the newest choices and keep the active options pinned/visible, so what it just offered is one tap away — not below the fold. Never announce "I've added X to choose from" unless those items are actually rendered and reachable at that moment. The overlay body must own most of the panel height and always land on the latest. **Whenever usable content sits below the viewable area, show an unobtrusive visual cue — a pulsing arrow (or similar) — so the user knows there's more to reach** (a core, consistent affordance everywhere a scroll region hides content). (P208/P211, global.)
 8. **narrate_values** — be **aware of the live values on the page**: read the section's **`readouts`** (each `{key, label, source, highlight}`) from its primary API response, and while narrating **speak each value and highlight its tile/element** ("You have 45 matches, 12 strong" while ringing the Matches tile; "3 interviews" on the Interviews tile). Don't recite a static script over live numbers you never point to. (P214, global.)
-9. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
+9. **error_aware** — be aware of **error/empty/failed states** on the page the assistant is narrating: a "couldn't render this document", a failed image/preview, a failed request, a "try again" banner, an empty list. **Detect it and surface it** — say what's wrong and **offer a fix/retry** — instead of reading the content as if it rendered fine. Pair with a render fallback so a failed preview still shows something. (P218, global.)
+10. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
 
 ### Result: adding a feature
 When the backend adds a `CAPABILITIES` entry for a new section, the frontend should **already** guide it on arrival, recognize its verbs/objects, offer and run its walkthrough, highlight and explain its controls, arm its offers, and confirm its destructive actions — **with no new frontend work**. If a new feature needs a brand-new *control type* or *playbook UI*, build just that piece; everything else comes from the manifest.
@@ -6543,7 +6544,7 @@ Live `GET /api/v1/resumes` returns the user's real résumés, current-first (sam
 ---
 ### 0. Architecture — one generic assistant runtime from the capability manifest (P201)
 - On sign-in, fetch **`GET /api/v1/assistant/capabilities`** (cache it). It returns `version, behaviors[], verbs{}, destructive_verbs[], playbooks[], sections[]`; each section has `purpose, current, walkthrough, actions[] (label, verb, objects[], intent, slots, destructive, confirm), controls[] (label, does), offers[], aliases[]`.
-- Build the **nine behaviors once**, driven by the manifest (not per screen): **guide-on-arrival, recognize verb+object, pending-offer (yes/no), confirm-destructive, highlight+dock, speak-on-update, surface-choices, narrate-values, one-source-of-truth.** Do **not** hard-code per-section purpose text, buttons, offers, or confirm rules — read them from the manifest. Adding a feature later = one manifest entry, no new UI code. (**surface-choices**: whenever the assistant offers options, auto-scroll them into view and keep them reachable — never announce choices that aren't rendered; see P208.)
+- Build the **ten behaviors once**, driven by the manifest (not per screen): **guide-on-arrival, recognize verb+object, pending-offer (yes/no), confirm-destructive, highlight+dock, speak-on-update, surface-choices, narrate-values, error-aware, one-source-of-truth.** Do **not** hard-code per-section purpose text, buttons, offers, or confirm rules — read them from the manifest. Adding a feature later = one manifest entry, no new UI code. (**surface-choices**: whenever the assistant offers options, auto-scroll them into view and keep them reachable — never announce choices that aren't rendered; see P208.)
 
 ### 1. Overlay = ONE global, repositionable, highlighting component, site-wide (P179/P181/P199/P204)
 - Mount a single `AssistantOverlay` on **every** page. It must:
@@ -6907,3 +6908,25 @@ Google CSE runs **server-side**, so it works as soon as the env vars are set —
 - With `GOOGLE_CSE_KEY` + `GOOGLE_CSE_CX` set, research search returns Google results (`provider:"google"`), and `/health` reports `research_search:"google"`.
 - Without them, `/assistant/research/search` returns `use_client:true` and the extension's DuckDuckGo search is used — research still works.
 - The Google key is never sent to the client; the extension only fetches the resulting public pages (credentials omitted), unchanged from P185.
+
+
+## P218 — Cover letters render (don't call the résumé-only /render), and the assistant is AWARE of error states
+
+**Frontend. No backend change** (verified live). Two fixes. Builds on P206 §4 (render), P201 (`error_aware` is now a global behavior), P205/P208 (clear stale errors).
+
+### The bug (verified live)
+Opening a cover letter showed **"Couldn't render this document just now."** Probing the live endpoints for that cover letter: `GET /cover-letters/{id}` → **200**, `/preview.html` → **200**, `/preview.png` → **200**, but **`/render` → 404**. `/render` is **résumé-only**; the cover-letter render path calls it and fails. And the assistant **read the cover letter and its version but never noticed the error** — it narrated as if fine.
+
+### 1. Render cover letters from an endpoint that exists
+- For cover letters, **do not call `GET /cover-letters/{id}/render`** (it 404s). Render from **`GET /api/v1/cover-letters/{id}/preview.html`** (styled HTML, 200) — or the cover letter's `content_html` / `content` (sanitized markdown) — honoring the **active version** (P206 §4). Résumés keep using `/render`; cover letters use preview.html/content.
+- **General render fallback (every document):** if the chosen render call fails, **fall back** (résumé: `/render` → `/preview.html` → raw text; cover letter: `/preview.html` → `content_html`/`content`) and show the document — **never leave a bare "Couldn't render."** A transient failure (e.g. during the Railway incident) should auto-retry once, then fall back.
+
+### 2. The assistant must be AWARE of error states (global — `error_aware`)
+- Before/while narrating a page, the assistant must **check for a visible error / empty / failed-load state** — a "couldn't render", a failed preview/image, a failed request, a "try again" banner, an empty list — and **surface it**: say what's wrong and **offer to fix/retry** (e.g. *"Heads up — the cover-letter preview didn't render. Want me to reload it?"*). It must **not** read the content as if everything displayed correctly.
+- When it detects a render error, **it also triggers the fallback (#1)** or offers to reload, then narrates the recovered view. Tie the error check to the same state that drives narration (`speak_on_update`), so the assistant always reflects the true page state — content **and** errors.
+- Apply everywhere (documents, matches, dashboard, connect…): any page the assistant narrates, it first accounts for error/empty states. This is the `error_aware` behavior in the shared runtime — build it once, not per screen.
+
+### Acceptance
+- Opening a cover letter **renders** (via preview.html/content), no "Couldn't render" dead-end; a failed render falls back to a visible document.
+- When a preview/render fails, the assistant **says so and offers to retry/reload** instead of narrating as if it rendered.
+- The error check runs for every narrated page, from the shared runtime.

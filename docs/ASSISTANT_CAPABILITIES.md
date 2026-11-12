@@ -2,10 +2,10 @@
 
 **Goal:** stop hand-specifying the assistant's behavior feature by feature. P179–P200 each
 described, in prose, how the assistant should act on one screen. They are all instances of
-the **same nine generic behaviors**. Describe a feature **once** in a declarative manifest,
+the **same ten generic behaviors**. Describe a feature **once** in a declarative manifest,
 and it inherits all of them — no new per-feature logic.
 
-## The nine behaviors (built once, applied everywhere)
+## The ten behaviors (built once, applied everywhere)
 
 | Behavior | What it does | Replaces the per-feature prose in |
 |---|---|---|
@@ -17,6 +17,7 @@ and it inherits all of them — no new per-feature logic.
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. | P193, P200 |
 | `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. Show an **unobtrusive cue** (a pulsing arrow) whenever usable content sits below the fold. | P208, P211 |
 | `narrate_values` | Read a section's live **`readouts`** (the values it displays) and, while narrating, **speak each value and highlight its element** — the assistant is aware of what's on screen, not reciting a static script. | P214 |
+| `error_aware` | Detect a visible **error / empty / failed-load** state on the page (a "couldn't render", a failed request, a "try again" banner) and **surface it + offer a fix/retry** — never narrate the content as if everything rendered fine. | P218 |
 | `one_source_of_truth` | "The current X" always resolves the same way (active version, top match) — never a sample or a stale copy. | P193, P197, P200 |
 
 ## The manifest is the single source

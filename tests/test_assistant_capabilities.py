@@ -19,7 +19,8 @@ def test_manifest_shape_and_behaviors():
     assert m["version"] == caps.VERSION
     # the generic behaviors every feature inherits are advertised
     for b in ("guide_on_arrival", "pending_offer", "confirm_destructive",
-              "speak_on_update", "surface_choices", "narrate_values", "one_source_of_truth"):
+              "speak_on_update", "surface_choices", "narrate_values", "error_aware",
+              "one_source_of_truth"):
         assert b in m["behaviors"]
     assert m["sections"] and all("purpose" in s and "actions" in s for s in m["sections"])
 
