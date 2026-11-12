@@ -6462,3 +6462,24 @@ P179–P200 remain the detailed spec for each behavior's fine points (e.g. the M
 - Every command (incl. not-understood) is logged; the admin digest shows most-common commands, failures by class with examples, and tester feedback notes.
 - "Something off?" posts a tester note tied to the current command; it appears in the admin digest.
 - An email-address edit opens the **current real résumé**, prefills Ask AI, asks for the new address if missing, and **never** writes the command text into the document or touches a sample.
+
+
+## P203 — The assistant must show the RENDERED résumé (same view as the marquee), not the raw text
+
+**Frontend. No backend change** (the rendered endpoints already exist). The assistant now opens the correct, current résumé (P200/P202) — but it's displaying the **raw extracted text** (`rendered_text`) instead of the **properly rendered, templated version** shown in the document marquee/preview. Fix the source it renders from. Builds on P200 (center + highlight the document), P199/P201 (one shared preview, one source of truth), and the earlier P3a "identical rendering everywhere."
+
+### The bug
+When the assistant shows/centers a résumé, it renders `resume.rendered_text` (plain/markdown-ish text) rather than the formatted document. The marquee shows the same résumé **rendered with its template and active version** — that's the view the user expects to see when the assistant presents it.
+
+### Fix — render from the same source as the marquee
+- When the assistant presents a résumé (show/open/center on Documents, during a walkthrough, or after an edit), use the **exact same rendered component and data source the marquee/document preview uses** — the **templated render**, not the raw text:
+  - the versioned/templated render the preview already calls — e.g. **`GET /api/v1/resumes/{id}/render`** (RenderedResume, with the résumé's `template_id`) or **`GET /api/v1/resumes/{id}/preview.html`** — honoring the **active version** and the chosen **template**.
+- **One preview component, one source of truth** (P201): the assistant's document view and the marquee must be the **same** rendered output — never diverge (raw vs rendered, or different versions). If the marquee renders from the active version's own content, the assistant must render from that same version, not the lagging `rendered_text`.
+- Keep the P200 behavior: on show, **center and highlight** the rendered document (not the raw text), and offer the next steps (Review / Modify / Use for application / Tailor).
+- Cover letters: same rule — show the rendered/preview view, not raw text.
+- After an **edit** (Ask AI / tailor / version switch), re-render from the updated version so the assistant's view matches the marquee immediately (P4b "Updated — N change(s)").
+
+### Acceptance
+- When the assistant shows a résumé (or cover letter), it displays the **formatted, templated** document — pixel-identical to the marquee/preview — not the raw text.
+- The assistant's preview and the marquee always show the **same version rendered the same way**; switching versions or applying an edit updates both identically.
+- Center + highlight and the next-step offers operate on the rendered document.
