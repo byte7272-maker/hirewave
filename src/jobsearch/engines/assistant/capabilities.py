@@ -13,6 +13,8 @@ they are all instances of the SAME small set of generic behaviors:
   * speak-on-update    — narrate whenever the overlay text changes (every screen)
   * surface-choices    — offered options render in view/reachable; an unobtrusive cue
                          (a pulsing arrow) signals content below the fold
+  * narrate-values     — read a section's live `readouts` and, while narrating, speak each
+                         value and highlight its element (aware of what's on screen)
   * one-source-of-truth— "the current X" always resolves the same way everywhere
 
 This module is the **single declarative place** those engines read. To give the
@@ -35,7 +37,8 @@ VERSION = 1
 #: and the contract these engines honor). Flags, not free text, so the UI can key off them.
 BEHAVIORS = [
     "guide_on_arrival", "recognize_verb_object", "pending_offer", "confirm_destructive",
-    "highlight_and_dock", "speak_on_update", "surface_choices", "one_source_of_truth",
+    "highlight_and_dock", "speak_on_update", "surface_choices", "narrate_values",
+    "one_source_of_truth",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
@@ -108,6 +111,18 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"say": "You can always pick up where you left off from here.",
              "highlight": "Continue where you left off"},
         ],
+        # Live values this page shows. The runtime reads each from the section's primary
+        # API response (here GET /dashboard) and, while narrating, SPEAKS the value and
+        # HIGHLIGHTS its tile — the assistant is aware of what's on screen (narrate_values).
+        "readouts": [
+            {"key": "matches", "label": "Matches", "source": "matches.total", "highlight": "Matches"},
+            {"key": "strong", "label": "Strong fits", "source": "matches.strong", "highlight": "Matches"},
+            {"key": "interviews", "label": "Interviews", "source": "interviews", "highlight": "Interviews"},
+            {"key": "applications", "label": "Applications", "source": "applications.total", "highlight": "Applications"},
+            {"key": "resumes", "label": "Résumés", "source": "resumes", "highlight": "Documents"},
+            {"key": "saved_jobs", "label": "Saved jobs", "source": "saved_jobs", "highlight": "Saved jobs"},
+            {"key": "weekly_goal", "label": "Weekly goal", "source": "weekly_goal.done", "highlight": "Weekly goal"},
+        ],
     },
     "matches": {
         "purpose": "Jobs ranked best-first for you — open one to see why it fits and the gaps.",
@@ -133,6 +148,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
              "highlight": "Top match card"},
             {"say": "Pull the latest roles any time with Refresh matches.",
              "highlight": "Refresh matches"},
+        ],
+        "readouts": [
+            {"key": "matches", "label": "Matches", "source": "matches.total", "highlight": "Top match card"},
+            {"key": "strong", "label": "Strong fits", "source": "matches.strong", "highlight": "Top match card"},
         ],
     },
     "documents": {
@@ -163,6 +182,11 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"say": "Every change saves its own version, so you can switch back any time.",
              "highlight": "Versions"},
         ],
+        # Read from the current résumé (GET /resumes/{id}).
+        "readouts": [
+            {"key": "version", "label": "Version", "source": "active_version", "highlight": "Versions"},
+            {"key": "score", "label": "Score", "source": "quality_grade", "highlight": "Document preview"},
+        ],
     },
     "connect": {
         "purpose": "Connect the email accounts and job boards Project Harbor pulls jobs from.",
@@ -190,6 +214,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
              "highlight": "Add email source", "wait": True},
             {"say": "Once it's connected, your address shows up in your connected list here. Add another any time, up to 5.",
              "highlight": "Connected list"},
+        ],
+        # Count of connected sources (length of GET /integrations), capped at 5.
+        "readouts": [
+            {"key": "connected", "label": "Connected sources", "source": "length", "highlight": "Connected list"},
         ],
         "limits": {"email_sources": 5},
     },
@@ -277,6 +305,7 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         "controls": cap.get("controls", []),
         "walkthrough": cap.get("walkthrough"),
         "steps": cap.get("steps", []),
+        "readouts": cap.get("readouts", []),
         "offers": cap.get("offers", []),
     }
 

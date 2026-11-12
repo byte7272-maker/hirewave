@@ -19,7 +19,7 @@ def test_manifest_shape_and_behaviors():
     assert m["version"] == caps.VERSION
     # the generic behaviors every feature inherits are advertised
     for b in ("guide_on_arrival", "pending_offer", "confirm_destructive",
-              "speak_on_update", "surface_choices", "one_source_of_truth"):
+              "speak_on_update", "surface_choices", "narrate_values", "one_source_of_truth"):
         assert b in m["behaviors"]
     assert m["sections"] and all("purpose" in s and "actions" in s for s in m["sections"])
 
@@ -74,6 +74,16 @@ def test_every_section_has_narratable_steps_matching_its_controls():
             assert st["highlight"] in control_labels, (s["section"], st["highlight"])
     # a step that needs the user to act is flagged to wait (connect sign-in)
     assert any(st.get("wait") for st in caps.for_section("connect")["steps"])
+
+
+def test_readouts_are_well_formed_and_dashboard_has_the_key_metrics():
+    # narrate_values: a section's live values are declared as readouts the runtime speaks
+    # and highlights. Every readout carries key/label/source/highlight.
+    for s in caps.manifest()["sections"]:
+        for r in s.get("readouts", []):
+            assert r.get("key") and r.get("label") and r.get("source") and r.get("highlight"), (s["section"], r)
+    dash = {r["key"] for r in caps.for_section("dashboard")["readouts"]}
+    assert {"matches", "strong", "interviews", "applications"} <= dash
 
 
 # --- endpoint ---------------------------------------------------------------

@@ -6411,7 +6411,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 - On sign-in, fetch **`GET /api/v1/assistant/capabilities`** (cache it; it's small and static). It returns `version`, `behaviors[]`, `verbs{}`, `destructive_verbs[]`, `playbooks[]`, and `sections[]`. Each section has `purpose`, `current`, `walkthrough`, `actions[]` (`label, verb, objects[], intent, slots, destructive, confirm`), `controls[]` (`label, does`), `offers[]`, and `aliases[]`.
 - Everything below reads from this manifest. **Do not** hard-code per-section purpose text, button lists, offers, or confirm rules in the UI — read them from the section's entry.
 
-### Build the eight generic behaviors once
+### Build the nine generic behaviors once
 1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. (Supersedes the per-section guidance in P199/P200.)
 2. **recognize_verb_object** — route `interpret`'s result to the matching `actions[]` entry (by `intent` + `slots`), and expand spoken synonyms from `verbs{}` so the same vocabulary works everywhere. New phrasings → extend `verbs` (one place), not per feature.
    - **Ambiguity → always ask for a decision (never guess, never default).** When `interpret` returns `intent: "ask"` (e.g. `slots.clarify: "email_target"`) or `intent: "unknown"`, the assistant must **speak the `reply`/clarifying question and wait** for the user to choose — it must not pick a side, run a default action, or navigate anywhere. Resolve the answer as a pending offer (P198). This covers the email **address vs account** split (`change the email` → "Do you mean the address on your résumé, or an account to connect?") and any future ambiguous object. An action's **missing required value** (e.g. "change my email address" with no new address given) is also ambiguity: **ask for the value, don't write the command text into the document.**
@@ -6420,7 +6420,8 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. (P179/P181/P197, applied uniformly.)
 6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). (P193/P200, global.)
 7. **surface_choices** — whenever the assistant presents options/choices (suggested bullets, next-step chips, a list it "added"), **render them in view and reachable now**: auto-scroll the overlay body to the newest choices and keep the active options pinned/visible, so what it just offered is one tap away — not below the fold. Never announce "I've added X to choose from" unless those items are actually rendered and reachable at that moment. The overlay body must own most of the panel height and always land on the latest. **Whenever usable content sits below the viewable area, show an unobtrusive visual cue — a pulsing arrow (or similar) — so the user knows there's more to reach** (a core, consistent affordance everywhere a scroll region hides content). (P208/P211, global.)
-8. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
+8. **narrate_values** — be **aware of the live values on the page**: read the section's **`readouts`** (each `{key, label, source, highlight}`) from its primary API response, and while narrating **speak each value and highlight its tile/element** ("You have 45 matches, 12 strong" while ringing the Matches tile; "3 interviews" on the Interviews tile). Don't recite a static script over live numbers you never point to. (P214, global.)
+9. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
 
 ### Result: adding a feature
 When the backend adds a `CAPABILITIES` entry for a new section, the frontend should **already** guide it on arrival, recognize its verbs/objects, offer and run its walkthrough, highlight and explain its controls, arm its offers, and confirm its destructive actions — **with no new frontend work**. If a new feature needs a brand-new *control type* or *playbook UI*, build just that piece; everything else comes from the manifest.
@@ -6542,7 +6543,7 @@ Live `GET /api/v1/resumes` returns the user's real résumés, current-first (sam
 ---
 ### 0. Architecture — one generic assistant runtime from the capability manifest (P201)
 - On sign-in, fetch **`GET /api/v1/assistant/capabilities`** (cache it). It returns `version, behaviors[], verbs{}, destructive_verbs[], playbooks[], sections[]`; each section has `purpose, current, walkthrough, actions[] (label, verb, objects[], intent, slots, destructive, confirm), controls[] (label, does), offers[], aliases[]`.
-- Build the **eight behaviors once**, driven by the manifest (not per screen): **guide-on-arrival, recognize verb+object, pending-offer (yes/no), confirm-destructive, highlight+dock, speak-on-update, surface-choices, one-source-of-truth.** Do **not** hard-code per-section purpose text, buttons, offers, or confirm rules — read them from the manifest. Adding a feature later = one manifest entry, no new UI code. (**surface-choices**: whenever the assistant offers options, auto-scroll them into view and keep them reachable — never announce choices that aren't rendered; see P208.)
+- Build the **nine behaviors once**, driven by the manifest (not per screen): **guide-on-arrival, recognize verb+object, pending-offer (yes/no), confirm-destructive, highlight+dock, speak-on-update, surface-choices, narrate-values, one-source-of-truth.** Do **not** hard-code per-section purpose text, buttons, offers, or confirm rules — read them from the manifest. Adding a feature later = one manifest entry, no new UI code. (**surface-choices**: whenever the assistant offers options, auto-scroll them into view and keep them reachable — never announce choices that aren't rendered; see P208.)
 
 ### 1. Overlay = ONE global, repositionable, highlighting component, site-wide (P179/P181/P199/P204)
 - Mount a single `AssistantOverlay` on **every** page. It must:
@@ -6793,3 +6794,33 @@ steps: [ { say: "<spoken line>", highlight: "<control label to ring + scroll to>
 - "connect an email account" → the assistant opens Connect, **says what the page is**, and **walks each step** (Add email source → pick provider → sign in on the provider, highlighting each), pausing at the sign-in step, and confirms once connected — with highlighting throughout.
 - The same step-driven narration works for auto-apply and any section that declares `steps`.
 - No assistant-initiated navigation ends in silence.
+
+
+## P214 — Content-aware narration: speak the page's live values and highlight each one (readouts) — globally
+
+**Frontend. Backend is LIVE** (new `narrate_values` behavior + `readouts` in the manifest). On the dashboard the assistant talks through the points well but **doesn't highlight the matches, interviews, and other metrics it's presenting** — it's reciting a script instead of being aware of what's on screen. Encapsulate this generally: the assistant reads a section's **live values** and, as it narrates each, **speaks the value and highlights its tile**. Builds on P201 (`highlight_and_dock`, `speak_on_update`, `surface_choices`), P213 (steps), P206 §4 (one source of truth).
+
+### The idea (global): `narrate_values`
+Every section declares the live values it shows as **`readouts`** in the manifest (`GET /api/v1/assistant/capabilities`):
+```
+readouts: [ { key, label, source, highlight }, … ]
+```
+- **`source`** is a dot-path into that section's primary API response — the **dashboard** (`GET /api/v1/dashboard`) for `dashboard`/`matches`, the **current résumé** (`GET /api/v1/resumes/{id}`) for `documents`, the **connected-sources list** (`GET /api/v1/integrations`, use its length) for `connect`.
+- **`highlight`** names the on-screen tile/element to ring while that value is spoken.
+
+### 1. Be aware of the page's values and point to them
+- When narrating a section (guide-on-arrival, a walkthrough step, or answering a question), the assistant must **read the current values from the section's API response** and, for each readout it mentions, **say the number and highlight its tile** (ring + scroll into view, P201) — e.g. dashboard: *"You have **45 matches**, **12 strong**"* (ring the Matches tile), *"**3 interviews**"* (Interviews tile), *"**7 applications**"* (Applications tile), résumés/documents, saved jobs, weekly goal. Never narrate a metric without pointing to it.
+- The spoken value must match the tile on screen (one source of truth, P206 §4): read it live; don't hardcode or let it drift from what's displayed.
+- Map each `readout.highlight` to the matching metric tile in the DOM; if a tile for a readout isn't present, skip that readout (don't invent a value).
+
+### 2. Dashboard specifically (the reported gap)
+- Walking the dashboard, highlight **Matches / strong fits, Interviews, Applications, Documents (résumés), Saved jobs, Weekly goal** as each is spoken, using the `dashboard` readouts and the `GET /api/v1/dashboard` values. The dashboard is the default landing page — make this the thorough, content-aware tour.
+
+### 3. Make it generic (the encapsulation)
+- Build **one** "narrate a readout" routine in the shared runtime: given a section's `readouts`, read each value from the section's API payload, speak "{label}: {value}", and highlight `highlight`. Reuse it for **every** section (matches, documents, connect, …) and wherever the assistant cites an on-screen value — so "it narrated but didn't point to the numbers" can't recur per screen. This is the `narrate_values` behavior; it pairs with `highlight_and_dock` (point at it) and `speak_on_update` (say it).
+- General principle: **whenever the assistant states a value or element that's visible on the page, it highlights that exact element.** Narration and the screen stay in lockstep.
+
+### Acceptance
+- On the dashboard, as the assistant says each metric (matches, strong fits, interviews, applications, documents, saved jobs, weekly goal) it **highlights that tile** and the **spoken number matches the tile**.
+- The same readout-driven narration works on other sections (e.g. matches count on Matches, version/score on Documents, connected-source count on Connect).
+- The assistant never cites an on-screen value without highlighting it, and never speaks a value that differs from what's displayed.

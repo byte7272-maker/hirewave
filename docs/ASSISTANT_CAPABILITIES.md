@@ -2,10 +2,10 @@
 
 **Goal:** stop hand-specifying the assistant's behavior feature by feature. P179–P200 each
 described, in prose, how the assistant should act on one screen. They are all instances of
-the **same eight generic behaviors**. Describe a feature **once** in a declarative manifest,
+the **same nine generic behaviors**. Describe a feature **once** in a declarative manifest,
 and it inherits all of them — no new per-feature logic.
 
-## The eight behaviors (built once, applied everywhere)
+## The nine behaviors (built once, applied everywhere)
 
 | Behavior | What it does | Replaces the per-feature prose in |
 |---|---|---|
@@ -16,6 +16,7 @@ and it inherits all of them — no new per-feature logic.
 | `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. | P179, P181, P197 |
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. | P193, P200 |
 | `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. Show an **unobtrusive cue** (a pulsing arrow) whenever usable content sits below the fold. | P208, P211 |
+| `narrate_values` | Read a section's live **`readouts`** (the values it displays) and, while narrating, **speak each value and highlight its element** — the assistant is aware of what's on screen, not reciting a static script. | P214 |
 | `one_source_of_truth` | "The current X" always resolves the same way (active version, top match) — never a sample or a stale copy. | P193, P197, P200 |
 
 ## The manifest is the single source
@@ -31,8 +32,14 @@ current     what "this/current X" resolves to here (one_source_of_truth)
 walkthrough a playbook key to offer on arrival, or null
 actions[]   { label, verb, objects[], intent, slots, destructive, confirm }
 controls[]  { label, does }     the buttons to highlight + explain
+steps[]     { say, highlight, wait? }   ordered narrate+highlight walkthrough (P213)
+readouts[]  { key, label, source, highlight }  live values to speak + highlight (narrate_values, P214)
 offers[]    next-step prompts to arm as pending offers
 ```
+
+`source` is a dot-path into the section's primary API response (the dashboard for
+`dashboard`/`matches`, the current résumé for `documents`, the connected-sources list for
+`connect`); `highlight` names the on-screen tile/element to ring while the value is spoken.
 
 - **Aliases** (nav/recognition synonyms) come straight from the NLU's `_SECTIONS`, so
   recognition and guidance share one vocabulary and can't drift.
