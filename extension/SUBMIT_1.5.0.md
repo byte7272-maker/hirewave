@@ -32,30 +32,36 @@ Connect a job board, pull jobs you view, research employers, fill applications w
 Project Harbor Connect is the companion extension for the user's own Project Harbor account. On the user's action it (1) connects a job site the user is logged into by reading only that site's existing session cookies, (2) pulls job listings the user is viewing into their account, (3) fills an application form the user opens with the user's own saved details, and (4) when the user turns on Web research and approves a specific search, looks up an employer on the open web using the user's browser and sends the readable text of the public pages found to the user's account to summarize into job-search notes. It never reads passwords, never submits a form, and — for research — reads only public pages (requests made without the user's cookies), never logged-in or private data. Every function serves the single purpose of helping the user apply for jobs through their own Project Harbor account; data is transmitted only to that account over HTTPS.
 ```
 
-## Fields to ADD
-
-### Optional host permission `*://*/*` justification  ← NEW in 1.5.0 (the key one)
-```
-This broad host access is an OPTIONAL permission, not granted on install. It is requested only when the user explicitly turns on the Web research feature from the extension popup (a user gesture), and the user can turn it off at any time. It is used solely to fetch PUBLIC web pages the user approves when researching an employer — a web search and the resulting public pages (e.g. a company's About/leadership/news pages). Fetches are made WITHOUT the user's cookies (credentials omitted), so only publicly visible content is read; the extension never reads the user's logged-in, private, or authenticated pages, and never executes page scripts — it extracts readable text only and sends it to the user's own Project Harbor account over HTTPS to summarize. No broad access is used for any other purpose, and none is requested unless the user enables research.
-```
-
 ## Fields to UPDATE
 
-### Host permission justification (the existing job-site/API one) — append the research note
-Keep the existing text, then add:
+> **How the Privacy practices tab is laid out (read this first):**
+> - **Single purpose** — one free-text box.
+> - **Permission justifications** — one free-text box PER permission. There is a **single
+>   "Host permission justification" box that covers ALL host permissions** — the required
+>   job-site hosts AND the optional `*://*/*`. Chrome does NOT give optional host
+>   permissions their own field, so the two go in the same box (see below).
+> - **Data collection** — a list of **CHECKBOXES** (Authentication information, Website
+>   content, …) plus three certification checkboxes. **You do NOT type anything here** —
+>   you only tick boxes. The *description* of what the data is lives in the privacy policy
+>   and the Single purpose box, not here.
+
+### Host permission justification — ONE box covers required + optional hosts (1000-char cap)
+This field caps at **1000 characters** and the 1.4.1 text is already near the limit, so the
+optional-permission note must be folded in, not appended. **Replace the whole field** with
+this combined version (909 chars — covers job sites, API/app origin, and the optional research
+permission as item 3; there is no separate field for the optional host):
 ```
-Separately, the extension also declares an OPTIONAL broad host permission that is NOT part of the default install; it is requested only if the user turns on Web research, and is used only to fetch public pages the user approves, without the user's cookies. See the optional-permission justification.
+Two kinds of hosts, plus one optional. (1) Job-site hosts in host_permissions: only on the user's action, to read that site's session cookies when the user connects it, and to read an application form's field labels and fill the user's own details when the user clicks fill. No other page content; never passwords. (2) The Project Harbor API host and app origin: the API host receives sessions and form-field labels over HTTPS to map to the user's own account; the app origin lets a content script mark the extension installed and relay the user's requests. (3) An OPTIONAL broad host permission (*://*/*), NOT in the default install, requested only if the user turns on Web research: used only to fetch public pages the user approves, without the user's cookies (readable text only, never executed), sent to the user's own account over HTTPS to summarize. Each host is necessary; no other sites are accessed.
 ```
 
-### Data collection — "What data do you collect?"
-Keep **Authentication information** (connected site's session cookies; no passwords).
-Update **Website content** to:
-```
-Website content — the labels/types of an application form the user chooses to fill, the job listings the user chooses to pull, AND (only if the user turns on Web research and approves a search) the readable text of the public web pages found for that search. All only on the user's action, sent only to the user's own Project Harbor account.
-```
-- Is data sold to third parties? → **No**
-- Used/transferred for purposes unrelated to the single purpose? → **No**
-- Used to determine creditworthiness / lending? → **No**
+### Data collection — CHECKBOXES only (nothing to type)
+- ☑ **Authentication information** (connected site's session cookies; no passwords) — keep checked.
+- ☑ **Website content** — keep/leave checked. It now also covers the readable text of public
+  pages fetched during research. **This is only a checkbox** — there is no text field here.
+- Certification checkboxes (attest all three):
+  - Is data sold to third parties? → **No**
+  - Used/transferred for purposes unrelated to the single purpose? → **No**
+  - Used to determine creditworthiness / lending? → **No**
 - Are you using remote code? → **No** (research fetches page *text* as data; it is never executed)
 
 ### Privacy policy URL

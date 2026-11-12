@@ -207,6 +207,85 @@ def record(store, user_id: str, events: Iterable[dict], now=None) -> int:
         return 0
 
 
+# --- tester feedback (direct "what was challenging") ------------------------
+_MAX_FEEDBACK_PER_MONTH = 200
+_FEEDBACK_MAXLEN = 500
+
+
+def _fb_key(month: str, user_id: str) -> str:
+    return f"asst_fb:{month}:{user_id}"
+
+
+def _scrub_note(text: str) -> str:
+    """PII-scrub a free-text note (emails/phones/long digit runs) and length-cap it —
+    keep the wording (not lowercased) so the admin can read what the tester meant."""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    s = _EMAIL.sub("<email>", s)
+    s = _PHONE.sub("<number>", s)
+    s = _LONGNUM.sub("<number>", s)
+    return _WS.sub(" ", s).strip()[:_FEEDBACK_MAXLEN]
+
+
+def record_feedback(
+    store, user_id: str, note: str, *,
+    utterance: str = "", intent: str = "", section: str = "", now=None,
+) -> bool:
+    """Store one tester's direct feedback on what was confusing/challenging, optionally
+    tied to the command they were trying (utterance/intent) and the screen. Best-effort;
+    never raises. Returns True when stored."""
+    if store is None or not user_id:
+        return False
+    clean = _scrub_note(note)
+    if not clean:
+        return False
+    key = _fb_key(month_key(now), user_id)
+    item = {
+        "at": (now or utcnow()).isoformat(),
+        "note": clean,
+        "utterance": normalize_utterance(utterance),
+        "intent": (intent or "")[:40],
+        "section": (section or "")[:40],
+    }
+    try:
+        stored = store.get(key)
+        items = json.loads(stored[0].decode("utf-8", "ignore")) if stored else []
+        if not isinstance(items, list):
+            items = []
+        items.append(item)
+        items = items[-_MAX_FEEDBACK_PER_MONTH:]  # keep the most recent
+        store.put(key, json.dumps(items).encode("utf-8"), content_type="application/json")
+        return True
+    except Exception:  # noqa: BLE001 - feedback must never break a user action
+        return False
+
+
+def recent_feedback(store, user_ids: Iterable[str], *, months: int = 1, limit: int = 50, now=None) -> list[dict]:
+    """Merge tester feedback across users over the window, newest first."""
+    if store is None:
+        return []
+    items: list[dict] = []
+    for uid in user_ids:
+        if not uid:
+            continue
+        for m in recent_months(months, now):
+            try:
+                stored = store.get(_fb_key(m, uid))
+            except Exception:  # noqa: BLE001
+                stored = None
+            if not stored:
+                continue
+            try:
+                part = json.loads(stored[0].decode("utf-8", "ignore"))
+            except Exception:  # noqa: BLE001
+                part = []
+            if isinstance(part, list):
+                items.extend(x for x in part if isinstance(x, dict))
+    items.sort(key=lambda x: str(x.get("at", "")), reverse=True)
+    return items[:limit]
+
+
 # --- read side (admin digest) ----------------------------------------------
 def _merge_into(total: dict, doc: dict) -> None:
     total["events"] += doc.get("events", 0)
@@ -241,6 +320,7 @@ def insights(
     month_list = recent_months(months, now)
     total = _blank()
     trend_by_month: dict[str, dict] = {m: {"events": 0, "failed": 0} for m in month_list}
+    user_ids = list(user_ids)
 
     for uid in user_ids:
         if not uid:
@@ -286,6 +366,7 @@ def insights(
         "top_questions": top_questions,
         "top_failures": top_failures,
         "feature_usage": feature_usage,
+        "feedback": recent_feedback(store, user_ids, months=months, limit=top, now=now),
         "trend": [
             {"month": m, "events": trend_by_month[m]["events"], "failed": trend_by_month[m]["failed"]}
             for m in reversed(month_list)  # oldest -> newest for charting

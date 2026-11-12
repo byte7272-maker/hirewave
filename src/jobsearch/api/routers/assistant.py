@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
+    AssistantFeedback,
+    AssistantFeedbackOut,
     AutofillRequest,
     AutomationActionOut,
     CommandSuggestion,
@@ -104,6 +106,20 @@ def telemetry(body: TelemetryBatch, user: CurrentUser, state: StateDep) -> Telem
     events = [e.model_dump() for e in body.events[:_TELEMETRY_BATCH_CAP]]
     accepted = assistant_telemetry.record(state.documents, user.id, events)
     return TelemetryIngestOut(accepted=accepted)
+
+
+@router.post("/feedback", response_model=AssistantFeedbackOut)
+def submit_feedback(body: AssistantFeedback, user: CurrentUser, state: StateDep) -> AssistantFeedbackOut:
+    """Capture a tester's direct feedback on what was confusing/challenging (optionally
+    tied to the command they were attempting). Feeds the admin digest so the assistant
+    can be improved where real users struggle. PII-scrubbed and length-capped; best-effort."""
+    from jobsearch.analytics import assistant_telemetry
+
+    ok = assistant_telemetry.record_feedback(
+        state.documents, user.id, body.note,
+        utterance=body.utterance, intent=body.intent, section=body.section,
+    )
+    return AssistantFeedbackOut(accepted=ok)
 
 
 @router.post("/research/summarize", response_model=ResearchOut)

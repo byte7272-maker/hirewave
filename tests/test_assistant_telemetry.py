@@ -132,6 +132,35 @@ def test_ingest_then_admin_insights_roundtrip():
     assert any(f["feature"] == "design" for f in body["feature_usage"])
 
 
+def test_record_feedback_scrubs_and_recent_returns_newest_first():
+    from datetime import timedelta
+    from jobsearch.models.common import utcnow
+    st = _MemStore()
+    t1 = utcnow()
+    t2 = t1 + timedelta(minutes=1)
+    assert tel.record_feedback(st, "u1", "Confusing: it emailed me at a@b.com", section="matches", now=t1)
+    assert tel.record_feedback(st, "u1", "Second note", utterance="change the email", intent="ask", now=t2)
+    items = tel.recent_feedback(st, ["u1"], months=1)
+    assert len(items) == 2 and items[0]["note"] == "Second note"  # newest first
+    assert "<email>" in items[1]["note"] and "a@b.com" not in items[1]["note"]  # PII scrubbed
+    assert items[0]["intent"] == "ask"
+    # empty note is rejected
+    assert tel.record_feedback(st, "u1", "   ") is False
+
+
+def test_feedback_endpoint_and_admin_digest_includes_it():
+    _, c = _app(admin_emails_raw="boss@x.com")
+    boss = _auth(c, "boss@x.com")
+    reg = _auth(c, "user@x.com")
+    r = c.post("/api/v1/assistant/feedback", headers=reg,
+               json={"note": "The walkthrough kept repeating", "section": "matches", "intent": "walk_matches"})
+    assert r.status_code == 200 and r.json()["accepted"] is True
+    assert c.post("/api/v1/assistant/feedback", json={"note": "x"}).status_code in (401, 403)
+
+    body = c.get("/api/v1/admin/assistant/insights", headers=boss).json()
+    assert any(f["note"] == "The walkthrough kept repeating" for f in body["feedback"])
+
+
 def test_ingest_batch_cap_is_enforced():
     _, c = _app()
     reg = _auth(c, "user@x.com")

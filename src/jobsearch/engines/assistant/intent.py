@@ -264,6 +264,9 @@ _MANAGE_REMOVE_RE = re.compile(
 _MANAGE_CHANGE_RE = re.compile(
     r"\b(change|switch|replace|update|swap|edit|modify|fix|correct)\b"
 )
+# "use/put/set …" is an implied change when it targets a field/document ("use a
+# different email address on my résumé") — not a connect verb.
+_MANAGE_SET_RE = re.compile(r"\b(use|put|set|make)\b")
 # The thing being managed.
 _EMAIL_OBJ_RE = re.compile(r"\b(e-?mail|mailbox|gmail|icloud|outlook|inbox|hotmail|yahoo)\b")
 # An email ADDRESS is a contact FIELD ("my email address", "my email") — it lives on a
@@ -299,23 +302,26 @@ def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     add = bool(_MANAGE_ADD_RE.search(t))
     rem = bool(_MANAGE_REMOVE_RE.search(t))
     chg = bool(_MANAGE_CHANGE_RE.search(t))
-    if not (add or rem or chg):
+    setv = bool(_MANAGE_SET_RE.search(t))
+    if not (add or rem or chg or setv):
         return None
     email = bool(_EMAIL_OBJ_RE.search(t))
     is_source = bool(_SOURCE_OBJ_RE.search(t)) or bool(_PROVIDER_RE.search(t))
     address = bool(_EMAIL_ADDRESS_RE.search(t))
     doc = _doc_target(t)
     doc_ctx = bool(doc) or bool(_DOC_CTX_RE.search(t))
+    # "use/put/set" counts as an edit only when it targets a field or a document.
+    edit_field = (chg or rem) or (setv and (address or (email and doc_ctx)))
 
     # 1) An email ADDRESS (a contact field), or any email edit scoped to a document,
     #    is a DOCUMENT edit — not a source. "replace my email address" / "change the
-    #    email on my résumé" open the doc and hand the frontend the instruction for
-    #    Ask-AI (it confirms before applying, P180). This is the distinction the user
-    #    asked for, and it must open the user's CURRENT résumé, never a sample.
-    #    A connect/add verb is always a SOURCE action, so the address->document branch
-    #    only fires for change/replace (editing a field), or when a document is named
-    #    explicitly ("add my email to my résumé").
-    if ((chg or rem) and address and not is_source) or (email and doc_ctx and (chg or rem or add)):
+    #    email on my résumé" / "use a different email address on my résumé" open the doc
+    #    and hand the frontend the instruction for Ask-AI (it confirms before applying,
+    #    P180). This is the distinction the user asked for, and it must open the user's
+    #    CURRENT résumé, never a sample. A connect/add verb is always a SOURCE action,
+    #    so the address->document branch only fires for an edit verb, or when a document
+    #    is named explicitly ("add my email to my résumé").
+    if (edit_field and address and not is_source) or (email and doc_ctx and (chg or rem or add or setv)):
         return IntentResult(
             "navigate", 0.85,
             {"section": "documents", "doc": doc or "resume", "edit": t},
@@ -426,10 +432,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         oid, idx, _ = _resolve_reference(t, context)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("discard_bullet", 0.85, slots)
-    if has("use ", "use that", "use this", "use it", "add that", "add this", "pick that",
-           "pick this", "go with that", "go with this") or re.fullmatch(
-        r"(use|add|pick)(\s+it)?", t
-    ):
+    # "use/add/pick …" selects a bullet — but NOT when the phrase is about an email
+    # address or a document field ("use a different email address on my résumé"), which
+    # is a document edit handled by _manage_action below.
+    _bullet_use = (has("use ", "use that", "use this", "use it", "add that", "add this",
+                       "pick that", "pick this", "go with that", "go with this")
+                   or re.fullmatch(r"(use|add|pick)(\s+it)?", t))
+    if _bullet_use and not (_EMAIL_ADDRESS_RE.search(t) or _DOC_CTX_RE.search(t)):
         oid, idx, dis = _resolve_reference(t, context)
         if dis:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)

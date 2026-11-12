@@ -1123,17 +1123,42 @@ def open_resume_in_google_docs(resume_id: str, user: CurrentUser, state: StateDe
     return _open_in_google_docs(state, docx_bytes=docx, name=name, user_id=user.id)
 
 
+def _doc_ts(doc) -> float:
+    """Sort key timestamp for a document (newest first)."""
+    c = getattr(doc, "created_at", None)
+    try:
+        return c.timestamp()
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _current_first(docs: list, *, include_sample: bool) -> list:
+    """Order a user's documents so the CURRENT real one is first, and hide seeded
+    samples once the user has a real document (unless explicitly requested).
+
+    This is the single 'which document is current' rule the UI and the assistant both
+    rely on — so 'show/edit my résumé' resolves to the user's real current document,
+    never a seeded sample (the reported bug)."""
+    reals = [d for d in docs if not getattr(d, "is_sample", False)]
+    if reals and not include_sample:
+        docs = reals
+    # real before sample, then newest first
+    return sorted(docs, key=lambda d: (getattr(d, "is_sample", False), -_doc_ts(d)))
+
+
 @router.get("/resumes", response_model=list[Resume])
 def list_resumes(
     user: CurrentUser, state: StateDep,
     archived: Optional[bool] = Query(None, description="true=Archived shelf, false=main list, omit=all"),
     flagged: Optional[bool] = Query(None, description="true=only flagged (needs attention)"),
+    include_sample: bool = Query(False, description="include seeded sample résumés even when real ones exist"),
 ) -> list[Resume]:
     resumes = state.resumes.find(user_id=user.id)
     if archived is not None:
         resumes = [r for r in resumes if r.archived == archived]
     if flagged is not None:
         resumes = [r for r in resumes if r.flagged == flagged]
+    resumes = _current_first(resumes, include_sample=include_sample)
     return [ensure_resume_grade(state, ensure_rendered_text(state, r)) for r in resumes]
 
 
@@ -1657,12 +1682,14 @@ def list_cover_letters(
     user: CurrentUser, state: StateDep,
     archived: Optional[bool] = Query(None, description="true=Archived shelf, false=main list, omit=all"),
     flagged: Optional[bool] = Query(None, description="true=only flagged (needs attention)"),
+    include_sample: bool = Query(False, description="include seeded sample cover letters even when real ones exist"),
 ) -> list[CoverLetter]:
     cls = state.cover_letters.find(user_id=user.id)
     if archived is not None:
         cls = [c for c in cls if c.archived == archived]
     if flagged is not None:
         cls = [c for c in cls if c.flagged == flagged]
+    cls = _current_first(cls, include_sample=include_sample)
     return [ensure_cover_letter_grade(state, cl) for cl in cls]
 
 

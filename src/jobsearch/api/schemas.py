@@ -1264,6 +1264,20 @@ class TelemetryIngestOut(BaseModel):
     accepted: int
 
 
+class AssistantFeedback(BaseModel):
+    """A tester's direct note on what was confusing/challenging, optionally tied to the
+    command they were trying. The server PII-scrubs and length-caps the note."""
+
+    note: str                                 # free text; what was hard / unclear
+    utterance: str = ""                       # the command they were attempting (optional)
+    intent: str = ""                          # resolved intent, if any (optional)
+    section: str = ""                         # the screen they were on (optional)
+
+
+class AssistantFeedbackOut(BaseModel):
+    accepted: bool
+
+
 class ResearchSource(BaseModel):
     """One web page the user's browser fetched (their connection, their permission)."""
 

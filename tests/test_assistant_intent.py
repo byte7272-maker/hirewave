@@ -145,6 +145,16 @@ def test_bare_ambiguous_email_change_asks_which():
     assert "résumé" in r.reply or "resume" in r.reply
 
 
+def test_use_email_address_on_resume_is_a_document_edit_not_a_bullet():
+    # "use …" normally selects a bullet, but "use a different email address on my resume"
+    # is a document edit (was misclassified as use_bullet).
+    r = interpret("use a different email address on my resume")
+    assert r.intent == "navigate"
+    assert r.slots["section"] == "documents" and r.slots.get("doc") == "resume"
+    # a real bullet selection still works
+    assert interpret("use that one").intent == "use_bullet"
+
+
 def test_navigate_to_cover_letter_vs_resume_carries_the_doc():
     # "go to my cover letter" must open the COVER LETTER, not just the Documents section
     # (which was defaulting to the résumé).

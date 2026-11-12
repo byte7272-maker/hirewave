@@ -6414,6 +6414,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 ### Build the seven generic behaviors once
 1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. (Supersedes the per-section guidance in P199/P200.)
 2. **recognize_verb_object** — route `interpret`'s result to the matching `actions[]` entry (by `intent` + `slots`), and expand spoken synonyms from `verbs{}` so the same vocabulary works everywhere. New phrasings → extend `verbs` (one place), not per feature.
+   - **Ambiguity → always ask for a decision (never guess, never default).** When `interpret` returns `intent: "ask"` (e.g. `slots.clarify: "email_target"`) or `intent: "unknown"`, the assistant must **speak the `reply`/clarifying question and wait** for the user to choose — it must not pick a side, run a default action, or navigate anywhere. Resolve the answer as a pending offer (P198). This covers the email **address vs account** split (`change the email` → "Do you mean the address on your résumé, or an account to connect?") and any future ambiguous object. An action's **missing required value** (e.g. "change my email address" with no new address given) is also ambiguity: **ask for the value, don't write the command text into the document.**
 3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. `offers[]` from the manifest are the arrival offers. (This is P198, now generic.)
 4. **confirm_destructive** — before running any action with `destructive: true` (or whose verb is in `destructive_verbs`), show its `confirm` prompt and require a yes. (P180, now automatic from the manifest.)
 5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. (P179/P181/P197, applied uniformly.)
@@ -6430,3 +6431,34 @@ P179–P200 remain the detailed spec for each behavior's fine points (e.g. the M
 - The assistant loads `/assistant/capabilities` and renders guide-on-arrival for **every** section purely from the manifest (no hard-coded per-section text).
 - A verb+object the manifest lists runs its action; a `destructive` action confirms first; a yes/no arms and resolves a pending offer; the assistant speaks on every update; "the current X" is always the real, active item.
 - Adding a section to the manifest (backend) makes it fully assistant-driven with **no** new frontend prompt — demonstrated by pointing the runtime at a manifest entry the UI has no bespoke code for.
+
+
+## P202 — Command history recall (last 5, ↑/↓), full command logging, tester feedback, and don't lose/misplace an edit
+
+**Frontend, plus LIVE backend** (noted inline). Fixes: the assistant lost a typed command and the user had to retype it; it wrote a command **verbatim into a sample résumé**; and the admin needs to see what's asked most and what fails. Builds on P182 (telemetry), P198 (pending offers), P199/P200 (edit the real résumé), P201 (ambiguity → ask).
+
+### 1. Last-5 command cache with ↑/↓ recall (like Claude's input)
+- Keep the **last 5 commands the user entered** into the assistant prompt (typed **and** the final transcript of a voice command), most-recent last, per device (localStorage; wrap in try/catch, survive private mode).
+- In the prompt box, **↑ recalls the previous command, ↓ the next** — exactly like Claude's input history: ↑ from an empty/unedited box walks back through history; ↓ walks forward and returns to the empty draft; editing a recalled entry doesn't mutate history. De-dupe consecutive identical entries; cap at 5.
+- **If a command is lost or not actioned** (not understood, errored, or interrupted), the user presses ↑ to get it back and re-send or edit it — **no retyping the whole sentence**. Keep the text of the last un-actioned command available even after an error.
+- A small "recent commands" affordance (optional) can list the 5 for tap-to-reuse; ↑/↓ is the required path.
+
+### 2. Log every command (the admin command log) — `POST /assistant/telemetry` (LIVE, P182)
+- Emit one telemetry event for **every** command, by **every** user, however entered: `{ utterance, path: "chip"|"typed"|"voice", intent, status: "resolved"|"clarified"|"failed", failure_class?, feature?, outcome? }`. Buffer and flush in small batches (cap 200/flush).
+- **Always log "couldn't understand"**: when `interpret` returns `unknown` (or the user reports it did nothing), send `status: "failed", failure_class: "not_understood"`; for a real ask we don't support yet, `missing_capability`; for an understood-but-wrong-place, `understood_no_action`. This is what populates the admin's most-common + failing commands. (Utterance is PII-scrubbed server-side; never send document text.)
+
+### 3. Tester direct feedback — `POST /assistant/feedback` (LIVE)
+- Give testers a one-tap **"Something off? Tell us"** on the assistant (and after a failed/clarified command) that posts `{ note, utterance?, intent?, section? }` to **`POST /api/v1/assistant/feedback`**. Pre-fill `utterance`/`intent`/`section` from the command they were just on so the note is actionable. The server scrubs PII and caps length; show a brief "Thanks — sent."
+- The admin digest **`GET /api/v1/admin/assistant/insights`** now returns, alongside `top_questions`, `top_failures` (with example phrasings + class), and `feature_usage`, a **`feedback[]`** list (newest first: `note`, `utterance`, `intent`, `section`, `at`). Surface these in the admin view so the team can see the most frequent commands, which ones fail, and what testers found challenging — to improve the assistant or add capabilities/clarity.
+
+### 4. Don't write a command verbatim into a document; edit the REAL résumé
+- When routing an edit (e.g. `navigate documents doc=resume edit="change the email address to …"`), **never paste the instruction text into the document.** Open the user's **current real résumé** (see #5), **prefill Ask AI** with the instruction, and **run it as an edit** (confirm before applying, P180). If the instruction lacks the needed value ("change my email address" with no new address), **ask for the new address first** (P201 ambiguity → ask) — don't write "change my email address" into the résumé.
+
+### 5. Current résumé, never the sample — `GET /api/v1/resumes` (LIVE, fixed)
+- The résumé list now **hides seeded samples once the user has a real résumé** and returns the **current (newest real) résumé first**; a brand-new account with no real résumé still sees the sample. So "show/edit my résumé" must use the **first** résumé from `GET /api/v1/resumes` (or the explicitly open document) — which is now guaranteed to be the user's real current one, not a sample. Pass `include_sample=true` only where you deliberately want the demo sample. Same ordering applies to `GET /api/v1/cover-letters`.
+
+### Acceptance
+- ↑/↓ in the prompt box recalls the last 5 commands; a lost/unactioned command is recoverable with ↑ (no retyping).
+- Every command (incl. not-understood) is logged; the admin digest shows most-common commands, failures by class with examples, and tester feedback notes.
+- "Something off?" posts a tester note tied to the current command; it appears in the admin digest.
+- An email-address edit opens the **current real résumé**, prefills Ask AI, asks for the new address if missing, and **never** writes the command text into the document or touches a sample.
