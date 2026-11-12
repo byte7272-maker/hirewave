@@ -6623,3 +6623,29 @@ The Documents view stacks several toolbars with **duplicate controls** on top of
 - The Documents header shows one minimal toolbar — no duplicate Design button, no "Working docs"/"Working copy" clutter stacked over the résumé.
 - After an edit, the **templated** document re-renders with the change (email as plain text, not code), matching the marquee and the current version.
 - Refreshing the page does **not** make the assistant greet again or repeat its intro; navigating to a different section still guides that section once.
+
+
+## P208 — Assistant overlay: surface added choices immediately (auto-scroll to them + keep actions visible); give the body more height; clear the stale Review error
+
+**Frontend. No backend change.** Verified live: the assistant shell is 440×728 but its scrollable body is only **372px tall holding ~999px of content** — **627px is below the fold**, and **15 of 29 option chips are off-screen**. So when the assistant says it added choices/options, the user can't see or pick them without scrolling. Builds on P198 (pending offers), P204/P206 (overlay dock/size), P201 (speak-on-update).
+
+### 1. When the assistant adds choices/options, make them immediately available (the main bug)
+- Whenever the assistant presents things to choose from (suggested bullets, options, next-step chips, a list it "added"), it must **render them in view and bring them on-screen** — **auto-scroll the overlay body to the newest message/choices** so they're visible without the user scrolling. Pair this with speak-on-update: when it says "I've added a few options," the scroll jumps to those options.
+- Keep the **current choices/actions pinned and visible** — render the active options in a sticky actions area at the bottom of the overlay (or scroll them into view and hold), so what the assistant just offered is reachable with one tap, not buried 600px down.
+- Never announce "I've added X to choose from" unless those items are actually rendered and reachable in the overlay at that moment.
+
+### 2. Give the message/choices body more of the panel height
+- The body uses only ~372 of the 728px shell — too much is taken by header/footer chrome. **Reduce the chrome and let the conversation/choices body use most of the panel height**, so more choices are visible at once. The body must scroll (`overflow-y:auto`), and **auto-scroll to the latest** on every new message/choice.
+- The outer shell must not clip growing content (it's currently `overflow-y:hidden`): either let the body scroll within a fixed shell (preferred) or allow the shell to grow to a sensible max — but the inner body is what scrolls, and it must always land on the newest content.
+
+### 3. Overlay still shouldn't hide page content either (ties P204)
+- Keep P204: the overlay can be repositioned/docked and must not cover the focused document. This item is about the overlay hiding **its own** content; both must hold — the user should see the document *and* the assistant's current choices.
+
+### 4. Clear the stale "Method Not Allowed" on the Review brief
+- The Review brief area still shows **"Method Not Allowed"** text in the DOM even though Review now (POST) works. On a successful review, **replace that text with the brief**; on load, don't render a prior error — only show an error if the current call actually failed, with a retry. (The POST fix is P205/P206 §8.)
+
+### Acceptance
+- When the assistant says it added options/choices, those items are **visible and tappable immediately** (auto-scrolled into view / pinned), not below the fold.
+- The overlay body shows most of the panel height, scrolls, and always lands on the newest message/choices.
+- The overlay never hides the focused document (P204), and never announces choices that aren't actually rendered.
+- The Review brief shows the real brief (or a current-attempt error), never a stale "Method Not Allowed."
