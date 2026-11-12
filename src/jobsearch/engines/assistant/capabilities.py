@@ -11,6 +11,7 @@ they are all instances of the SAME small set of generic behaviors:
   * confirm-destructive— any action marked destructive confirms before it runs
   * highlight + dock    — point at the element being discussed; keep it visible
   * speak-on-update    — narrate whenever the overlay text changes (every screen)
+  * surface-choices    — when it offers options, render them in view and reachable now
   * one-source-of-truth— "the current X" always resolves the same way everywhere
 
 This module is the **single declarative place** those engines read. To give the
@@ -33,7 +34,7 @@ VERSION = 1
 #: and the contract these engines honor). Flags, not free text, so the UI can key off them.
 BEHAVIORS = [
     "guide_on_arrival", "recognize_verb_object", "pending_offer", "confirm_destructive",
-    "highlight_and_dock", "speak_on_update", "one_source_of_truth",
+    "highlight_and_dock", "speak_on_update", "surface_choices", "one_source_of_truth",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

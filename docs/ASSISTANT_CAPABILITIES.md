@@ -2,10 +2,10 @@
 
 **Goal:** stop hand-specifying the assistant's behavior feature by feature. P179–P200 each
 described, in prose, how the assistant should act on one screen. They are all instances of
-the **same seven generic behaviors**. Describe a feature **once** in a declarative manifest,
+the **same eight generic behaviors**. Describe a feature **once** in a declarative manifest,
 and it inherits all of them — no new per-feature logic.
 
-## The seven behaviors (built once, applied everywhere)
+## The eight behaviors (built once, applied everywhere)
 
 | Behavior | What it does | Replaces the per-feature prose in |
 |---|---|---|
@@ -15,6 +15,7 @@ and it inherits all of them — no new per-feature logic.
 | `confirm_destructive` | Any action whose verb is remove/change confirms before running. | P180 |
 | `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. | P179, P181, P197 |
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. | P193, P200 |
+| `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. | P208 |
 | `one_source_of_truth` | "The current X" always resolves the same way (active version, top match) — never a sample or a stale copy. | P193, P197, P200 |
 
 ## The manifest is the single source
