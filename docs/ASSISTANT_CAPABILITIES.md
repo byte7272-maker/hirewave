@@ -13,7 +13,7 @@ and it inherits all of them — no new per-feature logic.
 | `recognize_verb_object` | A verb (connect/add/remove/change/show/walk/tailor/research/search/save) + an object → one action. | P181, P184, P195, P199 |
 | `pending_offer` | Every yes/no question arms a concrete follow-up; "yes" runs it; nothing pending never defaults to a random screen. | P198 |
 | `confirm_destructive` | Any action whose verb is remove/change confirms before running. | P180 |
-| `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. | P179, P181, P197 |
+| `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. **Hold** the position + highlight until the user acts or a timeout expires (never snap back and cover the target); interruptible immediately by a drag or selecting elsewhere. | P179, P181, P197, P215 |
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. | P193, P200 |
 | `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. Show an **unobtrusive cue** (a pulsing arrow) whenever usable content sits below the fold. | P208, P211 |
 | `narrate_values` | Read a section's live **`readouts`** (the values it displays) and, while narrating, **speak each value and highlight its element** — the assistant is aware of what's on screen, not reciting a static script. | P214 |

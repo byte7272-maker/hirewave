@@ -354,6 +354,25 @@ def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     return None
 
 
+# --- "read me this page" — run through all the live values -------------------
+# "what's on my dashboard", "run through the tallies", "read me the numbers" → report
+# the WHOLE page (every readout), like the marquee, not just the section's purpose.
+_PAGE_SUMMARY_RE = re.compile(
+    r"\bwhat'?s?\s+(?:on|is on)\b.*\b(?:dashboard|page|screen)\b"
+    r"|\b(?:run|go|walk|take me|read)\s+(?:me\s+)?through\b.*\b(?:dashboard|page|numbers?|totals?|tall(?:y|ies)|metrics|stats|everything|each)\b"
+    r"|\bread\s+(?:me\s+)?(?:the\s+|my\s+)?(?:dashboard|page|numbers?|totals?|tall(?:y|ies)|metrics|stats)\b"
+    r"|\bwhat\s+are\s+(?:my|the)\s+(?:numbers?|totals?|tall(?:y|ies)|metrics|stats)\b"
+    r"|\b(?:go|run)\s+through\s+(?:each|all|the)\s+(?:tall(?:y|ies)|sections?|numbers?|metrics)\b",
+    re.I,
+)
+
+
+def _page_summary(t: str) -> bool:
+    """True for a 'read me this whole page / run through the tallies' request — answered
+    by narrating every readout for the current section (narrate_values), not a purpose blurb."""
+    return bool(_PAGE_SUMMARY_RE.search(t))
+
+
 # --- factual state questions ("what version is this?") ------------------------
 # A question about the CURRENT state must be ANSWERED, not turned into a navigate or a
 # highlight. Recognize "what/which/how many … <state noun>" and report the field.
@@ -558,6 +577,11 @@ def _deterministic(text: str, context: dict) -> IntentResult:
            "resume where", "continue where i left off", "continue my task", "last session",
            "finish what i started", "back to what i was", "what i was doing"):
         return IntentResult("resume_task", 0.9)
+
+    # "read me this page" ("what's on my dashboard", "run through the tallies") — report
+    # the WHOLE page: narrate every readout + the current document, like the marquee.
+    if _page_summary(t):
+        return IntentResult("report_state", 0.9, {"field": "page"})
 
     # factual state question ("what version is this?", "what's my score", "how many
     # matches do I have?") — ANSWER it; don't navigate or highlight. Checked before the

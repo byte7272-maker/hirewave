@@ -159,6 +159,18 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_read_me_the_page_runs_through_all_values():
+    # "what's on my dashboard" / "run through the tallies" -> report_state field=page
+    # (narrate every readout), not a purpose blurb and not a single metric.
+    for phrase in ("what is on my dashboard", "what's on this page", "run through the tallies",
+                   "read me the numbers", "what are my totals", "go through each section"):
+        r = interpret(phrase)
+        assert r.intent == "report_state" and r.slots.get("field") == "page", (phrase, r.slots)
+    # a single-metric question still resolves to that metric, and a matches walk still walks
+    assert interpret("how many matches do i have").slots.get("field") == "matches"
+    assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
+
+
 def test_reference_a_bullet_by_number():
     # Numbered bullets: "bullet 3" / "line 2" resolve to that option so the user can
     # reference a bullet by its number to the assistant.

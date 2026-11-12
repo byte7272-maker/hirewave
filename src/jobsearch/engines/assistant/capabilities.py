@@ -9,7 +9,9 @@ they are all instances of the SAME small set of generic behaviors:
                          + an object resolves to one action
   * pending-offer      — every yes/no question arms a concrete follow-up; "yes" runs it
   * confirm-destructive— any action marked destructive confirms before it runs
-  * highlight + dock    — point at the element being discussed; keep it visible
+  * highlight + dock    — point at the element being discussed; keep it visible; HOLD the
+                         position + highlight until the user acts or a timeout expires
+                         (don't snap back and cover the target); interruptible at once
   * speak-on-update    — narrate whenever the overlay text changes (every screen)
   * surface-choices    — offered options render in view/reachable; an unobtrusive cue
                          (a pulsing arrow) signals content below the fold
