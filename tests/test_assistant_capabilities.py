@@ -61,6 +61,16 @@ def test_connect_declares_the_five_source_limit():
     assert caps.for_section("connect").get("limits", {}).get("email_sources") == 5
 
 
+def test_walkthroughs_have_narratable_steps():
+    # The connect/auto-apply walkthroughs carry ordered steps (say + highlight) so the
+    # generic runtime narrates and highlights them — never a silent page.
+    for s in ("connect", "auto_apply"):
+        steps = caps.arrival_brief(s)["steps"]
+        assert steps and all(st.get("say") and st.get("highlight") for st in steps)
+    # a step that needs the user to act is flagged to wait
+    assert any(st.get("wait") for st in caps.for_section("connect")["steps"])
+
+
 # --- endpoint ---------------------------------------------------------------
 def _app():
     state = AppState(settings=Settings(), exchanger=MockTokenExchanger())

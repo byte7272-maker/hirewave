@@ -154,6 +154,19 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Connected list", "does": "Your connected addresses — remove any to free a slot."},
         ],
         "offers": ["Want me to walk you through connecting an email account?"],
+        # Ordered walkthrough the generic runtime narrates + highlights, step by step
+        # (so the connect flow never goes silent). Each step: say + what to highlight,
+        # and wait=true where the user must act before continuing.
+        "steps": [
+            {"say": "This is Connect — where you add the email accounts Project Harbor pulls jobs from. You can connect up to 5.",
+             "highlight": "Add email source"},
+            {"say": "Start by tapping Add email source, then choose your provider — Gmail, iCloud, or Outlook.",
+             "highlight": "Add email source"},
+            {"say": "You'll sign in on the provider's own page and approve read access. I never see or handle your password — you sign in yourself.",
+             "highlight": "Add email source", "wait": True},
+            {"say": "Once it's connected, your address shows up in your connected list here. Add another any time, up to 5.",
+             "highlight": "Connected list"},
+        ],
         "limits": {"email_sources": 5},
     },
     "auto_apply": {
@@ -168,6 +181,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Daily/weekly limits", "does": "How many auto-applies run per day and week."},
         ],
         "offers": ["Want me to walk you through setting up auto-apply?"],
+        "steps": [
+            {"say": "This is Auto-apply — I can fill and queue applications for you, and you approve each one before it sends.",
+             "highlight": "Enable auto-apply"},
+            {"say": "Turn on Enable auto-apply to start queuing. Nothing sends without your OK.",
+             "highlight": "Enable auto-apply", "wait": True},
+            {"say": "Set your daily and weekly limits so it only applies as often as you want.",
+             "highlight": "Daily/weekly limits"},
+        ],
     },
     "interview": {
         "purpose": "Practice interviews with spoken questions and feedback.",
@@ -219,6 +240,7 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         "can_do": [a["label"] for a in cap.get("actions", [])],
         "controls": cap.get("controls", []),
         "walkthrough": cap.get("walkthrough"),
+        "steps": cap.get("steps", []),
         "offers": cap.get("offers", []),
     }
 

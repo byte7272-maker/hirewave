@@ -6764,3 +6764,32 @@ This is the general fix, not just for version: **an introspective question about
 - "what is the version of the current résumé?" → the assistant **says the version number** (and total/label), not just a highlight.
 - "what's my score", "how many matches", "which résumé is this" are each **answered** from live data for the current document.
 - No state question results in a navigation or a bare highlight with no spoken answer.
+
+
+## P213 — Run the walkthrough on arrival (narrate + highlight each step); never land on a silent page
+
+**Frontend. Backend is LIVE** (walkthrough steps now in the capability manifest). "Connect an email account" correctly navigated to Connect, then **went silent** — no statement of the page, no step-by-step guidance, no highlighting. Fix: when the assistant starts a playbook or arrives at a section with a walkthrough, it must **narrate and highlight each step** from the manifest. Builds on P199/P206 §7 (connect guide), P201 (`guide_on_arrival`, `highlight_and_dock`, `speak_on_update`, `surface_choices`).
+
+### Backend contract (LIVE)
+`GET /api/v1/assistant/capabilities` now returns, per section, an ordered **`steps[]`** for its walkthrough:
+```
+steps: [ { say: "<spoken line>", highlight: "<control label to ring + scroll to>", wait?: true }, … ]
+```
+`connect` and `auto_apply` carry steps; `wait: true` marks a step where the user must act (e.g. sign in) before continuing. (`arrival_brief(section)` includes `purpose`, `controls`, `walkthrough`, `steps`, `offers`.)
+
+### 1. On `start_playbook: connect_source` (or arriving at Connect), run the walkthrough
+- **State the page first** (speak the section `purpose`), then **walk the `steps` in order**: for each step, **speak `say`** and **highlight the `highlight` control** (ring + scroll into view, P201), keeping the overlay out of the way (P204). This is driven by the manifest `steps` — no per-screen script, so it can't go missing.
+- At a step with **`wait: true`**, say what the user needs to do, **pause and wait** for them to do it (e.g. sign in on the provider's page), then continue on their confirmation or when the state changes (e.g. a new entry appears in connected sources). Never silently stop.
+- Populate the provider choices from `GET /api/v1/integrations/imap-providers` (label + where to get an app password + help) and reflect connected state from `GET /api/v1/integrations/connected-apps`; **never ask for a password** — the user signs in on the provider.
+
+### 2. Make this generic for every walkthrough (not just connect)
+- The runtime's walkthrough player reads `steps` from the manifest for **any** section/playbook (`auto_apply` already has them; more can be added later with no new UI code). Same loop everywhere: speak purpose → for each step speak+highlight (+wait) → offer the next action. This is `guide_on_arrival` executed from data.
+- If a section has no `steps`, fall back to the P206 §2 guide (purpose + what-you-can-do + offer walkthrough + highlight primary control) — still never silent.
+
+### 3. Don't go silent, ever
+- Arriving anywhere via the assistant must produce narration + a highlight. If steps or guidance can't load, at minimum **state the page and what the user can do** and offer help — a navigated-to page with no narration is a bug.
+
+### Acceptance
+- "connect an email account" → the assistant opens Connect, **says what the page is**, and **walks each step** (Add email source → pick provider → sign in on the provider, highlighting each), pausing at the sign-in step, and confirms once connected — with highlighting throughout.
+- The same step-driven narration works for auto-apply and any section that declares `steps`.
+- No assistant-initiated navigation ends in silence.
