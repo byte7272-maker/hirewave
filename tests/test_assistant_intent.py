@@ -159,6 +159,17 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_sync_documents_on_external_boards():
+    # Keeping documents current on job sites -> sync_documents with doc_type/board.
+    r = interpret("update my resume on linkedin")
+    assert r.intent == "sync_documents" and r.slots == {"doc_type": "resume", "board": "linkedin"}
+    assert interpret("sync my resume everywhere").intent == "sync_documents"
+    assert interpret("is my resume up to date on indeed").slots.get("board") == "indeed"
+    assert interpret("push my cover letter to the boards").slots.get("doc_type") == "cover_letter"
+    # a bare "update my resume" (no board/target) stays a refresh, not a board sync
+    assert interpret("update my resume").intent == "navigate"
+
+
 def test_read_me_the_page_runs_through_all_values():
     # "what's on my dashboard" / "run through the tallies" -> report_state field=page
     # (narrate every readout), not a purpose blurb and not a single metric.

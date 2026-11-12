@@ -173,6 +173,8 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             _action("Tailor it to a job", "tailor", ["document"], "start_playbook", {"playbook": "tailor"}),
             _action("Change the design", "change", ["design"], "start_playbook", {"playbook": "design"},
                     destructive=False),
+            _action("Update it on my job sites", "change", ["document", "boards"], "sync_documents", {},
+                    destructive=False),
         ],
         "controls": [
             {"label": "Document preview", "does": "Shows the current document; it centers and highlights on open."},

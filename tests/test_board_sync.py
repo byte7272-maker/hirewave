@@ -65,6 +65,34 @@ def test_board_sync_status_and_mark_round_trip():
     assert indeed2[0]["in_sync"] is True
 
 
+def test_board_sync_prepare_returns_assisted_bundle():
+    client, state = _client_state()
+    h = _auth(client)
+    user_id = state.users.find(email="b@x.com")[0].id
+    state.integration.tokens.save(user_id=user_id, provider=Provider.INDEED,
+                                  access_token="t", account_email="")
+    up = client.post("/api/v1/resumes/upload", headers=h,
+                     files={"file": ("cv.md", b"# Me\n## Experience\n- x", "text/markdown")}).json()
+    r = client.post("/api/v1/documents/board-sync/prepare", headers=h,
+                    json={"board": "indeed", "doc_type": "resume"})
+    assert r.status_code == 200
+    b = r.json()
+    # Assisted by default (automation not live): download file + deep link + steps.
+    assert b["mode"] == "assisted" and b["connected"] is True and b["automation_available"] is False
+    assert b["download_url"] == f"/api/v1/resumes/{up['id']}/file"
+    assert b["manage_url"] and b["steps"]
+
+
+def test_board_sync_prepare_rejects_unsupported():
+    client, _ = _client_state()
+    h = _auth(client)
+    client.post("/api/v1/resumes/upload", headers=h,
+                files={"file": ("cv.md", b"# Me", "text/markdown")})
+    r = client.post("/api/v1/documents/board-sync/prepare", headers=h,
+                    json={"board": "greenhouse", "doc_type": "resume"})
+    assert r.status_code == 400
+
+
 def test_mark_sync_rejects_unsupported_board():
     client, state = _client_state()
     h = _auth(client)

@@ -22,6 +22,7 @@ INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
+    "sync_documents",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -397,6 +398,43 @@ def _state_query(t: str, context: dict) -> Optional[IntentResult]:
     return None
 
 
+# --- keep documents current on external job sites -----------------------------
+# "update my résumé on the job sites", "sync my resume to LinkedIn", "is my resume up to
+# date on Indeed" → manage the board copies of a document (map/push/verify).
+_BOARD_NAMES = {
+    "linkedin": ("linkedin",), "indeed": ("indeed",), "glassdoor": ("glassdoor",),
+    "ziprecruiter": ("ziprecruiter", "zip recruiter"), "dice": ("dice",), "monster": ("monster",),
+}
+_SYNC_VERB_RE = re.compile(
+    r"\b(sync|re-?sync|update|push|upload|re-?upload|keep .{0,20}current|make .{0,20}current)\b")
+_SYNC_TARGET_RE = re.compile(
+    r"\b(job ?sites?|job ?boards?|boards?|profiles?|everywhere|all (?:the )?sites|"
+    r"linkedin|indeed|glassdoor|zip ?recruiter|dice|monster)\b")
+_SYNC_CURRENT_RE = re.compile(r"\b(up to date|current|in sync|synced|latest|stale|out of date|outdated)\b")
+
+
+def _sync_documents(t: str) -> Optional[IntentResult]:
+    """Recognize a request to keep a résumé / cover letter current on external job sites
+    (map / push / verify). Returns ``sync_documents`` with optional ``doc_type`` and
+    ``board``, else None."""
+    has_doc = bool(_doc_target(t)) or bool(re.search(r"\b(documents?|cv)\b", t))
+    if not has_doc:
+        return None
+    board = next((k for k, syns in _BOARD_NAMES.items() if any(s in t for s in syns)), None)
+    verb = bool(_SYNC_VERB_RE.search(t))
+    target = bool(_SYNC_TARGET_RE.search(t))
+    is_question = bool(re.search(r"\b(is|are|whats|check|are my|is my)\b", t) and _SYNC_CURRENT_RE.search(t))
+    if (verb and (target or board)) or (is_question and (board or target)):
+        slots: dict[str, Any] = {}
+        dt = _doc_target(t)
+        if dt:
+            slots["doc_type"] = dt
+        if board:
+            slots["board"] = board
+        return IntentResult("sync_documents", 0.85, slots)
+    return None
+
+
 def _extract_search_query(t: str) -> Optional[str]:
     """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
 
@@ -487,6 +525,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # keep a document current on external job sites ("update my résumé on LinkedIn",
+    # "sync my resume to the job boards", "is my résumé up to date on Indeed") — checked
+    # before manage/navigate/refresh so "update my resume on linkedin" isn't a refresh.
+    sd = _sync_documents(t)
+    if sd is not None:
+        return sd
 
     # manage a resource ("connect a new email account", "add an email source",
     # "disconnect my inbox", "replace the email on my résumé") — an explicit

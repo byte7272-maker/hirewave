@@ -52,7 +52,7 @@ def test_section_aliases_come_from_the_nlu():
 
 def test_manifest_actions_name_real_intents():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
-             "status_report"}
+             "status_report", "sync_documents"}
     for s in caps.manifest()["sections"]:
         for a in s["actions"]:
             assert a["intent"] in valid, (s["section"], a)

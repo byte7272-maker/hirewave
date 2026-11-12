@@ -6930,3 +6930,34 @@ Opening a cover letter showed **"Couldn't render this document just now."** Prob
 - Opening a cover letter **renders** (via preview.html/content), no "Couldn't render" dead-end; a failed render falls back to a visible document.
 - When a preview/render fails, the assistant **says so and offers to retry/reload** instead of narrating as if it rendered.
 - The error check runs for every narrated page, from the shared runtime.
+
+
+## P219 — Map résumé/cover-letter version control across job sites + update them (assisted or automated); keep documents current
+
+**Backend is LIVE** (drift mapping already existed; added the update-prepare flow + the `sync_documents` intent). **Frontend/extension**: show the per-board status and offer to update. Keeping documents current across boards is a core feature. Builds on P206 §4 (one source of truth), P201 (`guide_on_arrival`, `highlight_and_dock`), P213 (connect walkthrough).
+
+### Backend contract (LIVE)
+- **`GET /api/v1/documents/board-sync?resume_id=&cover_letter_id=`** → per connected board: `{board, label, doc_type, supported, auto, active_version, live_version, in_sync, drifted, manage_url, steps[], reason}`, plus `drifted` (count) and `automation_live`. Boards with no reusable profile doc (Greenhouse/Workday) are reported `supported:false`, not faked.
+- **`POST /api/v1/documents/board-sync/prepare`** `{board, doc_type, resume_id?/cover_letter_id?}` → the update bundle: the row above **plus** `connected`, `automation_available`, `mode` (`"automated"` | `"assisted"`), and **`download_url`** (the current version's file to upload). `mode:"automated"` only when the board supports auto AND automation is live AND the board is connected; otherwise `"assisted"`.
+- **`POST /api/v1/documents/board-sync`** `{board, doc_type, …}` → records that the board now holds the current version (call it after the upload succeeds) so drift tracking stays accurate.
+- NLU: "update my résumé on LinkedIn / sync my resume everywhere / is my résumé up to date on Indeed / keep my documents current on the job sites" → **`intent: "sync_documents"`** with optional `slots.doc_type` and `slots.board`.
+
+### 1. Map it — show version control per board
+- In the Documents workspace (and a compact chip on the doc), show a **"Where it's live" panel**: for each **connected** board, its label, **in-sync / drifted**, the **live version vs your current version**, and when it was last synced. Badge drifted boards. Show the overall "N boards need updating." Unsupported boards (per-application ATS) are listed as "no profile résumé to sync," not errors.
+
+### 2. Update it — assisted or automated
+- A **"Update"** action per drifted board (and "Update all") calls `POST /documents/board-sync/prepare`:
+  - **`mode: "assisted"`** (default): download the **current version file** (`download_url`), open the board's **`manage_url`** (deep link), and **walk the `steps`** — narrated + highlighted (P213 step style). The extension can open the board tab and guide the upload (it has the job-site host permissions); the user drops in the file (never a password). On "Done," call `POST /documents/board-sync` to mark it synced.
+  - **`mode: "automated"`** (board supports auto + automation live + connected): offer to **push it automatically** via the connected browser session; on success, mark synced. Always confirm before an automated push (P180). If automation isn't available, fall back to assisted — honestly ("I'll open LinkedIn and walk you through it").
+- After any update, **re-render the board-sync panel** so the status reflects the new live version (one source of truth).
+
+### 3. Assistant behavior — keep documents current
+- On `sync_documents`: if a `board` is named, prepare/update **that** board for the `doc_type` (default résumé, or the open document); if none, show the **map** and offer to update the drifted ones ("Your résumé is 2 versions behind on LinkedIn and Indeed — want me to update both?"). Resolve the document as the current one (P206 §4).
+- **Proactively surface drift** (narrate_values / guide_on_arrival): when the user edits a résumé/cover letter or lands on Documents with drifted boards, the assistant mentions it and offers to update — "keeping them current" is promoted as a core task. Don't nag on every visit; surface it when there's real drift.
+- Every update is assisted or confirmed; the extension only uploads the file the user approves, never credentials.
+
+### Acceptance
+- The Documents workspace shows, per connected board, whether the résumé/cover letter is current, which version is live, and a one-tap Update.
+- "update my résumé on LinkedIn" / "is my resume up to date on Indeed" / "sync everywhere" are understood and acted on (map + prepare + mark).
+- Update runs **assisted** (download file + deep link + narrated steps) by default, or **automated** when available (confirmed), then marks the board synced and refreshes the panel.
+- Unsupported ATS boards are shown honestly; no password is ever entered by the assistant.

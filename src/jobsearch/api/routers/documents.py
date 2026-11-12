@@ -2158,3 +2158,41 @@ def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
     repo.add(doc)
     return sync_status_for(board, doc_type, active_version=doc.active_version,
                            synced=doc.board_sync[board])
+
+
+@router.post("/documents/board-sync/prepare")
+def board_sync_prepare(user: CurrentUser, state: StateDep, body: dict) -> dict:
+    """Prepare to update a document on one external board — the assisted/automated bundle:
+    the current version's downloadable file, the board's manage URL + steps, and whether
+    an automated push is available (the board supports it, automation is live, and the
+    board is connected). The UI/extension opens the board and uploads the file; on success
+    it calls POST /documents/board-sync to record the new live version. Keeping documents
+    current across boards is a core feature. Body: {board, doc_type, resume_id?/cover_letter_id?}."""
+    board = str(body.get("board", "")).strip().lower()
+    doc_type = str(body.get("doc_type", "resume")).strip().lower()
+    if doc_type not in ("resume", "cover_letter"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "doc_type must be 'resume' or 'cover_letter'")
+    if not board_supports(board, doc_type):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{board} can't sync a {doc_type} profile document")
+    if doc_type == "resume":
+        doc = _primary_doc(state.resumes, user.id, str(body.get("resume_id", "")))
+        base = "resumes"
+    else:
+        doc = _primary_doc(state.cover_letters, user.id, str(body.get("cover_letter_id", "")))
+        base = "cover-letters"
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{doc_type} not found")
+    row = sync_status_for(board, doc_type, active_version=doc.active_version,
+                          synced=(doc.board_sync or {}).get(board))
+    connected = board in _connected_boards(state, user.id)
+    automation_live = state.settings.automation_mode == "live"
+    automated = bool(row["auto"]) and automation_live and connected
+    return {
+        **row,
+        "connected": connected,
+        "automation_available": automated,
+        # "automated": the browser-automation runtime can push it; "assisted": we hand the
+        # user the file + a deep link + steps to update it themselves (always available).
+        "mode": "automated" if automated else "assisted",
+        "download_url": f"/api/v1/{base}/{doc.id}/file",
+    }
