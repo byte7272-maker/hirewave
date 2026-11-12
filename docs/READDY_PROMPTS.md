@@ -6675,3 +6675,32 @@ The Documents view stacks several toolbars with **duplicate controls** on top of
 - My Bullets shows numbered lines; "use/remove/reword/replace bullet N" acts on the Nth bullet; the assistant refers to bullets by the same numbers and highlights them.
 - The Original/Working-copy toggle and banner are gone; the original is still downloadable from a single affordance.
 - The Review brief renders (score/grade/summary) and the "refused that request" error clears on a successful attempt; Try again re-runs the POST.
+
+
+## P210 — Bullets: toggle Suggested ⇄ Data-dump bullets, coarse edit tracking the assistant can summarize, replace/add by number + re-render, and remove the redundant "Suggest edits"
+
+**Frontend. No backend change** — every endpoint is LIVE. Builds on P209 (numbered bullets, reference by number), P206/§4 (render with template, one source of truth), P201 (`surface_choices`, `speak_on_update`, `highlight_and_dock`).
+
+### 1. Toggle between the two bullet sources
+Add a **toggle (or segmented control)** at the top of the bullets panel to switch what the drag-and-drop / edit-in-place list shows:
+- **Suggested** — AI suggestions against the current résumé: `POST /api/v1/resumes/{id}/suggest-edits`.
+- **From your data dump** — bullets synthesized from pasted evidence / a work-history dump: the evidence pipeline `POST /evidence-prompts` → `POST /evidence/extract` → `POST /evidence/synthesize` → `POST /highlights/suggest`, restored via `GET /highlights/latest` (and `/highlights/runs`).
+- Both lists are **numbered** (P209), support **drag-and-drop onto a résumé line** (replace) or **between lines** (insert), and **edit-in-place**; each drop/edit saves a version (`/match-bullets`, `/apply-edits` → `/versions`). The toggle just changes the source; the interaction is identical. Default to whichever has content (data-dump bullets if a run exists, else Suggested).
+
+### 2. Replace / add bullets by number, then re-render (always current)
+- The assistant can **replace or add a bullet by its number** on the résumé — "replace bullet 3 with …", "add this as bullet 6" — applying through `/apply-edits` / `/match-bullets` → `/versions`, then **immediately re-render** the document from `GET /api/v1/resumes/{id}/render` so the view always shows the **most updated** version (P206 §4). Numbers on the list and in the résumé renumber after the change.
+- Reference-by-number is LIVE in the NLU ("bullet 3", "line 2"); map the resolved option/index to the résumé line to act on.
+
+### 3. Assistant tracks and can summarize what was done — coarsely, not keystrokes
+- The assistant must be able to **summarize what the user generally did** ("You edited bullet 3, replaced bullet 5, and added two bullets; the summary was tightened") — read this from the **saved versions** of the résumé (`GET /api/v1/resumes/{id}` → `versions[]` with `change_summary` / `instruction` / `source`). Each discrete save is one tracked edit.
+- **Do NOT track live typing** — a user typing in place is not remembered character-by-character; only the **fact that an edit was made** (a saved version) is tracked. No keystroke log.
+- When summarizing or discussing an edit, **highlight the changed bullet in the list and the matching line in the résumé** (P201 highlight), and **auto-scroll/focus** to it where needed (P201 `surface_choices` / `speak_on_update`), so the user sees what changed. "What did I change?" → a short summary of the recent versions, each highlightable.
+
+### 4. Remove the redundant "Suggest edits" at the bottom of the right panel
+- Remove the extra **"Suggest edits"** control at the bottom of the right-panel column — it duplicates the Suggested-bullets source now behind the toggle (#1). One place to get suggestions, not two.
+
+### Acceptance
+- A toggle switches the bullets list between **Suggested** and **data-dump** bullets; both are numbered, drag-and-droppable, and editable in place, saving a version on change.
+- "replace/add bullet N" applies to the résumé and the document **re-renders to the latest** immediately.
+- "What did I change?" yields a concise summary built from saved versions (not keystrokes); each change can be highlighted in both the bullet list and the résumé, scrolling it into view.
+- The bottom-of-column "Suggest edits" control is gone.
