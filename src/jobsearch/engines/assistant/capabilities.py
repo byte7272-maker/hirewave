@@ -11,7 +11,8 @@ they are all instances of the SAME small set of generic behaviors:
   * confirm-destructive— any action marked destructive confirms before it runs
   * highlight + dock    — point at the element being discussed; keep it visible
   * speak-on-update    — narrate whenever the overlay text changes (every screen)
-  * surface-choices    — when it offers options, render them in view and reachable now
+  * surface-choices    — offered options render in view/reachable; an unobtrusive cue
+                         (a pulsing arrow) signals content below the fold
   * one-source-of-truth— "the current X" always resolves the same way everywhere
 
 This module is the **single declarative place** those engines read. To give the

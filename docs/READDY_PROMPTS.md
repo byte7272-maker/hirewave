@@ -6419,7 +6419,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 4. **confirm_destructive** — before running any action with `destructive: true` (or whose verb is in `destructive_verbs`), show its `confirm` prompt and require a yes. (P180, now automatic from the manifest.)
 5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. (P179/P181/P197, applied uniformly.)
 6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). (P193/P200, global.)
-7. **surface_choices** — whenever the assistant presents options/choices (suggested bullets, next-step chips, a list it "added"), **render them in view and reachable now**: auto-scroll the overlay body to the newest choices and keep the active options pinned/visible, so what it just offered is one tap away — not below the fold. Never announce "I've added X to choose from" unless those items are actually rendered and reachable at that moment. The overlay body must own most of the panel height and always land on the latest. (P208, global.)
+7. **surface_choices** — whenever the assistant presents options/choices (suggested bullets, next-step chips, a list it "added"), **render them in view and reachable now**: auto-scroll the overlay body to the newest choices and keep the active options pinned/visible, so what it just offered is one tap away — not below the fold. Never announce "I've added X to choose from" unless those items are actually rendered and reachable at that moment. The overlay body must own most of the panel height and always land on the latest. **Whenever usable content sits below the viewable area, show an unobtrusive visual cue — a pulsing arrow (or similar) — so the user knows there's more to reach** (a core, consistent affordance everywhere a scroll region hides content). (P208/P211, global.)
 8. **one_source_of_truth** — resolve "the current X" exactly as the section's `current` field says (e.g. the active résumé version, the top-ranked match) — **never** a sample or a stale/separate copy. The walk, the brief, the counts, and the cards all read that same source. (P193/P197/P200, enforced globally.)
 
 ### Result: adding a feature
@@ -6704,3 +6704,32 @@ Add a **toggle (or segmented control)** at the top of the bullets panel to switc
 - "replace/add bullet N" applies to the résumé and the document **re-renders to the latest** immediately.
 - "What did I change?" yields a concise summary built from saved versions (not keystrokes); each change can be highlighted in both the bullet list and the résumé, scrolling it into view.
 - The bottom-of-column "Suggest edits" control is gone.
+
+
+## P211 — Off-screen content cue (pulsing arrow), highlight/act on the ACTUAL rendered résumé (not just the overlay), and fix TTS pauses on abbreviations/decimals
+
+**Frontend. No backend change.** Three UX fundamentals. Builds on P201 (`surface_choices`, `highlight_and_dock`, `speak_on_update`), P206/§4 (render with template), P209/P210 (numbered bullets, act by number + re-render).
+
+### 1. Unobtrusive cue when content is below the fold (core, consistent everywhere)
+- Whenever a scroll region hides usable content (the assistant overlay body, the bullet lists, suggestions, any panel, and the rendered document if it overflows), show an **unobtrusive, pulsing "more below" cue** — a gently pulsing down-arrow (and an up-arrow when content is hidden above) at the edge of that region.
+- It appears only when there **is** hidden content, fades when the user reaches the end, and is **non-blocking** (never covers controls, dismiss-free). Clicking/tapping it scrolls toward the hidden content.
+- Make this a **single shared component** used wherever a scroll area can hide content, so it's consistent site-wide (this is the `surface_choices` behavior, P201) — not re-built per panel. It complements auto-scroll: auto-scroll brings the newest into view; the cue tells the user there's more to reach.
+
+### 2. Highlight and act on the ACTUAL rendered résumé — not just the overlay
+- When the user asks about a bullet (e.g. "give me suggestions for bullet #1"), the assistant isolated and **read it only inside the overlay** and did **not** touch the résumé. Fix: whenever the assistant references a bullet/line/section, it must **highlight that line on the rendered document itself** (P201 highlight), **scroll it into view**, and keep the overlay out of the way (P204) — the overlay and the rendered doc highlight **the same item together** (bidirectional: the numbered bullet in the list ↔ the matching line in the render).
+- **Interacting with the rendered document is a fundamental capability.** The assistant must be able to act **on the render**: highlight, suggest-for, replace, add, reword, or remove a bullet **by its number** (P209), applying the change (`/apply-edits`/`/match-bullets` → `/versions`) and **re-rendering** so the rendered doc shows the update immediately (P206 §4). Reading a suggestion in the overlay is not enough — show where it lands on the résumé, and apply it there on confirmation.
+- Moving/repositioning the overlay and highlighting the relevant spot on the document, wherever it helps the user follow along, is paramount — do it generously (P201/P204).
+
+### 3. Fix text-to-speech: no pauses inside abbreviations, decimals, or percentages
+The assistant pauses at periods that are **not** sentence ends — "U.S." read with a stop, "45.1%" read as "45 … 1". **Normalize spoken text before TTS** (a shared "speakable(text)" step applied to everything the assistant reads, especially document content):
+- **Decimals:** `(\d)\.(\d)` → "`$1 point $2`" so "45.1" reads "forty-five point one" with no sentence pause (e.g. "4.9%" → "four point nine percent").
+- **Percent:** "`%`" → "` percent`".
+- **Acronyms with periods:** collapse internal periods in letter sequences — "U.S." → "US", "U.S.A." → "USA", "U.K." → "UK" (read as letters, no stop). Apply repeatedly for multi-dot forms.
+- **Common abbreviations:** expand or de-period so they don't break the sentence — e.g. → "for example", i.e. → "that is", etc. → "et cetera", No. → "number", vs. → "versus", approx. → "approximately", Inc. → "Inc" (no trailing stop mid-sentence), St. → "Street"/"Saint" as context allows.
+- **Other inter-token dots:** version/number dots like "v3.4" → "v3 point 4"; don't treat a dot between non-space tokens as a sentence boundary.
+- Keep real sentence-ending periods (followed by space + capital / end of string) as pauses. Collapse any double spaces introduced. This normalization runs for **all** narration, not just one screen.
+
+### Acceptance
+- A pulsing arrow appears whenever a scroll region hides content (overlay, bullets, render), fades at the end, never blocks controls, and scrolls toward the hidden content on tap — consistently across the site.
+- Asking about "bullet #1" highlights it **on the rendered résumé** (and the list), scrolls it into view, and the assistant can replace/add/reword it by number with the render updating immediately.
+- TTS reads "U.S.", "45.1%", "e.g." and "v3.4" naturally with no mid-token pause; genuine sentence breaks still pause.

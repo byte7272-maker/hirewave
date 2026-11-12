@@ -15,7 +15,7 @@ and it inherits all of them — no new per-feature logic.
 | `confirm_destructive` | Any action whose verb is remove/change confirms before running. | P180 |
 | `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. | P179, P181, P197 |
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. | P193, P200 |
-| `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. | P208 |
+| `surface_choices` | Whenever it offers options/choices, render them **in view and reachable now** (auto-scroll to them, keep them pinned); never announce choices that aren't actually rendered. Show an **unobtrusive cue** (a pulsing arrow) whenever usable content sits below the fold. | P208, P211 |
 | `one_source_of_truth` | "The current X" always resolves the same way (active version, top match) — never a sample or a stale copy. | P193, P197, P200 |
 
 ## The manifest is the single source
