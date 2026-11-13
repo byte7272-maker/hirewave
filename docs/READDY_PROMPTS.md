@@ -7084,3 +7084,34 @@ The dashboard `matches.top_matches[]` cards (and `/jobs/matches`) now include, p
 ### Acceptance
 - Every match card shows the **source board's logo** (or its name as a fallback) and the **salary** (or "Salary not listed"), plus location/remote.
 - Company logo and source logo are both shown and not conflated.
+
+
+## P224 — Web search is now an intent: handle `web_search` (run the open-web search, present results, open-in-browser)
+
+**Frontend. Backend is LIVE** (new `web_search` intent). The NLU didn't recognize general web searches — "search the web for…", "google…", "find information about…" fell to `ask`, and "search the internet for…" / "look up the average salary…" were mis-routed to a job search or a company lookup. Now there's a dedicated intent. Builds on P217 (search provider), P222 §2 (drive + present + open-in-browser), P185 (consent).
+
+### Backend contract (LIVE)
+`POST /assistant/interpret` now returns **`intent: "web_search"`** with **`slots.query`** (cleaned) for common web-search phrasings:
+- "search the web/internet/online for X", "search for X online"
+- "google X" / "bing X"
+- "find information/articles/news about X", "find me articles about X"
+- "what's the latest (news) on X"
+- "look that up on the web/online" → `query: ""` (use the current topic/context)
+`research_company` still handles "look up {Company} / research {Company} / tell me about this company", and `search_jobs` still handles job searches — those are **not** hijacked.
+
+### 1. Handle `web_search`
+- On `web_search`, run the **open-web search flow** (same as P222 §2): with web-research consent (P185), call **`POST /api/v1/assistant/research/search`** with `slots.query` (Google when configured, else the extension's DuckDuckGo on the user's connection), **fetch the public pages** via the extension, and **summarize** them (`POST /assistant/research/summarize`, passing the query as the topic).
+- If `query` is empty ("look that up"), resolve the topic from **context** (the current company/match/document being discussed, P194), and confirm what to search.
+- If `web_research` isn't enabled, offer to turn it on (P185), then confirm the specific search.
+
+### 2. Present the result + open in the default browser
+- Present a **clean, readable summary** — a few key facts + the **sources** (titles + links), narrated with general steps ("Searching the web for 'CISSP exam'… reading a few sources… here's what I found"). Keep it brief and scannable.
+- Offer **"Open in browser"** for the top result/sources — opens the URL in the user's **default browser** (link / `window.open` / extension tab); the user chooses to open it. Never auto-navigate the app away.
+- Always show the sources and a "from the public web — verify" caution (P195).
+
+### 3. Make it discoverable
+- Include a web-search example in the assistant's suggestions / "What can I do?" (the catalog now contains "Search the web for interview tips"), so users learn they can ask.
+
+### Acceptance
+- "search the web for X", "google X", "find information about X", "what's the latest on X" → the assistant **runs a web search** (not a job search, not a company lookup, not silence), presents a summary + sources, and offers to open a result in the default browser.
+- "look that up on the web" searches the **current topic**; company lookups and job searches still route correctly.

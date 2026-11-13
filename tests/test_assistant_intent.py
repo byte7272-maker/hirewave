@@ -159,6 +159,28 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_web_search_is_an_intent_for_common_phrasings():
+    # Common ways to ask for a web search -> web_search with a cleaned query.
+    cases = {
+        "search the web for the best resume keywords for IT directors": "best resume keywords for it directors",
+        "google interview tips for IT managers": "interview tips for it managers",
+        "search for remote cybersecurity certifications online": "remote cybersecurity certifications",
+        "find information about the CISSP exam": "cissp exam",
+        "what's the latest news on AI layoffs": "ai layoffs",
+        "find me articles about switching careers to IT": "switching careers to it",
+    }
+    for phrase, q in cases.items():
+        r = interpret(phrase)
+        assert r.intent == "web_search", (phrase, r.intent)
+        assert r.slots.get("query") == q, (phrase, r.slots)
+    # "look that up on the web" has no topic -> empty query (resolve from context)
+    assert interpret("can you look that up on the web").intent == "web_search"
+    # a company lookup and a job search are NOT hijacked
+    assert interpret("look up Acme Corp").intent == "research_company"
+    assert interpret("research Globex").intent == "research_company"
+    assert interpret("find all VP jobs").intent == "search_jobs"
+
+
 def test_archive_and_unarchive_are_understood():
     # "unarchive my email" must NOT be mis-read as "connect my email".
     assert interpret("unarchive my email").slots == {"action": "unarchive", "target": "email"}

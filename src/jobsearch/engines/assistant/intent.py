@@ -22,7 +22,7 @@ INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
-    "sync_documents", "archive",
+    "web_search", "sync_documents", "archive",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -228,6 +228,43 @@ _COMPANY_CTX_RE = re.compile(
     r"|\bthis match\b|\btop (?:match|job)\b|\bthem\b|\bit up\b"
 )
 _COMPANY_WORD_RE = re.compile(r"\b(compan(?:y|ies)|employer|headquarter|stock|reviews?|ceo|leadership)\b")
+
+
+# --- general open-web search --------------------------------------------------
+# Common ways a user asks for a WEB search (not a job search, not a company lookup):
+# "search the web/internet/online for …", "google …", "look … up online / on the web",
+# "find information/articles/news about …", "what's the latest on …", "search online for …".
+_WEBSEARCH_RE = re.compile(
+    r"\bsearch (?:the )?(?:web|internet|online)\b|\bgoogle\b|\bbing\b|"
+    r"\bsearch online\b|\blook online\b|\bon the (?:web|internet)\b|\bon google\b|"
+    r"\blook .{0,12}up (?:online|on the web|on the internet)\b|"
+    r"\bfind (?:me )?(?:information|info|articles?|news|results?) (?:about|on|for)\b|"
+    r"\bwhat'?s? the latest(?: news)? (?:on|about)\b|\bsearch for .+ online\b",
+    re.I,
+)
+# Phrases we strip to leave the bare query.
+_WEBSEARCH_STRIP = re.compile(
+    r"\b(can you|could you|please|hey|for me)\b|"
+    r"\bsearch (?:the )?(?:web|internet|online)(?: for)?\b|\bsearch online(?: for)?\b|"
+    r"\blook online for\b|\bgoogle\b|\bbing\b|\bon google\b|"
+    r"\blook (?:it|that|them|this)? ?up(?: online| on the web| on the internet)?\b|"
+    r"\bfind (?:me )?(?:information|info|articles?|news|results?)?(?: about| on| for)?\b|"
+    r"\bwhat'?s? the latest(?: news)?(?: on| about)?\b|\bsearch for\b|"
+    r"\b(?:on the )?(?:web|internet|online)\b",
+    re.I,
+)
+
+
+def _web_search(t: str) -> Optional[IntentResult]:
+    """A general open-web search request → ``web_search`` with the cleaned ``query``
+    (``""`` = use the current topic/context, e.g. 'look that up on the web')."""
+    if not _WEBSEARCH_RE.search(t):
+        return None
+    q = _WEBSEARCH_STRIP.sub(" ", t)
+    q = re.sub(r"\s+", " ", q).strip(" ?.!,-")
+    # Drop a dangling leading article/preposition left after stripping.
+    q = re.sub(r"^(the|a|an|for|about|on|of)\s+", "", q).strip()
+    return IntentResult("web_search", 0.88 if len(q) >= 2 else 0.8, {"query": q})
 
 
 def _research_company(t: str) -> Optional[str]:
@@ -570,6 +607,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ma is not None:
         return ma
 
+    # general open-web search ("search the web for …", "google …", "find information
+    # about …", "what's the latest on …") — a web lookup, not a job search or company
+    # lookup. Checked before research_company/search_jobs so the explicit web cue wins.
+    ws = _web_search(t)
+    if ws is not None:
+        return ws
+
     # research a company ("tell me about Acme", "look up this company", "research the top
     # match") — distinct from a job search. company="" means resolve from context (the
     # focused / top-matched company). Checked before job-search and navigate.
@@ -754,6 +798,7 @@ _SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("What can I do?", ("*",)),
     ("Give me a status report", ("*",)),
     ("What's new since last time?", ("*",)),
+    ("Search the web for interview tips", ("*",)),
     ("Check my microphone", ("*",)),
     ("Check my audio", ("*",)),
     ("Talk slower", ("*",)),
