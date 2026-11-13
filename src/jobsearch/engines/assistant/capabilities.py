@@ -9,7 +9,11 @@ they are all instances of the SAME small set of generic behaviors:
                          go straight to the announce + offer; don't repeat the same greeting
   * recognize          — a verb (connect/add/remove/change/show/walk/tailor/research/…)
                          + an object resolves to one action
-  * pending-offer      — every yes/no question arms a concrete follow-up; "yes" runs it
+  * pending-offer      — every yes/no question arms a concrete follow-up; "yes" runs it.
+                         While a question is pending, SURFACE the hold-to-talk mic;
+                         releasing it submits the spoken answer and auto-runs on an
+                         affirmed/valid answer; once answered, clear the offer + release
+                         the mic permission (no re-fire)
   * confirm-destructive— any action marked destructive confirms before it runs
   * highlight + dock    — point at the element being discussed; keep it visible; HOLD the
                          position + highlight until the user acts or a timeout expires

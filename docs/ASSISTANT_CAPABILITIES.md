@@ -11,7 +11,7 @@ and it inherits all of them — no new per-feature logic.
 |---|---|---|
 | `guide_on_arrival` | Fires on **every** navigation (never silent/collapsed): announce the section, point at the focal point, offer a relevant action. **Adaptive** — skip the static greeting for a frequent/active user and go straight to announce + offer; never repeat the same greeting. | P199, P200, P216 |
 | `recognize_verb_object` | A verb (connect/add/remove/change/show/walk/tailor/research/search/save) + an object → one action. | P181, P184, P195, P199 |
-| `pending_offer` | Every yes/no question arms a concrete follow-up; "yes" runs it; nothing pending never defaults to a random screen. | P198 |
+| `pending_offer` | Every yes/no question arms a concrete follow-up; "yes" runs it; nothing pending never defaults to a random screen. **While a question is pending, surface the hold-to-talk mic; releasing it submits the answer and auto-runs on a valid/affirmed answer; once answered, clear the offer and release the mic (no re-fire).** | P198, P226 |
 | `confirm_destructive` | Any action whose verb is remove/change confirms before running. | P180 |
 | `highlight_and_dock` | Point at the element being discussed; keep it visible; reposition as it moves. **Hold** the position + highlight until the user acts or a timeout expires (never snap back and cover the target); interruptible immediately by a drag or selecting elsewhere. | P179, P181, P197, P215 |
 | `speak_on_update` | Narrate whenever the overlay text changes — every screen, refresh, doc-switch. **Speak every walkthrough step's `say` as it highlights/advances (and on Next); never highlight a step silently.** Guide every task start to finish. | P193, P200, P221 |

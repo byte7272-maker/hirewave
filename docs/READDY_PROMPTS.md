@@ -7158,3 +7158,27 @@ Every `on_yes.intent` is a real, handled intent (navigate / start_playbook / res
 - Every offer/question the assistant asks resolves to a real action on "yes" — no dead-ends.
 - "Want me to walk your top matches?" (from the dashboard) navigates to Matches and runs the walk; "Use it for a job application" starts the apply flow; "forwarding address?" opens the inbox.
 - Any offered walkthrough actually runs, narrating and highlighting each step.
+
+
+## P226 — When the assistant asks a question: surface the hold-to-talk mic, execute on release of a valid answer, then release the mic (no re-fire)
+
+**Frontend. No backend change.** Tighten the voice loop around a pending question (P198/P225 pending offers). Builds on P201 (`pending_offer`), P220 §1 (iOS audio unlock).
+
+### 1. Surface the hold-to-talk mic when a question is pending
+- Whenever the assistant **asks a question** (a yes/no offer, a clarifying question, a walkthrough "ready?"), **surface/emphasize the hold-to-talk mic control** right there — make it the obvious way to answer by voice (bring it forward, enlarge/highlight it near the question, mobile-friendly ≥44pt per P220). The user shouldn't hunt for how to reply.
+- It's **push-to-talk**: the user **holds** the mic to speak their answer, releases to submit. Keep the on-screen chips (Yes/No) too, for tap answers.
+
+### 2. Execute on release — when the content is a valid/affirmed answer
+- **On release of the hold-mic, submit the captured answer** (finalize the transcript) and interpret it against the **pending question**.
+- If the answer **affirms/validly resolves** the pending offer — "yes/yeah/sure/do it" → run the offer's **`on_yes`** (P225); "no/not now" → cancel/acknowledge; a valid specific answer (e.g. a chosen option, a provided value) → apply it — **execute automatically on release.** No extra "submit"/confirm tap for a plain affirmation (a genuinely destructive action still shows its P180 confirm).
+- If the released audio is **empty, unintelligible, or not a valid answer** to the question, **don't execute** — keep the question pending, say "I didn't catch that — hold the mic and tell me yes or no," and leave the mic available to try again.
+
+### 3. Release the mic permission after the answer (no re-fire)
+- Once a pending question is **answered and resolved**, **clear the pending offer and release the mic/listening permission** — stop listening, drop the "waiting for an answer" state, and don't let the same answer or a lingering hot mic **re-trigger** the action. One question → one captured answer → one execution.
+- A new question re-arms the mic; Stop/Cancel (P183) also releases it. The mic never stays hot after an answer resolves.
+
+### Acceptance
+- Asking a question **surfaces the hold-to-talk mic** by the question (plus Yes/No chips).
+- **Releasing** the held mic submits the spoken answer; a valid "yes" **auto-runs** the bound action, "no" cancels — no extra tap (destructive actions still confirm).
+- An empty/unclear release does **not** execute and keeps the question open to retry.
+- After the answer resolves, the **mic/listening permission is released** and the action can't re-fire; a new question re-arms it.
