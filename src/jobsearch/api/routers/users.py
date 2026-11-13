@@ -75,3 +75,21 @@ def update_preferences(
     prof.preferences = prefs
     state.profiles.add(prof)  # persist the mutation
     return prof.preferences
+
+
+@router.get("/me/preferences/suggested")
+def suggested_preferences(user: CurrentUser, state: StateDep) -> dict:
+    """Preferences inferred from the jobs the user actually reaped (email alerts + direct
+    sources) — the most common categories, titles, and keywords. The UI can offer these
+    as a one-tap starting point; the user confirms/edits (preferences stay user-owned).
+    Also reports whether preferences are currently set."""
+    from jobsearch.engines.sourcing.relevance import infer_preferences, preference_terms
+
+    prof = _profile(state, user.id)
+    mine = [j for j in state.jobs.all()
+            if getattr(j, "owner_id", "") == user.id and not getattr(j, "is_sample", False)]
+    return {
+        "suggested": infer_preferences(mine),
+        "has_preferences": bool(preference_terms(prof.preferences)),
+        "sampled_jobs": len(mine),
+    }

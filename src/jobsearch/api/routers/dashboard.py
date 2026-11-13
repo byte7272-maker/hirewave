@@ -42,7 +42,16 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     # --- matches (ranked over the user's visible, verified jobs) -------------
     # Fresh accounts (only sample jobs) count 0 real matches; seeded samples never
     # count toward dashboard progress.
+    from jobsearch.engines.sourcing.relevance import filter_relevant, preference_terms
+
     visible = [j for j in _match_pool(state, uid) if _visible(state, j) and not getattr(j, "is_sample", False)]
+    # Relevance gate: when the user has stated (or inferred) preferences, only rank jobs
+    # relevant to them — so an IT candidate doesn't see non-IT roles. Falls back to all
+    # when the gate would empty the list.
+    prefs = profile.preferences
+    visible = filter_relevant(visible, prefs)
+    # Preferences are mandatory for good matches; flag when none are set so the UI can ask.
+    needs_preferences = not bool(preference_terms(prefs))
     ranked = state.matching.rank(profile, visible, limit=100) if visible else []
     strong = [r for r in ranked if r.score >= _STRONG_MATCH]
     top = ranked[0] if ranked else None
@@ -122,5 +131,9 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
         "connected_apps": {"count": len(authed), "providers": sorted(authed)},
         "unread_notifications": sum(1 for n in state.notifications.find(user_id=uid) if not n.is_read),
         "profile_complete": bool(profile.headline or profile.skills or resume_count),
+        # True when the user hasn't told us what jobs they want — the UI must collect it
+        # (a mandatory input) so matches are relevant; preferences can also be inferred
+        # from reaped jobs via GET /users/me/preferences/suggested.
+        "needs_preferences": needs_preferences,
         "recent_activity": activity,
     }
