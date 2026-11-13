@@ -6418,7 +6418,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. `offers[]` from the manifest are the arrival offers. (This is P198, now generic.)
 4. **confirm_destructive** — before running any action with `destructive: true` (or whose verb is in `destructive_verbs`), show its `confirm` prompt and require a yes. (P180, now automatic from the manifest.)
 5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. **It HOLDS that position and the highlight until the user interacts with the target or a generous timeout expires — it must not snap back to its old spot and cover the thing it just pointed to.** The hold is interruptible immediately by a drag or by selecting another feature/menu. (P179/P181/P197/P215, applied uniformly.)
-6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). (P193/P200, global.)
+6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). **In a walkthrough, SPEAK each step's `say` as it highlights that step and each time the user advances (Next) — never highlight a step or move focus silently. Guide every task from start to finish, narrating each movement/change of focus.** (P193/P200/P221, global.)
 7. **surface_choices** — whenever the assistant presents options/choices (suggested bullets, next-step chips, a list it "added"), **render them in view and reachable now**: auto-scroll the overlay body to the newest choices and keep the active options pinned/visible, so what it just offered is one tap away — not below the fold. Never announce "I've added X to choose from" unless those items are actually rendered and reachable at that moment. The overlay body must own most of the panel height and always land on the latest. **Whenever usable content sits below the viewable area, show an unobtrusive visual cue — a pulsing arrow (or similar) — so the user knows there's more to reach** (a core, consistent affordance everywhere a scroll region hides content). (P208/P211, global.)
 8. **narrate_values** — be **aware of the live values on the page**: read the section's **`readouts`** (each `{key, label, source, highlight}`) from its primary API response, and while narrating **speak each value and highlight its tile/element** ("You have 45 matches, 12 strong" while ringing the Matches tile; "3 interviews" on the Interviews tile). Don't recite a static script over live numbers you never point to. (P214, global.)
 9. **error_aware** — be aware of **error/empty/failed states** on the page the assistant is narrating: a "couldn't render this document", a failed image/preview, a failed request, a "try again" banner, an empty list. **Detect it and surface it** — say what's wrong and **offer a fix/retry** — instead of reading the content as if it rendered fine. Pair with a render fallback so a failed preview still shows something. (P218, global.)
@@ -7004,3 +7004,28 @@ Opening a cover letter showed **"Couldn't render this document just now."** Prob
 - Typing "show me my resume" (and other commands) works on mobile; "unarchive my email" restores it with an Undo.
 - After Google login, the **current (actively-edited) résumé** is shown, not an unused one.
 - The assistant loads the capability **catalog** and matches input against it for intent.
+
+
+## P221 — Speak through EVERY walkthrough step (not just the intro); guide every task start to finish
+
+**Frontend. No backend change** (steps already carry `say`). After the user says yes to a walkthrough, the assistant gave a general intro, then **highlighted each step and showed Next but went silent** — it didn't speak each step or narrate the change of focus. Fix the walkthrough player to narrate every step. Builds on P213 (steps), P201 (`speak_on_update`, `guide_on_arrival`, `highlight_and_dock`).
+
+### The bug
+On "yes, walk me through," the player: ✅ spoke an intro, ✅ highlighted the step + armed Next — ❌ but **did not speak the step's line**, and stayed silent as focus moved step to step. A highlighted step with a Next button but no narration is a half-walkthrough.
+
+### 1. Narrate every step (the fix)
+- The walkthrough player must **speak each step's `say`** from the manifest **at the moment it highlights that step** — intro **and** every subsequent step. Highlighting a control/step and **not** speaking its line is a bug.
+- **On Next (and Back/Previous):** advancing **re-narrates** — speak the new step's `say` as it highlights it. Every movement or change of focus is accompanied by speech. Never move the highlight silently.
+- At a **`wait` step**, speak the instruction, keep the highlight (P215 hold), and when the user acts / the state changes, **speak the next step** as it advances. Auto-advance (if used) also narrates each step.
+- Respect mute (the only reason to be silent) and the speaking speed/voice settings.
+
+### 2. Guide every task from start to finish
+- Generalize: the assistant must **narrate a task end to end** — not just announce it and then go quiet while things move. Any flow it drives (walkthroughs, playbooks, matches walk, document edits, connect, sync) speaks at **each step/focus change**: what's happening now, what to do, and what's next. The user should be able to follow the whole task by ear, with the matching element highlighted (P201 `highlight_and_dock`).
+- If a step produces a change (a value updates, a panel opens, a doc re-renders), **say what changed** as it happens (`speak_on_update`), then continue.
+- Never present a Next button or a highlighted target as the *only* signal — pair it with speech describing the step.
+
+### Acceptance
+- Saying yes to a walkthrough makes the assistant **speak every step**, in order, as it highlights each — intro and all following steps — not just the opening line.
+- Pressing Next (or Back) **re-narrates** the step it moves to; focus never changes silently.
+- `wait` steps speak the instruction, hold, then speak the next step on action.
+- Across every assistant-driven task, each step/focus change is narrated start to finish (unless muted).

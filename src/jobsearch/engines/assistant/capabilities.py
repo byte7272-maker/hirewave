@@ -14,7 +14,9 @@ they are all instances of the SAME small set of generic behaviors:
   * highlight + dock    — point at the element being discussed; keep it visible; HOLD the
                          position + highlight until the user acts or a timeout expires
                          (don't snap back and cover the target); interruptible at once
-  * speak-on-update    — narrate whenever the overlay text changes (every screen)
+  * speak-on-update    — narrate whenever the overlay text changes (every screen); SPEAK
+                         every walkthrough step's `say` as it highlights/advances (and on
+                         Next) — never highlight a step silently; guide tasks end to end
   * surface-choices    — offered options render in view/reachable; an unobtrusive cue
                          (a pulsing arrow) signals content below the fold
   * narrate-values     — read a section's live `readouts` and, while narrating, speak each
