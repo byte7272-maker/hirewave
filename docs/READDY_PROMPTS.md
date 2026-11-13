@@ -7171,6 +7171,7 @@ Every `on_yes.intent` is a real, handled intent (navigate / start_playbook / res
 ### 2. Execute on release — when the content is a valid/affirmed answer
 - **On release of the hold-mic, submit the captured answer** (finalize the transcript) and interpret it against the **pending question**.
 - If the answer **affirms/validly resolves** the pending offer — "yes/yeah/sure/do it" → run the offer's **`on_yes`** (P225); "no/not now" → cancel/acknowledge; a valid specific answer (e.g. a chosen option, a provided value) → apply it — **execute automatically on release.** No extra "submit"/confirm tap for a plain affirmation (a genuinely destructive action still shows its P180 confirm).
+- **REMOVE the extra "Run"/confirm button for a voice-affirmed yes/no.** Today the user still has to press **Run** after speaking — that redundant step must go: **the mic release IS the submit**, and a recognized "yes"/"no" **executes/cancels immediately** with no further button press. Do not require the user to both release the mic AND press Run. (Keep a Run/▶ control only as an optional fallback for typed input or when nothing was captured — never as a required second step after a clear spoken answer.)
 - If the released audio is **empty, unintelligible, or not a valid answer** to the question, **don't execute** — keep the question pending, say "I didn't catch that — hold the mic and tell me yes or no," and leave the mic available to try again.
 
 ### 3. Release the mic permission after the answer (no re-fire)
@@ -7179,6 +7180,6 @@ Every `on_yes.intent` is a real, handled intent (navigate / start_playbook / res
 
 ### Acceptance
 - Asking a question **surfaces the hold-to-talk mic** by the question (plus Yes/No chips).
-- **Releasing** the held mic submits the spoken answer; a valid "yes" **auto-runs** the bound action, "no" cancels — no extra tap (destructive actions still confirm).
+- **Releasing** the held mic submits the spoken answer; a valid "yes" **auto-runs** the bound action, "no" cancels — **no Run button, no extra tap** (destructive actions still confirm). The user is never asked to press Run after a clear spoken yes/no.
 - An empty/unclear release does **not** execute and keeps the question open to retry.
 - After the answer resolves, the **mic/listening permission is released** and the action can't re-fire; a new question re-arms it.
