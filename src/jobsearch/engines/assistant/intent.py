@@ -267,6 +267,54 @@ def _web_search(t: str) -> Optional[IntentResult]:
     return IntentResult("web_search", 0.88 if len(q) >= 2 else 0.8, {"query": q})
 
 
+# Conversational info-seeking: "tell me about X", "what kind of X", "get more info on X",
+# "learn more about X", "what do you know about X". A general topic → web_search; a
+# company (by context or a company suffix) → research_company.
+_INFO_TRIG_RE = re.compile(
+    r"\btell me (?:more )?about\b|\bwhat kind(?:s)? of\b|\bwhat type(?:s)? of\b|"
+    r"\b(?:get|give|grab|pull up) (?:me )?(?:some |more )?(?:info|information|details)\b|"
+    r"\b(?:more|additional) (?:info|information|details)\b|\blearn (?:more )?about\b|"
+    r"\bwhat do you know about\b|\bfill me in on\b|\bmore on\b",
+    re.I,
+)
+_INFO_STRIP = re.compile(
+    r"\btell me (?:more )?about\b|\bwhat kind(?:s)? of\b|\bwhat type(?:s)? of\b|"
+    r"\b(?:get|give|grab|pull up) (?:me )?(?:some |more )?(?:info|information|details)(?: on| about| for)?\b|"
+    r"\b(?:more|additional) (?:info|information|details)(?: on| about| for)?\b|"
+    r"\blearn (?:more )?about\b|\bwhat do you know about\b|\bfill me in on\b|\bmore on\b|"
+    r"\b(?:can you|could you|please|me)\b",
+    re.I,
+)
+_COMPANY_INDICATOR_RE = re.compile(
+    r"\b(inc|corp|corporation|llc|ltd|co|company|group|technologies|technology|systems|"
+    r"solutions|labs?|holdings|industries|enterprises)\b",
+    re.I,
+)
+
+
+def _info_search(t: str) -> Optional[IntentResult]:
+    """Route conversational info-seeking ("tell me about / what kind of / get more info /
+    learn about / what do you know about X") to a web search — or to company research when
+    it's clearly about a company (context, or a company suffix). App content (a section or
+    document) is left for the app handlers."""
+    if not _INFO_TRIG_RE.search(t):
+        return None
+    if _COMPANY_CTX_RE.search(t):
+        return IntentResult("research_company", 0.85, {"company": ""})
+    q = _INFO_STRIP.sub(" ", t)
+    q = re.sub(r"\s+", " ", q).strip(" ?.!,-")
+    q = re.sub(r"^(the|a|an|on|about|of|more|some)\s+", "", q).strip()
+    if len(q) < 2:
+        return IntentResult("research_company", 0.8, {"company": ""})  # "tell me more about it"
+    if _doc_target(q) or re.search(
+        r"\bmy (?:match(?:es)?|jobs?|documents?|resumes?|dashboard|applications?|interviews?)\b", q
+    ):
+        return None  # "tell me about my matches/résumé" → app handlers, not a web search
+    if _COMPANY_INDICATOR_RE.search(q):
+        return IntentResult("research_company", 0.85, {"company": q})
+    return IntentResult("web_search", 0.84, {"query": q})
+
+
 def _research_company(t: str) -> Optional[str]:
     """If this is a 'look up / tell me about a company' request, return the company name
     (``""`` = resolve from context — the focused/top-matched company), else None.
@@ -613,6 +661,12 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     ws = _web_search(t)
     if ws is not None:
         return ws
+
+    # conversational info-seeking ("tell me about the CISSP exam", "what kind of …",
+    # "get more info on …") → a web search, or company research when it's a company.
+    info = _info_search(t)
+    if info is not None:
+        return info
 
     # research a company ("tell me about Acme", "look up this company", "research the top
     # match") — distinct from a job search. company="" means resolve from context (the

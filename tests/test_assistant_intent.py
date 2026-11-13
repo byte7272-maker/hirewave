@@ -159,6 +159,29 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_conversational_info_seeking_runs_a_search():
+    # "tell me about / what kind of / get more info / learn about / what do you know about"
+    # a general topic -> web_search; a company -> research_company.
+    web = {
+        "tell me about the CISSP exam": "cissp exam",
+        "get more info on cybersecurity careers": "cybersecurity careers",
+        "learn more about the PMP certification": "pmp certification",
+        "what do you know about remote work trends": "remote work trends",
+    }
+    for phrase, q in web.items():
+        r = interpret(phrase)
+        assert r.intent == "web_search", (phrase, r.intent)
+        assert r.slots.get("query") == q, (phrase, r.slots)
+    assert interpret("what kind of jobs are trending").intent == "web_search"
+    # company stays company research
+    assert interpret("tell me about Acme Corp").intent == "research_company"
+    assert interpret("tell me about this company").slots.get("company") == ""   # context
+    # app content / real commands not hijacked
+    assert interpret("look up Acme Corp").intent == "research_company"
+    assert interpret("find all VP jobs").intent == "search_jobs"
+    assert interpret("what version is this").intent == "report_state"
+
+
 def test_web_search_is_an_intent_for_common_phrasings():
     # Common ways to ask for a web search -> web_search with a cleaned query.
     cases = {
