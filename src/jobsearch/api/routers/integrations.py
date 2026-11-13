@@ -111,6 +111,34 @@ def list_integrations(user: CurrentUser, state: StateDep) -> list[dict]:
     return state.integration.list_connections(user.id)
 
 
+@router.get("/email-sources")
+def email_sources(user: CurrentUser, state: StateDep) -> dict:
+    """The user's connected EMAIL accounts (per account, not per provider), with an
+    accurate used/cap so the UI shows 'X of 5' and can offer to add another — including a
+    SECOND Gmail. Job-board OAuth (LinkedIn/Indeed) is excluded; only mail accounts count."""
+    conns = state.integration.list_connections(user.id)
+    sources = [c for c in conns if c.get("provider") in plan_limits.MAIL_PROVIDERS]
+    used = len([c for c in sources if not c.get("expired")])
+    cap = plan_limits.email_sources_cap(state, user)
+    return {
+        "sources": [
+            {
+                "provider": c.get("provider"),
+                "account_email": c.get("account_email", ""),
+                "connected_at": c.get("connected_at"),
+                "expired": c.get("expired", False),
+            }
+            for c in sources
+        ],
+        "used": used,
+        "cap": cap,                       # the real limit (5), not a hardcoded number
+        "remaining": max(0, cap - used),
+        "can_add": used < cap,
+        # You can connect MULTIPLE accounts of the same provider (e.g. two Gmail).
+        "multiple_per_provider": True,
+    }
+
+
 # --- IMAP email connect (iCloud et al.) — app-specific password, not OAuth ----
 class ImapConnectRequest(BaseModel):
     provider: str  # a key in IMAP_PROVIDERS, e.g. "icloud"

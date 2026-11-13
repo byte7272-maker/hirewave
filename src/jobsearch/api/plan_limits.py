@@ -94,12 +94,18 @@ def _cover_letters_used(state, user) -> int:
     ])
 
 
+#: Providers that are EMAIL accounts (scanned for job alerts) — distinct from job-board
+#: OAuth (LinkedIn/Indeed/…), which must NOT count against the email-source cap.
+MAIL_PROVIDERS = {"gmail", "icloud", "outlook", "yahoo", "hotmail"}
+
+
 def _email_sources_used(state, user) -> int:
     try:
         conns = state.integration.list_connections(user.id)
     except Exception:  # noqa: BLE001 - no integrations configured
         return 0
-    return len([c for c in conns if not c.get("expired")])
+    # Count connected MAIL accounts only (a user may connect several, e.g. two Gmail).
+    return len([c for c in conns if not c.get("expired") and c.get("provider") in MAIL_PROVIDERS])
 
 
 def _submitted_since(state, user, since: datetime) -> int:

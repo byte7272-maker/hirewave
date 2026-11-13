@@ -7183,3 +7183,37 @@ Every `on_yes.intent` is a real, handled intent (navigate / start_playbook / res
 - **Releasing** the held mic submits the spoken answer; a valid "yes" **auto-runs** the bound action, "no" cancels — **no Run button, no extra tap** (destructive actions still confirm). The user is never asked to press Run after a clear spoken yes/no.
 - An empty/unclear release does **not** execute and keeps the question open to retry.
 - After the answer resolves, the **mic/listening permission is released** and the action can't re-fire; a new question re-arms it.
+
+
+## P227 — iPhone: fix choppy/overlapping TTS, reliable Replay, mic-permission guidance; fix email-source stats + allow a second Gmail
+
+**Frontend, plus LIVE backend fixes** (email-sources endpoint + corrected count). From iPhone tester use. Builds on P220 (mobile/audio), P221 (speak every step), P197 (replay), P226 (mic), P200 (connect).
+
+### 1. Fix choppy / overlapping / clicky iPhone narration
+iOS Safari `speechSynthesis` is fragile — speak **one utterance at a time** through a queue, and stop starting new speech on top of old:
+- **Serialize narration:** maintain a single speech queue; **never call `speak()` while one is in progress.** Queue the next line and start it on the current utterance's `onend`. This kills sentence **overlap**.
+- **Clean cancel:** before deliberately replacing speech (interrupt, new step, Stop), call `speechSynthesis.cancel()` **once** and wait a tick (~60–120ms) before the next `speak()` — abrupt cancel/restart is what produces the **audible clicks**; a tiny gap removes them.
+- **Pin voice + rate per utterance:** set `utterance.voice`, `rate`, `pitch`, `lang` **explicitly on every utterance** (don't rely on defaults, which iOS resets) so tone/speed stay **consistent**. Keep rate in a sane range (~0.9–1.2).
+- **Chunk long text** into sentence-sized utterances queued in order (iOS garbles very long strings), with a small inter-sentence gap — do not fire them concurrently.
+- **iOS keep-alive:** if speech stalls after backgrounding, `resume()` on focus; re-prime on the next user gesture (P220 §1).
+
+### 2. Make Replay reliably re-narrate
+- Keep the **last spoken block** (the utterance text, or the ordered chunks) in state. **Replay** must: `cancel()` current → wait a tick → **re-speak that block** from the start, honoring the current rate/voice. It should work **every time**, from any state (after Stop, after a walk step, after an answer). If nothing has been spoken yet, Replay says "Nothing to replay yet." (Fixes P197 §5 inconsistency.)
+
+### 3. When the mic is blocked, guide the user to enable it (or force a prompt)
+- Detect a blocked/denied mic: `navigator.permissions.query({name:'microphone'})` = `denied`, or `getUserMedia` throws `NotAllowedError`.
+- On the first mic use, **trigger the browser's permission prompt** (`getUserMedia({audio:true})` from the user gesture) so iOS asks. If already **denied**, you can't re-prompt silently — so **show clear OS-specific steps**: *"Microphone is blocked. On iPhone: Settings → (Safari or this site) → Microphone → Allow, then reload."* (and the equivalent for the in-app browser), with a **"Reload"** button. Point to the exact permissions location; don't just fail silently.
+- Keep the Yes/No tap chips available as a fallback so the user can still answer without the mic (P226).
+
+### 4. Fix email-source stats + allow adding another Gmail (LIVE backend)
+The counter was wrong ("0/4" with one connected; limit is 5) because it counted job-board OAuth and collapsed Gmail to one row. Use the new endpoint:
+- **`GET /api/v1/integrations/email-sources`** → `{ sources:[{provider, account_email, connected_at, expired}], used, cap, remaining, can_add, multiple_per_provider:true }`. Only **mail accounts** are counted (LinkedIn/Indeed excluded); `cap` is the real limit (**5**).
+- Show **"{used} of {cap} email sources"** from this endpoint — not a hardcoded number — and **list each connected account by its address** (e.g. "a@gmail.com — Gmail"), per account, not per provider.
+- **Always offer "Add an email account"** while `can_add` is true — **including a second Gmail.** Don't assume one Gmail is enough: the connect flow must let the user **add another Gmail** (a different Google account) even when one is already connected. Each lands as its own source (the backend keys by address).
+- Fix the connect flow to **run all steps to completion** (P213 walkthrough): pick provider → sign in on the provider → return → the new address appears in the list and `used` increments. If a step is skipped or the stats look stale, **re-fetch `/email-sources`** after the connect returns so the displayed count is accurate.
+
+### Acceptance
+- iPhone narration plays **smoothly** — consistent voice/speed, no overlapping sentences, no clicks at start/cutoff.
+- **Replay** re-narrates the last block reliably, every time.
+- A blocked mic shows **clear steps to enable it** (and triggers the prompt when possible), with Yes/No chips as fallback.
+- Email sources show the **correct count out of 5**, list **each connected address**, and let the user **add another Gmail**; the stats refresh after connecting.
