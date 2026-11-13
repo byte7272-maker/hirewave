@@ -100,6 +100,10 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
             "source_slug": j.source_slug,
             "url": j.url, "source_url": j.source_url,
             "score": r.score,
+            # Surfaced in the primary matches view: where it's based + the pay.
+            "location": j.location, "remote": j.remote,
+            "salary_range": j.salary_range.model_dump() if j.salary_range else None,
+            "salary_display": j.salary_display,
         }
 
     return {

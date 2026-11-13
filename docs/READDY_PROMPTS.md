@@ -7061,3 +7061,26 @@ On "yes, walk me through," the player: ✅ spoke an intro, ✅ highlighted the s
 - A web-search/research request runs the search, narrates the steps, presents a clean summary + sources, and offers an **Open-in-browser** link.
 - Matches are relevant to the user's stated/inferred preferences; off-target roles don't appear; cards show why they matched.
 - A user with no preferences is **required** to set them (dropdowns, or by speaking/typing), with a one-tap option to accept preferences **inferred from their reaped job emails**.
+
+
+## P223 — Matches page: show the source (job-board) logo/fanart and the salary in the primary view
+
+**Frontend. Backend is LIVE** (the dashboard match card now includes salary + location + source logo). Two missing pieces on the matches cards.
+
+### Backend (LIVE)
+The dashboard `matches.top_matches[]` cards (and `/jobs/matches`) now include, per match:
+- **`source_logo`** (the job board's logo), **`source_display`** (its name), `source_slug`, `source_url` — where the job was reaped from.
+- **`salary_display`** (human-readable pay, e.g. "$150k–$190k"), **`salary_range`** `{minimum, maximum, …}`, **`location`**, **`remote`**.
+- plus `company_logo`, `title`, `company`, `score`, `url`.
+
+### 1. Show the source logo/fanart on every match card
+- Render **`source_logo`** on each match card (a small board logo/fanart marking where it came from — LinkedIn, Indeed, etc.). **Fallback:** when `source_logo` is empty, show the **`source_display`** name (a text chip) so the source is always indicated. Optionally link it to `source_url`/`url` ("Open on {source_display}").
+- Keep the **company_logo** separate (the employer) from the **source_logo** (the board it was reaped from) — show both; don't confuse them.
+
+### 2. Show the salary in the primary view
+- Render **`salary_display`** prominently on each match card in the primary/matches view (it was missing). When `salary_display` is empty (no salary known), show a muted "Salary not listed" rather than nothing. Also show **location** ("based out of {location}" / Remote, P195/P197) alongside.
+- The assistant's spoken match brief already includes salary/location (P197); the card must show them too, so voice and screen agree.
+
+### Acceptance
+- Every match card shows the **source board's logo** (or its name as a fallback) and the **salary** (or "Salary not listed"), plus location/remote.
+- Company logo and source logo are both shown and not conflated.

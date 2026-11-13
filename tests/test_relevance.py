@@ -75,6 +75,25 @@ def test_dashboard_needs_preferences_flag():
     assert body2["needs_preferences"] is False
 
 
+def test_dashboard_match_card_has_salary_and_source_logo():
+    # Primary matches view (dashboard top_matches) must carry salary + source logo.
+    from jobsearch.models.user import SalaryRange
+    st, c = _app()
+    h = _auth(c, email="d@x.com")
+    uid = st.user_by_email("d@x.com").id
+    st.jobs.add(JobPosting(source_platform="linkedin", title="IT Director", company="Acme",
+                           location="New York, NY", remote=True, owner_id=uid,
+                           salary_range=SalaryRange(minimum=150000, maximum=190000)))
+    body = c.get("/api/v1/dashboard/summary", headers=h).json()
+    cards = body["matches"]["top_matches"]
+    assert cards, "expected at least one match card"
+    card = cards[0]
+    for k in ("salary_display", "salary_range", "location", "remote", "source_logo", "source_display"):
+        assert k in card, k
+    assert card["salary_display"]           # a human-readable pay string
+    assert card["location"] == "New York, NY"
+
+
 def test_suggested_preferences_from_pool():
     st, c = _app()
     h = _auth(c)
