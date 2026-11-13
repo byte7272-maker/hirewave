@@ -51,6 +51,25 @@ def test_render_endpoint_flattens_anchor_in_markdown():
     assert "bayete.williamsit@gmail.com · NY" in body["markdown"]  # shown as plain text
 
 
+def test_view_endpoints_fall_back_to_version_content_no_cant_view():
+    # The reported "can't view document / can't enlarge": body empty but a saved version
+    # has content. render/preview/structured must render from the version, not 404.
+    from jobsearch.models import DocumentVersion
+    st = AppState(settings=Settings(), exchanger=MockTokenExchanger())
+    c = TestClient(create_app(state=st))
+    c.post("/api/v1/auth/register", json={"email": "v@x.com", "password": "supersecret", "full_name": "V"})
+    tok = c.post("/api/v1/auth/login", json={"email": "v@x.com", "password": "supersecret"}).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}"}
+    uid = st.user_by_email("v@x.com").id
+    r = Resume(user_id=uid, rendered_text="")  # empty body
+    r.versions = [DocumentVersion(version=1, content="# Jane\n\nSUMMARY\n\nLed teams.", source="original")]
+    r.active_version = 1
+    st.resumes.add(r)
+    assert c.get(f"/api/v1/resumes/{r.id}/render", headers=h).status_code == 200
+    assert c.get(f"/api/v1/resumes/{r.id}/preview.html", headers=h).status_code == 200
+    assert c.get(f"/api/v1/resumes/{r.id}/structured", headers=h).status_code == 200
+
+
 def test_get_resume_migrates_stored_anchor_to_plain_text():
     # The frontend reads rendered_text from GET /resumes/{id}; the stored anchor must be
     # flattened (and persisted) on read, so it renders as text even without a re-save.

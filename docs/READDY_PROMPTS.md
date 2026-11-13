@@ -7217,3 +7217,38 @@ The counter was wrong ("0/4" with one connected; limit is 5) because it counted 
 - **Replay** re-narrates the last block reliably, every time.
 - A blocked mic shows **clear steps to enable it** (and triggers the prompt when possible), with Yes/No chips as fallback.
 - Email sources show the **correct count out of 5**, list **each connected address**, and let the user **add another Gmail**; the stats refresh after connecting.
+
+
+## P228 — Assistant: offer the résumé summary + rating, explain the why, name strong matches, then suggest + build bullets with how-tos; Google Docs; fix "can't view / can't enlarge"
+
+**Frontend, plus LIVE backend fixes** (view falls back to version content). The review already returns everything needed. Builds on P205 (review POST), P210 (bullets), P197/P195 (matches), P206/P218 (render/fallback), P224 (web_search).
+
+### Backend (LIVE)
+- **`POST /api/v1/resumes/{id}/review`** returns `summary` (how good), `content_summary` (what it says), `score`, `grade`, **`ratings[]`** (per-standard breakdown — the **why**), `strengths[]`, **`suggestions[]`**, `missing_keywords[]`, `word_count`.
+- **Google Docs: `POST /api/v1/resumes/{id}/open-in-google-docs`** (and `/cover-letters/{id}/open-in-google-docs`) — uploads a .docx to the user's connected Drive and returns the Google Docs link. Needs a connected Google Drive (offer Connect if not).
+- **View fix:** `/render`, `/preview.html`, `/structured` now fall back to the **active version's content** when the body is empty — so a document with content in a version no longer 404s on view/enlarge.
+
+### 1. Assistant review flow — summary, rating, the why, strong matches
+- On a résumé (or when asked "review my résumé / how good is it"), the assistant **offers the summary + rating**: speak the `grade`/`score` and the one-line `summary`.
+- **Offer to explain the why:** "Want to know why it scores {grade}?" → read the **`ratings[]`** (each standard + its grade + the reason) and the `strengths[]`, so the user hears *why* it rates that way — not just a number.
+- **Name the strong matches it suits:** from the dashboard `matches` (P206 §4), tell the user **which of their current matches this résumé is strongly suited for** (the strong fits, by title/company/score), and offer to tailor it to one.
+
+### 2. Suggest, build bullets, present, and teach how-to
+- **Make suggestions from the review + any user input:** present `suggestions[]`, and generate **new bullets** via the existing flow (`/suggest-edits`, `/match-bullets`, evidence/highlights — P210), seeded by the review's gaps/`missing_keywords` and whatever the user adds by voice/typing.
+- **Present the bullets** numbered (P210), in view (surface_choices, P208), and let the user accept/drag/edit; applying saves a version and re-renders (P206 §4).
+- **Offer how-tos:** for each suggestion/bullet, a short "how to use this" — e.g. "drag it onto line 3 to replace, or say 'use bullet 2'", "I can tailor these to {match}". Keep it actionable, not a lecture.
+
+### 3. Google Docs support
+- Expose **"Open in Google Docs"** on résumés and cover letters → `POST …/open-in-google-docs`; open the returned link in the user's browser (P222 open-in-browser). If Google Drive isn't connected, offer to connect it first (Connect flow), then retry. The assistant can offer this when the user wants to "edit in Google Docs / open in Docs".
+
+### 4. Fix "can't view document" / can't enlarge (Sundaij2@)
+- The small preview worked but **enlarge/expand/edit threw "can't view document"** — the view path was calling the original `/file` (404 when no file is stored) or a preview that 404s on empty body. Fix:
+  - For **view / enlarge / full-size**, render from **`/render` (templated) or `/preview.html`** — which now work from the active version's content — **not** from `/file`. Never gate the full view on the original upload existing.
+  - For **"expand into editable form,"** load the editor from the document's current text (`rendered_text` or the active version's `content`) — always available — so Edit opens even when there's no uploaded file.
+  - Apply the **general render fallback (P218):** render → preview.html → raw text; on any failure show the document, never a bare "can't view document." If truly empty, say "this document has no content yet — add some or upload a file," with an action, not a dead error.
+
+### Acceptance
+- The assistant offers the résumé **summary + rating**, explains the **why** (per-standard ratings + strengths) on request, and names the **matches it's strongly suited for**.
+- It then **suggests changes and builds presentable bullets** (from the review + user input) with brief **how-tos**, applying on confirmation.
+- **Open in Google Docs** works (connects Drive if needed) and opens the Doc in the browser.
+- Clicking a previewed résumé **enlarges/opens it** (and into editable form) with **no "can't view document"** — view uses render/preview/content with fallback, not the original file.

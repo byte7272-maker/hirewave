@@ -456,7 +456,7 @@ def resume_preview_html(resume_id: str, user: CurrentUser, state: StateDep) -> H
     real fit-width / magnify controls. 404s when there's no readable text."""
     resume = get_resume(resume_id, user, state)
     doc = render_text_html(
-        strip_inline_html(resume.rendered_text or ""),
+        strip_inline_html(_resume_text(resume)),
         # No injected heading — the résumé's own name + role lead (never the filename).
         title="",
     )
@@ -478,7 +478,7 @@ def resume_structured(
     resume = get_resume(resume_id, user, state)
     if deep:
         return state.resume_assistant.structure(resume)
-    return parse_resume_markdown(strip_inline_html(resume.rendered_text or ""), label=resume.target_role or "")
+    return parse_resume_markdown(strip_inline_html(_resume_text(resume)), label=resume.target_role or "")
 
 
 def _pick_render_template(state: StateDep, user: CurrentUser, template_id: Optional[str], saved_template_id: str):
@@ -526,7 +526,7 @@ def render_resume_with_template(
     template = _pick_render_template(state, user, template_id, saved_id)
     # Deterministic parse (no LLM) so rendering a preview is instant. Flatten any inline
     # HTML (e.g. an email hyperlink) so the rendered doc never shows raw <a …> code.
-    text = strip_inline_html(resume.rendered_text or "")
+    text = strip_inline_html(_resume_text(resume))
     data = parse_resume_markdown(text, label=resume.target_role or "")
     return RenderedResume(template=template, data=data, markdown=text)
 
@@ -1195,6 +1195,24 @@ def _migrate_inline_html(state: StateDep, doc, *, text_attr: str = "rendered_tex
             (state.resumes if text_attr == "rendered_text" else state.cover_letters).add(doc)
         except Exception:  # noqa: BLE001 - best effort; the output copy is clean regardless
             pass
+
+
+def _active_version_text(doc) -> str:
+    """The active version's content, else the newest version's — so viewing/rendering
+    still works when the doc's top-level text is empty but a version holds content."""
+    vers = getattr(doc, "versions", None) or []
+    if not vers:
+        return ""
+    av = next((v for v in vers if v.version == getattr(doc, "active_version", 0)), None)
+    chosen = av or max(vers, key=lambda v: v.version)
+    return (getattr(chosen, "content", "") or "")
+
+
+def _resume_text(resume) -> str:
+    """Best available text for rendering/viewing a résumé: its body, else the active
+    version's content. Prevents a 'no readable text' 404 on view/enlarge when the body is
+    empty but a saved version has content (the reported 'can't view document')."""
+    return (getattr(resume, "rendered_text", "") or "").strip() or _active_version_text(resume)
 
 
 def ensure_rendered_text(state: StateDep, resume: Resume) -> Resume:
