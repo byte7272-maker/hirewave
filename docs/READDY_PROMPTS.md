@@ -6415,7 +6415,7 @@ Treat **connect / add / remove / change + {a thing}** as a first-class pattern e
 1. **guide_on_arrival** — on **every** navigate to a section, use its manifest entry to: speak `purpose`; name 2–3 things from `actions[].label` ("you can …"); if `walkthrough` is set, **offer it** as a pending offer; and **highlight** each `controls[]` item, speaking its `does`. Works for every section, present and future, with no section-specific code. **It must fire even when the assistant is collapsed (surface/announce; don't sit silent behind a launcher), and must not be suppressed just because the first-time greeting was already seen — the per-page announce is separate from the one-time greeting. Adaptive: for a frequent/active user, skip the static greeting and go straight to announcing the page + focal point + one relevant offer (see P216).** (Supersedes the per-section guidance in P199/P200.)
 2. **recognize_verb_object** — route `interpret`'s result to the matching `actions[]` entry (by `intent` + `slots`), and expand spoken synonyms from `verbs{}` so the same vocabulary works everywhere. New phrasings → extend `verbs` (one place), not per feature.
    - **Ambiguity → always ask for a decision (never guess, never default).** When `interpret` returns `intent: "ask"` (e.g. `slots.clarify: "email_target"`) or `intent: "unknown"`, the assistant must **speak the `reply`/clarifying question and wait** for the user to choose — it must not pick a side, run a default action, or navigate anywhere. Resolve the answer as a pending offer (P198). This covers the email **address vs account** split (`change the email` → "Do you mean the address on your résumé, or an account to connect?") and any future ambiguous object. An action's **missing required value** (e.g. "change my email address" with no new address given) is also ambiguity: **ask for the value, don't write the command text into the document.**
-3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. `offers[]` from the manifest are the arrival offers. (This is P198, now generic.)
+3. **pending_offer** — every yes/no the assistant asks arms `pendingOffer` with the concrete `onYes` action; "yes" runs it, "no" acknowledges; nothing pending never navigates to a default. The manifest's **`offers[]` are now objects `{prompt, on_yes:{intent, slots}}`** — show `prompt`, and on "yes" run `on_yes` (route it through the same dispatcher as any intent). **Every scripted question therefore has a guaranteed action — the assistant must never ask something (e.g. "want a walkthrough?") it can't then action.** (P198/P225, now generic.)
 4. **confirm_destructive** — before running any action with `destructive: true` (or whose verb is in `destructive_verbs`), show its `confirm` prompt and require a yes. (P180, now automatic from the manifest.)
 5. **highlight_and_dock** — whatever element the assistant is discussing (a control, a match, a document) gets highlighted and kept visible; the overlay docks/repositions so it never covers it. **It HOLDS that position and the highlight until the user interacts with the target or a generous timeout expires — it must not snap back to its old spot and cover the thing it just pointed to.** The hold is interruptible immediately by a drag or by selecting another feature/menu. **Focus granularity (global rule): when the user asks to be shown a specific document or explicit piece of information, FOCUS and CENTER that exact item; when the request calls for a list, focus the section/list in general (not a single row).** (P179/P181/P197/P215/P222, applied uniformly.)
 6. **speak_on_update** — tie narration to the same state that renders the overlay text, so the assistant speaks on **every** screen, refresh, and document/item switch. Never show words without speaking them (unless muted). **In a walkthrough, SPEAK each step's `say` as it highlights that step and each time the user advances (Next) — never highlight a step or move focus silently. Guide every task from start to finish, narrating each movement/change of focus.** (P193/P200/P221, global.)
@@ -7115,3 +7115,46 @@ The dashboard `matches.top_matches[]` cards (and `/jobs/matches`) now include, p
 ### Acceptance
 - "search the web for X", "google X", "find information about X", "what's the latest on X" → the assistant **runs a web search** (not a job search, not a company lookup, not silence), presents a summary + sources, and offers to open a result in the default browser.
 - "look that up on the web" searches the **current topic**; company lookups and job searches still route correctly.
+
+
+## P225 — Walkthrough/offer quality: every scripted question is bound to an action it can run (no dead-end questions)
+
+**Backend is LIVE** (manifest `offers` are now `{prompt, on_yes}`). Audit found scripted questions the assistant asked but couldn't action (e.g. "Want me to walk your top matches?" from the dashboard, "Use it for a job application", "Want your forwarding address?"). Fixed by binding every offer to a concrete action and testing it. Builds on P198/P213/P221 (pending offers, walkthroughs, speak-every-step).
+
+### The rule
+**If the assistant asks it, it must be able to do it.** Never ask a question — a walkthrough, an offer, a next step — without a bound action to run on "yes."
+
+### Backend contract (LIVE)
+Each section's **`offers[]`** in `GET /assistant/capabilities` is now an object:
+```
+{ "prompt": "<the question>", "on_yes": { "intent": "<real intent>", "slots": {…} } }
+```
+Every `on_yes.intent` is a real, handled intent (navigate / start_playbook / research_company / status_report / …), and a `start_playbook` names a real playbook — enforced by a test, so a scripted question can't ship without an action.
+
+### Audit — scripted questions, before → after (now bound)
+| Section | Question | Was | Now (`on_yes`) |
+|---|---|---|---|
+| dashboard | "Want a quick status report?" | ok (loose) | `status_report` |
+| dashboard | "Want me to walk your top matches?" | **no action** (dead-end) | `start_playbook walk_matches` (navigate to Matches, then walk) |
+| matches | "Want me to walk your top matches?" | ok | `start_playbook walk_matches` |
+| matches | "Research the top company?" | ok | `research_company {company:""}` (context) |
+| documents | "Review it" | ok | `start_playbook bullets` |
+| documents | "Modify it" | loose | `navigate documents` (open Ask-AI) |
+| documents | "Use it for a job application" | **no action** (dead-end) | `start_playbook apply_job` |
+| documents | "Tailor it to a job" | ok | `start_playbook tailor` |
+| connect | "…connecting an email account?" | ok | `start_playbook connect_source` |
+| auto_apply | "…setting up auto-apply?" | ok | `start_playbook auto_apply` |
+| interview | "…practice interview?" | ok | `start_playbook practice` |
+| inbox | "…forwarding address…?" | **no action** (dead-end) | `navigate inbox` |
+
+### 1. Run `on_yes` on yes (frontend)
+- Render the offer's **`prompt`**; arm it as the `pendingOffer` with **`on_yes`** (P198). On "yes," **run `on_yes` through the same dispatcher** as any interpreted intent. On "no," acknowledge. A cross-section `on_yes` (e.g. dashboard → `walk_matches`) **navigates to that section first, then runs** — so "yes, walk my matches" on the dashboard lands on Matches and starts the walk.
+- If it offered a **walkthrough**, it must actually run the walkthrough (P213/P221: narrate + highlight every step) — never ask "want a walkthrough?" and then do nothing or just talk.
+
+### 2. Don't ask what you can't do
+- The assistant must only ask scripted questions that have a bound action (now guaranteed by the manifest). If a one-off question arises with no action, it must **follow through or not ask** — e.g. don't offer "want me to do X?" unless X is wired. When unsure, ask a clarifying question it can act on (P201 ambiguity) rather than a promise it can't keep.
+
+### Acceptance
+- Every offer/question the assistant asks resolves to a real action on "yes" — no dead-ends.
+- "Want me to walk your top matches?" (from the dashboard) navigates to Matches and runs the walk; "Use it for a job application" starts the apply flow; "forwarding address?" opens the inbox.
+- Any offered walkthrough actually runs, narrating and highlighting each step.

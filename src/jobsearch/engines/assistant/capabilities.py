@@ -78,6 +78,12 @@ def _aliases(section: str) -> list[str]:
     return list(_SECTIONS.get(section, ()))
 
 
+def _offer(prompt: str, intent: str, slots: Optional[dict] = None) -> dict[str, Any]:
+    """A scripted yes/no question the assistant asks, bound to the concrete action it
+    runs on 'yes' — so the assistant is never left asking something it can't action."""
+    return {"prompt": prompt, "on_yes": {"intent": intent, "slots": dict(slots or {})}}
+
+
 def _action(label: str, verb: str, objects: list[str], intent: str,
             slots: Optional[dict] = None, *, destructive: Optional[bool] = None,
             confirm: str = "") -> dict[str, Any]:
@@ -113,7 +119,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Matches brief", "does": "How many matches and strong fits you have, best first."},
             {"label": "Continue where you left off", "does": "Jump back into your last task."},
         ],
-        "offers": ["Want a quick status report?", "Want me to walk your top matches?"],
+        "offers": [
+            _offer("Want a quick status report?", "status_report"),
+            _offer("Want me to walk your top matches?", "start_playbook", {"playbook": "walk_matches"}),
+        ],
         "steps": [
             {"say": "This is your dashboard — a quick read on your matches, documents, and what to do next.",
              "highlight": "Matches brief"},
@@ -151,7 +160,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Top match card", "does": "Open the #1 match to see the why and the gaps."},
             {"label": "Refresh matches", "does": "Pull the latest roles and re-rank."},
         ],
-        "offers": ["Want me to walk your top matches?", "Research the top company?"],
+        "offers": [
+            _offer("Want me to walk your top matches?", "start_playbook", {"playbook": "walk_matches"}),
+            _offer("Research the top company?", "research_company", {"company": ""}),
+        ],
         "steps": [
             {"say": "These are your job matches, ranked best-first for you.",
              "highlight": "Top match card"},
@@ -186,7 +198,12 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Ask AI", "does": "Describe a change in words; it edits the document (you confirm)."},
             {"label": "Versions", "does": "Switch, rename, or activate a saved version."},
         ],
-        "offers": ["Review it", "Modify it", "Use it for a job application", "Tailor it to a job"],
+        "offers": [
+            _offer("Review it", "start_playbook", {"playbook": "bullets"}),
+            _offer("Modify it", "navigate", {"section": "documents"}),
+            _offer("Use it for a job application", "start_playbook", {"playbook": "apply_job"}),
+            _offer("Tailor it to a job", "start_playbook", {"playbook": "tailor"}),
+        ],
         "steps": [
             {"say": "This is your document, shown exactly as it renders.",
              "highlight": "Document preview"},
@@ -214,7 +231,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Add email source", "does": "Connect a mailbox (Gmail/iCloud/Outlook). Up to 5 sources."},
             {"label": "Connected list", "does": "Your connected addresses — remove any to free a slot."},
         ],
-        "offers": ["Want me to walk you through connecting an email account?"],
+        "offers": [
+            _offer("Want me to walk you through connecting an email account?",
+                   "start_playbook", {"playbook": "connect_source"}),
+        ],
         # Ordered walkthrough the generic runtime narrates + highlights, step by step
         # (so the connect flow never goes silent). Each step: say + what to highlight,
         # and wait=true where the user must act before continuing.
@@ -245,7 +265,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Enable auto-apply", "does": "Turn on queued applications; each still needs your OK."},
             {"label": "Daily/weekly limits", "does": "How many auto-applies run per day and week."},
         ],
-        "offers": ["Want me to walk you through setting up auto-apply?"],
+        "offers": [
+            _offer("Want me to walk you through setting up auto-apply?",
+                   "start_playbook", {"playbook": "auto_apply"}),
+        ],
         "steps": [
             {"say": "This is Auto-apply — I can fill and queue applications for you, and you approve each one before it sends.",
              "highlight": "Enable auto-apply"},
@@ -265,7 +288,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "controls": [
             {"label": "Start practice", "does": "Begin a mock interview; answer by voice."},
         ],
-        "offers": ["Want to run a quick practice interview?"],
+        "offers": [
+            _offer("Want to run a quick practice interview?", "start_playbook", {"playbook": "practice"}),
+        ],
         "steps": [
             {"say": "This is interview practice — I'll ask questions out loud and give you feedback.",
              "highlight": "Start practice"},
@@ -283,7 +308,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "controls": [
             {"label": "Forwarding address", "does": "Forward board alerts here to ingest their jobs."},
         ],
-        "offers": ["Want your forwarding address to pull jobs from email alerts?"],
+        "offers": [
+            _offer("Want your forwarding address to pull jobs from email alerts?",
+                   "navigate", {"section": "inbox"}),
+        ],
         "steps": [
             {"say": "This is your inbox — job-alert emails you forward here get their roles pulled out automatically.",
              "highlight": "Forwarding address"},

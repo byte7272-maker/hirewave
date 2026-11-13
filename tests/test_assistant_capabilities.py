@@ -52,6 +52,21 @@ def test_section_aliases_come_from_the_nlu():
         assert set(caps.for_section(s)["aliases"]) == set(_SECTIONS[s])
 
 
+def test_every_offer_is_bound_to_a_real_action():
+    # Every scripted yes/no question the assistant asks must carry an on_yes action it can
+    # actually run — so it never asks something (e.g. "want a walkthrough?") it can't action.
+    valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
+             "status_report", "sync_documents", "web_search"}
+    playbooks = set(caps.manifest()["playbooks"])
+    for s in caps.manifest()["sections"]:
+        for o in s.get("offers", []):
+            assert o.get("prompt"), (s["section"], o)
+            oy = o.get("on_yes") or {}
+            assert oy.get("intent") in valid, (s["section"], o)
+            if oy["intent"] == "start_playbook":
+                assert oy.get("slots", {}).get("playbook") in playbooks, (s["section"], o)
+
+
 def test_manifest_actions_name_real_intents():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
              "status_report", "sync_documents"}
