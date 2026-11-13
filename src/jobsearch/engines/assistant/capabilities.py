@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from jobsearch.engines.assistant.intent import _PLAYBOOKS, _SECTIONS
+from jobsearch.engines.assistant.intent import _PLAYBOOKS, _SECTIONS, command_catalog
 
 #: Manifest schema version — bump when the shape changes so the client can adapt.
 VERSION = 1
@@ -333,4 +333,8 @@ def manifest() -> dict[str, Any]:
         "destructive_verbs": sorted(DESTRUCTIVE_VERBS),
         "playbooks": sorted(_PLAYBOOKS),
         "sections": [for_section(s) for s in CAPABILITIES],
+        # The full keyword/intent index: every phrasing the assistant understands, so it
+        # can match and compare user input to a real capability (not just the current
+        # section's actions).
+        "catalog": command_catalog(),
     }

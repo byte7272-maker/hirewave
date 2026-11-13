@@ -6961,3 +6961,46 @@ Opening a cover letter showed **"Couldn't render this document just now."** Prob
 - "update my résumé on LinkedIn" / "is my resume up to date on Indeed" / "sync everywhere" are understood and acted on (map + prepare + mark).
 - Update runs **assisted** (download file + deep link + narrated steps) by default, or **automated** when available (confirmed), then marks the board synced and refreshes the panel.
 - Unsupported ATS boards are shown honestly; no password is ever entered by the assistant.
+
+
+## P220 — Mobile/iPhone: audio default-on + speaker, simple view by default, consolidated Settings, bigger assistant icon & touch targets; typed commands must work; assistant uses the full capability catalog
+
+**Frontend, plus LIVE backend fixes** (current-doc ordering, `archive` intent, a full capability **catalog**). From v1.5.0 tester feedback on iPhone. Builds on P201/P206, P216 (assistant starts), P209/P210.
+
+### 1. iPhone audio — play through the speaker and default to UNMUTED
+- On iOS Safari, audio/TTS needs a **user-gesture unlock** and can route to the earpiece. **Unlock the audio context on the first tap** (resume `AudioContext` / prime `speechSynthesis` on a user gesture) so the assistant can speak, and route playback to the **main speaker** (use an `<audio>`/WebAudio output, not a route that defaults to the earpiece).
+- **Default to unmuted.** The mute toggle is hard to find, so narration should be **on by default** (respecting an explicit user mute, persisted). If iOS blocks autoplay before the first gesture, show a small one-tap "Tap to enable the assistant's voice" affordance, then stay unmuted.
+- Make **mute/unmute a clearly labeled, easy-to-find control** (not buried).
+
+### 2. Consolidate controls into a Settings icon (declutter)
+- The phone has too many inline controls. **Move the settings-type controls** — **speaking speed, voice, pitch, auto-read, narration on/off, view (simple/full)** — into a single, clearly labeled **Settings** icon/link (gear). The main surface keeps only the primary actions; everything configurable lives behind Settings.
+- Settings is **easy to identify and reach** on mobile (in the assistant header and/or the app header).
+
+### 3. Default mobile to SIMPLE view
+- On phones (narrow viewport), **default to the simple view** (`hw_assistant_view = "simple"` unless the user chose full). Simple view shows the essentials — the document/content, the assistant, the primary actions — and hides advanced panels behind Settings/▾. The user can switch to full view from Settings.
+
+### 4. Assistant icon — bigger and identifiable on mobile
+- The assistant launcher/icon is **too small and not recognizable** on the phone. Make it a **larger, clearly labeled floating button** (a recognizable assistant glyph + "Assistant" label, adequate tap size ≥44×44pt), high-contrast, easy to find. It should be obvious how to open/talk to the assistant.
+
+### 5. Bigger, readable buttons & touch targets (the "couldn't unarchive" problem)
+- Controls were too small to read/press (the user couldn't find Unarchive). On mobile, enforce **≥44×44pt touch targets**, readable text sizes, and spacing so buttons like **Archive/Unarchive**, Undo, and list-row actions are easy to hit. Avoid tiny icon-only controls without labels for key actions.
+
+### 6. Typed commands must be understood (e.g. "show me my resume")
+- A typed **"show me my resume"** wasn't understood on mobile — but the NLU **does** resolve it (`navigate section=documents, doc=resume`). So the **typed prompt box must dispatch through the same `interpret` path** as chips/voice (one dispatcher, P194) on mobile too. Fix the mobile typed-input wiring so every typed command is interpreted and acted on.
+
+### 7. Archive / unarchive — now understood (LIVE)
+- NLU (LIVE) returns **`intent: "archive"`** with `slots.action` (`archive`|`unarchive`) and the target (`doc_type` for a document, or `target:"email"` for an inbox message) for "archive this résumé", "unarchive my email", "restore my cover letter", "bring back my résumé".
+- Handle it: **archive** → set archived (confirm per P180; it's reversible, so a light confirm + Undo); **unarchive/restore** → clear archived on the named document (`PUT /resumes/{id}` / `/cover-letters/{id}` with `archived:false`) or restore the inbox message. Confirm which item if ambiguous (P201). Surface an **Undo** after archiving so a mis-tap is one tap to reverse.
+
+### 8. Current résumé fix (LIVE) — Google login showed the wrong one
+- The résumé list now orders by **most recent activity** (newest saved version), not creation date — so the one you **actively edit** is current, not an unused "weak test résumé." Google sign-in resolves to the **same account** by email, so after this fix it lands on your real current résumé. Use the **first** résumé from `GET /api/v1/resumes` as current (P206 §4).
+
+### 9. Assistant uses the full capability catalog + keywords (LIVE)
+- `GET /api/v1/assistant/capabilities` now includes a **`catalog`** — every phrasing the assistant understands, each with its `intent`/`slots`/`screens` — plus `verbs` (synonyms) and section `aliases`. The assistant should **load this and match user input against it** (keyword/intent compare) so it can recognize and act on anything the app supports, and power a complete **"What can I do?"**. When a typed/spoken request doesn't deterministically parse, compare it to the catalog for the nearest capability and offer it, rather than giving up.
+
+### Acceptance
+- On iPhone the assistant **speaks through the speaker, unmuted by default** (after the first-tap unlock); mute is easy to find.
+- Speed/voice/view and other settings are behind one **Settings** icon; the phone defaults to **simple view**; the **assistant icon is large and identifiable**; key buttons meet ≥44pt and are readable.
+- Typing "show me my resume" (and other commands) works on mobile; "unarchive my email" restores it with an Undo.
+- After Google login, the **current (actively-edited) résumé** is shown, not an unused one.
+- The assistant loads the capability **catalog** and matches input against it for intent.

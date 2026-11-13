@@ -23,6 +23,8 @@ def test_manifest_shape_and_behaviors():
               "one_source_of_truth"):
         assert b in m["behaviors"]
     assert m["sections"] and all("purpose" in s and "actions" in s for s in m["sections"])
+    # the full keyword/intent catalog is present and every entry is a real command
+    assert m["catalog"] and all(c["text"] and c["intent"] not in ("unknown", "ask") for c in m["catalog"])
 
 
 def test_every_section_has_an_arrival_brief():

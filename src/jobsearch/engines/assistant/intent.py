@@ -22,7 +22,7 @@ INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
-    "sync_documents",
+    "sync_documents", "archive",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -398,6 +398,29 @@ def _state_query(t: str, context: dict) -> Optional[IntentResult]:
     return None
 
 
+# --- archive / unarchive a document or email ----------------------------------
+# "archive this résumé", "unarchive my email", "restore my cover letter" → a reversible
+# archive action. Checked EARLY so the fuzzy playbook matcher doesn't mis-read
+# "unarchive my email" as "connect my email".
+_ARCHIVE_RE = re.compile(r"\b(archive|unarchive|un-archive|restore|bring back|put back|undo archive)\b")
+_UNARCHIVE_RE = re.compile(r"\b(unarchive|un-archive|restore|bring back|put back|undo archive)\b")
+
+
+def _archive_action(t: str) -> Optional[IntentResult]:
+    """Map an archive/unarchive request to the ``archive`` intent with ``action``
+    (archive|unarchive) and the target (``doc_type`` for a document, or ``target:email``
+    for an inbox message), else None."""
+    if not _ARCHIVE_RE.search(t):
+        return None
+    slots: dict[str, Any] = {"action": "unarchive" if _UNARCHIVE_RE.search(t) else "archive"}
+    dt = _doc_target(t)
+    if dt:
+        slots["doc_type"] = dt
+    if re.search(r"\b(e-?mail|message|inbox|mail)\b", t):
+        slots["target"] = "email"
+    return IntentResult("archive", 0.9, slots)
+
+
 # --- keep documents current on external job sites -----------------------------
 # "update my résumé on the job sites", "sync my resume to LinkedIn", "is my resume up to
 # date on Indeed" → manage the board copies of a document (map/push/verify).
@@ -525,6 +548,12 @@ def _deterministic(text: str, context: dict) -> IntentResult:
             return IntentResult("use_bullet", 0.6, {}, needs_disambiguation=dis)
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("use_bullet", 0.9 if oid else 0.7, slots)
+
+    # archive / unarchive a document or email ("unarchive my email", "restore my cover
+    # letter") — checked before the fuzzy matchers so it isn't mis-read as a playbook.
+    av = _archive_action(t)
+    if av is not None:
+        return av
 
     # keep a document current on external job sites ("update my résumé on LinkedIn",
     # "sync my resume to the job boards", "is my résumé up to date on Indeed") — checked
@@ -797,6 +826,23 @@ def suggest_commands(context: Optional[dict] = None, *, limit: int = 6) -> list[
         seen.add(text.lower())
         (specific if is_specific else general).append(_as_dict(text, r))
     return (specific + general)[:limit]
+
+
+def command_catalog() -> list[dict[str, Any]]:
+    """Every example command the assistant understands (verified to parse), across ALL
+    screens — a keyword/intent index the assistant can match and compare user phrasing
+    against. Each item: {text, intent, slots, screens}."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for text, tags in _SUGGESTIONS:
+        if text.lower() in seen:
+            continue
+        r = _verified(text, {})
+        if r is None:
+            continue
+        seen.add(text.lower())
+        out.append({"text": text, "intent": r.intent, "slots": dict(r.slots), "screens": list(tags)})
+    return out
 
 
 def nearest_commands(

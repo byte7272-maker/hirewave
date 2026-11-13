@@ -1128,12 +1128,18 @@ def open_resume_in_google_docs(resume_id: str, user: CurrentUser, state: StateDe
 
 
 def _doc_ts(doc) -> float:
-    """Sort key timestamp for a document (newest first)."""
-    c = getattr(doc, "created_at", None)
-    try:
-        return c.timestamp()
-    except Exception:  # noqa: BLE001
-        return 0.0
+    """Sort key: the document's most recent ACTIVITY — the newest saved version's time,
+    else the doc's own created_at. So 'current' is the one the user actively edits, not
+    merely the most recently created (which defaulted to an unused test résumé)."""
+    cands = [getattr(doc, "created_at", None)]
+    cands += [getattr(v, "created_at", None) for v in (getattr(doc, "versions", None) or [])]
+    times: list[float] = []
+    for c in cands:
+        try:
+            times.append(c.timestamp())
+        except Exception:  # noqa: BLE001
+            pass
+    return max(times) if times else 0.0
 
 
 def _current_first(docs: list, *, include_sample: bool) -> list:

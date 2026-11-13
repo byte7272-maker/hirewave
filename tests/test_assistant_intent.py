@@ -159,6 +159,19 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_archive_and_unarchive_are_understood():
+    # "unarchive my email" must NOT be mis-read as "connect my email".
+    assert interpret("unarchive my email").slots == {"action": "unarchive", "target": "email"}
+    assert interpret("unarchive my resume").slots == {"action": "unarchive", "doc_type": "resume"}
+    assert interpret("restore my cover letter").slots == {"action": "unarchive", "doc_type": "cover_letter"}
+    assert interpret("archive this resume").slots == {"action": "archive", "doc_type": "resume"}
+    for p in ("unarchive my email", "archive this resume", "bring back my resume"):
+        assert interpret(p).intent == "archive"
+    # not stolen: a real connect still connects, a show still navigates
+    assert interpret("connect my email").intent == "start_playbook"
+    assert interpret("show me my resume").intent == "navigate"
+
+
 def test_sync_documents_on_external_boards():
     # Keeping documents current on job sites -> sync_documents with doc_type/board.
     r = interpret("update my resume on linkedin")

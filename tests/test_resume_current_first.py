@@ -30,6 +30,24 @@ def _uid(st):
     return st.user_by_email("r@x.com").id
 
 
+def test_current_is_the_most_recently_edited_not_the_newest_created():
+    # The one the user actively edits (newest VERSION) is current, even if another résumé
+    # was created later — fixes "defaulted to the unused weak-test résumé".
+    from jobsearch.models import DocumentVersion
+    c, st = _client()
+    h = _auth(c)
+    uid = _uid(st)
+    now = utcnow()
+    edited = Resume(user_id=uid, target_role="IT Director", created_at=now - timedelta(days=10))
+    edited.versions = [DocumentVersion(version=1, content="orig", created_at=now - timedelta(days=10)),
+                       DocumentVersion(version=2, content="edited", created_at=now)]  # fresh edit
+    edited.active_version = 2
+    st.resumes.add(edited)
+    st.resumes.add(Resume(user_id=uid, target_role="weak test", created_at=now - timedelta(days=1)))  # newer, unused
+    out = c.get("/api/v1/resumes", headers=h).json()
+    assert out[0]["target_role"] == "IT Director"  # most recently edited is current
+
+
 def test_sample_hidden_and_current_first_when_a_real_resume_exists():
     c, st = _client()
     h = _auth(c)
