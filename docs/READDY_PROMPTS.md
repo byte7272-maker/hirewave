@@ -7331,3 +7331,28 @@ The counter was wrong ("0/4" with one connected; limit is 5) because it counted 
 - Assistant asks "walk your matches?" → "yes" → it **goes straight into the walk** (step 1 of the on-screen matches), narrating/highlighting — with **no** re-announcement of the page and **no** second "want a walkthrough?" prompt.
 - Navigating to a section to run an accepted action skips the arrival intro/offer; a plain browse navigation still gets guide-on-arrival (P216).
 - The same offer is never re-asked immediately after it's answered.
+
+
+## P232 — Resolve a spoken "yes" to the pending offer on the server (pass context.pending); send context.section
+
+**Backend is LIVE.** Explicit "walk through my matches" worked, but the assistant asked **twice** and a plain **"yes" didn't execute** — the client wasn't mapping "yes" to the armed offer's action. Now the backend does it. Builds on P225 (on_yes), P226/P229 (voice), P231 (run, don't re-ask).
+
+### Backend contract (LIVE)
+`POST /assistant/interpret` now accepts in **`context`**:
+- **`pending`**: the armed yes/no offer's action — `{ "intent": "...", "slots": {...} }` (use the offer's `on_yes`).
+- **`section`**: the current section (`matches`/`documents`/…) — drives section-aware intents (edit, walk).
+When `context.pending` is set and the user says **"yes"** (or any affirmation), interpret returns **that pending action directly** (e.g. `start_playbook walk_matches`); **"no"** returns a clean `decline`. A real command spoken instead of yes/no still wins (it's not overridden). With no `pending`, a bare "yes" stays `confirm` (nothing to run).
+
+### 1. Pass the pending offer + section every time a question is on screen
+- Whenever the assistant has asked a yes/no offer, store its **`on_yes`** and include it as **`context.pending`** on the next `interpret` call; always include **`context.section`** (and `resume_id`/`job_id`/`options` as before).
+- On the result: it will come back as the **actual action** (not `confirm`) — run it through the one dispatcher exactly like any command (navigate-to-run per P231). This removes the fragile client "yes → which action?" mapping that was failing.
+- On `decline`, acknowledge and stand down (P229). Clear `pending` after it resolves.
+
+### 2. Don't ask twice / don't drop the yes (ties P231)
+- After the offer is answered, **clear it** and **do not re-arm or re-ask** the same question on arrival (P231). The server now guarantees "yes" → the action; the client must then (a) run it and (b) not replay the offer or the arrival intro.
+- Net: assistant asks once → "yes" → the walk starts (step 1, narrated) → no second prompt, no dead "yes."
+
+### Acceptance
+- Assistant asks "walk your matches?" once → spoken **"yes" executes the walk** (same result as typing "walk through my matches"), with no second ask and no no-op.
+- "no" cleanly stands down.
+- A command said instead of yes/no runs that command; a bare "yes" with nothing pending does nothing (asks what you'd like).

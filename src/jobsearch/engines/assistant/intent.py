@@ -1048,6 +1048,17 @@ def interpret(
 
     result = _deterministic(text, context)
 
+    # Resolve a yes/no against a pending offer server-side: when the frontend passes the
+    # armed offer's action as context["pending"], a spoken "yes" returns THAT action
+    # directly (so it executes), and "no" is a clean decline — no fragile client mapping.
+    pending = (context or {}).get("pending")
+    if isinstance(pending, dict) and pending.get("intent"):
+        if result.intent == "confirm":
+            return IntentResult(str(pending["intent"]), 0.95,
+                                dict(pending.get("slots") or {}), utterance=raw)
+        if result.intent == "decline":
+            return IntentResult("decline", 0.95, {}, utterance=raw)
+
     if result.confidence < threshold:
         if llm is not None:
             llm_res = _llm_classify(raw, context, llm)

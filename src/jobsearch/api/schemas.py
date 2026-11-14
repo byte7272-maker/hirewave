@@ -1198,11 +1198,15 @@ class InterpretContext(BaseModel):
     """Light page state so references like 'that one' / 'go here' resolve."""
 
     page: str = ""
+    section: str = ""  # the current section (matches/documents/…); drives section-aware intents
     resume_id: Optional[str] = None
     cover_letter_id: Optional[str] = None
     job_id: Optional[str] = None
     focused_index: Optional[int] = None  # the item currently read/highlighted (0-based)
     options: list[dict] = Field(default_factory=list)  # the on-screen choices [{id,label}]
+    #: The armed yes/no offer's action, so a spoken "yes" resolves to it server-side:
+    #: {"intent": "...", "slots": {...}}. Sent only while a question is pending.
+    pending: Optional[dict] = None
 
 
 class InterpretRequest(BaseModel):

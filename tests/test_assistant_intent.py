@@ -159,6 +159,20 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_pending_offer_resolves_yes_server_side():
+    # With the armed offer in context.pending, a spoken "yes" returns that action directly
+    # (so it executes) and "no" is a clean decline — no fragile client mapping.
+    pend = {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}
+    r = interpret("yes", context={"pending": pend, "section": "matches"})
+    assert r.intent == "start_playbook" and r.slots == {"playbook": "walk_matches"}
+    assert interpret("yeah do it", context={"pending": pend}).intent == "start_playbook"
+    assert interpret("no", context={"pending": pend}).intent == "decline"
+    # no pending -> a bare "yes" is still just confirm (nothing to run)
+    assert interpret("yes").intent == "confirm"
+    # a real command while an offer is pending is NOT overridden by the offer
+    assert interpret("show me my resume", context={"pending": pend}).intent == "navigate"
+
+
 def test_edit_document_with_current_data_flags_needs_web():
     # One prompt handles doc edits; a bullet update referencing current/external data sets
     # needs_web so the assistant web-searches first, then applies.
