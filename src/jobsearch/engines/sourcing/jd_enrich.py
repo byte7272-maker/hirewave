@@ -19,8 +19,15 @@ import json
 import re
 from typing import Optional
 
-from jobsearch.engines.sourcing.skills import detect_category, enrich_requirements
+from jobsearch.engines.sourcing.skills import (
+    detect_benefits,
+    detect_category,
+    detect_employment_type,
+    detect_salary,
+    enrich_requirements,
+)
 from jobsearch.models import JobPosting
+from jobsearch.models.user import SalaryRange
 
 _LD_RE = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
@@ -82,6 +89,97 @@ def _is_job_posting(obj: dict) -> bool:
     return any(str(x).lower() == "jobposting" for x in types if x)
 
 
+def _num(v) -> "Optional[int]":
+    """Coerce a schema.org numeric (int/float/str) to a rounded int, else None."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return int(round(v)) or None
+    if isinstance(v, str):
+        s = re.sub(r"[,\s$]", "", v)
+        try:
+            return int(round(float(s))) or None
+        except ValueError:
+            return None
+    return None
+
+
+def _salary_from_ld(base) -> "Optional[dict]":
+    """schema.org ``baseSalary`` (MonetaryAmount) → SalaryRange kwargs, annualising
+    hourly pay. Returns ``{currency, minimum, maximum}`` or None."""
+    if not isinstance(base, dict):
+        return None
+    currency = str(base.get("currency") or base.get("priceCurrency") or "USD").upper()[:3] or "USD"
+    val = base.get("value", base)
+    lo = hi = None
+    unit = ""
+    if isinstance(val, dict):
+        unit = str(val.get("unitText") or "").upper()
+        lo = _num(val.get("minValue"))
+        hi = _num(val.get("maxValue"))
+        if lo is None and hi is None:
+            one = _num(val.get("value"))
+            lo = hi = one
+    else:
+        lo = hi = _num(val)
+    if lo is None and hi is None:
+        return None
+    if unit in ("HOUR", "HOURLY"):  # annualise
+        lo = lo * 2080 if lo else lo
+        hi = hi * 2080 if hi else hi
+    elif unit in ("WEEK", "WEEKLY"):
+        lo = lo * 52 if lo else lo
+        hi = hi * 52 if hi else hi
+    elif unit in ("MONTH", "MONTHLY"):
+        lo = lo * 12 if lo else lo
+        hi = hi * 12 if hi else hi
+    return {"currency": currency, "minimum": lo, "maximum": hi}
+
+
+def _location_from_ld(loc) -> str:
+    """schema.org ``jobLocation`` (Place or list) → 'City, ST' / 'City, Country'."""
+    if isinstance(loc, list):
+        for item in loc:
+            got = _location_from_ld(item)
+            if got:
+                return got
+        return ""
+    if not isinstance(loc, dict):
+        return ""
+    addr = loc.get("address")
+    if isinstance(addr, list):
+        addr = addr[0] if addr else None
+    if isinstance(addr, str):
+        return addr.strip()
+    if not isinstance(addr, dict):
+        return ""
+    city = str(addr.get("addressLocality") or "").strip()
+    region = str(addr.get("addressRegion") or "").strip()
+    country = str(addr.get("addressCountry") or "").strip()
+    if isinstance(addr.get("addressCountry"), dict):
+        country = str(addr["addressCountry"].get("name") or "").strip()
+    parts = [p for p in (city, region or country) if p]
+    return ", ".join(parts)
+
+
+_LD_EMPLOYMENT = {
+    "full_time": "full-time", "fulltime": "full-time",
+    "part_time": "part-time", "parttime": "part-time",
+    "contractor": "contract", "contract": "contract",
+    "temporary": "temporary", "intern": "internship", "internship": "internship",
+}
+
+
+def _employment_from_ld(val) -> str:
+    """schema.org ``employmentType`` (str or list) → our slug."""
+    vals = val if isinstance(val, list) else [val]
+    for v in vals:
+        key = re.sub(r"[^a-z]", "", str(v or "").lower())
+        if key in _LD_EMPLOYMENT:
+            return _LD_EMPLOYMENT[key]
+    return ""
+
+
 def extract_jd_from_html(html: str) -> dict:
     """Best-effort structured job description from a posting page's HTML.
 
@@ -116,6 +214,27 @@ def extract_jd_from_html(html: str) -> dict:
                     logo = logo.get("url")
                 if isinstance(logo, str) and logo.startswith("http"):
                     out["company_logo_url"] = logo
+            # Structured fields the UI wants on every match: pay, where it's based,
+            # workplace arrangement, employment type, benefits.
+            salary = _salary_from_ld(obj.get("baseSalary"))
+            if salary and "salary_range" not in out:
+                out["salary_range"] = salary
+            loc = _location_from_ld(obj.get("jobLocation"))
+            if loc and "location" not in out:
+                out["location"] = loc
+            jlt = obj.get("jobLocationType")
+            jlt_vals = jlt if isinstance(jlt, list) else [jlt]
+            if any(str(v or "").upper() == "TELECOMMUTE" for v in jlt_vals):
+                out["remote"] = True
+            etype = _employment_from_ld(obj.get("employmentType"))
+            if etype and "employment_type" not in out:
+                out["employment_type"] = etype
+            jb = obj.get("jobBenefits") or obj.get("benefits")
+            if jb and "benefits" not in out:
+                bl = jb if isinstance(jb, list) else [jb]
+                out["benefits"] = detect_benefits(" ".join(str(b) for b in bl)) or [
+                    str(b).strip() for b in bl if str(b).strip()
+                ][:8]
             if desc:
                 out["description"] = desc
             if reqs:
@@ -163,6 +282,35 @@ def apply_jd(job: JobPosting, extracted: dict) -> bool:
     if logo and not getattr(job, "company_logo_url", ""):
         job.company_logo_url = logo
         changed = True
+
+    # Pay, location, workplace, employment type, benefits — fill only when missing,
+    # from the JSON-LD first, then a text fallback mined from the (now fuller) body.
+    sr = extracted.get("salary_range")
+    if sr is None and job.salary_range is None:
+        sr = detect_salary(f"{job.title}\n{job.description}")
+    if sr and job.salary_range is None:
+        job.salary_range = SalaryRange(**sr)
+        changed = True
+
+    loc = (extracted.get("location") or "").strip()
+    if loc and not (job.location or "").strip():
+        job.location = loc
+        changed = True
+
+    if extracted.get("remote") and not job.remote:
+        job.remote = True
+        changed = True
+
+    etype = extracted.get("employment_type") or detect_employment_type(f"{job.title}\n{job.description}")
+    if etype and not job.employment_type:
+        job.employment_type = etype
+        changed = True
+
+    benefits = extracted.get("benefits") or detect_benefits(job.description)
+    if benefits and not job.benefits:
+        job.benefits = benefits
+        changed = True
+
     if changed:
         job.category = detect_category(f"{job.title} {job.title} {job.description}")
     return changed

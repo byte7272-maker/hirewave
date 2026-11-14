@@ -7410,3 +7410,36 @@ Map each returned `intent` to a real effect (and speak its `reply` first, P233).
 - Every Yes/No button and every action chip, on every screen, performs its action when tapped — verify each in the network panel issues the expected call (`/assistant/status`, `/interpret`, a navigation, etc.).
 - **No** on any offer stands the assistant down without re-asking.
 - No rendered button is inert; tapping always does what saying the answer does.
+
+## P235 — Show pay, where it's based, workplace (Remote/Hybrid/On-site) and benefits on every match card
+
+**Frontend. Backend is LIVE and now RETURNS these fields.** Reported: match cards weren't showing **pay range**, **where the role is based**, **remote vs in-office**, or **benefits** — they were missing from the data and now ship on the match payload. This prompt makes the UI read and display them. No backend work.
+
+### 1. Where the data comes from
+- **Matches**: `GET /api/v1/jobs/matches` (Bearer auth). Each item in the returned array now includes, in addition to `title`/`company`/`score`:
+  - `salary_display` — ready-to-render pay string, e.g. `"$150k - $185k"` (empty string when unknown — then hide the pay chip).
+  - `salary_range` — structured `{ currency, minimum, maximum }` (or null) if you want to format it yourself; prefer `salary_display`.
+  - `location` — where the role is based, e.g. `"New York, NY"` (may be empty).
+  - `workplace` — one of `"Remote"`, `"Hybrid"`, `"On-site"`, or `""` (unknown — hide the badge).
+  - `remote` — boolean (kept for back-compat; `workplace` is the richer label — prefer it).
+  - `benefits` — array of short labels, e.g. `["Medical","Dental","401(k)","Equity","PTO"]` (may be empty).
+  - `employment_type` — e.g. `"full-time"`, `"contract"` (may be empty).
+  - `seniority` — e.g. `"senior"`, `"director"` (may be empty).
+  - `years_experience` — integer or null.
+- **Saved jobs & application cards** carry the **same** fields on their embedded `job` object (`JobCard`): `salary_display`, `salary_range`, `location`, `workplace`, `benefits`, `employment_type`. Show them there too so a saved/applied row matches what the match card showed.
+
+### 2. What to render on each match card
+- A **pay** chip from `salary_display` (only when non-empty).
+- A **location** line from `location` (only when non-empty).
+- A **workplace** badge from `workplace` — label it exactly `Remote` / `Hybrid` / `On-site`; hide when `""`. (Don't derive your own from `remote`; use `workplace`.)
+- A **benefits** row: render each string in `benefits` as a small pill/tag; cap the visible count (e.g. show 4, then "+N"). Hide the row when the array is empty.
+- Optionally show `employment_type` and `seniority` as secondary chips when present.
+- Every field is **optional** — when empty/absent, omit that chip/row entirely (no "undefined", no empty pill, no "$" with no number).
+
+### 3. Don't break on missing values
+- Treat `""`, `null`, and `[]` as "unknown → hide." No placeholder text. Read `salary_display` as the single source for the pay string; fall back to formatting `salary_range` only if you choose to, never showing a half-formed range.
+
+### Acceptance (verify on the PUBLISHED site, not the Readdy preview)
+- On a fresh/sample account, the three sample matches each show a **pay range**, a **location**, a **workplace badge** (one is Remote, one Hybrid, one On-site), and a **benefits** row — confirm the values match the `GET /api/v1/jobs/matches` response in the network panel.
+- A match with no salary shows **no** pay chip (not "$" or "undefined"); a match with empty `workplace` shows no badge.
+- Saved-job and application cards show the same pay/location/workplace/benefits for the same job.

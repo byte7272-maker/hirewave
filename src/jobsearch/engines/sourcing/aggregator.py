@@ -28,6 +28,7 @@ from jobsearch.engines.sourcing.skills import (
     detect_benefits,
     detect_category,
     detect_employment_type,
+    detect_salary,
     detect_seniority,
     detect_years_experience,
     enrich_requirements,
@@ -126,6 +127,11 @@ class JobAggregator:
         salary = SalaryRange(**sr) if isinstance(sr, dict) and sr else None
         title = str(raw.get("title", ""))
         description = str(raw.get("description", ""))
+        # No structured pay from the source → mine it from the text.
+        if salary is None:
+            parsed = detect_salary(f"{title}\n{description}")
+            if parsed:
+                salary = SalaryRange(**parsed)
         # Enrich sparse/generic requirements with concrete skills mined from the
         # title + description, so matching / résumé-review / interview prep have
         # real signal to work with.

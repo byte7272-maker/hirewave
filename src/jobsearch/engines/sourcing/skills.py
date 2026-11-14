@@ -184,6 +184,88 @@ def detect_benefits(text: str, *, limit: int = 8) -> list[str]:
     return out[:limit]
 
 
+# --- salary -----------------------------------------------------------------
+# A money amount: "$120,000", "$120k", "120K", "$55.50". Group 1 = the number,
+# group 2 = a trailing k/K marker (thousands).
+_AMOUNT = r"\$?\s*(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)\s*(k|K)?"
+# A range: "$90k - $130k", "$90,000 to $130,000", "90K–130K".
+_SALARY_RANGE_RE = re.compile(_AMOUNT + r"\s*(?:-|–|—|to)\s*" + _AMOUNT)
+# A single amount, optionally prefixed by "up to" / "from" / "starting at".
+_SALARY_ONE_RE = re.compile(
+    r"(up to|from|starting at|start(?:ing)? salary of|salary of)?\s*" + _AMOUNT,
+    re.IGNORECASE,
+)
+# Hourly/annual markers near the amount — hourly is annualised at 2080 h/yr.
+_HOURLY_RE = re.compile(r"(?:/|\bper\s+)\s*(?:hr|hour)\b|\bhourly\b|\ban\s+hour\b", re.IGNORECASE)
+# Context that signals the number really is pay (so "$10M in funding" is ignored).
+_PAY_CONTEXT_RE = re.compile(
+    r"salary|compensation|comp\b|pay\b|/\s*(?:yr|year|hr|hour)|per\s+(?:year|hour|annum)"
+    r"|annual|base|\$\d",
+    re.IGNORECASE,
+)
+_HOURS_PER_YEAR = 2080
+
+
+def _amount_to_int(num: str, k: Optional[str]) -> Optional[int]:
+    """'120,000'->120000, '120' with k->120000, '55.5'->55 (rounded)."""
+    try:
+        val = float(num.replace(",", ""))
+    except ValueError:
+        return None
+    if k:
+        val *= 1000
+    return int(round(val))
+
+
+def detect_salary(text: str) -> "Optional[dict]":
+    """Best-effort salary parsed from free text → a ``SalaryRange`` kwargs dict
+    (``{currency, minimum, maximum}``) or ``None``. Handles ranges and single
+    amounts, ``k`` shorthand, and annualises hourly pay. Deterministic, offline.
+
+    Returns a plain dict (not a model) so callers in any layer can use it without
+    importing the model; ``None`` when no plausible pay figure is present.
+    """
+    if not text:
+        return None
+    low = text
+    # Only parse when the text actually talks about pay, to avoid grabbing
+    # unrelated dollar figures (funding, revenue, prices).
+    if not _PAY_CONTEXT_RE.search(low):
+        return None
+
+    def _annualise(window: str, amount: int) -> int:
+        return amount * _HOURS_PER_YEAR if amount < 1000 and _HOURLY_RE.search(window) else amount
+
+    # 1) An explicit range wins.
+    m = _SALARY_RANGE_RE.search(low)
+    if m:
+        lo = _amount_to_int(m.group(1), m.group(2))
+        hi = _amount_to_int(m.group(3), m.group(4))
+        if lo and hi:
+            window = low[m.start(): m.end() + 12]
+            lo, hi = _annualise(window, lo), _annualise(window, hi)
+            if lo > hi:
+                lo, hi = hi, lo
+            return {"currency": "USD", "minimum": lo, "maximum": hi}
+
+    # 2) A single amount ("up to $130k", "$120,000 / year", "$55/hr").
+    for m in _SALARY_ONE_RE.finditer(low):
+        amount = _amount_to_int(m.group(2), m.group(3))
+        if not amount:
+            continue
+        window = low[max(0, m.start() - 4): m.end() + 12]
+        amount = _annualise(window, amount)
+        if amount < 1000:  # still not an annual-looking figure → not a salary
+            continue
+        lead = (m.group(1) or "").lower()
+        if lead == "up to":
+            return {"currency": "USD", "minimum": None, "maximum": amount}
+        if lead in ("from", "starting at", "starting salary of", "start salary of"):
+            return {"currency": "USD", "minimum": amount, "maximum": None}
+        return {"currency": "USD", "minimum": amount, "maximum": amount}
+    return None
+
+
 def enrich_requirements(existing: list[str], text: str, *, limit: int = 20) -> list[str]:
     """Merge provided requirements with skills mined from ``text`` — keeps the
     source's requirements (minus purely generic ones when we have better), adds

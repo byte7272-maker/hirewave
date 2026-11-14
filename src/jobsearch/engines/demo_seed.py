@@ -10,6 +10,7 @@ user (``owner_id``) so they only appear in that user's matches, never anyone els
 from __future__ import annotations
 
 from jobsearch.models import CoverLetter, JobPosting, Resume
+from jobsearch.models.user import SalaryRange
 from jobsearch.models.document import (
     CoverLetterSource,
     DocumentVersion,
@@ -62,13 +63,22 @@ Alex Sample
 _SAMPLE_JOBS = [
     {"title": "Senior Product Manager", "company": "Example Corp (Sample)",
      "location": "New York, NY", "remote": False,
-     "description": "Sample posting. Lead a product squad from discovery to launch for a B2B SaaS platform; own the roadmap, run experiments, and partner with design and engineering."},
+     "salary": {"minimum": 150000, "maximum": 185000},
+     "employment_type": "full-time",
+     "benefits": ["Medical", "Dental", "401(k)", "Equity", "PTO"],
+     "description": "Sample posting. Lead a product squad from discovery to launch for a B2B SaaS platform; own the roadmap, run experiments, and partner with design and engineering. Hybrid in New York (3 days in office). $150,000 - $185,000 plus equity and full medical, dental, and 401(k)."},
     {"title": "Product Manager, Growth", "company": "Sample Labs (Sample)",
      "location": "Remote (US)", "remote": True,
-     "description": "Sample posting. Drive activation and retention through experimentation; own onboarding and lifecycle, partnering with data and marketing."},
+     "salary": {"minimum": 130000, "maximum": 160000},
+     "employment_type": "full-time",
+     "benefits": ["Medical", "Vision", "401(k)", "Bonus", "Remote"],
+     "description": "Sample posting. Drive activation and retention through experimentation; own onboarding and lifecycle, partnering with data and marketing. Fully remote (US). $130,000 - $160,000, annual bonus, medical and vision, 401(k)."},
     {"title": "Director of Product", "company": "Demo Industries (Sample)",
      "location": "San Francisco, CA", "remote": False,
-     "description": "Sample posting. Set product vision and lead a team of PMs; balance strategy with execution and report to the VP of Product."},
+     "salary": {"minimum": 190000, "maximum": 230000},
+     "employment_type": "full-time",
+     "benefits": ["Medical", "Dental", "Vision", "Equity", "Parental leave", "PTO"],
+     "description": "Sample posting. Set product vision and lead a team of PMs; balance strategy with execution and report to the VP of Product. On-site in San Francisco. $190,000 - $230,000 base plus equity; comprehensive medical, dental, vision, and parental leave."},
 ]
 
 
@@ -94,10 +104,14 @@ def seed_demo_data(state, user_id: str) -> None:
     state.cover_letters.add(cl)
 
     for raw in _SAMPLE_JOBS:
+        sal = raw.get("salary")
         state.jobs.add(JobPosting(
             source_platform="sample", is_sample=True, owner_id=user_id,
             title=raw["title"], company=raw["company"], location=raw["location"],
             remote=raw["remote"], description=raw["description"],
+            salary_range=SalaryRange(**sal) if sal else None,
+            employment_type=raw.get("employment_type", ""),
+            benefits=list(raw.get("benefits") or []),
         ))
 
 

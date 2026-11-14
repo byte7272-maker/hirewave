@@ -93,6 +93,29 @@ def format_salary(salary: "Optional[SalaryRange]") -> str:
     return ""
 
 
+def workplace_label(remote: bool, location: str = "", description: str = "") -> str:
+    """Human workplace arrangement: ``Remote`` | ``Hybrid`` | ``On-site`` | ``""``.
+
+    Derived from the ``remote`` flag plus hints in the location/description.
+    ``Hybrid`` wins when stated explicitly (it implies both remote and an office);
+    then remote; then on-site when there's a physical location; else unknown ("").
+    """
+    blob = f"{location} {description}".lower()
+    if "hybrid" in blob:
+        return "Hybrid"
+    loc = (location or "").lower()
+    if remote or "remote" in blob or "work from home" in blob or "wfh" in blob or "telecommute" in blob:
+        # A remote role that also names a metro/office is really hybrid.
+        if loc and "remote" not in loc and "anywhere" not in loc and location.strip():
+            return "Hybrid"
+        return "Remote"
+    if any(k in blob for k in ("on-site", "onsite", "on site", "in office", "in-office", "in person", "in-person")):
+        return "On-site"
+    if location.strip():
+        return "On-site"
+    return ""
+
+
 def source_display_name(source_platform: str) -> str:
     """A nicely-cased board name for display (``linkedin`` -> ``LinkedIn``,
     ``match`` -> ``Indeed``)."""
@@ -254,6 +277,11 @@ class JobPosting(DomainModel):
     @property
     def salary_display(self) -> str:
         return format_salary(self.salary_range)
+
+    @computed_field  # workplace arrangement for display: Remote | Hybrid | On-site | ""
+    @property
+    def workplace(self) -> str:
+        return workplace_label(self.remote, self.location, self.description)
 
     @computed_field  # nicely-cased source board name (e.g. "LinkedIn")
     @property

@@ -195,6 +195,16 @@ class MatchOut(BaseModel):
     #: string is empty when no salary is known.
     salary_range: Optional[SalaryRange] = None
     salary_display: str = ""
+    #: Workplace arrangement for display: "Remote" | "Hybrid" | "On-site" | "" (unknown).
+    workplace: str = ""
+    #: Perks parsed from the posting (e.g. "401(k)", "Medical", "Equity"); may be empty.
+    benefits: list[str] = Field(default_factory=list)
+    #: full-time | part-time | contract | temporary | internship (empty if unknown).
+    employment_type: str = ""
+    #: junior | mid | senior | lead | staff | principal | director (empty if unknown).
+    seniority: str = ""
+    #: Minimum years of experience the posting asks for (None if unstated).
+    years_experience: Optional[int] = None
     #: Company logo for display: the source's logo when provided, else derived from
     #: the company domain. May be empty — the UI should fall back to a lettermark.
     company_logo: str = ""
@@ -366,6 +376,9 @@ class JobCard(BaseModel):
     posted_ago: str = ""
     salary_range: Optional[SalaryRange] = None
     salary_display: str = ""  # ready-to-display salary ("$90k - $130k"); empty if unknown
+    workplace: str = ""  # "Remote" | "Hybrid" | "On-site" | "" (unknown)
+    benefits: list[str] = Field(default_factory=list)  # perks, e.g. "401(k)", "Medical"
+    employment_type: str = ""  # full-time | part-time | contract | temporary | internship
 
     @classmethod
     def from_job(cls, job: JobPosting) -> "JobCard":
@@ -386,6 +399,9 @@ class JobCard(BaseModel):
             posted_ago=job.posted_ago,
             salary_range=job.salary_range,
             salary_display=job.salary_display,
+            workplace=job.workplace,
+            benefits=list(job.benefits or []),
+            employment_type=job.employment_type,
         )
 
 
