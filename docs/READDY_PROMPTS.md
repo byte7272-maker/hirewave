@@ -7252,3 +7252,28 @@ The counter was wrong ("0/4" with one connected; limit is 5) because it counted 
 - It then **suggests changes and builds presentable bullets** (from the review + user input) with brief **how-tos**, applying on confirmation.
 - **Open in Google Docs** works (connects Drive if needed) and opens the Doc in the browser.
 - Clicking a previewed résumé **enlarges/opens it** (and into editable form) with **no "can't view document"** — view uses render/preview/content with fallback, not the original file.
+
+
+## P229 — A spoken "yes/no" to a pending question must NOT trigger the "Run / Discard" box — it executes directly
+
+**Frontend. No backend change.** Sharpens P226. The assistant asks "want me to walk you through this?"; the user says **"yes"**; instead of running, a **"Run / Discard" confirmation box pops up** asking the user to confirm the transcript. That double-confirm must be removed for answers to a pending question.
+
+### The rule
+- A **"Run / Discard" (transcript-verify) box is only for a NEW free-form voice command** spoken when **nothing is pending** — so the user can check what was heard before an action fires.
+- When there is a **pending question** (a `pendingOffer` / yes-no offer is on screen — P198/P225), the spoken answer **resolves that question directly**. Do **NOT** show the Run/Discard box. The on-screen question already IS the confirmation; the voice answer completes it.
+
+### Behavior
+- **Pending question + "yes"/affirmation** (yes, yeah, sure, do it, go ahead, please do) → on **mic release**, **run the offer's `on_yes` immediately** (P225). No Run/Discard box, no extra tap. If it offered a walkthrough, start the walkthrough right then (narrating every step, P221).
+- **Pending question + "no"/decline** (no, nope, not now, skip it) → **acknowledge and stand down**: say something brief like "Okay, I'll leave it — tell me if you change your mind," clear the pending offer, and do nothing else. No Run/Discard box.
+- **Unclear/empty answer** to a pending question → don't execute, don't pop Run/Discard; keep the question open and say "I didn't catch that — yes or no?" (P226).
+- **No pending question** (a fresh command like "tailor my résumé") → the transcript-verify affordance may still be used, but prefer **auto-running clear, non-destructive commands**; reserve an explicit confirm for genuinely destructive actions (P180).
+- A genuinely **destructive** action (delete, disconnect) still shows its **own P180 confirm** — but that is the specific "Delete this? / Archive instead" dialog, **not** the generic Run/Discard box, and only for the destructive step.
+
+### Wiring note
+- The pending-offer path and the free-form-command path must be **distinct**: if `pendingOffer` is armed when the voice answer arrives, route the answer to **resolve the offer** (execute `on_yes` / cancel on `no`) and **bypass** the Run/Discard command-confirm UI entirely. Only when no offer is pending does an utterance go through the command-confirm path.
+
+### Acceptance
+- Assistant asks a question → user says **"yes"** → on mic release the action **runs immediately**, with **no "Run / Discard" box** and no extra tap.
+- User says **"no"** → assistant **acknowledges and stands down**, no box.
+- The Run/Discard box only ever appears (if at all) for a **new free-form command with nothing pending** — never as a second confirm on a yes/no answer.
+- Destructive actions still confirm via their own Delete/Archive dialog, not Run/Discard.
