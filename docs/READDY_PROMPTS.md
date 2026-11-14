@@ -7356,3 +7356,26 @@ When `context.pending` is set and the user says **"yes"** (or any affirmation), 
 - Assistant asks "walk your matches?" once → spoken **"yes" executes the walk** (same result as typing "walk through my matches"), with no second ask and no no-op.
 - "no" cleanly stands down.
 - A command said instead of yes/no runs that command; a bare "yes" with nothing pending does nothing (asks what you'd like).
+
+
+## P233 — ⚠ FOUNDATIONAL: route the assistant through `POST /assistant/interpret` (it currently doesn't) — fixes the "yes" loop AND wires in every capability
+
+**Frontend. Backend is LIVE and unused.** Diagnosed live: typing **"yes"** and typing **"walk me through my matches"** into the assistant **made no `/api/v1/assistant/interpret` call at all** — only `/assistant/suggestions` and `/telemetry`. The assistant is matching commands **client-side** and **bypassing the backend brain**. That's why the "yes" loops (a broken local handler clears the offer without running it) and why recent capabilities (web search, document edits, archive, company research, the server-side yes resolution) never take effect. **This is the fix that makes all of it work.**
+
+### 1. Send every assistant input to the backend and act on the result
+- For **every** request to the assistant — typed, voice transcript, **and yes/no answers** — call **`POST /api/v1/assistant/interpret`** with `{ transcript, context }` and then run the **returned `intent` + `slots`** through the one dispatcher. Do **not** resolve commands only client-side.
+- `context` must include: `section` (current page), `resume_id`/`cover_letter_id`/`job_id` (when on one), `options` (on-screen choices for "the second one"), and — while a question is on screen — **`pending`** = the armed offer's `on_yes` `{intent, slots}` (P232).
+- The result's `intent` is authoritative. Map each to its action (navigate, start_playbook, edit_document, research_company, web_search, search_jobs, sync_documents, archive, report_state, save, status_report, read_options, change_voice/set_rate, check_mic/audio, etc.). The client's own keyword list may still power **suggestions/What-can-I-do**, but **execution goes through interpret**.
+
+### 2. The yes/no answer specifically (fixes the loop)
+- When a question is pending and the user answers (voice or typed **"yes"/"no"**, or the Yes/No chip), send the answer to `interpret` **with `context.pending` set to the offer's `on_yes`**. The backend returns the **actual action** for "yes" (e.g. `start_playbook walk_matches`) and `decline` for "no" (P232). **Run the returned action.**
+- Do **not** route "yes" into a local handler that just clears the offer and re-renders the dashboard greeting (the current bug). After running, clear the pending offer and **don't re-ask** (P231) — ask once, "yes" runs it, no loop, no no-op.
+- The Yes/No **chips** resolve the same way (use the stored `on_yes` directly, or interpret-with-pending) — tap and voice take the identical path.
+
+### 3. Why this matters
+- Routing through `interpret` is what activates everything already built on the backend: **web_search** ("search the web for…", "tell me about the CISSP exam"), **edit_document** ("update this bullet with the 2025 numbers" → needs_web), **archive/unarchive**, **sync_documents**, **report_state** ("what version is this"), **research_company**, the capability **catalog**, and the **pending-offer resolution**. Today none of it reaches users because the assistant never calls the endpoint.
+
+### Acceptance
+- Every assistant request (typed/voice/yes-no) issues a `POST /assistant/interpret` and the app acts on the returned intent (verify in the network panel).
+- Assistant asks "walk your matches?" once → "yes" (voice, typed, or chip) → `interpret` with `context.pending` returns `start_playbook walk_matches` → the walk **runs** (step 1) — no loop, no second ask, no dead "yes."
+- Previously-dead phrasings now work live (web search, bullet-update-with-current-data, archive, "what version is this", etc.) because they finally route through the backend.
