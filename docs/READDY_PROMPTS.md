@@ -7277,3 +7277,33 @@ The counter was wrong ("0/4" with one connected; limit is 5) because it counted 
 - User says **"no"** → assistant **acknowledges and stands down**, no box.
 - The Run/Discard box only ever appears (if at all) for a **new free-form command with nothing pending** — never as a second confirm on a yes/no answer.
 - Destructive actions still confirm via their own Delete/Archive dialog, not Run/Discard.
+
+
+## P230 — ONE AI prompt that bridges everything (edit + navigate + info + web search); remove the 2nd embedded prompt; mobile compact; click render → enlarge (not bullet edit)
+
+**Frontend, plus a LIVE backend `edit_document` intent.** Collapse to a single assistant prompt and fix mobile interaction. Builds on P181/P194 (one dispatcher), P7/P179 (one assistant), P224/P228 (web search, review), P220/P204/P208 (mobile overlay).
+
+### 1. One fully-functional AI prompt — remove the second
+- There must be **exactly one AI prompt input** — the **assistant's**. **Remove the second, page-embedded AI prompt/layout** from the Documents/workspace entirely (it was meant to be rolled into the assistant). Any "Ask AI" box baked into the page goes; the assistant prompt is the single bridge.
+- That one prompt **routes every input through the dispatcher** (`POST /assistant/interpret`) and handles all intents from one box: **document edits** (`edit_document`/navigate+Ask-AI), **navigation** (`navigate`), **information/company** (`research_company`), **general web search** (`web_search`), **job search** (`search_jobs`), bullets, etc. Typed or spoken, one input, one place.
+
+### 2. Document edits + "needs current data" from the one prompt (LIVE)
+- NLU now returns **`intent: "edit_document"`** for content edits ("update this bullet…", "rewrite the summary", "make my summary punchier", "improve bullet 2"), with `slots.bullet` (the numbered line) and **`slots.needs_web: true`** when the edit references current/external data (latest/recent/2024/2025/metrics/numbers/figures).
+- Handle `edit_document`:
+  - Apply the edit via **Ask-AI** (`POST /resumes/{id}/ai-edit`) on the current document, targeting `slots.bullet` when present; save a version and **re-render** (P206 §4). Use the user's raw utterance as the instruction.
+  - **When `needs_web` is true, SEARCH THE WEB FIRST:** run the web-search flow (P224: `/assistant/research/search` → fetch → summarize) for the referenced facts (e.g. "{company} 2024 2025 performance metrics"), show the user the found figures + sources, then apply them to the bullet (confirm the numbers before writing — don't invent data). This is the reported case: "update this bullet with 2024/2025 metrics" must **look them up**, not go to a confusing focus.
+- Don't scatter the user across panels: the whole edit (search → propose → apply) happens from the one prompt, narrated (P221).
+
+### 3. Mobile: compact, non-blocking assistant
+- On phones the assistant still **covers the content with too much information.** In simple view (P220 §3, default on mobile), the assistant is a **compact bar/card** — a one-line narration + the mic + the current offer/chips — **not** a full panel of controls. Push settings/history/extra behind the Settings icon (P220 §2) and a "more ▾".
+- The assistant must **never cover the document it's talking about** (P204 dock): on mobile, dock it to a thin strip (top or bottom) so the résumé/render stays readable; it expands only on demand.
+
+### 4. Clicking the render enlarges it (not bullet edit)
+- Tapping the **rendered résumé/preview** — even when it's behind/under the assistant — must **open it at a readable size** (enlarge / full-size view, P228), **not** jump into the bullet editor. Make the render's primary tap = "view larger"; editing is a separate, explicit control ("Edit" / Ask-AI), not the default tap.
+- If the assistant window is over the render, a tap on the render still enlarges the document (bring the document forward / dock the assistant aside), so the user can always read it.
+
+### Acceptance
+- There is **one** AI prompt (the assistant); the page's second AI input is gone; that one prompt handles edits, navigation, info, company and web searches.
+- "update this bullet with the 2024/2025 metrics" **searches the web**, shows the figures + sources, and applies them to the bullet on confirm — no confusing focus.
+- On mobile the assistant is a compact, non-blocking bar that doesn't cover the document.
+- Tapping the rendered résumé **enlarges it to a readable size** (and opens editable only via an explicit Edit control), even when the assistant is on top.

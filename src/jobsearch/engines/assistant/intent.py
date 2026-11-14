@@ -22,7 +22,7 @@ INTENTS = {
     "confirm", "decline",
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
-    "web_search", "sync_documents", "archive",
+    "web_search", "sync_documents", "archive", "edit_document",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -228,6 +228,55 @@ _COMPANY_CTX_RE = re.compile(
     r"|\bthis match\b|\btop (?:match|job)\b|\bthem\b|\bit up\b"
 )
 _COMPANY_WORD_RE = re.compile(r"\b(compan(?:y|ies)|employer|headquarter|stock|reviews?|ceo|leadership)\b")
+
+
+# --- document content edit (one prompt handles edits too) ---------------------
+# "update this bullet with the 2025 numbers", "rewrite the summary", "improve bullet 2".
+# A content edit on the current document/bullet; needs_web when it references current /
+# external data so the one prompt can web-search first, then apply.
+_EDIT_VERB_RE = re.compile(
+    r"\b(update|revise|rewrite|re-?word|rephrase|improve|strengthen|punch up|polish|"
+    r"refresh|expand|shorten|tighten|add to|change)\b"
+    r"|\bmake\b(?=.{0,30}\b(?:better|stronger|current|recent|up[- ]?to[- ]?date|concise|"
+    r"shorter|longer|clearer|punchier|professional)\b)")
+_EDIT_DOCWORD_RE = re.compile(
+    r"\b(bullet|line|item|summary|headline|paragraph|section|resume|résumé|resumé|cv|cover\s*letter|document)\b")
+_FRESH_RE = re.compile(
+    r"\b(current|latest|recent|up[- ]?to[- ]?date|updated|20\d\d|this year|last year|"
+    r"metrics|numbers|figures|stats|statistics|performance|data|results|earnings|revenue)\b")
+
+
+def _edit_document(t: str, context: dict) -> Optional[IntentResult]:
+    """A content edit on the current document/bullet → ``edit_document`` (frontend runs
+    Ask-AI). Sets ``needs_web`` when the edit references current/external data, so the one
+    prompt can search the web first, then apply. Returns None when it isn't a doc edit."""
+    if not _EDIT_VERB_RE.search(t):
+        return None
+    # An edit aimed at another section (matches/jobs/dashboard) isn't a document edit —
+    # e.g. "update my matches" is a refresh, not an Ask-AI edit.
+    named = _match_section(t)
+    if named not in (None, "documents"):
+        return None
+    section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+    on_doc = any(w in section for w in ("document", "resume", "cover"))
+    if not (on_doc or _EDIT_DOCWORD_RE.search(t)):
+        return None
+    # Require some SPECIFICITY so a bare "update my résumé" stays a refresh, not an edit:
+    # a content target, a rewrite-style verb, a freshness cue, or a "with/to …" clause.
+    has_target = bool(re.search(r"\b(bullet|line|item|summary|headline|paragraph|section)\b", t))
+    has_rewrite = bool(re.search(
+        r"\b(rewrite|re-?word|rephrase|improve|strengthen|punch up|polish|tighten|shorten|expand)\b", t
+    )) or bool(_EDIT_VERB_RE.search(t) and re.search(r"\bmake\b", t))
+    has_clause = bool(re.search(r"\b(with|to|about|into|so that|using)\b", t))
+    if not (has_target or has_rewrite or _FRESH_RE.search(t) or has_clause):
+        return None
+    slots: dict[str, Any] = {}
+    m = re.search(r"\b(?:bullet|line|item)\s*(\d+)\b", t)
+    if m:
+        slots["bullet"] = int(m.group(1))
+    if _FRESH_RE.search(t):
+        slots["needs_web"] = True  # search the web for the fresh facts, then apply the edit
+    return IntentResult("edit_document", 0.8, slots)
 
 
 # --- general open-web search --------------------------------------------------
@@ -654,6 +703,12 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     ma = _manage_action(t, context)
     if ma is not None:
         return ma
+
+    # document content edit ("update this bullet with the 2025 numbers", "rewrite the
+    # summary") — the one prompt handles edits; needs_web triggers a web search first.
+    ed = _edit_document(t, context)
+    if ed is not None:
+        return ed
 
     # general open-web search ("search the web for …", "google …", "find information
     # about …", "what's the latest on …") — a web lookup, not a job search or company

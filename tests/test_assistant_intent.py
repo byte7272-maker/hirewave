@@ -159,6 +159,23 @@ def test_state_questions_are_answered_not_navigated():
     assert interpret("walk me through my matches").slots.get("playbook") == "walk_matches"
 
 
+def test_edit_document_with_current_data_flags_needs_web():
+    # One prompt handles doc edits; a bullet update referencing current/external data sets
+    # needs_web so the assistant web-searches first, then applies.
+    ctx = {"section": "documents"}
+    r = interpret("update this bullet with the latest 2024 and 2025 company performance metrics", context=ctx)
+    assert r.intent == "edit_document" and r.slots.get("needs_web") is True
+    r2 = interpret("update bullet 2 with current revenue numbers", context=ctx)
+    assert r2.intent == "edit_document" and r2.slots.get("bullet") == 2 and r2.slots.get("needs_web") is True
+    assert interpret("rewrite the summary", context=ctx).intent == "edit_document"
+    assert interpret("make this bullet more current", context=ctx).intent == "edit_document"
+    # a plain edit (no freshness cue) has no needs_web
+    assert "needs_web" not in interpret("improve bullet 3", context=ctx).slots
+    # not a doc edit: "update my matches" is a refresh, not edit_document
+    assert interpret("update my matches", context=ctx).intent == "navigate"
+    assert interpret("update my matches", context={"section": "matches"}).slots.get("refresh") is True
+
+
 def test_conversational_info_seeking_runs_a_search():
     # "tell me about / what kind of / get more info / learn about / what do you know about"
     # a general topic -> web_search; a company -> research_company.
@@ -247,7 +264,9 @@ def test_reference_a_bullet_by_number():
                        {"id": "b3", "label": "Third"}]}
     assert interpret("use bullet 3", context=ctx).slots.get("option_id") == "b3"
     assert interpret("bullet 1", context=ctx).slots.get("option_id") == "b1"
-    assert interpret("reword line 2", context=ctx).slots.get("index") == 1
+    # "reword line 2" is an edit of that numbered line → edit_document carrying the number
+    rw = interpret("reword line 2", context=ctx)
+    assert rw.intent == "edit_document" and rw.slots.get("bullet") == 2
 
 
 def test_use_email_address_on_resume_is_a_document_edit_not_a_bullet():
@@ -381,8 +400,11 @@ def test_choose_by_label():
 
 
 def test_freeform_becomes_ask():
-    r = interpret("make my summary punchier")
-    assert r.intent == "ask" and r.slots["query"] == "make my summary punchier"
+    # A genuinely free-form, non-command utterance falls back to ask.
+    r = interpret("I'm feeling overwhelmed today")
+    assert r.intent == "ask" and r.slots["query"] == "I'm feeling overwhelmed today"
+    # "make my summary punchier" is a document edit, not a freeform ask
+    assert interpret("make my summary punchier", context={"section": "documents"}).intent == "edit_document"
 
 
 def test_empty_is_unknown():
