@@ -7307,3 +7307,27 @@ The counter was wrong ("0/4" with one connected; limit is 5) because it counted 
 - "update this bullet with the 2024/2025 metrics" **searches the web**, shows the figures + sources, and applies them to the bullet on confirm — no confusing focus.
 - On mobile the assistant is a compact, non-blocking bar that doesn't cover the document.
 - Tapping the rendered résumé **enlarges it to a readable size** (and opens editable only via an explicit Edit control), even when the assistant is on top.
+
+
+## P231 — Accepting a walkthrough RUNS it — don't navigate, re-announce the page, and re-ask the same question
+
+**Frontend. No backend change.** The assistant asked "want me to walk your matches?", the user said **yes**, it auto-executed (good, no Run box — P229) — but then it **navigated to Matches, re-announced "you're on the Matches page," and asked the walkthrough question again** instead of starting the walk. A loop. Builds on P216 (guide-on-arrival), P225 (on_yes), P198 (pending offers), P221/P197 (walk).
+
+### The bug
+`on_yes` for "walk your top matches" is `start_playbook walk_matches`. Running it navigated to Matches, and **arrival fired guide-on-arrival**, which re-ran the matches intro and **re-offered the very walkthrough the user just accepted** — so the user is asked the same question twice and the walk never starts.
+
+### 1. A navigation that is a means to an action runs the action — silently
+- When an accepted action requires being on another section (e.g. `start_playbook walk_matches` from the Dashboard), the frontend may navigate there first, but that transition is a **means to the action, not a browse**: **suppress guide-on-arrival** (no purpose announce, no "what you can do", no offer) for that navigation, and **immediately run the action** (start the walkthrough). Don't play the section intro before an action the user already chose.
+- Practically: carry an "intent/run" flag through the navigation so the arrival handler knows to skip the announce+offer and hand straight to the pending action.
+
+### 2. Never re-offer the walkthrough the user just accepted
+- After the user accepts a walkthrough (or any offer), **clear that pending offer and do not re-arm an identical one on arrival** (P198). Guide-on-arrival must **not** offer a walkthrough that is about to run or is already running. If a walk is active for the section, arrival shows/continues the walk — it never asks "want me to walk you through?" again.
+- De-dupe offers generally: don't present the same question the user just answered.
+
+### 3. Starting the walk goes straight to step 1
+- On accept, the walkthrough **begins at the first step** (P197/P221): narrate step 1 and highlight it — not the generic "you're on the Matches page" blurb. (The page announce belongs to a *browse* arrival, not to starting an accepted walk.)
+
+### Acceptance
+- Assistant asks "walk your matches?" → "yes" → it **goes straight into the walk** (step 1 of the on-screen matches), narrating/highlighting — with **no** re-announcement of the page and **no** second "want a walkthrough?" prompt.
+- Navigating to a section to run an accepted action skips the arrival intro/offer; a plain browse navigation still gets guide-on-arrival (P216).
+- The same offer is never re-asked immediately after it's answered.
