@@ -538,3 +538,36 @@ def test_generic_walk_resolves_to_current_screen():
 
     # Explicit matches phrasing still works from anywhere.
     assert interpret("walk through my matches", context={"section": "dashboard"}).slots.get("playbook") == "walk_matches"
+
+
+def test_every_result_carries_a_spoken_reply():
+    """Regression: the client routes every utterance through /interpret and speaks
+    `reply`. If reply is ever empty the assistant goes silent, so every classified
+    intent (and the yes/no paths) must come back with spoken text."""
+    utterances = [
+        "yes", "no", "take me to my matches", "refresh my matches",
+        "walk me through my matches", "search the web for the CISSP exam",
+        "tell me about Acme Corp", "find me devops jobs", "what version is this",
+        "what's my score", "update this bullet with the 2025 numbers",
+        "update my document on my job sites", "archive this", "unarchive it",
+        "save", "stop", "repeat that", "slower", "check my mic",
+        "what can you do", "asdkfjhasdf nonsense tokens here",
+    ]
+    for u in utterances:
+        r = interpret(u, context={"section": "matches"})
+        # "repeat" intentionally returns empty (client re-speaks the prior line).
+        if r.intent == "repeat":
+            continue
+        assert r.reply.strip(), f"empty reply for {u!r} (intent={r.intent})"
+
+
+def test_pending_yes_reply_names_the_action():
+    """A spoken 'yes' resolved against a pending offer must speak what it's doing,
+    not stay silent (the loop/no-op the client showed)."""
+    pending = {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}
+    r = interpret("yes", context={"section": "matches", "pending": pending})
+    assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches"
+    assert r.reply.strip() and "matches" in r.reply.lower()
+
+    r2 = interpret("no", context={"section": "matches", "pending": pending})
+    assert r2.intent == "decline" and r2.reply.strip()

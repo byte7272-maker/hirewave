@@ -7367,6 +7367,11 @@ When `context.pending` is set and the user says **"yes"** (or any affirmation), 
 - `context` must include: `section` (current page), `resume_id`/`cover_letter_id`/`job_id` (when on one), `options` (on-screen choices for "the second one"), and — while a question is on screen — **`pending`** = the armed offer's `on_yes` `{intent, slots}` (P232).
 - The result's `intent` is authoritative. Map each to its action (navigate, start_playbook, edit_document, research_company, web_search, search_jobs, sync_documents, archive, report_state, save, status_report, read_options, change_voice/set_rate, check_mic/audio, etc.). The client's own keyword list may still power **suggestions/What-can-I-do**, but **execution goes through interpret**.
 
+### 1b. ⚠ SPEAK the reply — do not go silent (this is why the assistant stopped talking)
+- **The interpret response now includes a `reply` string — a spoken acknowledgement of what it's doing** (e.g. "Taking you to your matches.", "Searching the web for the CISSP exam.", "Okay — walking through your matches.", "Okay, no problem." for a declined offer). **Speak `reply` on every interpret response** (TTS + show it in the transcript), then run the action. The old client-side command matching generated its own spoken lines; now that execution is deferred to the backend, the **backend's `reply` is the assistant's voice** — if you don't speak it, the assistant says nothing (the current bug).
+- `reply` is a **lead-in**, not the whole answer. For data intents the client still speaks the concrete result after it loads: `report_state` → speak `reply` then the fetched value ("…this is version 4."); a playbook/`start_playbook` → speak `reply` then narrate step 1 from the capability's `steps[]`/`readouts[]`; a list → speak `reply` then read the items. Never stop at silence after the lead-in.
+- If `intent` is `unknown`/`ask`, speak `reply` and offer the returned `suggestions` ("did you mean…"). `reply` for `repeat` is intentionally empty — re-speak the previous line instead.
+
 ### 2. The yes/no answer specifically (fixes the loop)
 - When a question is pending and the user answers (voice or typed **"yes"/"no"**, or the Yes/No chip), send the answer to `interpret` **with `context.pending` set to the offer's `on_yes`**. The backend returns the **actual action** for "yes" (e.g. `start_playbook walk_matches`) and `decline` for "no" (P232). **Run the returned action.**
 - Do **not** route "yes" into a local handler that just clears the offer and re-renders the dashboard greeting (the current bug). After running, clear the pending offer and **don't re-ask** (P231) — ask once, "yes" runs it, no loop, no no-op.
@@ -7377,5 +7382,6 @@ When `context.pending` is set and the user says **"yes"** (or any affirmation), 
 
 ### Acceptance
 - Every assistant request (typed/voice/yes-no) issues a `POST /assistant/interpret` and the app acts on the returned intent (verify in the network panel).
-- Assistant asks "walk your matches?" once → "yes" (voice, typed, or chip) → `interpret` with `context.pending` returns `start_playbook walk_matches` → the walk **runs** (step 1) — no loop, no second ask, no dead "yes."
+- **The assistant speaks on every turn** — it voices the response's `reply` (and never sits silent after the lead-in): a command is acknowledged aloud, then its result/steps are narrated.
+- Assistant asks "walk your matches?" once → "yes" (voice, typed, or chip) → `interpret` with `context.pending` returns `start_playbook walk_matches`, `reply` "Okay — walking through your matches." → the assistant **says that and runs** the walk (step 1 narrated) — no loop, no second ask, no dead/silent "yes."
 - Previously-dead phrasings now work live (web search, bullet-update-with-current-data, archive, "what version is this", etc.) because they finally route through the backend.

@@ -1029,6 +1029,140 @@ def nearest_commands(
     return [d for _, d in scored[:limit]]
 
 
+# ---- spoken replies ---------------------------------------------------------
+
+#: Human labels for section slots, for narration ("Taking you to your matches.").
+_SECTION_LABEL = {
+    "matches": "your matches", "documents": "your documents", "auto_apply": "auto-apply",
+    "design": "the design studio", "interview": "interview practice",
+    "connect": "your connected sources", "inbox": "your inbox",
+    "community": "the community", "dashboard": "your dashboard",
+}
+#: Human labels for playbook slots.
+_PLAYBOOK_LABEL = {
+    "connect_source": "connecting an email source", "auto_apply": "setting up auto-apply",
+    "walk_matches": "walking through your matches", "apply_job": "applying to this job",
+    "upload": "uploading a document", "download": "the download options",
+    "design": "the design options", "tailor": "tailoring your document",
+    "practice": "interview practice", "bullets": "the work-highlights workshop",
+}
+#: Human labels for report_state fields.
+_FIELD_LEAD = {
+    "version": "Let me check which version that is.",
+    "score": "Let me pull up that score.",
+    "matches": "Let me look at your matches.",
+    "document": "Let me check that document.",
+    "page": "",  # handled specially — say where they are
+}
+
+
+def _reply_for(result: "IntentResult", context: dict) -> str:
+    """A short, natural spoken acknowledgement for the classified intent.
+
+    The client routes every utterance through ``/interpret`` and speaks this; without
+    it the assistant stays silent. For data-dependent intents this is a lead-in — the
+    client still speaks the concrete value/list it fetches from the endpoint.
+    """
+    intent, slots = result.intent, result.slots or {}
+
+    # If a branch already set a reply (e.g. the email disambiguation), keep it.
+    if result.reply:
+        return result.reply
+
+    if intent == "navigate":
+        sec = _SECTION_LABEL.get(str(slots.get("section", "")), "that section")
+        return f"Refreshing {sec}." if slots.get("refresh") else f"Taking you to {sec}."
+    if intent == "start_playbook":
+        pb = _PLAYBOOK_LABEL.get(str(slots.get("playbook", "")), "that")
+        return f"Okay — {pb}."
+    if intent == "report_state":
+        return _FIELD_LEAD.get(str(slots.get("field", "")), "Let me check that for you.")
+    if intent == "web_search":
+        q = str(slots.get("query", "")).strip()
+        return f"Searching the web for {q}." if q else "Let me search that for you."
+    if intent == "research_company":
+        c = str(slots.get("company", "")).strip()
+        return f"Looking into {c}." if c else "Let me look into that company."
+    if intent == "search_jobs":
+        q = str(slots.get("query", "")).strip()
+        return f"Searching for {q} roles." if q else "Searching for matching roles."
+    if intent == "edit_document":
+        if slots.get("needs_web"):
+            return "I'll look up the latest figures and update that for you."
+        return "Updating that in your document."
+    if intent == "sync_documents":
+        return "Updating your document on your job sites."
+    if intent == "archive":
+        un = str(slots.get("action", "")) == "unarchive"
+        return "Bringing that back from your archive." if un else "Archiving that for you."
+    if intent == "save":
+        return "Saving your changes."
+    if intent == "decline":
+        return "Okay, no problem."
+    if intent == "confirm":
+        return "Got it."  # a bare yes with nothing pending
+    if intent == "stop":
+        return "Stopping."
+    if intent == "pause":
+        return "Paused."
+    if intent in ("continue", "next"):
+        return "Okay, moving on."
+    if intent == "back":
+        return "Going back."
+    if intent == "repeat":
+        return ""  # the client re-speaks the prior line; no extra chatter
+    if intent == "skip":
+        return "Skipping that one."
+    if intent == "cancel":
+        return "Cancelled."
+    if intent == "set_rate":
+        d = slots.get("direction")
+        if d == "faster":
+            return "Speaking faster."
+        if d == "slower":
+            return "Speaking slower."
+        return "Adjusting my speaking speed."
+    if intent == "change_voice":
+        return "Switching my voice."
+    if intent == "check_mic":
+        return "Checking your microphone."
+    if intent == "check_audio":
+        return "Checking the audio."
+    if intent == "status_report":
+        return "Here's where things stand."
+    if intent == "whats_new":
+        return "Here's what's new."
+    if intent == "resume_task":
+        return "Picking up where we left off."
+    if intent == "read_options":
+        return "Here are your options."
+    if intent == "read_bullets":
+        return "Here are your bullet points."
+    if intent == "suggest_bullets":
+        return "Let me suggest some bullet points."
+    if intent == "use_bullet":
+        return "Adding that bullet."
+    if intent == "discard_bullet":
+        return "Removing that bullet."
+    if intent == "choose":
+        return "Okay."
+    if intent == "what_can_i_do":
+        return "Here's what I can help with."
+    if intent == "ask":
+        return "Let me help with that."
+    if intent == "unknown":
+        return "Sorry, I didn't catch that — here are some things you can ask."
+    return "Okay."
+
+
+def _finalize(result: "IntentResult", raw: str, context: dict) -> "IntentResult":
+    """Attach the utterance and a spoken reply to every result the API returns."""
+    result.utterance = raw
+    if not result.reply:
+        result.reply = _reply_for(result, context)
+    return result
+
+
 # ---- public API ------------------------------------------------------------
 
 def interpret(
@@ -1044,7 +1178,7 @@ def interpret(
     raw = (transcript or "").strip()
     text = _norm(raw)
     if not text:
-        return IntentResult("unknown", 0.0, utterance=raw)
+        return _finalize(IntentResult("unknown", 0.0), raw, context)
 
     result = _deterministic(text, context)
 
@@ -1054,10 +1188,11 @@ def interpret(
     pending = (context or {}).get("pending")
     if isinstance(pending, dict) and pending.get("intent"):
         if result.intent == "confirm":
-            return IntentResult(str(pending["intent"]), 0.95,
-                                dict(pending.get("slots") or {}), utterance=raw)
+            return _finalize(
+                IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {})),
+                raw, context)
         if result.intent == "decline":
-            return IntentResult("decline", 0.95, {}, utterance=raw)
+            return _finalize(IntentResult("decline", 0.95, {}), raw, context)
 
     if result.confidence < threshold:
         if llm is not None:
@@ -1074,5 +1209,4 @@ def interpret(
     if result.intent in ("unknown", "ask"):
         result.suggestions = nearest_commands(raw, context)
 
-    result.utterance = raw
-    return result
+    return _finalize(result, raw, context)
