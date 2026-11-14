@@ -90,7 +90,12 @@ _ROLE_AT_RE = re.compile(
 _URL_RE = re.compile(r"https?://[^\s)>\]\"']+")
 _JOB_URLISH = re.compile(
     r"(/jobs?/|/viewjob|/careers?/|/apply|/applications?/|greenhouse|lever|workday|icims|"
-    r"ashby|smartrecruiters|[?&]jk=|/job-listing)", re.I,
+    r"ashby|smartrecruiters|[?&]jk=|/job-listing|"
+    # Board click-tracking / redirect hosts — opaque URLs that redirect to the posting
+    # (Indeed digests use cts.indeed.com). Keep them so a single-role alert still links
+    # to the real job rather than degrading to a board search.
+    r"cts\.indeed\.com|click\.indeed\.com|comm\.linkedin\.com|e\.linkedin\.com|"
+    r"t\.ziprecruiter\.com|click\.appcast\.io|click\.glassdoor\.com)", re.I,
 )
 # Generic hiring words that lend weak support when the sender isn't a known job domain.
 _WEAK_JOB_HINTS = re.compile(
@@ -174,6 +179,96 @@ def _extract_link(subject: str, body: str) -> str:
     return ""
 
 
+# A recruiter / single-role subject is usually the title itself, often as
+# "<Role> @ <Company>", "<Role> at <Company>", "<Role> - <Company>". The role regexes
+# above are conservative and can truncate a comma'd title (e.g. "Senior Manager,
+# Technology" -> "Technology"); the subject recovers the full, correct title.
+_SUBJECT_PREFIX = re.compile(r"^\s*(?:re|fwd|fw)\s*:\s*", re.I)
+_SUBJECT_LEAD = re.compile(
+    r"^\s*(?:new|exciting|great|open|hot|urgent|immediate|now hiring|hiring|"
+    r"apply(?:\s+now)?|job opportunity|opportunity|job)\b[\s:–—\-|]*",
+    re.I,
+)
+_DIGEST_PHRASE = re.compile(
+    r"\b(jobs? for you|job alert|new jobs?|recommended jobs?|jobs matching|top jobs|"
+    r"job matches|jobs you may)\b", re.I,
+)
+_TITLE_WORD = re.compile(
+    r"\b(manager|engineer|developer|director|analyst|specialist|associate|lead|"
+    r"coordinator|consultant|administrator|architect|designer|officer|vice president|vp|"
+    r"president|head|principal|supervisor|technician|nurse|accountant|recruiter|"
+    r"scientist|counsel|attorney|paralegal|representative|executive|intern|agent|"
+    r"strategist|partner|advisor|clerk|assistant|controller|auditor|planner|buyer|"
+    r"writer|editor|teacher|professor|therapist|physician|pharmacist|technologist|"
+    r"operator|superintendent|estimator|underwriter|actuary|generalist)\b", re.I,
+)
+# A posting whose description was built by ``email_to_posting``:
+# "<subject> — surfaced from a <kind> email …" — lets us recover the subject later.
+_SURFACED_RE = re.compile(r"^(.*?)\s+[—-]\s+surfaced from a .*? email", re.I)
+
+
+def _subject_title(subject: str, company: str = "") -> str:
+    """Reduce a recruiter/single-role subject to just the job title: drop Re:/Fwd:
+    prefixes and lead-ins ("Exciting opportunity:"), and cut off the company and
+    everything after it ("… @ Acme", "… at Acme", "… - Acme")."""
+    s = (subject or "").strip()
+    s = _SUBJECT_PREFIX.sub("", s).strip()
+    if company:
+        s = re.sub(
+            r"\s*(?:@|\bat\b|\bwith\b|[-|:·•–—])\s*" + re.escape(company) + r".*$",
+            "", s, flags=re.I,
+        ).strip()
+    # Otherwise cut at the first hard separator that usually precedes the company.
+    s = re.split(r"\s*(?:@|·|•|\||—|–)\s*", s, maxsplit=1)[0].strip()
+    # Strip stacked lead-ins ("Exciting opportunity: …") until none remain.
+    prev = None
+    while prev != s:
+        prev = s
+        s = _SUBJECT_LEAD.sub("", s).strip(" \t-–—:|")
+    return s
+
+
+def _looks_like_title(text: str) -> bool:
+    t = (text or "").strip()
+    if not (3 <= len(t) <= 90) or not re.search(r"[A-Za-z]", t):
+        return False
+    if _DIGEST_PHRASE.search(t):
+        return False
+    return not t.lower().startswith(("your", "our ", "the ", "a ", "an "))
+
+
+def better_title(subject: str, company: str, role: str) -> str:
+    """The richest plausible title for a recruiter/single-role email: the subject
+    (minus company/boilerplate) when it reads like a title and is fuller than the
+    regex-extracted ``role``; otherwise ``role``."""
+    role = (role or "").strip()
+    subj = _subject_title(subject, company)
+    if subj and _looks_like_title(subj):
+        if (not role) or (role.lower() in subj.lower()) or bool(_TITLE_WORD.search(subj)) or len(subj) > len(role):
+            return subj
+    return role
+
+
+def repair_email_title(job) -> bool:
+    """Re-derive an email-sourced posting's title from the subject preserved in its
+    description, repairing a truncated title (e.g. "Technology" ->
+    "Senior Manager, Technology"). Only upgrades to a richer title that still contains
+    the current one; never shortens or swaps to something unrelated. Returns True if
+    the title changed."""
+    m = _SURFACED_RE.match(job.description or "")
+    if not m:
+        return False
+    cand = better_title(m.group(1).strip(), getattr(job, "company", "") or "", job.title or "")
+    cur = (job.title or "").strip()
+    if (
+        cand and cand != cur and _looks_like_title(cand)
+        and len(cand) >= len(cur) and (not cur or cur.lower() in cand.lower())
+    ):
+        job.title = cand
+        return True
+    return False
+
+
 def classify_job_email(sender: str, subject: str, body: str = "") -> JobEmail:
     """Decide whether an email is job-related and of what KIND, with a confidence.
 
@@ -229,7 +324,8 @@ def email_to_posting(c: "JobEmail") -> Optional[dict]:
     already extracted (role / company / link). Returns None when there's no concrete
     role to make a posting from (e.g. a multi-job digest — those are handled by the
     HTML alert parser instead), so we never create junk 'match' cards."""
-    title = (c.role or "").strip()
+    # Prefer the subject-derived title (richer, un-truncated) over the regex role.
+    title = better_title(c.subject or "", c.company or "", c.role or "")
     if len(title) < 3 or title.lower() in ("the", "a", "an"):
         return None
     dom = (c.sender_domain or "").lower()

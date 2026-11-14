@@ -240,6 +240,7 @@ def reimport_matches(
     with the newest parsed values."""
     from jobsearch.engines.demo_seed import seed_sample_jobs
     from jobsearch.engines.sourcing.jd_enrich import backfill_fields
+    from jobsearch.engines.sourcing.job_email import repair_email_title
 
     cleared = reseeded = 0
     if clear:
@@ -254,7 +255,10 @@ def reimport_matches(
 
     backfilled = 0
     for j in _match_pool(state, user.id):
-        if backfill_fields(j):
+        changed = backfill_fields(j)
+        if repair_email_title(j):  # fix titles truncated at ingestion (e.g. "Technology")
+            changed = True
+        if changed:
             state.jobs.add(j)
             backfilled += 1
 

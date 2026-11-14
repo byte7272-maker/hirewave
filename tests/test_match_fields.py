@@ -12,7 +12,15 @@ from jobsearch.api.state import AppState
 from jobsearch.config import Settings
 from jobsearch.engines.integration import MockTokenExchanger
 from jobsearch.engines.sourcing.aggregator import _absorb_richer
+from jobsearch.engines.sourcing.email_import import _is_job_href, parse_job_alert
 from jobsearch.engines.sourcing.jd_enrich import apply_jd, backfill_fields, extract_jd_from_html
+from jobsearch.engines.sourcing.job_email import (
+    _extract_link,
+    better_title,
+    classify_job_email,
+    email_to_posting,
+    repair_email_title,
+)
 from jobsearch.engines.sourcing.skills import detect_salary
 from jobsearch.models import JobPosting
 from jobsearch.models.job import workplace_label
@@ -195,6 +203,97 @@ def test_reimport_backfills_salary_and_benefits_on_existing_matches():
     globex = next(m for m in matches if m["company"] == "Globex")
     assert globex["salary_display"]
     assert globex["benefits"]
+
+
+# --- the posting link must reach the real job, not a board search -----------
+def test_is_job_href_accepts_tracking_hosts_rejects_noise():
+    assert _is_job_href("https://cts.indeed.com/v3/AAAABBBCCC")  # Indeed click-tracking
+    assert _is_job_href("https://www.indeed.com/viewjob?jk=25a632b64093d86d")
+    assert _is_job_href("https://comm.linkedin.com/comm/jobs/view/12345")
+    assert not _is_job_href("https://indeed.com/account/unsubscribe")
+    assert not _is_job_href("mailto:jobs@x.com")
+    assert not _is_job_href("")
+
+
+def test_extract_link_keeps_indeed_tracking_url():
+    body = "Great match for you! https://cts.indeed.com/v3/opaqueTOKEN123 — apply today."
+    assert _extract_link("New job alert", body) == "https://cts.indeed.com/v3/opaqueTOKEN123"
+
+
+def test_alert_import_captures_tracking_link_so_source_url_is_not_a_search():
+    # An Indeed digest links each role through cts.indeed.com. We must keep that link
+    # as the posting url, so the match opens the real posting (source_url == url),
+    # not a /jobs?q= search.
+    eml = (
+        "From: alerts@indeed.com\r\n"
+        "Subject: New jobs for you\r\n"
+        "Content-Type: text/html\r\n\r\n"
+        '<html><body><a href="https://cts.indeed.com/v3/opaqueTOKEN123">'
+        "Senior IT Manager</a><div>Acme Corp · Austin, TX</div></body></html>"
+    )
+    parsed = parse_job_alert(eml)
+    assert parsed.postings, "the tracking-linked role should be captured"
+    p = parsed.postings[0]
+    assert p["url"] == "https://cts.indeed.com/v3/opaqueTOKEN123"
+    # And through the model, source_url returns that direct (redirecting) link, not a search.
+    job = JobPosting(source_platform="indeed", title=p["title"], company=p.get("company", ""),
+                     url=p["url"])
+    assert job.source_url == "https://cts.indeed.com/v3/opaqueTOKEN123"
+    assert "/jobs?q=" not in job.source_url
+
+
+# --- title extraction: the full role, not a truncated fragment -------------
+def test_better_title_prefers_full_subject_over_truncated_role():
+    # Regex role truncates at the comma ("Technology"); the subject carries the full
+    # title "Senior Manager, Technology" with the company stripped off.
+    subject = "Senior Manager, Technology @ Bryan Cave Leighton Paisner LLP"
+    assert better_title(subject, "Bryan Cave Leighton Paisner LLP", "Technology") == \
+        "Senior Manager, Technology"
+
+
+def test_better_title_strips_leadins_and_separators():
+    assert better_title("Exciting opportunity: Data Engineer at Acme", "Acme", "") == "Data Engineer"
+    assert better_title("Re: Staff Accountant - Globex Corp", "Globex Corp", "Staff Accountant") == \
+        "Staff Accountant"
+
+
+def test_better_title_keeps_role_when_subject_is_a_digest():
+    # A multi-job digest subject isn't a title — keep the extracted role.
+    assert better_title("New jobs for you", "", "Data Analyst") == "Data Analyst"
+
+
+def test_email_to_posting_uses_full_title_from_subject():
+    c = classify_job_email(
+        "recruiter@bclplaw.com",
+        "Senior Manager, Technology @ Bryan Cave Leighton Paisner LLP",
+        "I came across your profile and wanted to reach out about the Technology position "
+        "at Bryan Cave. Would you be open to a chat?",
+    )
+    posting = email_to_posting(c)
+    assert posting is not None
+    assert posting["title"] == "Senior Manager, Technology"
+
+
+def test_repair_email_title_fixes_existing_truncated_job():
+    job = JobPosting(
+        source_platform="indeed", title="Technology", company="Bryan Cave Leighton Paisner LLP",
+        description="Senior Manager, Technology @ Bryan Cave Leighton Paisner LLP — "
+                    "surfaced from a recruiter email in your connected inbox.",
+    )
+    assert repair_email_title(job) is True
+    assert job.title == "Senior Manager, Technology"
+    # Idempotent: a second pass makes no change.
+    assert repair_email_title(job) is False
+
+
+def test_repair_email_title_never_swaps_to_something_unrelated():
+    job = JobPosting(
+        title="Data Scientist", company="Acme",
+        description="Marketing Lead @ Acme — surfaced from a recruiter email in your connected inbox.",
+    )
+    # The candidate doesn't contain the current title → leave it alone.
+    assert repair_email_title(job) is False
+    assert job.title == "Data Scientist"
 
 
 def test_reimport_clear_reseeds_enriched_samples():

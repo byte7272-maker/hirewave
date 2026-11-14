@@ -21,6 +21,30 @@ from urllib.parse import unquote
 _JOB_URL = re.compile(r"(/jobs?/view|/viewjob|/job-listing|/jobs?/|/careers?/|[?&]jk=|/rc/clk|/comm/jobs|/partner/joblisting)", re.I)
 # … and ones that are clearly not.
 _NON_JOB = re.compile(r"(unsubscribe|/help|/settings|/login|/account|optout|mailto:|/feed|notification|/privacy|/legal)", re.I)
+# Job-board click-tracking / redirect hosts. Alert digests (Indeed especially) link each
+# role through an opaque tracking URL (e.g. https://cts.indeed.com/v3/…) that carries no
+# /viewjob or jk= in the visible path but redirects to the real posting when opened. Accept
+# these as posting links so we keep a working destination instead of falling back to a board
+# SEARCH. The anchor-text / _CTA gate still filters "unsubscribe"/"manage alerts" links.
+_TRACKING_HOST = re.compile(
+    r"https?://[^/]*\b("
+    r"cts\.indeed\.com|cts\.email\.indeed\.com|click\.indeed\.com|email\.indeed\.com|"
+    r"comm\.linkedin\.com|e\.linkedin\.com|click\.linkedin\.com|"
+    r"t\.ziprecruiter\.com|click\.ziprecruiter\.com|"
+    r"click\.appcast\.io|"
+    r"click\.glassdoor\.com|email\.glassdoor\.com|"
+    r"email\.monster\.com|click\.monster\.com|"
+    r"links\.dice\.com|email\.dice\.com"
+    r")", re.I,
+)
+
+
+def _is_job_href(href: str) -> bool:
+    """A link we should keep as a posting URL: a posting-shaped path, or a known
+    job-board tracking/redirect host that resolves to one."""
+    if not href or _NON_JOB.search(href):
+        return False
+    return bool(_JOB_URL.search(href) or _TRACKING_HOST.search(href))
 # Click-tracking links wrap the real destination in a query param; follow one level so
 # job-URL detection sees the actual job URL (modern LinkedIn/Indeed/… alerts use these).
 _REDIR_PARAM = re.compile(r"[?&](?:url|u|redirect|redirect_url|redirecturl|target|dest|destination|link|joburl|r)=([^&]+)", re.I)
@@ -116,7 +140,7 @@ def _postings_from_tokens(tokens: list[tuple], source: str) -> list[dict]:
         if tok[0] != "link":
             continue
         href, text = _unwrap(tok[1]), unescape(tok[2])
-        if not href or _NON_JOB.search(href) or not _JOB_URL.search(href):
+        if not _is_job_href(href):
             continue
         if not _is_title(text) or href in seen_urls:
             continue
