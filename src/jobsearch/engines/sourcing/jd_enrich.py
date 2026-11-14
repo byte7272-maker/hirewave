@@ -24,6 +24,8 @@ from jobsearch.engines.sourcing.skills import (
     detect_category,
     detect_employment_type,
     detect_salary,
+    detect_seniority,
+    detect_years_experience,
     enrich_requirements,
 )
 from jobsearch.models import JobPosting
@@ -256,6 +258,44 @@ def extract_jd_from_html(html: str) -> dict:
         if len(desc) >= 40:
             out["description"] = desc
     return out
+
+
+def backfill_fields(job: JobPosting) -> bool:
+    """Re-mine a stored job's existing title + description for the structured display
+    fields (pay, employment type, seniority, years, benefits) when they're missing.
+
+    No network: this recovers data for postings ingested before these parsers existed,
+    so an existing matches list can pick up salary/benefits without re-fetching. Only
+    fills blanks — never overwrites a value already set. Returns True if anything
+    changed."""
+    blob = f"{job.title}\n{job.description}"
+    changed = False
+    if job.salary_range is None:
+        parsed = detect_salary(blob)
+        if parsed:
+            job.salary_range = SalaryRange(**parsed)
+            changed = True
+    if not job.employment_type:
+        et = detect_employment_type(blob)
+        if et:
+            job.employment_type = et
+            changed = True
+    if not job.seniority:
+        sn = detect_seniority(blob)
+        if sn:
+            job.seniority = sn
+            changed = True
+    if job.years_experience is None:
+        yr = detect_years_experience(blob)
+        if yr is not None:
+            job.years_experience = yr
+            changed = True
+    if not job.benefits:
+        bn = detect_benefits(job.description)
+        if bn:
+            job.benefits = bn
+            changed = True
+    return changed
 
 
 def needs_jd(job: JobPosting) -> bool:

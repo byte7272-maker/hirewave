@@ -75,10 +75,54 @@ def _absorb_richer(existing: JobPosting, incoming: JobPosting) -> None:
     cur_placeholder = "surfaced from a" in cur.lower() or not cur
     # Take the incoming body when it's meaningfully fuller, or when it replaces a
     # placeholder/empty one with real content.
+    upgraded = False
     if inc and not inc_placeholder and (len(inc) > len(cur) + 40 or cur_placeholder):
         existing.description = inc[:8000]
+        upgraded = True
     if incoming.requirements and not existing.requirements:
         existing.requirements = list(incoming.requirements)
+
+    # Latest-wins for the structured display fields: a Refresh / reimport overwrites
+    # the stored listing with the newest parsed salary, location, workplace, benefits,
+    # etc. We only take a value the re-pull actually carries — a blank re-pull never
+    # nulls a value we already know.
+    if incoming.salary_range is not None:
+        existing.salary_range = incoming.salary_range
+    if (incoming.location or "").strip():
+        existing.location = incoming.location
+    if incoming.remote and not existing.remote:
+        existing.remote = True
+    if incoming.employment_type:
+        existing.employment_type = incoming.employment_type
+    if incoming.seniority:
+        existing.seniority = incoming.seniority
+    if incoming.years_experience is not None:
+        existing.years_experience = incoming.years_experience
+    if incoming.benefits:
+        existing.benefits = list(incoming.benefits)
+    if incoming.company_domain and not existing.company_domain:
+        existing.company_domain = incoming.company_domain
+    if getattr(incoming, "company_logo_url", "") and not getattr(existing, "company_logo_url", ""):
+        existing.company_logo_url = incoming.company_logo_url
+    if incoming.url and not existing.url:
+        existing.url = incoming.url
+
+    # When the body just got fuller, mine the newly-available text for any structured
+    # field still missing (salary/benefits/type/seniority/years).
+    if upgraded:
+        blob = f"{existing.title}\n{existing.description}"
+        if existing.salary_range is None:
+            parsed = detect_salary(blob)
+            if parsed:
+                existing.salary_range = SalaryRange(**parsed)
+        if not existing.benefits:
+            existing.benefits = detect_benefits(existing.description)
+        if not existing.employment_type:
+            existing.employment_type = detect_employment_type(blob)
+        if not existing.seniority:
+            existing.seniority = detect_seniority(blob)
+        if existing.years_experience is None:
+            existing.years_experience = detect_years_experience(blob)
 
 
 def _norm_key(job: JobPosting) -> str:

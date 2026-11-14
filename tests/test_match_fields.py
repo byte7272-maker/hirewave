@@ -11,10 +11,12 @@ from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.config import Settings
 from jobsearch.engines.integration import MockTokenExchanger
-from jobsearch.engines.sourcing.jd_enrich import apply_jd, extract_jd_from_html
+from jobsearch.engines.sourcing.aggregator import _absorb_richer
+from jobsearch.engines.sourcing.jd_enrich import apply_jd, backfill_fields, extract_jd_from_html
 from jobsearch.engines.sourcing.skills import detect_salary
 from jobsearch.models import JobPosting
 from jobsearch.models.job import workplace_label
+from jobsearch.models.user import SalaryRange
 
 
 # --- salary parsing ---------------------------------------------------------
@@ -134,3 +136,74 @@ def test_matches_api_exposes_pay_workplace_benefits():
     assert any(m["benefits"] for m in matches)
     assert all(m["workplace"] in ("Remote", "Hybrid", "On-site", "") for m in matches)
     assert any(m["workplace"] for m in matches)
+
+
+# --- refresh / reimport overwrites with the latest version ------------------
+def test_absorb_richer_takes_latest_structured_fields():
+    # A re-pull that now carries pay/benefits/location overwrites the stored blanks.
+    existing = JobPosting(title="Engineer", company="Acme", description="old body")
+    incoming = JobPosting(
+        title="Engineer", company="Acme", description="old body",
+        salary_range=SalaryRange(minimum=100000, maximum=120000),
+        benefits=["Medical"], location="Austin, TX", employment_type="full-time",
+    )
+    _absorb_richer(existing, incoming)
+    assert existing.salary_range.maximum == 120000
+    assert existing.benefits == ["Medical"]
+    assert existing.location == "Austin, TX"
+    assert existing.employment_type == "full-time"
+
+
+def test_absorb_richer_blank_repull_keeps_known_values():
+    # A thin re-pull must never null a value we already know.
+    existing = JobPosting(
+        title="Engineer", company="Acme",
+        salary_range=SalaryRange(minimum=100000, maximum=120000), benefits=["Medical"],
+    )
+    _absorb_richer(existing, JobPosting(title="Engineer", company="Acme"))
+    assert existing.salary_range.maximum == 120000
+    assert existing.benefits == ["Medical"]
+
+
+def test_backfill_fields_recovers_from_existing_description():
+    job = JobPosting(
+        title="Senior Analyst",
+        description="Established team. Compensation: $70,000 - $85,000, medical and dental. 5+ years required.",
+    )
+    assert backfill_fields(job) is True
+    assert job.salary_range and job.salary_range.maximum == 85000
+    assert "Medical" in job.benefits
+    assert job.seniority == "senior"
+    assert job.years_experience == 5
+
+
+def _uid(state, email):
+    return next(u.id for u in state.users.all() if u.email == email)
+
+
+def test_reimport_backfills_salary_and_benefits_on_existing_matches():
+    state, c = _client()
+    h = _auth(c, email="reimport@x.com")
+    uid = _uid(state, "reimport@x.com")
+    state.jobs.add(JobPosting(
+        owner_id=uid, title="Data Analyst", company="Globex",
+        description="Great role. Salary range $70,000 - $85,000 plus medical, dental, and 401(k).",
+    ))
+    r = c.post("/api/v1/jobs/reimport", headers=h)
+    assert r.status_code == 200 and r.json()["backfilled"] >= 1
+    matches = c.get("/api/v1/jobs/matches", headers=h).json()
+    globex = next(m for m in matches if m["company"] == "Globex")
+    assert globex["salary_display"]
+    assert globex["benefits"]
+
+
+def test_reimport_clear_reseeds_enriched_samples():
+    state, c = _client()
+    h = _auth(c, email="clear@x.com")
+    assert c.get("/api/v1/jobs/matches", headers=h).json()  # starts with samples
+    body = c.post("/api/v1/jobs/reimport?clear=true", headers=h).json()
+    assert body["cleared"] >= 3
+    assert body["reseeded"] == 3  # no connected real jobs → re-seed so it's not blank
+    after = c.get("/api/v1/jobs/matches", headers=h).json()
+    assert len(after) == 3
+    assert all(m["salary_display"] for m in after)  # re-seeded samples carry pay

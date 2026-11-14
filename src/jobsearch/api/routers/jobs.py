@@ -220,6 +220,52 @@ def matches(
     return out
 
 
+@router.post("/reimport")
+def reimport_matches(
+    state: StateDep,
+    user: CurrentUser,
+    clear: bool = Query(False, description="delete your stored postings first, then reimport fresh"),
+) -> dict:
+    """Re-parse your matches so they pick up the latest wired fields (pay, benefits,
+    workplace, …), and optionally clear + reimport fresh.
+
+    Non-destructive by default: re-mines every stored posting's existing
+    title/description for structured fields that are still missing — no network, no
+    data loss — so an existing matches list immediately shows salary/benefits/etc.
+
+    With ``clear=true`` it first deletes your stored postings; if that leaves the pool
+    empty (no connected real jobs), the enriched sample matches are re-seeded so the
+    list is never blank. After a clear, trigger a fresh mailbox scan (POST
+    /api/v1/inbox/scan) to pull real postings again — re-pulled listings now overwrite
+    with the newest parsed values."""
+    from jobsearch.engines.demo_seed import seed_sample_jobs
+    from jobsearch.engines.sourcing.jd_enrich import backfill_fields
+
+    cleared = reseeded = 0
+    if clear:
+        for j in _match_pool(state, user.id):
+            try:
+                state.jobs.delete(j.id)
+                cleared += 1
+            except Exception:  # noqa: BLE001
+                pass
+        if not _match_pool(state, user.id):
+            reseeded = seed_sample_jobs(state, user.id)
+
+    backfilled = 0
+    for j in _match_pool(state, user.id):
+        if backfill_fields(j):
+            state.jobs.add(j)
+            backfilled += 1
+
+    return {
+        "cleared": cleared,
+        "reseeded": reseeded,
+        "backfilled": backfilled,
+        "total": len(_match_pool(state, user.id)),
+    }
+
+
 _EXPORT_COLUMNS = [
     "rank", "title", "company", "location", "remote", "salary_min", "salary_max",
     "currency", "fit_score", "authenticity_score", "matching_skills", "gap_skills",

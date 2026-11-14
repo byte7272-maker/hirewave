@@ -103,6 +103,14 @@ def seed_demo_data(state, user_id: str) -> None:
     )
     state.cover_letters.add(cl)
 
+    seed_sample_jobs(state, user_id)
+
+
+def seed_sample_jobs(state, user_id: str) -> int:
+    """(Re)seed just the sample job postings for a user — each carrying pay,
+    benefits, employment type and a workplace mix. Used on sign-up and by the
+    'clear & reimport fresh' flow so a user with no connected real jobs is never
+    left with an empty, data-less matches list. Returns how many were added."""
     for raw in _SAMPLE_JOBS:
         sal = raw.get("salary")
         state.jobs.add(JobPosting(
@@ -113,6 +121,7 @@ def seed_demo_data(state, user_id: str) -> None:
             employment_type=raw.get("employment_type", ""),
             benefits=list(raw.get("benefits") or []),
         ))
+    return len(_SAMPLE_JOBS)
 
 
 def clear_sample_resumes(state, user_id: str) -> int:

@@ -7443,3 +7443,30 @@ Map each returned `intent` to a real effect (and speak its `reply` first, P233).
 - On a fresh/sample account, the three sample matches each show a **pay range**, a **location**, a **workplace badge** (one is Remote, one Hybrid, one On-site), and a **benefits** row — confirm the values match the `GET /api/v1/jobs/matches` response in the network panel.
 - A match with no salary shows **no** pay chip (not "$" or "undefined"); a match with empty `workplace` shows no badge.
 - Saved-job and application cards show the same pay/location/workplace/benefits for the same job.
+
+## P236 — "Refresh matches" reimports & overwrites with the latest; add "Clear & reimport fresh"
+
+**Frontend. Backend is LIVE.** Reported: existing matches don't pick up the newly-wired salary/benefits/workplace, and there's no way to force a clean reimport. Two backend endpoints now make this work — wire the buttons to them. Builds on P235 (the fields themselves).
+
+### 1. "Refresh matches" = re-pull + overwrite + backfill (not just re-rank)
+When the user clicks **Refresh matches**, run this sequence, then re-fetch `GET /api/v1/jobs/matches` and re-render:
+1. **`POST /api/v1/inbox/scan`** (body optional; `?source=gmail` / `icloud` / `mailbox` as connected) — re-pulls job-alert email and re-ingests. Re-pulled listings now **overwrite** the stored ones with the newest parsed salary/location/workplace/benefits (latest-wins; a blank re-pull never erases a known value).
+2. **`POST /api/v1/jobs/reimport`** (no body) — re-parses every stored posting's existing description for any structured field still missing (pay, benefits, employment type, seniority, years). No network, no data loss. Returns `{ cleared, reseeded, backfilled, total }`.
+3. Re-fetch matches and re-render the cards (P235 fields).
+
+Show a brief toast from the counts, e.g. "Refreshed — N listings updated." If the user has no connected mailbox, step 1 may 400 (`connect Gmail first`); that's fine — still run step 2 and refresh.
+
+### 2. "Clear & reimport fresh" (new control)
+Add a secondary action near Refresh (e.g. in an overflow menu), labelled **Clear & reimport fresh**, that:
+1. Confirms first — "This removes your current matches and reimports them. Continue?" (destructive).
+2. **`POST /api/v1/jobs/reimport?clear=true`** — deletes the user's stored postings; if that leaves the pool empty (no connected real jobs), the enriched sample matches are re-seeded so the list is never blank. Returns the same counts.
+3. Then **`POST /api/v1/inbox/scan`** to pull real postings again (now parsed with salary/benefits/workplace), and re-fetch `GET /api/v1/jobs/matches`.
+
+### 3. Both are per-user and Bearer-authed
+All three endpoints act only on the signed-in user's own pool. Send the Bearer token. Don't block the UI on the network call — show a spinner on the button, then the toast + refreshed list.
+
+### Acceptance (verify on the PUBLISHED site)
+- Clicking **Refresh matches** issues `POST /inbox/scan` then `POST /jobs/reimport`, then re-fetches matches; a match that had no pay/benefits before now shows them if its description or the re-pull contains them (confirm the `reimport` response `backfilled`/`total` in the network panel).
+- A re-pulled listing shows the **latest** salary/workplace, not a stale blank.
+- **Clear & reimport fresh** confirms, calls `POST /jobs/reimport?clear=true` (response shows `cleared` > 0, and `reseeded` = 3 when there were no real jobs), then re-scans; the list is never left empty.
+- Nothing touches another user's matches.
