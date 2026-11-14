@@ -92,6 +92,62 @@ def capabilities(
     return caps.manifest()
 
 
+def _plural(n: int, one: str, many: str) -> str:
+    return f"{n} {one}" if n == 1 else f"{n} {many}"
+
+
+@router.get("/status")
+def status_report(user: CurrentUser, state: StateDep) -> dict:
+    """A ready-to-speak status summary built from the user's REAL data — so the
+    dashboard's "Want a quick status report?" offer (intent ``status_report``) is a
+    single fetch-and-speak for the client, not an abstract intent with nothing behind
+    it. ``reply`` is the spoken line; ``items`` are the figures to show/highlight."""
+    from jobsearch.api.routers.dashboard import summary as _summary
+
+    s = _summary(user, state)
+    m = s["matches"]
+    total, strong, top = m["total"], m["strong"], m.get("top")
+    apps = s["applications"]
+    goal = s["weekly_goal"]
+
+    parts: list[str] = []
+    if total:
+        line = f"You have {_plural(total, 'match', 'matches')}"
+        if strong:
+            line += f", {strong} of them strong {'fit' if strong == 1 else 'fits'}"
+        parts.append(line + ".")
+        if top:
+            parts.append(f"Your top match is {top['title']} at {top['company']}.")
+    elif s.get("needs_preferences"):
+        parts.append("I don't have matches yet because your job preferences aren't set — "
+                     "tell me what kind of roles you want and I'll find relevant ones.")
+    else:
+        parts.append("You don't have any matches yet.")
+
+    if apps["total"]:
+        parts.append(f"You've submitted {_plural(apps['submitted'], 'application', 'applications')}, "
+                     f"with {apps['interviewing']} interviewing.")
+    parts.append(f"This week you're at {goal['done']} of your goal of {goal['target']} applications.")
+    if s["interviews"]:
+        parts.append(f"You've practiced {_plural(s['interviews'], 'interview', 'interviews')}.")
+
+    reply = " ".join(parts)
+    items = [
+        {"label": "Matches", "value": total, "highlight": "Matches"},
+        {"label": "Strong fits", "value": strong, "highlight": "Matches"},
+        {"label": "Applications", "value": apps["total"], "highlight": "Applications"},
+        {"label": "Interviews", "value": s["interviews"], "highlight": "Interviews"},
+        {"label": "Weekly goal", "value": f"{goal['done']}/{goal['target']}", "highlight": "Weekly goal"},
+        {"label": "Résumés", "value": s["resumes"], "highlight": "Documents"},
+    ]
+    return {
+        "reply": reply,
+        "headline": "Here's where things stand.",
+        "items": items,
+        "needs_preferences": s.get("needs_preferences", False),
+    }
+
+
 #: Max events accepted in one telemetry flush (protects the store from a runaway client).
 _TELEMETRY_BATCH_CAP = 200
 

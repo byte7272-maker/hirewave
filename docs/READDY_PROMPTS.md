@@ -7385,3 +7385,28 @@ When `context.pending` is set and the user says **"yes"** (or any affirmation), 
 - **The assistant speaks on every turn** — it voices the response's `reply` (and never sits silent after the lead-in): a command is acknowledged aloud, then its result/steps are narrated.
 - Assistant asks "walk your matches?" once → "yes" (voice, typed, or chip) → `interpret` with `context.pending` returns `start_playbook walk_matches`, `reply` "Okay — walking through your matches." → the assistant **says that and runs** the walk (step 1 narrated) — no loop, no second ask, no dead/silent "yes."
 - Previously-dead phrasings now work live (web search, bullet-update-with-current-data, archive, "what version is this", etc.) because they finally route through the backend.
+
+## P234 — ⚠ Wire EVERY quick-answer / shortcut button to a real action — no dead buttons, every question acts
+
+**Frontend. Backend is LIVE.** Reported: on the dashboard the assistant asks **"Want a quick status report?"** and pressing the **Yes quick-answer button does nothing.** The buttons render but aren't bound to an action, and some intents (like `status_report`) had nothing behind them. Every yes/no question the assistant asks now carries a concrete follow-up; this prompt makes the buttons run it. Builds on P231/P232/P233 (route through `/interpret`, resolve pending, speak `reply`).
+
+### 1. A shortcut/quick-answer button runs the SAME path as the spoken answer
+- Each offer the backend arms is `{ prompt, on_yes: { intent, slots } }` (from `GET /assistant/capabilities` → each section's `offers[]`, and from the arrival brief). When the assistant asks it, render a **Yes** and a **No** button.
+- **Yes** runs the offer's **`on_yes`** through the **one dispatcher** — the exact same code path a spoken/typed "yes" takes (P232: `POST /assistant/interpret` with `context.pending = on_yes`, which returns the action to run; or run the stored `on_yes` directly). **No** → clean stand-down (speak the `decline` reply, clear the offer, don't re-ask — P231). Tapping a button and saying the word MUST be identical.
+- After either, **clear the pending offer** and don't replay the question (P231). A button must never be inert: if for any reason there's no armed `on_yes`, fall back to sending the button's label text through `/interpret`.
+
+### 2. Every intent maps to a concrete action — nothing is a silent no-op
+Map each returned `intent` to a real effect (and speak its `reply` first, P233). In particular the ones that used to do nothing:
+- **`status_report`** → `GET /api/v1/assistant/status`; **speak the response `reply`** (a real summary built from the user's data) and show/highlight its `items[]` (Matches, Strong fits, Applications, Interviews, Weekly goal, Résumés) on the dashboard tiles. If `needs_preferences` is true, offer to set preferences.
+- **`research_company`** with an empty `company` slot → fill `company` from the **focused/top match's** company on screen, then run the research flow. Never call research with a blank company.
+- **`navigate`** → go to `slots.section` (and focus `slots.doc` when set); **`start_playbook`** → begin that playbook and narrate step 1 from the section's `steps[]`; **`search_jobs`/`web_search`/`research_company`/`sync_documents`/`archive`/`edit_document`/`save`** → their existing endpoints; **`report_state`** → speak the `reply` then the fetched value.
+- The on-arrival action chips (the section's `actions[]` labels, e.g. "See my matches", "Status report") are buttons too — each carries an `intent`+`slots`; wire them through the **same** dispatcher.
+
+### 3. Don't render a question or chip you can't run
+- Only show a Yes/No offer or an action chip when its `intent` is one the dispatcher handles. (Every backend-supplied offer/action already is — this just forbids hand-added buttons with no wiring.)
+
+### Acceptance
+- On the dashboard, the assistant asks **"Want a quick status report?"** → pressing **Yes** (and saying "yes") **speaks the real status** ("You have N matches, M strong fits. Your top match is …. This week you're at X of 5 applications.") and highlights the matching tiles — **not a no-op**.
+- Every Yes/No button and every action chip, on every screen, performs its action when tapped — verify each in the network panel issues the expected call (`/assistant/status`, `/interpret`, a navigation, etc.).
+- **No** on any offer stands the assistant down without re-asking.
+- No rendered button is inert; tapping always does what saying the answer does.
