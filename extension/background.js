@@ -127,6 +127,58 @@ async function researchFetch(rawUrl) {
   return { ok: true, data: { url, title, text } };
 }
 
+// --- fill in pay/benefits the server can't reach ----------------------------
+// Boards like Indeed/LinkedIn block server-side fetches, so salary never lands on
+// those matches. The extension CAN read the public posting (host permissions +
+// the user's own connection). We ask the backend which of the user's jobs still
+// need their full posting, fetch each page here, and POST the HTML back so the
+// server parses salary/benefits/location/workplace from it. Public pages only
+// (credentials omitted); the HTML is data, parsed server-side, never executed.
+async function mintAccess(apiBase) {
+  const store = await chrome.storage.local.get(["refreshToken", "apiBase"]);
+  const base = (store.apiBase || apiBase || API_DEFAULT).replace(/\/+$/, "");
+  if (!store.refreshToken) return { error: "not linked — open Project Harbor to link the extension" };
+  const tr = await fetch(base + "/api/v1/auth/refresh", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: store.refreshToken }),
+  });
+  if (!tr.ok) return { error: "sign-in expired — re-link the extension" };
+  const td = await tr.json();
+  if (td.refresh_token) await chrome.storage.local.set({ refreshToken: td.refresh_token });
+  return { base, token: td.access_token };
+}
+
+async function enrichJobs(max) {
+  const a = await mintAccess();
+  if (a.error) return { ok: false, error: a.error };
+  const cap = Math.min(Math.max(max || 15, 1), 40);
+  const qr = await fetch(a.base + "/api/v1/jobs/enrichment-queue?limit=" + cap, {
+    headers: { Authorization: "Bearer " + a.token },
+  });
+  if (!qr.ok) return { ok: false, error: "couldn't read the enrichment queue (" + qr.status + ")" };
+  const items = ((await qr.json()).items || []).slice(0, cap);
+  let processed = 0, updated = 0, failed = 0;
+  for (const it of items) {
+    if (!it || !it.url || !it.job_id) continue;
+    let html = "";
+    try {
+      const r = await fetchText(it.url, 12000); // follows cts.* redirects to the real posting
+      if (r.ok && r.body) html = r.body;
+    } catch (_) { html = ""; }
+    if (!html) { failed++; continue; }
+    processed++;
+    try {
+      const pr = await fetch(a.base + "/api/v1/jobs/" + encodeURIComponent(it.job_id) + "/jd", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.token },
+        body: JSON.stringify({ html, url: it.url }),
+      });
+      if (pr.ok) { const d = await pr.json(); if (d && d.updated) updated++; }
+    } catch (_) { /* a single bad post never stops the batch */ }
+  }
+  return { ok: true, queued: items.length, processed, updated, failed };
+}
+
 async function buildStorageState(provider) {
   const domain = DOMAINS[provider];
   if (!domain) return { count: 0, storage_state: "" };
@@ -214,6 +266,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // Fetch one public page → {url,title,text} (readable text only).
       if (msg.type === "harbor-research-fetch") {
         return sendResponse(await researchFetch(msg.url));
+      }
+      // Fill in pay/benefits the server can't reach: fetch the user's job postings on
+      // their connection and hand the HTML back for server-side parsing.
+      if (msg.type === "harbor-enrich-jobs") {
+        return sendResponse(await enrichJobs(msg.max));
       }
 
       if (msg.type !== "harbor-connect") {

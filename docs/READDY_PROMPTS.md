@@ -7505,3 +7505,22 @@ Web research is **off by default** (the `web_research` consent scope).
 - "Research this company" with the scope **off** → the assistant offers to enable it; **Yes** grants `web_research` and the research runs; links show either way.
 - With the scope **on**, the assistant speaks a summary and shows working lookup links for the company.
 - The setup wizard lists the web-research toggle (off by default) and persists the choice via `PUT /assistant/consent`.
+
+## P238 — Fill in pay/benefits via the browser extension (the reliable path for Indeed/LinkedIn)
+
+**Frontend trigger + extension (v1.6.0) + backend (LIVE).** Salary lives on the real posting, not the alert email — and Indeed/LinkedIn **block server-side fetches**, so the backend can't read them. The extension can (host permissions + the user's own connection). Backend endpoints are live: `GET /api/v1/jobs/enrichment-queue` (jobs that have a URL but no full posting yet) and `POST /api/v1/jobs/{job_id}/jd` (parse a client-fetched page). The extension (v1.6.0) does the fetch loop; the app just triggers it and refreshes.
+
+### 1. Trigger enrichment through the extension
+- The extension content script is injected on the app origin and relays messages. To run enrichment, `window.postMessage` to the page with `{ source: "harbor-app", type: "harbor-enrich-jobs", max: 20, reqId }` and await the reply `{ source: "harbor-ext", reqId, response }`. `response` is `{ ok, queued, processed, updated, failed }` (or `{ ok:false, error }` when the extension isn't linked).
+- Run it: (a) as a step in **Refresh matches** (after `/inbox/scan` + `/jobs/reimport` + `/jobs/enrich-descriptions`), and (b) from a visible **"Fill in pay & benefits"** button on the Matches page. When it returns, re-fetch `GET /api/v1/jobs/matches` and re-render — the newly-parsed `salary_display` / `workplace` / `benefits` now show (P235).
+- Feature-detect the extension first (`document.documentElement.dataset.harborConnect`, or the existing `harbor-ping`). If it's absent, show a quiet hint ("Install/Enable the Project Harbor extension to pull pay from Indeed/LinkedIn") instead of an error — the server-side pass (`/jobs/enrich-descriptions`) still runs for boards that don't block it.
+
+### 2. What the extension does (already built — for reference)
+- Mints a short-lived token from the linked session, calls `GET /jobs/enrichment-queue`, fetches each posting URL on the user's connection (public page, no credentials, follows `cts.indeed.com` redirects), and POSTs `{ html, url }` to `POST /jobs/{job_id}/jd`. The server parses salary/benefits/location/workplace from the HTML (treated as data) and applies it.
+- Bounded per run (`max`, ≤40). Boards not in the extension's host list need the user to grant the optional broad web permission once (same consent used for research).
+
+### Acceptance
+- On Matches with the extension linked, clicking **Fill in pay & benefits** runs `harbor-enrich-jobs`; the reply's `updated` count > 0 for jobs whose postings list pay, and those cards now show a salary chip after the matches re-fetch.
+- **Refresh matches** also runs the extension pass and the cards update.
+- With no extension, the button shows the install/enable hint and the app still works (no error, server pass still runs).
+- Every fetched page is the user's own job; nothing touches another user's matches.

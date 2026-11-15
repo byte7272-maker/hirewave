@@ -296,6 +296,51 @@ def test_repair_email_title_never_swaps_to_something_unrelated():
     assert job.title == "Data Scientist"
 
 
+def test_enrichment_queue_lists_url_jobs_needing_jd():
+    state, c = _client()
+    h = _auth(c, email="queue@x.com")
+    uid = _uid(state, "queue@x.com")
+    # has URL + thin body -> in the queue
+    state.jobs.add(JobPosting(owner_id=uid, title="Indeed Role", url="https://cts.indeed.com/v3/x",
+                              description="Indeed Role — imported from a indeed job alert."))
+    # no URL -> never in the queue
+    state.jobs.add(JobPosting(owner_id=uid, title="No URL", url="", description="short"))
+    q = c.get("/api/v1/jobs/enrichment-queue", headers=h).json()
+    urls = {i["url"] for i in q["items"]}
+    assert "https://cts.indeed.com/v3/x" in urls
+    assert all(i["url"] for i in q["items"])
+
+
+def test_apply_client_jd_fills_pay_from_fetched_page():
+    state, c = _client()
+    h = _auth(c, email="cjd@x.com")
+    uid = _uid(state, "cjd@x.com")
+    job = JobPosting(owner_id=uid, title="Staff Engineer", company="Acme",
+                     url="https://cts.indeed.com/v3/opaque",
+                     description="Staff Engineer — imported from a indeed job alert.")
+    state.jobs.add(job)
+    r = c.post(f"/api/v1/jobs/{job.id}/jd", headers=h, json={"html": _LD_HTML})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["updated"] is True
+    assert body["salary_display"] == "$160k - $200k"
+    assert "Medical" in body["benefits"]
+    assert body["location"] == "Seattle, WA"
+    # And it shows up on the match card.
+    m = next(x for x in c.get("/api/v1/jobs/matches", headers=h).json() if x["job_id"] == job.id)
+    assert m["salary_display"] == "$160k - $200k"
+
+
+def test_apply_client_jd_rejects_another_users_job():
+    state, c = _client()
+    ha = _auth(c, email="owner@x.com")
+    hb = _auth(c, email="intruder@x.com")
+    uid = _uid(state, "owner@x.com")
+    job = JobPosting(owner_id=uid, title="X", url="https://x.co/j", description="short")
+    state.jobs.add(job)
+    assert c.post(f"/api/v1/jobs/{job.id}/jd", headers=hb, json={"html": _LD_HTML}).status_code == 404
+
+
 def test_scheduler_enrichment_is_offline_safe_and_skips_urlless_jobs():
     # The JD-enrichment pass fills salary/benefits from the real posting, but it is
     # network + gated to LIVE mode: offline (the test fetcher) it never hits the wire.

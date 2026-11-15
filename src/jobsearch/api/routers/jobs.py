@@ -13,6 +13,7 @@ from jobsearch.api import plan_limits
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AggregationOut,
+    ClientJDRequest,
     ExternalIngestRequest,
     FitBriefOut,
     IngestRequest,
@@ -443,6 +444,76 @@ def enrich_descriptions(
         "enriched": enriched,
         "enriched_job_ids": enriched_ids,
         "remaining": max(0, len(candidates) - checked),
+    }
+
+
+#: Cap on a client-fetched posting page (~3 MB) — generous for a job page, bounded
+#: so a bad/huge payload can't blow up the request.
+_MAX_JD_HTML = 3_000_000
+
+
+@router.get("/enrichment-queue")
+def enrichment_queue(
+    state: StateDep,
+    user: CurrentUser,
+    limit: int = Query(50, ge=1, le=200),
+) -> dict:
+    """The jobs the browser extension should fetch to fill in pay/benefits: the user's
+    postings that have a URL but still only a placeholder body. The extension fetches
+    each ``url`` on the user's own connection (where Indeed/LinkedIn don't block it) and
+    POSTs the page back to ``/jobs/{job_id}/jd``. Returns ``{job_id, url, title}``."""
+    from jobsearch.engines.sourcing.jd_enrich import needs_jd
+
+    items = []
+    for j in _match_pool(state, user.id):
+        if len(items) >= limit:
+            break
+        if (j.url or "").startswith("http") and needs_jd(j):
+            items.append({"job_id": j.id, "url": j.url, "title": j.title})
+    return {"items": items, "count": len(items)}
+
+
+def _apply_client_jd(state: StateDep, job: JobPosting, html: str, url: str = "") -> bool:
+    """Parse a client-fetched posting page and apply it to the job in place (salary,
+    benefits, location, workplace, description, title). HTML is untrusted data."""
+    from jobsearch.engines.sourcing.jd_enrich import apply_jd, backfill_fields, extract_jd_from_html
+    from jobsearch.engines.sourcing.job_email import repair_email_title
+
+    if url and not (job.url or ""):
+        job.url = url
+    changed = apply_jd(job, extract_jd_from_html((html or "")[:_MAX_JD_HTML]))
+    if backfill_fields(job):
+        changed = True
+    if repair_email_title(job):
+        changed = True
+    if changed:
+        state.jobs.add(job)
+        # Verification depends on the (now fuller) description — recompute on next read.
+        try:
+            state.verifications.pop(job.id, None)
+        except Exception:  # noqa: BLE001 - cache may not support pop; harmless
+            pass
+    return changed
+
+
+@router.post("/{job_id}/jd")
+def apply_client_jd(job_id: str, body: ClientJDRequest, state: StateDep, user: CurrentUser) -> dict:
+    """Receive a posting page the extension fetched on the user's connection and parse
+    pay/benefits/location/workplace from it — the reliable path for boards that block
+    server-side fetches. Scoped to the user's own job; the HTML is parsed, never run."""
+    job = state.jobs.get(job_id)
+    if job is None or getattr(job, "owner_id", "") != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+    updated = _apply_client_jd(state, job, body.html, body.url)
+    return {
+        "job_id": job.id,
+        "updated": updated,
+        "salary_display": job.salary_display,
+        "salary_range": job.salary_range.model_dump() if job.salary_range else None,
+        "workplace": job.workplace,
+        "benefits": list(job.benefits or []),
+        "location": job.location,
+        "employment_type": job.employment_type,
     }
 
 

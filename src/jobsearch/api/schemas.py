@@ -160,6 +160,16 @@ class MatchReasonOut(BaseModel):
     sentiment: str = "positive"  # positive | neutral | caution
 
 
+class ClientJDRequest(BaseModel):
+    """A job posting's page HTML, fetched by the browser extension on the USER's
+    connection (the server can't: Indeed/LinkedIn block or rate-limit it), handed back
+    so the server can parse salary/benefits/location/workplace from it. The HTML is
+    untrusted data — only parsed, never executed or followed."""
+
+    html: str = ""
+    url: str = ""  # the posting URL the extension fetched (fills a job's url if missing)
+
+
 class MatchOut(BaseModel):
     job_id: str
     title: str
