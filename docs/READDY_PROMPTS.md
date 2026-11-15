@@ -7620,3 +7620,38 @@ On **"yes"** (voice, typed, or either chip), resolve through `interpret` with `c
 - `GET /resumes/primary` and `GET /resumes`[0] agree, and the primary shows a **Primary** badge.
 - Uploading another résumé doesn't change which one is selected by default.
 - "Set as primary" on résumé B clears it on A (only one primary); the call is visible in the network panel.
+
+---
+
+## P242 — "Make Current" is a one-tap action in the marquee itself (no full-view detour, no vague "Select…")
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. **No new backend** — every endpoint is LIVE. Pairs with **P241** (primary résumé).
+
+**The problem:** switching which document/version is current is buried. To change it the user must open an item's **full-view render**, then hunt for a vague **"Select…"** control. Making a different item current should be obvious and doable **right from the marquee card** — one tap, clearly labeled.
+
+### 1. Put the action on the marquee card
+- Every item in the marquee (each résumé/cover letter card, or each version thumbnail — whichever the marquee lists) carries its own control:
+  - the current item shows a **"Current"** badge (not a button),
+  - every other item shows a **"Make Current"** button, directly on the card.
+- **No full-view detour:** "Make Current" works from the marquee thumbnail without opening the full-view render first. (Opening the full render stays available for *viewing* — it's just no longer required to switch.)
+- **Rename the vague control:** anywhere a "Select…" / "Select this one" affordance exists for this purpose (including inside the full view), relabel it **"Make Current"** and give it the same behavior. One verb, everywhere.
+
+### 2. What "Make Current" calls
+- **A different document is current** (e.g. choosing which résumé is the one the app uses — the P241 primary):
+  - résumé → `POST /resumes/{resume_id}/set-primary` (clears the others; rejects samples).
+  - *(cover letters have no "primary" concept yet — if the marquee lists cover letters, hide "Make Current" at the document level for them and keep it only at the version level below, or treat "current" as "open this one".)*
+- **A different version of the open document is current:**
+  - résumé → `POST /resumes/{resume_id}/versions/{version}/activate`
+  - cover letter → `POST /cover-letters/{cover_letter_id}/versions/{version}/activate`
+- Use the document-level action when the marquee lists **documents**, the version-level action when it lists **versions**. Both return the updated doc.
+
+### 3. Immediate, obvious feedback
+- On success, **optimistically** move the **"Current"** badge to the chosen card and swap its button out; re-fetch to confirm (`GET /resumes/primary` or the doc's `active_version`) and reconcile if needed.
+- The shared preview (left pane) **updates to the newly-current** item/version immediately (per the single-`selectedVersion` rule), so "Make Current" visibly changes what's previewed.
+- Keep the button hit-area comfortable on phone width; don't hide it behind a hover-only or overflow menu.
+
+### Acceptance
+- From the marquee alone — without opening an item's full-view render — the user can tap **"Make Current"** on any non-current item and it becomes current (the preview and the "Current" badge move to it).
+- There is **no "Select…"** label for this action anywhere; it reads **"Make Current"**, and the current item shows a **"Current"** badge instead of a button.
+- Document-level "Make Current" issues `POST /resumes/{id}/set-primary`; version-level issues `.../versions/{version}/activate` — visible in the network panel.
+- A sample résumé never shows "Make Current".
