@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -514,6 +515,51 @@ def apply_client_jd(job_id: str, body: ClientJDRequest, state: StateDep, user: C
         "benefits": list(job.benefits or []),
         "location": job.location,
         "employment_type": job.employment_type,
+    }
+
+
+def _norm_title(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
+
+
+@router.post("/jd-by-url")
+def apply_client_jd_by_url(body: ClientJDRequest, state: StateDep, user: CurrentUser) -> dict:
+    """Passive enrichment: a content script on a board job page the user is viewing hands
+    back that page; we match it to one of THEIR OWN jobs by title and fill pay/benefits/
+    location. Used when the caller has the page but not the job id. Scoped to the user's
+    pool; the HTML is untrusted — parsed, never executed or followed."""
+    from jobsearch.engines.sourcing.jd_enrich import needs_jd, role_from_html
+
+    html = (body.html or "")[:_MAX_JD_HTML]
+    role = role_from_html(html)
+    if not role:
+        return {"matched": False, "reason": "no-title"}
+    nr = _norm_title(role)
+    if len(nr) < 3:
+        return {"matched": False, "reason": "title-too-short"}
+    # Prefer jobs that still need enrichment; exact normalized-title match first, then
+    # a conservative containment match (only when the title is specific enough).
+    pool = sorted(
+        _match_pool(state, user.id),
+        key=lambda j: 0 if (needs_jd(j) or j.salary_range is None) else 1,
+    )
+    target = next((j for j in pool if _norm_title(j.title) == nr), None)
+    if target is None and len(nr) >= 6:
+        target = next(
+            (j for j in pool if nr in _norm_title(j.title) or _norm_title(j.title) in nr),
+            None,
+        )
+    if target is None:
+        return {"matched": False, "reason": "no-matching-job", "page_title": role}
+    updated = _apply_client_jd(state, target, html, body.url)
+    return {
+        "matched": True,
+        "job_id": target.id,
+        "updated": updated,
+        "salary_display": target.salary_display,
+        "location": target.location,
+        "workplace": target.workplace,
+        "benefits": list(target.benefits or []),
     }
 
 

@@ -414,6 +414,59 @@ def test_apply_client_jd_rejects_another_users_job():
     assert c.post(f"/api/v1/jobs/{job.id}/jd", headers=hb, json={"html": _LD_HTML}).status_code == 404
 
 
+def test_role_from_html_extracts_title():
+    from jobsearch.engines.sourcing.jd_enrich import role_from_html
+    assert role_from_html(
+        "<title>Operations Manager - New York, NY - Indeed.com</title>"
+    ) == "Operations Manager"
+    assert role_from_html(_LD_HTML) == "Staff Engineer"  # JSON-LD title wins
+
+
+def test_jd_by_url_matches_user_job_by_title_and_fills_pay():
+    # Passive path: a board page the user is viewing, matched to THEIR job by title.
+    state, c = _client()
+    h = _auth(c, email="passive@x.com")
+    uid = _uid(state, "passive@x.com")
+    job = JobPosting(owner_id=uid, title="Operations Manager", company="Acme",
+                     url="https://cts.indeed.com/v3/op",
+                     description="Operations Manager — imported from a indeed job alert.")
+    state.jobs.add(job)
+    html = ('<html><head><title>Operations Manager - New York, NY - Indeed.com</title></head>'
+            '<body><script>window._initialData={"formattedLocation":"New York, NY",'
+            '"salaryInfoModel":{"salaryText":"$140,000 - $170,000 a year"},"jobType":"Full-time"};'
+            '</script><div>Medical, dental and 401(k).</div></body></html>')
+    r = c.post("/api/v1/jobs/jd-by-url", headers=h,
+               json={"html": html, "url": "https://www.indeed.com/viewjob?jk=op"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matched"] is True and body["job_id"] == job.id and body["updated"] is True
+    assert body["salary_display"] == "$140k - $170k"
+    assert body["location"] == "New York, NY"
+
+
+def test_jd_by_url_no_match_returns_matched_false():
+    state, c = _client()
+    h = _auth(c, email="passive2@x.com")
+    uid = _uid(state, "passive2@x.com")
+    state.jobs.add(JobPosting(owner_id=uid, title="Data Scientist", url="https://x/1",
+                              description="short"))
+    html = "<html><head><title>Warehouse Forklift Operator - Dallas, TX - Indeed.com</title></head><body>x</body></html>"
+    r = c.post("/api/v1/jobs/jd-by-url", headers=h, json={"html": html})
+    assert r.status_code == 200 and r.json()["matched"] is False
+
+
+def test_jd_by_url_only_matches_callers_own_jobs():
+    # User B viewing a page whose title matches user A's job must NOT enrich A's job.
+    state, c = _client()
+    _auth(c, email="ownerp@x.com")
+    hb = _auth(c, email="otherp@x.com")
+    uid_a = _uid(state, "ownerp@x.com")
+    state.jobs.add(JobPosting(owner_id=uid_a, title="Operations Manager",
+                              url="https://x/op", description="short"))
+    html = "<html><head><title>Operations Manager - NY - Indeed.com</title></head><body>x</body></html>"
+    assert c.post("/api/v1/jobs/jd-by-url", headers=hb, json={"html": html}).json()["matched"] is False
+
+
 def test_scheduler_enrichment_is_offline_safe_and_skips_urlless_jobs():
     # The JD-enrichment pass fills salary/benefits from the real posting, but it is
     # network + gated to LIVE mode: offline (the test fetcher) it never hits the wire.

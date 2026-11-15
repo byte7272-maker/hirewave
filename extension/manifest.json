@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "Connect a job board, pull jobs you view, fill in pay/benefits on your matches, research employers, fill applications with your details — you submit, never a password.",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {
@@ -68,6 +68,27 @@
         "https://*.lever.co/*"
       ],
       "js": ["apply.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.linkedin.com/*",
+        "https://*.indeed.com/*",
+        "https://*.glassdoor.com/*",
+        "https://*.ziprecruiter.com/*",
+        "https://*.dice.com/*",
+        "https://*.monster.com/*",
+        "https://*.michaelpage.com/*",
+        "https://*.michaelpage.co.uk/*",
+        "https://*.simplyhired.com/*",
+        "https://*.careerbuilder.com/*",
+        "https://*.wellfound.com/*",
+        "https://*.lever.co/*",
+        "https://*.greenhouse.io/*",
+        "https://*.workday.com/*",
+        "https://*.myworkday.com/*"
+      ],
+      "js": ["passive_enrich.js"],
       "run_at": "document_idle"
     }
   ]

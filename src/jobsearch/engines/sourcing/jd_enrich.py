@@ -343,6 +343,37 @@ def extract_jd_from_html(html: str) -> dict:
     return out
 
 
+_PAGE_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_BOARD_SUFFIX_RE = re.compile(
+    r"\s*[-–|]\s*(?:Indeed|LinkedIn|ZipRecruiter|Glassdoor|Monster|Dice|CareerBuilder"
+    r"|SimplyHired|Wellfound|Lever|Greenhouse)(?:\.com)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def role_from_html(html: str) -> str:
+    """Best-effort job title from a posting page — JSON-LD ``JobPosting.title`` first,
+    else the ``<title>`` tag's leading segment with the board suffix stripped.
+
+    Used to match a passively-scraped board page to one of the user's stored jobs
+    (the passive path has the page but not the job id). Pure + network-free."""
+    if not html:
+        return ""
+    for blob in _LD_RE.findall(html):
+        for obj in _iter_jsonld_objects(blob):
+            if _is_job_posting(obj):
+                t = obj.get("title")
+                if isinstance(t, str) and t.strip():
+                    return _html.unescape(t.strip())[:120]
+    m = _PAGE_TITLE_RE.search(html)
+    if m:
+        t = _BOARD_SUFFIX_RE.sub("", _html.unescape(_strip_html(m.group(1)))).strip()
+        t = re.split(r"\s[-–|]\s", t)[0].strip()  # drop a trailing " - City, ST"
+        if 2 <= len(t) <= 120:
+            return t
+    return ""
+
+
 def backfill_fields(job: JobPosting) -> bool:
     """Re-mine a stored job's existing title + description for the structured display
     fields (pay, employment type, seniority, years, benefits) when they're missing.

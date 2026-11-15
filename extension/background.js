@@ -152,6 +152,44 @@ async function mintAccess(apiBase) {
   return { base, token: td.access_token };
 }
 
+// Wait for a background tab to finish loading (or time out).
+function waitTabComplete(tabId, timeoutMs) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { chrome.tabs.onUpdated.removeListener(listener); } catch (_) { /* no-op */ }
+      resolve(ok);
+    };
+    const listener = (id, info) => { if (id === tabId && info.status === "complete") finish(true); };
+    chrome.tabs.onUpdated.addListener(listener);
+    setTimeout(() => finish(false), timeoutMs || 15000);
+  });
+}
+
+// Some boards (Indeed, LinkedIn) block a background `fetch` (anti-bot + CORS on their
+// cts.* redirectors) even with cookies. A real tab navigation isn't blocked: open the
+// URL in an inactive background tab, let it resolve + render, read its HTML, close it.
+async function fetchViaTab(url) {
+  let tab;
+  try { tab = await chrome.tabs.create({ url, active: false }); }
+  catch (_) { return ""; }
+  try {
+    await waitTabComplete(tab.id, 15000);
+    await new Promise((r) => setTimeout(r, 900)); // let a client-rendered page settle
+    try {
+      const res = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => document.documentElement.outerHTML,
+      });
+      return ((res && res[0] && res[0].result) || "").slice(0, 1500000);
+    } catch (_) { return ""; }
+  } finally {
+    try { await chrome.tabs.remove(tab.id); } catch (_) { /* tab may already be gone */ }
+  }
+}
+
 async function enrichJobs(max) {
   const a = await mintAccess();
   if (a.error) return { ok: false, error: a.error };
@@ -161,14 +199,18 @@ async function enrichJobs(max) {
   });
   if (!qr.ok) return { ok: false, error: "couldn't read the enrichment queue (" + qr.status + ")" };
   const items = ((await qr.json()).items || []).slice(0, cap);
-  let processed = 0, updated = 0, failed = 0;
+  let processed = 0, updated = 0, failed = 0, viaTab = 0;
   for (const it of items) {
     if (!it || !it.url || !it.job_id) continue;
     let html = "";
     try {
-      const r = await fetchText(it.url, 12000, "include"); // cookied: follows cts.* to the real posting the user can see
+      const r = await fetchText(it.url, 12000, "include"); // cookied fetch: fast path for ATS boards
       if (r.ok && r.body) html = r.body;
     } catch (_) { html = ""; }
+    if (html.length < 1000) { // blocked/empty (Indeed/LinkedIn) → real tab navigation
+      const viaHtml = await fetchViaTab(it.url);
+      if (viaHtml) { html = viaHtml; viaTab++; }
+    }
     if (!html) { failed++; continue; }
     processed++;
     try {
@@ -180,7 +222,25 @@ async function enrichJobs(max) {
       if (pr.ok) { const d = await pr.json(); if (d && d.updated) updated++; }
     } catch (_) { /* a single bad post never stops the batch */ }
   }
-  return { ok: true, queued: items.length, processed, updated, failed };
+  return { ok: true, queued: items.length, processed, updated, failed, viaTab };
+}
+
+// Passive enrichment: a content script on a board job page the user is viewing hands
+// back that page's HTML; match it to one of the user's saved jobs (by title) server-side
+// and fill pay/benefits. The HTML goes only to the user's own account; parsed, not run.
+async function passiveEnrich(url, html) {
+  if (!html || html.length < 500) return { ok: false, error: "no html" };
+  const a = await mintAccess();
+  if (a.error) return { ok: false, error: a.error };
+  try {
+    const r = await fetch(a.base + "/api/v1/jobs/jd-by-url", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.token },
+      body: JSON.stringify({ html: html.slice(0, 1500000), url: url || "" }),
+    });
+    if (!r.ok) return { ok: false, error: "post failed (" + r.status + ")" };
+    return { ok: true, data: await r.json() };
+  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
 async function buildStorageState(provider) {
@@ -275,6 +335,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // their connection and hand the HTML back for server-side parsing.
       if (msg.type === "harbor-enrich-jobs") {
         return sendResponse(await enrichJobs(msg.max));
+      }
+      // Passive enrichment from a board job page the user is viewing (content script).
+      if (msg.type === "harbor-passive-enrich") {
+        return sendResponse(await passiveEnrich(msg.url, msg.html));
       }
 
       if (msg.type !== "harbor-connect") {
