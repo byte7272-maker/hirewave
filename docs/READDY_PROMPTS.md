@@ -7556,3 +7556,39 @@ Web research is **off by default** (the `web_research` consent scope).
 - Each step presents one decision with large controls and a default; a user can complete setup by pressing Continue through it.
 - The web-research toggle is off by default and saves via `PUT /assistant/consent`.
 - After finishing, the wizard never reappears on later logins, and the dashboard greeting plays once.
+
+---
+
+## P240 — When a résumé or cover letter renders, the assistant offers to read its AI summary (spoken + as a chip)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`), not the Readdy preview (no cross-origin calls there). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. This builds on the assistant wiring in **P233/P234** (route answers through `POST /assistant/interpret` with `context.pending`) and **P237** (act on the FIRST "yes"; mic ready + chips in the same render; answerable while minimized). The "AI summary" is the **review assessment narrative**, not a new concept.
+
+### 1. The offer — once, when a document becomes the active rendered doc
+- When a **résumé** or **cover letter** becomes the newly rendered/active document in the preview (opened from the library, opened in the Workspace, or switched-to), the assistant proactively asks **once per document per session**:
+  - résumé → *"Want me to read you the AI summary of this résumé?"*
+  - cover letter → *"Want me to read you the AI summary of this cover letter?"*
+- Ask it the P237 way: speak/show the question **and**, in the **same render**, put the mic in ready-to-receive state and show the answer **chips** — never ask then minimize to a state that can't receive the answer. If minimized while this is pending, the minimized widget surfaces the mic + chips (P237 §minimized).
+- Fire the offer at most once per document per session (track per `doc_type:doc_id`); switching away and back doesn't re-nag. Don't stack it on top of another pending question — queue behind it.
+
+### 2. Add the question as a CHIP as well
+- Alongside the spoken/typed offer, render a tappable **action chip** so it's actionable even if the user missed the voice prompt:
+  - label **"📄 Read the AI summary"** (same for both doc types).
+- This chip stays available on the document view for the session even after the one-time spoken offer passes (so the user can ask later), wired through the **same dispatcher** as every other chip (P234 §3 — no dead chips).
+- The **Yes / No** chips (for the spoken offer) and this action chip all resolve to the **same action** (below). Tap and voice take the identical path (P237 §1).
+
+### 3. The action — read the review's AI summary
+On **"yes"** (voice, typed, or either chip), resolve through `interpret` with `context.pending.on_yes` = intent `read_document_summary`, slots `{ doc_type: "resume"|"cover_letter", doc_id }` (or call the endpoint directly if the offer was client-constructed), then call the review and **narrate the summary** (speak it and show the text):
+- **Résumé:** `POST /resumes/{resume_id}/review?narrative=true` → read back **`summary`** (the LLM assessment = the AI summary); you may follow with `content_summary` and the headline `score`/top `strengths`. (Served from cache when the résumé is unchanged — fast.)
+- **Cover letter:** `POST /cover-letters/{cover_letter_id}/review` → read back its assessment **`summary`** (plus `grade`/`score`/top `strengths`).
+- Request body is `{}` (no `job_posting_id`) for the general summary; if the document is open against a target job, pass that `job_posting_id` so the summary is job-aware.
+- **Act on the FIRST yes** (P237): say a one-line lead-in ("Here's the summary of your résumé…") and read it — do **not** re-ask, restart the assistant, or replay any intro.
+
+### 4. "No" / decline
+- On **"no"** or decline, acknowledge briefly ("Okay — it's here whenever you want it.") and **don't re-ask** for this document this session. The **"📄 Read the AI summary"** chip remains so they can trigger it later.
+
+### Acceptance
+- Opening/rendering a résumé (or cover letter) makes the assistant ask once whether to read its AI summary, with the mic ready and Yes/No chips **and** a "📄 Read the AI summary" chip in the same render; minimized, the question is still answerable.
+- Saying/tapping **yes** calls `POST /resumes/{id}/review?narrative=true` (or `POST /cover-letters/{id}/review`) and the assistant **reads back the `summary`** — on the first yes, with no loop or re-intro.
+- The **"📄 Read the AI summary"** chip performs the same action when tapped, and remains available after the one-time spoken offer.
+- Switching away from and back to the same document does **not** re-ask; a different document asks once for itself.
+- Every chip issues its expected call in the network panel (no dead chips).
