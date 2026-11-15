@@ -234,6 +234,46 @@ def research_summarize(body: ResearchRequest, user: CurrentUser, state: StateDep
     return ResearchOut(**result)
 
 
+@router.get("/research/company")
+def research_company(
+    user: CurrentUser,
+    state: StateDep,
+    company: str = Query(..., min_length=1, description="the company to look up"),
+    max: int = Query(6, ge=1, le=10),
+) -> dict:
+    """One call behind the assistant's "research this company" action: a spoken
+    ``reply`` summarizing what we found, plus ``links`` the user can open for further
+    lookup (LinkedIn, Glassdoor, news, …) and, when a server search provider is
+    configured, real ``results``.
+
+    Web research is **off by default** (the ``web_research`` consent scope). When it
+    isn't granted this returns ``needs_permission: true`` with a prompt — a soft gate,
+    not a 403 — so the assistant can OFFER to turn it on (one-tap grant via
+    ``PUT /assistant/consent``) instead of failing. The deterministic lookup ``links``
+    are returned either way so the user is never left empty-handed."""
+    from jobsearch.engines.assistant import company_lookup
+
+    name = company.strip()
+    if not state.assistant.has(user.id, "web_research"):
+        return {
+            "company": name,
+            "needs_permission": True,
+            "scope": "web_research",
+            "permission_prompt": AUTOMATION_SCOPES["web_research"],
+            "reply": (
+                f"I can research {name or 'this company'} for you, but web research is off "
+                f"right now. Want me to turn it on? You approve each search."
+            ),
+            # Still hand over the quick links so the tap isn't a dead end.
+            "links": company_lookup.lookup_links(name),
+            "results": [],
+            "use_client": False,
+        }
+    out = company_lookup.research_company(name, settings=state.settings, limit=max)
+    out["needs_permission"] = False
+    return out
+
+
 @router.get("/suggestions", response_model=SuggestionsOut)
 def suggestions(
     user: CurrentUser,

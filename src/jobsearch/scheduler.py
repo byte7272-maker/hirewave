@@ -82,6 +82,34 @@ def reap_imap(state: AppState) -> int:
     return ingested_total
 
 
+def enrich_descriptions(state: AppState, *, limit: int = 12) -> int:
+    """Fetch the full job description for a bounded number of postings that have a URL
+    but only a thin/placeholder body, and apply it — this is what fills in salary,
+    benefits, location and workplace for email-sourced jobs (whose alert only gave a
+    title + link). Without this pass those fields never surface.
+
+    Network + best-effort, so it is gated to LIVE mode (same as the email reap): in the
+    offline/mock fetcher used by tests it is a no-op, so the suite never hits the wire.
+    Bounded per tick; the rest are picked up on later ticks."""
+    if not getattr(state.gmail_fetcher, "live", False):
+        return 0
+    from jobsearch.engines.sourcing.jd_enrich import enrich_job, needs_jd
+
+    enriched = 0
+    for job in list(state.jobs.all()):
+        if enriched >= limit:
+            break
+        if not needs_jd(job):
+            continue
+        try:
+            if enrich_job(job):
+                state.jobs.add(job)
+                enriched += 1
+        except Exception:  # noqa: BLE001 - a bad page never breaks the tick
+            continue
+    return enriched
+
+
 def run_once(state: AppState) -> dict:
     # Auto-apply grants across all users (the engine spans users when user_id=None).
     runs = state.auto_apply.run_due(None)
@@ -97,6 +125,10 @@ def run_once(state: AppState) -> dict:
     # matches stay fresh from every connected inbox.
     emails_ingested = reap_email(state) + reap_imap(state)
 
+    # Fetch full JDs for freshly-ingested (and older URL-only) postings so salary,
+    # benefits, location and workplace fill in from the real posting.
+    jobs_enriched = enrich_descriptions(state)
+
     # Out-of-band review reminders for users past their checkpoint + daily digests.
     reminders_sent = len(state.reminders.run_due_reminders())
     digests_sent = len(state.reminders.run_due_digests())
@@ -107,6 +139,7 @@ def run_once(state: AppState) -> dict:
         "queued": queued,
         "searches_run": searches_run,
         "emails_ingested": emails_ingested,
+        "jobs_enriched": jobs_enriched,
         "reminders_sent": reminders_sent,
         "digests_sent": digests_sent,
     }

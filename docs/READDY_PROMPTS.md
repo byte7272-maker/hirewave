@@ -7452,7 +7452,10 @@ Map each returned `intent` to a real effect (and speak its `reply` first, P233).
 When the user clicks **Refresh matches**, run this sequence, then re-fetch `GET /api/v1/jobs/matches` and re-render:
 1. **`POST /api/v1/inbox/scan`** (body optional; `?source=gmail` / `icloud` / `mailbox` as connected) — re-pulls job-alert email and re-ingests. Re-pulled listings now **overwrite** the stored ones with the newest parsed salary/location/workplace/benefits (latest-wins; a blank re-pull never erases a known value).
 2. **`POST /api/v1/jobs/reimport`** (no body) — re-parses every stored posting's existing description for any structured field still missing (pay, benefits, employment type, seniority, years). No network, no data loss. Returns `{ cleared, reseeded, backfilled, total }`.
-3. Re-fetch matches and re-render the cards (P235 fields).
+3. **`POST /api/v1/jobs/enrich-descriptions`** (bounded; call once, it handles up to 25) — fetches the **real posting page** for jobs that have a URL but only a thin body, and parses **salary / benefits / location / workplace** from it. This is what makes pay surface for email-sourced jobs (the alert only gave a title + link). Returns `{ checked, enriched, enriched_job_ids }`. Safe to call repeatedly; the background worker also does this on a schedule, so a job with no pay yet will fill in shortly after it gains a URL.
+4. Re-fetch matches and re-render the cards (P235 fields).
+
+> **Why pay may still be blank:** salary lives on the real posting, not in the alert email. A job needs (1) a posting **URL** (captured now that board tracking links are kept) and (2) a **JD fetch** (step 3 / the scheduled pass) before `salary_display` is populated. A job whose alert email has aged out of the inbox and was stored with no URL can't be enriched — it keeps an empty pay chip.
 
 Show a brief toast from the counts, e.g. "Refreshed — N listings updated." If the user has no connected mailbox, step 1 may 400 (`connect Gmail first`); that's fine — still run step 2 and refresh.
 
@@ -7470,3 +7473,35 @@ All three endpoints act only on the signed-in user's own pool. Send the Bearer t
 - A re-pulled listing shows the **latest** salary/workplace, not a stale blank.
 - **Clear & reimport fresh** confirms, calls `POST /jobs/reimport?clear=true` (response shows `cleared` > 0, and `reseeded` = 3 when there were no real jobs), then re-scans; the list is never left empty.
 - Nothing touches another user's matches.
+
+## P237 — Assistant must act on the FIRST "yes" (stop restarting its script); mic ready instantly; web-research opt-in + narrated company lookup
+
+**Frontend + one new backend endpoint (LIVE).** Reported, still happening: (a) the assistant asks a question but the mic/answer control isn't surfaced to receive the answer; (b) saying "yes" to "review your matches" makes it **start over** — it re-introduces the matches page and asks the **same question again** instead of running the walk; (c) "research this company" needs to be opt-in from the setup wizard, prompt-to-enable when a company is tapped, and when on, **narrate a summary + give links**. Builds on P231–P234 (route through `/interpret`, resolve `pending`, speak `reply`, wire buttons).
+
+### 1. Never restart the arrival script to handle an answer (root cause of a & b)
+The bug: opening the mic / sending an answer **re-runs the on-arrival narration**, which re-introduces the page and re-arms the offer, so the user's "yes" is lost. Separate the two lifecycles:
+- **Arrival narration** runs **once per navigation** to a section (guard it, e.g. a `hasGreeted[section]` flag). Re-opening the mic, sending a message, or receiving a result must **not** re-trigger it.
+- **Answer handling** is always live and independent of arrival. A pending question persists in state (`pendingOffer = { prompt, on_yes:{intent,slots} }`) until it's answered or explicitly dismissed — it survives mic open/close and re-renders.
+- When a question is on screen and the user answers, call `POST /api/v1/assistant/interpret` with **`context.pending = pendingOffer.on_yes`**. The backend returns the real action for "yes" (e.g. `start_playbook walk_matches`) and `decline` for "no". **Run the returned action**, then clear `pendingOffer`. Do **not** route "yes" into any handler that re-renders the greeting.
+
+### 2. The answer control is ready the instant a question is asked — even when minimized
+- The moment the assistant asks a yes/no question, render the **Yes/No chips AND** put the mic in ready-to-receive state in the **same** render — the user must not have to re-open or restart the assistant to answer. Tap and voice take the identical path (§1).
+- Keep the question + chips visible until answered; don't collapse/minimize the assistant on the asking render.
+- **Minimized state:** if the assistant is (or becomes) minimized while a question is pending, the minimized widget MUST surface the **mic-hold button** (and the Yes/No chips) so the user can answer **without expanding or restarting** the assistant. A pending question keeps the minimized bubble in "awaiting answer" mode — press-and-hold to speak, or tap a chip — and answering resolves it through the same `interpret`-with-`pending` path (§1). Never ask a question and then minimize to a state that can't receive the answer.
+
+### 3. Acceptance for the matches "yes"
+- On matches (or the dashboard "Want me to walk your top matches?"), the assistant asks **once** → user says/clicks **yes** → it **runs the walk from step 1** immediately. It does **not** re-introduce the page and does **not** ask again. Verify the network panel shows a single `POST /interpret` with `context.pending` set, returning `start_playbook walk_matches`, and no re-fetch of the arrival brief.
+
+### 4. "Research this company": opt-in, prompt-to-enable, narrate + links
+Web research is **off by default** (the `web_research` consent scope).
+- **Setup wizard:** add a toggle for **"Research companies on the web"** (off by default). Read the available scopes from `GET /api/v1/assistant/consent` (`available` includes `web_research` with its description); save with `PUT /api/v1/assistant/consent { scopes:[...] }` (send the full set of granted scopes).
+- **Tapping a company / "research this company":** call `GET /api/v1/assistant/research/company?company=<name>`.
+  - If the response has **`needs_permission: true`**, the assistant **offers to turn it on**: speak `reply` ("…web research is off — want me to turn it on?") and show Yes/No. **Yes** → `PUT /assistant/consent` adding `web_research` to the current `granted`, then **retry** the research call. Still show the returned `links` so the tap is never a dead end.
+  - If permission is granted, **speak `reply`** (the narrated summary) and render **`links`** (`{label,url}` — LinkedIn, Glassdoor, Indeed, news, site) as openable buttons, plus any `results` (`{title,url,snippet}`) when present. If `use_client: true`, you may additionally run your own web search and fold results into the list.
+- Always open external links in a new tab; never auto-open without the user choosing one.
+
+### Acceptance
+- Asking any yes/no question surfaces Yes/No chips and a ready mic in the same render; answering never restarts the assistant or re-plays the intro.
+- "Research this company" with the scope **off** → the assistant offers to enable it; **Yes** grants `web_research` and the research runs; links show either way.
+- With the scope **on**, the assistant speaks a summary and shows working lookup links for the company.
+- The setup wizard lists the web-research toggle (off by default) and persists the choice via `PUT /assistant/consent`.

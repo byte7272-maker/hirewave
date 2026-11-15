@@ -296,6 +296,16 @@ def test_repair_email_title_never_swaps_to_something_unrelated():
     assert job.title == "Data Scientist"
 
 
+def test_scheduler_enrichment_is_offline_safe_and_skips_urlless_jobs():
+    # The JD-enrichment pass fills salary/benefits from the real posting, but it is
+    # network + gated to LIVE mode: offline (the test fetcher) it never hits the wire.
+    from jobsearch.scheduler import enrich_descriptions
+    state, _ = _client()
+    state.jobs.add(JobPosting(owner_id="u1", title="X", url="https://x.co/j", description="short"))
+    state.jobs.add(JobPosting(owner_id="u1", title="Y", url="", description="short"))  # no URL → never enrichable
+    assert enrich_descriptions(state) == 0  # offline → no-op, no network
+
+
 def test_reimport_clear_reseeds_enriched_samples():
     state, c = _client()
     h = _auth(c, email="clear@x.com")
