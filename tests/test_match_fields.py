@@ -118,6 +118,51 @@ def test_apply_jd_salary_text_fallback_when_no_jsonld():
     assert "Medical" in job.benefits
 
 
+# Modern Indeed/LinkedIn pages carry NO JobPosting JSON-LD; pay/location live in an
+# embedded data JSON. This mirrors the real page shape captured live (salaryText /
+# formattedLocation), and the placeholder description the server actually stores.
+_INDEED_NO_LD_HTML = """
+<html><head><title>Operations Manager - New York, NY - Indeed.com</title></head>
+<body>
+<script>window._initialData={"jobLocation":"New York, NY","formattedLocation":"New York, NY",
+"salaryInfoModel":{"source":"EXTRACTION","salaryText":"$140,000 - $170,000 a year"},
+"jobType":"Full-time"};</script>
+<div id="jobDescriptionText">Lead operations for a growing team.
+Full-time role offering medical, dental, and 401(k).</div>
+</body></html>
+"""
+
+
+def test_extract_jd_mines_indeed_embedded_pay_without_jsonld():
+    out = extract_jd_from_html(_INDEED_NO_LD_HTML)
+    assert out["salary_range"] == {"currency": "USD", "minimum": 140000, "maximum": 170000}
+    assert out["location"] == "New York, NY"
+    assert out.get("employment_type") == "full-time"
+    assert out.get("benefits")
+
+
+def test_apply_jd_populates_from_indeed_page_with_no_jsonld():
+    # The stored description is only the email placeholder — the pay is NOT in it; it
+    # must come from the fetched page's embedded data.
+    job = JobPosting(
+        title="Operations Manager", url="https://www.indeed.com/viewjob?jk=abc",
+        description="Operations Manager — surfaced from a jobs email.",
+    )
+    changed = apply_jd(job, extract_jd_from_html(_INDEED_NO_LD_HTML))
+    assert changed
+    assert job.salary_range and job.salary_range.minimum == 140000 and job.salary_range.maximum == 170000
+    assert job.location == "New York, NY"
+    assert job.benefits
+
+
+def test_mine_raw_fields_location_from_title_when_no_embedded_json():
+    html = "<html><head><title>Senior Data Engineer - Austin, TX - Indeed.com</title></head><body>" \
+           "Pay is $130,000 - $160,000 a year. Full-time.</body></html>"
+    out = extract_jd_from_html(html)
+    assert out["location"] == "Austin, TX"
+    assert out["salary_range"]["maximum"] == 160000
+
+
 # --- end-to-end exposure on the matches API ---------------------------------
 def _client():
     state = AppState(settings=Settings(), exchanger=MockTokenExchanger())
@@ -240,6 +285,29 @@ def test_alert_import_captures_tracking_link_so_source_url_is_not_a_search():
                      url=p["url"])
     assert job.source_url == "https://cts.indeed.com/v3/opaqueTOKEN123"
     assert "/jobs?q=" not in job.source_url
+
+
+def test_digest_drops_footer_tracking_links_keeps_real_job():
+    # Indeed routes footer/legal links (Terms, Pause these emails, Indeed Resume, …)
+    # through cts.indeed.com too — they must NOT become jobs. Only the real role stays.
+    eml = (
+        "From: alerts@indeed.com\r\n"
+        "Subject: New jobs for you\r\n"
+        "Content-Type: text/html\r\n\r\n"
+        "<html><body>"
+        '<a href="https://cts.indeed.com/v3/REALjobTOKEN">Operations Manager</a>'
+        "<div>Acme Corp · New York, NY</div>"
+        '<a href="https://cts.indeed.com/v3/termsTOKEN">Terms</a>'
+        '<a href="https://cts.indeed.com/v3/pauseTOKEN">Pause these emails</a>'
+        '<a href="https://cts.indeed.com/v3/resumeTOKEN">Indeed Resume</a>'
+        '<a href="https://cts.indeed.com/v3/locTOKEN">Location</a>'
+        '<a href="https://cts.indeed.com/v3/privTOKEN">Privacy</a>'
+        '<a href="https://cts.indeed.com/v3/yesTOKEN">Yes</a>'
+        "</body></html>"
+    )
+    parsed = parse_job_alert(eml)
+    titles = [p["title"] for p in parsed.postings]
+    assert titles == ["Operations Manager"], f"footer links leaked in: {titles}"
 
 
 # --- title extraction: the full role, not a truncated fragment -------------

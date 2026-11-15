@@ -62,6 +62,32 @@ _CTA = {
     "see more", "update", "settings", "help", "sign in", "easy apply", "save job",
     "view all jobs", "unsubscribe", "manage alerts", "see jobs", "view details",
 }
+# Footer / navigation / legal anchors that digests (Indeed especially) ALSO route through
+# their tracking hosts — so a tracking-host href alone can't tell them from a real posting.
+# These anchor texts must never become "jobs" ("Terms", "Location", "Pause these emails",
+# "Indeed Resume", "Yes", …). Exact generic labels, plus phrase fragments.
+_BOILERPLATE_EXACT = {
+    "terms", "privacy", "cookies", "cookie policy", "help", "help center", "contact",
+    "contact us", "feedback", "give feedback", "account", "my account", "profile",
+    "settings", "home", "about", "about us", "careers", "blog", "location", "yes", "no",
+    "sign in", "log in", "sign up", "create account", "learn more", "view more",
+    "see more", "more jobs", "view all jobs", "see all jobs", "browse jobs",
+    "indeed resume", "your resume", "post your resume", "follow us", "download",
+    "get the app", "download the app", "my jobs", "saved jobs", "messages",
+}
+_BOILERPLATE_FRAGMENT = re.compile(
+    r"unsubscrib|manage (?:alert|preference|setting|subscription|email)|pause (?:these )?email"
+    r"|email preference|notification setting|update (?:your )?preference|do not sell"
+    r"|privacy (?:policy|center|notice)|terms of (?:service|use)|cookie|opt[\s-]?out"
+    r"|app ?store|google play|upload your resume|turn off|stop (?:these )?email",
+    re.I,
+)
+
+
+def _is_boilerplate_anchor(text: str) -> bool:
+    """True when an anchor is clearly footer/legal/navigation chrome, not a job title."""
+    t = text.strip().lower().rstrip(" .!?›»")
+    return t in _BOILERPLATE_EXACT or bool(_BOILERPLATE_FRAGMENT.search(t))
 _SPLIT = re.compile(r"\s*[·•|–—]\s*|\s+[-]\s+|\s+ in \s+|\s+ at \s+", re.I)
 _BOARDS = {
     "linkedin.com": "linkedin", "indeed.com": "indeed", "glassdoor.com": "glassdoor",
@@ -130,7 +156,9 @@ def _external_id(url: str, source: str) -> str:
 
 def _is_title(text: str) -> bool:
     t = text.strip()
-    return 3 <= len(t) <= 140 and bool(re.search(r"[A-Za-z]", t)) and t.lower() not in _CTA
+    if not (3 <= len(t) <= 140 and re.search(r"[A-Za-z]", t)):
+        return False
+    return t.lower() not in _CTA and not _is_boilerplate_anchor(t)
 
 
 def _postings_from_tokens(tokens: list[tuple], source: str) -> list[dict]:

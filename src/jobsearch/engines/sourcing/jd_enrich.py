@@ -182,6 +182,77 @@ def _employment_from_ld(val) -> str:
     return ""
 
 
+# --- raw-HTML mining (for boards that ship NO JobPosting JSON-LD) -------------
+# Modern Indeed/LinkedIn job pages are React-rendered and carry no schema.org
+# JobPosting block; the pay/location live in an embedded data JSON (and in the
+# visible body). These anchors pull them out deterministically; a full-text
+# detect_salary is the agnostic last resort.
+_EMBED_SALARY_RE = re.compile(r'"salary(?:Text|Snippet|Range)"\s*:\s*"([^"]{3,100})"', re.IGNORECASE)
+_EMBED_LOCATION_RE = re.compile(
+    r'"(?:formattedLocation|jobLocation|jobNormalizedLocation)"\s*:\s*"([^"]{2,100})"',
+    re.IGNORECASE,
+)
+# "Role - City, ST - Indeed.com" / "Role - City, ST | LinkedIn"
+_TITLE_LOCATION_RE = re.compile(
+    r"<title[^>]*>\s*.+?\s[-–|]\s([A-Za-z][^<|]*?,\s*[A-Za-z][^<|]*?)\s[-–|]\s(?:Indeed|LinkedIn|ZipRecruiter|Glassdoor)",
+    re.IGNORECASE | re.DOTALL,
+)
+_EMBED_TELECOMMUTE_RE = re.compile(
+    r'"(?:jobLocationType|workplaceType|remoteModel)"\s*:\s*"?(?:telecommute|remote)', re.IGNORECASE
+)
+_NON_LOCATIONS = {"remote", "united states", "us", "usa", "null", "", "anywhere"}
+
+
+def _mine_raw_fields(html: str) -> dict:
+    """Mine pay / location / benefits / employment / remote straight from a posting
+    page's raw HTML, for boards that emit no JobPosting JSON-LD (Indeed, LinkedIn).
+
+    Deterministic + network-free. Fills only what it can find; the caller merges
+    these into any blanks the JSON-LD/meta path left behind."""
+    out: dict = {}
+    if not html:
+        return out
+
+    # Pay: an embedded salary string first (clean, e.g. "$140,000 - $170,000 a year"),
+    # then a full-text scan as the agnostic fallback.
+    for m in _EMBED_SALARY_RE.finditer(html):
+        sal = detect_salary(_html.unescape(m.group(1)))
+        if sal:
+            out["salary_range"] = sal
+            break
+    text = _strip_html(html)
+    if "salary_range" not in out:
+        sal = detect_salary(text)
+        if sal:
+            out["salary_range"] = sal
+
+    # Location: embedded JSON first, then the <title> "… - City, ST - Board" pattern.
+    for m in _EMBED_LOCATION_RE.finditer(html):
+        loc = _html.unescape(m.group(1)).strip()
+        if loc and loc.lower() not in _NON_LOCATIONS:
+            out["location"] = loc
+            break
+    if "location" not in out:
+        mt = _TITLE_LOCATION_RE.search(html)
+        if mt:
+            loc = _html.unescape(mt.group(1)).strip()
+            if "," in loc and loc.lower() not in _NON_LOCATIONS:
+                out["location"] = loc
+
+    # Benefits + employment type from the visible body.
+    bens = detect_benefits(text)
+    if bens:
+        out["benefits"] = bens
+    et = detect_employment_type(text)
+    if et:
+        out["employment_type"] = et
+
+    # Remote: an explicit embedded flag, or a "Remote" location.
+    if _EMBED_TELECOMMUTE_RE.search(html) or (out.get("location", "").lower() == "remote"):
+        out["remote"] = True
+    return out
+
+
 def extract_jd_from_html(html: str) -> dict:
     """Best-effort structured job description from a posting page's HTML.
 
@@ -194,7 +265,10 @@ def extract_jd_from_html(html: str) -> dict:
         return out
 
     # 1) schema.org JobPosting JSON-LD — the agnostic path.
+    found_posting = False
     for blob in _LD_RE.findall(html):
+        if found_posting:
+            break
         for obj in _iter_jsonld_objects(blob):
             if not _is_job_posting(obj):
                 continue
@@ -249,14 +323,23 @@ def extract_jd_from_html(html: str) -> dict:
                         uniq.append(r)
                 out["requirements"] = uniq[:20]
             if out.get("description"):
-                return out
+                found_posting = True
+                break
 
     # 2) meta description fallback (short, but better than a placeholder).
-    m = _META_DESC_RE.search(html)
-    if m:
-        desc = _strip_html(m.group(1))
-        if len(desc) >= 40:
-            out["description"] = desc
+    if not out.get("description"):
+        m = _META_DESC_RE.search(html)
+        if m:
+            desc = _strip_html(m.group(1))
+            if len(desc) >= 40:
+                out["description"] = desc
+
+    # 3) raw-HTML mining — fill structured fields the JSON-LD/meta path missed.
+    # Boards like Indeed ship no JobPosting JSON-LD, so pay/location/benefits
+    # only surface here. Never overwrites a value the structured path already set.
+    for key, val in _mine_raw_fields(html).items():
+        if val and not out.get(key):
+            out[key] = val
     return out
 
 
