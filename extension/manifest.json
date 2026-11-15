@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Project Harbor Connect",
-  "version": "1.6.4",
+  "version": "1.6.5",
   "description": "Connect a job board, pull jobs you view, fill in pay/benefits on your matches, research employers, fill applications with your details — you submit, never a password.",
   "homepage_url": "https://hlrtlg.readdy.co",
   "icons": {

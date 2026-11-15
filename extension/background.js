@@ -171,20 +171,33 @@ function waitTabComplete(tabId, timeoutMs) {
 // Some boards (Indeed, LinkedIn) block a background `fetch` (anti-bot + CORS on their
 // cts.* redirectors) even with cookies. A real tab navigation isn't blocked: open the
 // URL in an inactive background tab, let it resolve + render, read its HTML, close it.
+// A board job page resolves through a redirector (cts.indeed.com → /viewjob) and then
+// hydrates — and a background/inactive tab is throttled, so a single read right after
+// "complete" often catches the redirect page, not the posting. Poll the tab's HTML
+// until it actually carries job content (up to ~10s), returning as soon as it does.
+const _JOB_CONTENT_RE = /salaryInfoModel|salaryText|jobDescriptionText|formattedLocation|"@type"\s*:\s*"JobPosting"/i;
+
 async function fetchViaTab(url) {
   let tab;
   try { tab = await chrome.tabs.create({ url, active: false }); }
   catch (_) { return ""; }
   try {
     await waitTabComplete(tab.id, 15000);
-    await new Promise((r) => setTimeout(r, 900)); // let a client-rendered page settle
-    try {
-      const res = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => document.documentElement.outerHTML,
-      });
-      return ((res && res[0] && res[0].result) || "").slice(0, 1500000);
-    } catch (_) { return ""; }
+    let last = "";
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 800));
+      let html = "";
+      try {
+        const res = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => document.documentElement.outerHTML,
+        });
+        html = (res && res[0] && res[0].result) || "";
+      } catch (_) { html = ""; }
+      if (html.length > 50000) last = html; // keep the fullest page seen as a fallback
+      if (html.length > 20000 && _JOB_CONTENT_RE.test(html)) return html.slice(0, 1500000);
+    }
+    return last.slice(0, 1500000);
   } finally {
     try { await chrome.tabs.remove(tab.id); } catch (_) { /* tab may already be gone */ }
   }
