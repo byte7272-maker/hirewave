@@ -7655,3 +7655,43 @@ On **"yes"** (voice, typed, or either chip), resolve through `interpret` with `c
 - There is **no "Select…"** label for this action anywhere; it reads **"Make Current"**, and the current item shows a **"Current"** badge instead of a button.
 - Document-level "Make Current" issues `POST /resumes/{id}/set-primary`; version-level issues `.../versions/{version}/activate` — visible in the network panel.
 - A sample résumé never shows "Make Current".
+
+---
+
+## P243 — The document under discussion is always FOCUSED (readable + editable) and the assistant highlights in it; separate "read the summary" from "review the content"
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. Builds on **P240** (offer to read a doc's AI summary), **P4** (interactive bullet overlay on the preview), **P7/P2.3** (one shared readable+editable render). No new backend — highlighting is client-side; the review data comes from `POST /resumes/{id}/review`.
+
+**The problems to fix:**
+1. The assistant walks through reviewing the résumé and asks the user to **drag bullets into the assistant window**, while the **actual résumé is never brought into readable, editable focus**. That's backwards — the document should be the focus and the assistant should act **in** it.
+2. The assistant conflates **"read me the summary"** with **"review the bullets/content"** — two different things that need different behavior.
+
+### 1. Two distinct intents — never conflate them
+- **Read the AI summary** (P240): the user wants to *hear/read the assessment*. Narrate the review `summary` (and optionally `content_summary`, `score`, top `strengths`) from `POST /resumes/{id}/review?narrative=true` (or `/cover-letters/{id}/review`). This is a **read-out** — it does not pull content into the assistant window. (Bringing the doc into view alongside is fine, but the point is the spoken/shown summary.)
+- **Review the content** (bullets, wording, sections — "review my bullets", "go through my experience", "tighten this section"): an **interactive, in-document** review. This REQUIRES the document to be focused in readable **and editable** form, with the assistant navigating to and **highlighting** the exact content it's discussing. Do **not** ask the user to drag bullets into the assistant window.
+- Route the user's words to the right one; when ambiguous, ask a one-line clarifier ("Want me to *read you the summary*, or *walk your bullets* in the résumé?") with two chips.
+
+### 2. The discussed document is ALWAYS brought into focus
+- Whenever the assistant references a specific document's **content** (any review/bullet/section/wording flow), it first **brings that document into the main readable + editable render** (the Workspace/preview shared view) — navigating/opening it if it isn't already current — and keeps it focused for the duration.
+- The assistant never discusses a document that is off-screen or only named in the assistant window. If it's talking about it, the user is **looking at it**, in editable form.
+- Use the P241 **primary** résumé as the default target when the user says "my résumé" without naming one.
+
+### 3. The assistant can navigate to and HIGHLIGHT content in the focused document
+Expose client-side actions the assistant drives as it talks (wire them through the same dispatcher as every other assistant action):
+- **`focus_document { doc_type, doc_id }`** — open/switch the shared render to this document (editable), scroll to top.
+- **`highlight { doc_id, target }`** where `target` is one of:
+  - a **word/phrase or sentence** → find the text in the rendered document, scroll it into view, and apply a visible highlight;
+  - a **bullet** → highlight that bullet via the interactive bullet overlay (P4);
+  - a **section** → highlight the heading + its block (match by heading text).
+- Highlighting is **text-match based** (the review suggestions carry the wording/subject, not offsets): locate the target by its text, pick the best match, and highlight it. Clear the previous highlight when moving to the next item.
+- As the assistant speaks about an item (a weak bullet, a missing keyword, a long sentence), it **highlights that exact item in the document in sync** with the narration, and scrolls so it's visible.
+
+### 4. Edits happen IN the focused, editable document
+- When the user accepts a change to a highlighted bullet/sentence, apply it **in place** in the editable render (then persist via the normal save path — `POST /resumes/{id}/versions`, or the bullet/structured-edit endpoints), not by moving text into the assistant window.
+- The interactive bullet overlay (P4) stays the mechanism for bullet-level edits, but it lives **on the focused document**, with the assistant highlighting which bullet it means.
+
+### Acceptance
+- Saying "read me the summary" narrates the review `summary` and does **not** pull content into the assistant window.
+- Saying "review my bullets" (or any content-review ask) **opens the résumé in the readable, editable render** and the assistant **highlights each bullet/sentence/section as it discusses it**, scrolling it into view — never asking the user to drag content into the assistant window.
+- The document being spoken about is always on screen and editable; "my résumé" resolves to the P241 primary.
+- Accepting a change edits the highlighted content in place and saves a new version; the highlight is visible and moves item to item.
