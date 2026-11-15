@@ -206,6 +206,19 @@ _TITLE_WORD = re.compile(
 # "<subject> — surfaced from a <kind> email …" — lets us recover the subject later.
 _SURFACED_RE = re.compile(r"^(.*?)\s+[—-]\s+surfaced from a .*? email", re.I)
 
+# Marketing / notification subjects that are NOT jobs even when a sender or a stray
+# keyword trips the classifier ("…$300 Free Trial", "Make your PDFs invite-only",
+# "JOBS ALERT: take the next step…", "Verify your email"). Used to keep promo blasts
+# out of the match list.
+_PROMO_SUBJECT = re.compile(
+    r"free trial|welcome credit|invite[- ]only|gift card|webinar|newsletter|unsubscrib"
+    r"|verify your|confirm your (?:email|account|subscription)|reset your password"
+    r"|your receipt|account statement|take the next step|complete your profile"
+    r"|is waiting for you|limited time|\d+% off|% off\b|sale ends|upgrade (?:now|today)"
+    r"|new feature|whats new|what's new",
+    re.I,
+)
+
 
 def _subject_title(subject: str, company: str = "") -> str:
     """Reduce a recruiter/single-role subject to just the job title: drop Re:/Fwd:
@@ -327,6 +340,15 @@ def email_to_posting(c: "JobEmail") -> Optional[dict]:
     # Prefer the subject-derived title (richer, un-truncated) over the regex role.
     title = better_title(c.subject or "", c.company or "", c.role or "")
     if len(title) < 3 or title.lower() in ("the", "a", "an"):
+        return None
+    # Honor the contract: only a CONCRETE ROLE becomes a match card. A marketing or
+    # notification blast ("…$300 Free Trial", "Make your PDFs invite-only", "JOBS ALERT:
+    # take the next step…", "Indeed") carries no role — reject it so it never becomes a
+    # job. A real single-role/recruiter email names a role (a role word) or one the
+    # regex pulled out.
+    if _PROMO_SUBJECT.search(f"{c.subject or ''} {title}"):
+        return None
+    if not (_TITLE_WORD.search(title) or (c.role or "").strip()):
         return None
     dom = (c.sender_domain or "").lower()
     # Clean source label: a known board when the sender is one, else "email" (so a

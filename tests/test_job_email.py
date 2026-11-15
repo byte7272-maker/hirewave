@@ -128,6 +128,33 @@ def test_email_to_posting_from_recruiter_outreach():
     assert email_to_posting(alert) is None
 
 
+def test_email_to_posting_rejects_promo_and_notification_blasts():
+    from jobsearch.engines.sourcing.job_email import email_to_posting
+    # Marketing/notification emails that trip a stray keyword must never become match
+    # cards (the real-world leak: these reappeared on a live scan as fake jobs).
+    promos = [
+        ("noreply@google.com",
+         "Important update to your Google Cloud $300 Free Trial Welcome credit",
+         "Apply your free credit now."),
+        ("news@adobe.com", "Make your PDFs invite-only", "A new feature is waiting for you."),
+        ("alerts@indeed.com",
+         "JOBS ALERT: Take the next step in your career with Optimum", "See jobs"),
+        ("noreply@indeed.com", "Indeed", "footer link"),
+    ]
+    for sender, subject, body in promos:
+        c = classify_job_email(sender, subject, body)
+        assert email_to_posting(c) is None, f"promo leaked into matches: {subject!r}"
+
+
+def test_email_to_posting_keeps_real_role_from_personal_sender():
+    from jobsearch.engines.sourcing.job_email import email_to_posting
+    # A genuine single-role email still becomes a card even without a board sender.
+    c = classify_job_email("talent@acme.com", "Operations Manager opportunity",
+                           "We'd love to chat about an Operations Manager role at Acme.")
+    p = email_to_posting(c)
+    assert p and "Operations Manager" in p["title"]
+
+
 def test_scan_surfaces_recruiter_emails_as_matches():
     # The mock mailbox includes a recruiter email (Staff Engineer @ Globex). After scan it
     # should become a real match card, not just an inbox entry.

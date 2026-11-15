@@ -92,11 +92,15 @@ function parseSearchResults(html, max) {
   return results;
 }
 
-async function fetchText(url, timeoutMs) {
+// `creds` defaults to "omit" (open-web research stays cookieless for privacy). The
+// job-enrichment path passes "include" so boards the user is signed into (Indeed,
+// LinkedIn) serve the real posting instead of a bot-challenge — the cookies go only to
+// the board (first party), never to our server; we receive just the HTML.
+async function fetchText(url, timeoutMs, creds) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs || 12000);
   try {
-    const res = await fetch(url, { method: "GET", credentials: "omit", redirect: "follow", signal: ctrl.signal });
+    const res = await fetch(url, { method: "GET", credentials: creds || "omit", redirect: "follow", signal: ctrl.signal });
     const ct = res.headers.get("content-type") || "";
     if (!/text\/html|text\/plain|application\/xhtml/i.test(ct) && ct) {
       return { ok: false, status: res.status, error: "unsupported content type" };
@@ -162,7 +166,7 @@ async function enrichJobs(max) {
     if (!it || !it.url || !it.job_id) continue;
     let html = "";
     try {
-      const r = await fetchText(it.url, 12000); // follows cts.* redirects to the real posting
+      const r = await fetchText(it.url, 12000, "include"); // cookied: follows cts.* to the real posting the user can see
       if (r.ok && r.body) html = r.body;
     } catch (_) { html = ""; }
     if (!html) { failed++; continue; }
