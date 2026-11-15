@@ -105,6 +105,11 @@ class Resume(DomainModel):
     approved: bool = False  # human-in-the-loop gate
     archived: bool = False  # hidden from the main list, kept on the Archived shelf
     is_sample: bool = False  # a seeded demo document; replaced when the user adds a real one
+    #: The user's PRIMARY résumé — the one the app selects by default everywhere
+    #: (assistant, matches tailoring, "open my résumé"). Exactly one real résumé is
+    #: primary; set explicitly by the user, else resolved to their first real résumé
+    #: so selection never depends on which was most-recently created/opened.
+    is_primary: bool = False
     flagged: bool = False  # marked "needs attention" by the user
     created_at: datetime = Field(default_factory=utcnow)
 

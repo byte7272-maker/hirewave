@@ -7592,3 +7592,31 @@ On **"yes"** (voice, typed, or either chip), resolve through `interpret` with `c
 - The **"📄 Read the AI summary"** chip performs the same action when tapped, and remains available after the one-time spoken offer.
 - Switching away from and back to the same document does **not** re-ask; a different document asks once for itself.
 - Every chip issues its expected call in the network panel (no dead chips).
+
+---
+
+## P241 — Select the user's PRIMARY résumé by default; let them pin it (fixes "a sample/newer résumé keeps getting selected")
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. **No new backend is needed for the data** — these endpoints are LIVE.
+
+**The bug:** the default "current résumé" was resolved by **recency** (newest-active), so a newer test/duplicate résumé (not flagged as a sample) could steal selection from the user's real one. The backend now supports an explicit **primary** résumé that overrides recency.
+
+### 1. Default selection = the primary résumé
+- Everywhere the app auto-selects a résumé (the Workspace/Documents default, "open my résumé", the assistant's "my résumé", matches tailoring), use the user's **primary**:
+  - `GET /resumes/primary` → the one résumé to default to (an explicit/sole primary, else the current-first). Use this instead of "take `GET /resumes`[0] by recency".
+  - `GET /resumes` already returns **primary first** (then the recency order), so `[0]` is also correct — but prefer `/resumes/primary` for a single, unambiguous answer.
+- `is_primary: true` is now a field on each résumé in the list/detail responses.
+
+### 2. Show it + let the user change it
+- On each résumé card/row, show a **"Primary"** badge when `is_primary` is true.
+- Add a **"Set as primary"** action on every non-primary real résumé → `POST /resumes/{resume_id}/set-primary` (clears the flag on the others, server-side). On success, re-fetch the list and move the badge; the newly-primary résumé becomes the default selection immediately.
+- A **sample** résumé can't be primary (the endpoint 400s) — don't show the action on samples.
+
+### 3. Don't let a new upload silently steal "current"
+- Creating/uploading a new résumé does **not** change the primary (the server only auto-pins when it's the user's *first* real résumé). So a quick test résumé never hijacks selection — the user's real primary stays selected until they explicitly pin another.
+
+### Acceptance
+- With two real résumés, the one the user pinned via **Set as primary** is the one the app opens/edits by default, even if the other is newer or was edited more recently.
+- `GET /resumes/primary` and `GET /resumes`[0] agree, and the primary shows a **Primary** badge.
+- Uploading another résumé doesn't change which one is selected by default.
+- "Set as primary" on résumé B clears it on A (only one primary); the call is visible in the network panel.

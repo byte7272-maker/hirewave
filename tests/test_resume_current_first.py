@@ -83,3 +83,57 @@ def test_include_sample_opt_in():
     withs = c.get("/api/v1/resumes", headers=h, params={"include_sample": True}).json()
     assert any(r["is_sample"] for r in withs)
     assert len(withs) == len(default) + 1  # the hidden seeded sample reappears
+
+
+# --- primary résumé: an explicit choice that overrides recency ------------------
+def test_set_primary_overrides_recency_in_listing():
+    # The reported bug: a NEWER (test/sample-ish) résumé steals "current". Pinning the
+    # real one as primary makes it current regardless of which was edited last.
+    c, st = _client()
+    h = _auth(c)
+    uid = _uid(st)
+    now = utcnow()
+    older = Resume(user_id=uid, target_role="My Real Résumé", created_at=now - timedelta(days=30))
+    st.resumes.add(older)
+    st.resumes.add(Resume(user_id=uid, target_role="Newer Test", created_at=now))
+    # default (nothing pinned) keeps the recency behavior: newest is current
+    assert c.get("/api/v1/resumes", headers=h).json()[0]["target_role"] == "Newer Test"
+    # pin the older, real one -> it becomes current and the other is cleared
+    r = c.post(f"/api/v1/resumes/{older.id}/set-primary", headers=h)
+    assert r.status_code == 200 and r.json()["is_primary"] is True
+    out = c.get("/api/v1/resumes", headers=h).json()
+    assert out[0]["target_role"] == "My Real Résumé" and out[0]["is_primary"] is True
+    assert all(rr["target_role"] != "Newer Test" or rr["is_primary"] is False for rr in out)
+
+
+def test_primary_endpoint_returns_pinned_resume():
+    c, st = _client()
+    h = _auth(c)
+    uid = _uid(st)
+    st.resumes.add(Resume(user_id=uid, target_role="A"))
+    b = Resume(user_id=uid, target_role="B")
+    st.resumes.add(b)
+    c.post(f"/api/v1/resumes/{b.id}/set-primary", headers=h)
+    prim = c.get("/api/v1/resumes/primary", headers=h).json()
+    assert prim["id"] == b.id and prim["is_primary"] is True
+
+
+def test_sole_real_resume_is_auto_primary():
+    c, st = _client()
+    h = _auth(c)
+    uid = _uid(st)
+    only = Resume(user_id=uid, target_role="Only Real")
+    st.resumes.add(only)
+    out = c.get("/api/v1/resumes", headers=h).json()  # triggers ensure_primary
+    assert len(out) == 1 and out[0]["is_primary"] is True
+
+
+def test_set_primary_rejects_another_users_resume():
+    c, st = _client()
+    h = _auth(c)
+    c.post("/api/v1/auth/register", json={"email": "z@x.com", "password": "supersecret", "full_name": "Z"})
+    tokz = c.post("/api/v1/auth/login", json={"email": "z@x.com", "password": "supersecret"}).json()
+    hz = {"Authorization": f"Bearer {tokz['access_token']}"}
+    mine = Resume(user_id=_uid(st), target_role="Mine")
+    st.resumes.add(mine)
+    assert c.post(f"/api/v1/resumes/{mine.id}/set-primary", headers=hz).status_code == 404

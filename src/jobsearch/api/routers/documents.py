@@ -1148,12 +1148,54 @@ def _current_first(docs: list, *, include_sample: bool) -> list:
 
     This is the single 'which document is current' rule the UI and the assistant both
     rely on — so 'show/edit my résumé' resolves to the user's real current document,
-    never a seeded sample (the reported bug)."""
+    never a seeded sample (the reported bug). A résumé marked ``is_primary`` wins
+    outright, so the default never drifts to a newer test résumé by recency."""
     reals = [d for d in docs if not getattr(d, "is_sample", False)]
     if reals and not include_sample:
         docs = reals
-    # real before sample, then newest first
-    return sorted(docs, key=lambda d: (getattr(d, "is_sample", False), -_doc_ts(d)))
+    # primary first, then real before sample, then newest-active first
+    return sorted(
+        docs,
+        key=lambda d: (not getattr(d, "is_primary", False), getattr(d, "is_sample", False), -_doc_ts(d)),
+    )
+
+
+def ensure_primary_resume(state: StateDep, user_id: str) -> Optional[str]:
+    """Resolve (and persist) the user's explicit PRIMARY résumé, if they have one.
+
+    A primary set by the user wins over recency everywhere. This never *invents* a
+    primary when several résumés exist and none is pinned — that case keeps the
+    recency default (``_current_first``) so existing behavior is unchanged. It only:
+      • auto-marks the sole real résumé as primary (trivially true, and pins it so a
+        later test résumé can't steal "current" by recency — the reported bug), and
+      • de-duplicates if data drift left more than one flagged (keeps the earliest).
+    Returns the primary résumé's id, or None when there's no single/explicit primary."""
+    reals = [r for r in state.resumes.find(user_id=user_id) if not getattr(r, "is_sample", False)]
+    if not reals:
+        return None
+    primaries = [r for r in reals if getattr(r, "is_primary", False)]
+    if len(primaries) == 1:
+        return primaries[0].id
+    if len(primaries) > 1:  # drift → keep the earliest, demote the rest
+        keep = min(primaries, key=_doc_created_ts)
+        for r in primaries:
+            if r.id != keep.id:
+                r.is_primary = False
+                state.resumes.add(r)
+        return keep.id
+    if len(reals) == 1:  # a sole real résumé is trivially primary — pin it
+        reals[0].is_primary = True
+        state.resumes.add(reals[0])
+        return reals[0].id
+    return None  # several reals, none pinned → leave the recency default in place
+
+
+def _doc_created_ts(doc) -> float:
+    """The document's own created_at as a sortable number (0 when unknown)."""
+    try:
+        return getattr(doc, "created_at").timestamp()  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001
+        return 0.0
 
 
 @router.get("/resumes", response_model=list[Resume])
@@ -1163,6 +1205,7 @@ def list_resumes(
     flagged: Optional[bool] = Query(None, description="true=only flagged (needs attention)"),
     include_sample: bool = Query(False, description="include seeded sample résumés even when real ones exist"),
 ) -> list[Resume]:
+    ensure_primary_resume(state, user.id)  # stable default: one primary real résumé
     resumes = state.resumes.find(user_id=user.id)
     if archived is not None:
         resumes = [r for r in resumes if r.archived == archived]
@@ -1170,6 +1213,38 @@ def list_resumes(
         resumes = [r for r in resumes if r.flagged == flagged]
     resumes = _current_first(resumes, include_sample=include_sample)
     return [ensure_resume_grade(state, ensure_rendered_text(state, r)) for r in resumes]
+
+
+@router.get("/resumes/primary", response_model=Resume)
+def primary_resume(user: CurrentUser, state: StateDep) -> Resume:
+    """The user's PRIMARY résumé — the one the app selects by default everywhere.
+    An explicitly-set (or sole) primary wins; otherwise this returns the current-first
+    résumé (newest-active real one), so the caller always gets a single answer."""
+    pid = ensure_primary_resume(state, user.id)
+    if pid:
+        return ensure_resume_grade(state, ensure_rendered_text(state, state.resumes.get(pid)))
+    reals = _current_first(
+        [r for r in state.resumes.find(user_id=user.id)], include_sample=False
+    )
+    if not reals:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no résumé yet")
+    return ensure_resume_grade(state, ensure_rendered_text(state, reals[0]))
+
+
+@router.post("/resumes/{resume_id}/set-primary", response_model=Resume)
+def set_primary_resume(resume_id: str, user: CurrentUser, state: StateDep) -> Resume:
+    """Make this résumé the user's primary (the default everywhere), clearing the flag
+    on their other résumés. Scoped to the caller's own résumés."""
+    resume = get_resume(resume_id, user, state)  # 404s if not the caller's
+    if getattr(resume, "is_sample", False):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "a sample résumé can't be primary")
+    for r in state.resumes.find(user_id=user.id):
+        if getattr(r, "is_primary", False) and r.id != resume.id:
+            r.is_primary = False
+            state.resumes.add(r)
+    resume.is_primary = True
+    state.resumes.add(resume)
+    return ensure_rendered_text(state, resume)
 
 
 def _migrate_inline_html(state: StateDep, doc, *, text_attr: str = "rendered_text") -> None:
