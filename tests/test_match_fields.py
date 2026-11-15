@@ -301,8 +301,13 @@ def test_digest_drops_footer_tracking_links_keeps_real_job():
         '<a href="https://cts.indeed.com/v3/pauseTOKEN">Pause these emails</a>'
         '<a href="https://cts.indeed.com/v3/resumeTOKEN">Indeed Resume</a>'
         '<a href="https://cts.indeed.com/v3/locTOKEN">Location</a>'
-        '<a href="https://cts.indeed.com/v3/privTOKEN">Privacy</a>'
+        '<a href="https://cts.indeed.com/v3/privTOKEN">Privacy&nbsp;Policy</a>'
         '<a href="https://cts.indeed.com/v3/yesTOKEN">Yes</a>'
+        '<a href="https://cts.indeed.com/v3/editTOKEN">Edit profile</a>'
+        '<a href="https://cts.indeed.com/v3/commuteTOKEN">Commute time</a>'
+        '<a href="https://cts.indeed.com/v3/payTOKEN">Minimum base pay</a>'
+        '<a href="https://cts.indeed.com/v3/expTOKEN">Recent work experience</a>'
+        '<a href="https://cts.indeed.com/v3/helpTOKEN">Help Center</a>'
         "</body></html>"
     )
     parsed = parse_job_alert(eml)

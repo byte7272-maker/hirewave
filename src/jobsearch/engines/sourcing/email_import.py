@@ -67,26 +67,36 @@ _CTA = {
 # These anchor texts must never become "jobs" ("Terms", "Location", "Pause these emails",
 # "Indeed Resume", "Yes", …). Exact generic labels, plus phrase fragments.
 _BOILERPLATE_EXACT = {
-    "terms", "privacy", "cookies", "cookie policy", "help", "help center", "contact",
-    "contact us", "feedback", "give feedback", "account", "my account", "profile",
-    "settings", "home", "about", "about us", "careers", "blog", "location", "yes", "no",
-    "sign in", "log in", "sign up", "create account", "learn more", "view more",
-    "see more", "more jobs", "view all jobs", "see all jobs", "browse jobs",
-    "indeed resume", "your resume", "post your resume", "follow us", "download",
-    "get the app", "download the app", "my jobs", "saved jobs", "messages",
+    "terms", "privacy", "privacy policy", "cookies", "cookie policy", "help",
+    "help center", "contact", "contact us", "feedback", "give feedback", "account",
+    "my account", "profile", "edit profile", "settings", "home", "about", "about us",
+    "careers", "blog", "location", "commute time", "yes", "no", "sign in", "log in",
+    "sign up", "create account", "learn more", "view more", "see more", "more jobs",
+    "view all jobs", "see all jobs", "browse jobs", "indeed resume", "your resume",
+    "post your resume", "recent work experience", "follow us", "download", "get the app",
+    "download the app", "my jobs", "saved jobs", "saved", "messages", "job details",
+    "full job description", "report job", "report this job", "company reviews",
+    "similar jobs", "minimum base pay", "apply on company site", "easily apply",
+    "easy apply", "skills", "benefits", "qualifications", "share", "save",
 }
 _BOILERPLATE_FRAGMENT = re.compile(
     r"unsubscrib|manage (?:alert|preference|setting|subscription|email)|pause (?:these )?email"
     r"|email preference|notification setting|update (?:your )?preference|do not sell"
     r"|privacy (?:policy|center|notice)|terms of (?:service|use)|cookie|opt[\s-]?out"
-    r"|app ?store|google play|upload your resume|turn off|stop (?:these )?email",
+    r"|app ?store|google play|upload your resume|turn off|stop (?:these )?email"
+    r"|recent work experience|edit (?:your )?profile|commute time|minimum base pay"
+    r"|this is a bad match",
     re.I,
 )
 
 
 def _is_boilerplate_anchor(text: str) -> bool:
-    """True when an anchor is clearly footer/legal/navigation chrome, not a job title."""
-    t = text.strip().lower().rstrip(" .!?›»")
+    """True when an anchor is clearly footer/legal/navigation chrome, not a job title.
+
+    Normalises non-breaking spaces and runs of whitespace first — digests (Indeed)
+    pepper labels with ``\\u00a0`` so a naive compare misses "Privacy\\u00a0Policy"."""
+    t = (text or "").replace(" ", " ").replace("​", " ")
+    t = re.sub(r"\s+", " ", t).strip().lower().rstrip(" .!?›»")
     return t in _BOILERPLATE_EXACT or bool(_BOILERPLATE_FRAGMENT.search(t))
 _SPLIT = re.compile(r"\s*[·•|–—]\s*|\s+[-]\s+|\s+ in \s+|\s+ at \s+", re.I)
 _BOARDS = {
