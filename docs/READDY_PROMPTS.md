@@ -7524,3 +7524,35 @@ Web research is **off by default** (the `web_research` consent scope).
 - **Refresh matches** also runs the extension pass and the cards update.
 - With no extension, the button shows the install/enable hint and the app still works (no error, server pass still runs).
 - Every fetched page is the user's own job; nothing touches another user's matches.
+
+## P239 — Setup wizard = a focused FULL-PAGE flow (one decision at a time, nothing else on screen)
+
+**Frontend only.** The main user is **non-technical**. The setup wizard must feel calm and obvious — a full-page, distraction-free flow that hides the rest of the app so a first-timer is never overwhelmed by all the features at once. (The product's north star: the unsophisticated user's experience comes first.)
+
+### 1. Make it a full page, not a modal in the app
+- The wizard owns the **entire viewport** on its own route (e.g. `/welcome` or `/setup`). While it's open, **hide every other app surface**: top nav, side nav, the right/assistant panels, Mission-Control widgets, match lists, footers — none of it is visible or reachable behind the wizard. No app chrome peeking at the edges.
+- The only controls on screen are the wizard's own: **Back**, **Continue**, and (where a step is optional) **Skip**. No way to wander into the full app mid-setup. No global search, no notifications, no shortcuts.
+- A small, quiet **progress indicator** (e.g. "Step 2 of 5" or dots) so they know it's short and where they are.
+
+### 2. One decision per screen, in plain language
+- Each step asks for **one thing**, with a short plain-English heading, one sentence of help, and **large tap targets**. Never show a wall of toggles or a dense form. Prefer big buttons/cards over tiny checkboxes.
+- Sensible **defaults** are pre-selected; the user can just press **Continue**. Optional/advanced items default off and are explained in one plain sentence — never jargon.
+- Generous spacing, large text, high contrast; works full-screen at **phone width** too (full-page there as well, not a cramped modal).
+
+### 3. Suggested step order (keep it to ~5, minimal choices each)
+1. **Welcome** — one line on what Hirewave does + a single **Get started** button.
+2. **What you're looking for** — role/title + location (feeds your matches). Plain fields, with examples.
+3. **Bring in your jobs** — forward job alerts to your address / connect an inbox, **or Skip** (you can do it later). Show the forwarding address big and copyable.
+4. **Optional power-ups** — one plain toggle: *"Let the assistant look up companies on the web"* (**off by default**; `PUT /api/v1/assistant/consent`). One sentence: "It only searches when you ask." Nothing else here.
+5. **You're set** — a reassuring summary and a single **Go to my dashboard** button.
+
+### 4. Entry, exit, and not re-triggering
+- New accounts land in the wizard automatically **once**; mark it complete so it never reappears (persist a `setup_complete` flag; re-entry is only via a Settings link).
+- Finishing drops the user on the dashboard with the assistant ready — and the assistant's first greeting runs **once** (P237 §1), not a second onboarding on top.
+- **Skip** on any optional step is always available and never dead-ends; required steps (just roles/location) use a disabled **Continue** until filled, with a gentle hint.
+
+### Acceptance
+- Opening setup fills the whole screen; no nav, panels, or app content are visible or clickable behind it, at desktop and phone widths.
+- Each step presents one decision with large controls and a default; a user can complete setup by pressing Continue through it.
+- The web-research toggle is off by default and saves via `PUT /assistant/consent`.
+- After finishing, the wizard never reappears on later logins, and the dashboard greeting plays once.
