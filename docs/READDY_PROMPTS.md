@@ -8273,3 +8273,57 @@ It must instead **make the research calls**, against a **real** company, and **r
 - When audio is **locked/suspended**, a clear **"Tap to enable sound"** prompt appears and a single tap unlocks + primes + starts the voice.
 - When audio is unlocked but a **silent-probe** shows no output, the user sees plain guidance about the **silent switch / volume** — not silence with no explanation.
 - The **badge always shows a muted indicator with a one-tap enable** when sound is off, and the narration is **shown as text** so the assistant works even while muted.
+
+---
+
+## P261 — ⚠ FOUNDATIONAL: the assistant must REMEMBER it asked a question (pending state), show the green "awaiting" swirl, route the next input to that question, and actually run it
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend state machine. The backend already works — verified live:** `POST /assistant/interpret` with `context.pending = { intent, slots }` and transcript `"yes"` **returns the pending `on_yes` intent and acts** (e.g. `start_playbook` / "Okay — walking through your matches."); the same `"yes"` **without** `context.pending` returns a do-nothing `confirm` ("Got it."). So the bug is entirely that the client **doesn't track the pending question and doesn't send `context.pending`**. Supersedes the failing parts of **P226/P229/P232/P237**; builds on **P245** (the badge ring), **P225/P231** (walkthroughs), **P248** (interruptions).
+
+**The observed failure:** the assistant asks, the user says yes, it **asks again**, then **does nothing** (e.g. "do the walkthrough" → nothing happens). Root cause: it isn't **aware it is waiting** — there's no pending state — so it never sends the pending context, never resolves the yes, and the green "awaiting answer" visual never shows.
+
+### 1. One explicit "pending question" state (the fix)
+- When the assistant asks ANY question (an offer, a walkthrough "ready?", a clarifier), **store a pending object**: `{ prompt, intent, slots }` — the `on_yes` action from the offer/manifest (e.g. `{intent:"start_playbook", slots:{playbook:"walk_matches"}}`), plus `asked_at`. This is the single source of truth for "I am waiting for an answer."
+- While a pending question exists, the assistant is in **AWAITING** mode. Clear it only when the question is resolved, replaced, or explicitly cancelled.
+
+### 2. Show the green "awaiting" swirl whenever AWAITING
+- Whenever a pending question exists, the badge/ring shows its **green swirling/awaiting state** (P245: green = expecting an answer). It's not showing today **because the pending state isn't tracked** — drive the green directly off the pending object: pending set → green swirl on; pending cleared → green off. (Red while actually recording, per P245.)
+
+### 3. Route the next input to the pending question — answer vs. new question
+- The next input (voice stream OR typed) while AWAITING is **interpreted against the pending question**: call `interpret` **with `context.pending`** (and `context.section`). Never send a bare `"yes"` without the pending context — that's what returns the do-nothing `confirm`.
+- **Decide answer vs. new request:**
+  - An **answer** (yes/yeah/sure/do it/no/not now, a chosen option, or a direct reply to the question) → it **resolves the pending**: run the returned `on_yes` intent (§4), then **clear pending + green**.
+  - A clearly **new/unrelated request** → treat as a new command (and, if a flow is mid-run, P248 interrupt handling: confirm the switch). Don't force an unrelated utterance to be the answer.
+  - When unsure, lean on the server: pass `context.pending` and let `interpret` resolve — a real "yes" comes back as the pending action, a new intent comes back as that intent.
+
+### 4. ACT on the first answer — and actually run the walkthrough
+- On a resolved **yes**, **run the returned intent immediately** (first answer, no re-ask, no re-announce — P237/P229). If it's `start_playbook` → **start that walkthrough** (P225/P231): run it, don't just speak that you will. "Do the walkthrough" must **do** the walkthrough.
+- On **no/decline**, acknowledge and clear pending (don't re-ask).
+- **Never ask the same question twice:** once a pending question is set, a second render must reuse it, not create a new one; once resolved, it's cleared so the answer can't re-fire.
+
+### 5. Lifecycle
+- Set pending → AWAITING + green. Receive input → interpret-with-pending → resolve (run) or replace (new question) or retry (unintelligible: keep pending, re-prompt once per P252, stay green). On resolve, clear pending + green and run the action. A new question replaces the pending one.
+
+### Acceptance
+- Asking a question puts the assistant in **AWAITING**: the **green swirl shows**, and the pending `{intent, slots}` is held.
+- Saying/tapping **yes** sends `interpret` **with `context.pending`**, gets back the pending action, and **runs it on the first yes** — no second confirmation, no "does nothing". "Do the walkthrough" **starts the walkthrough**.
+- The green "awaiting" state is visible exactly while a question is pending and clears when answered.
+- A new/unrelated utterance while awaiting is handled as a new request (P248), not jammed into the old question; an unintelligible one keeps the question pending and re-prompts once.
+- The same question is never asked twice; a resolved answer can't re-fire.
+
+---
+
+## P262 — Align the Fit Spread + fit labels to the recalibrated scale (Strong 80 / Good 60 / Fair 40)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend labels only; backend already recalibrated.** The match score is now calibrated so a **strong fit reads 80+** and the backend uses ONE scale — `STRONG_FIT=80`, `SOLID_FIT=60`, `MODERATE_FIT=40` — for both the dashboard strong-count and the per-job verdict.
+
+**The mismatch:** the Fit Spread widget still buckets **"Strong 60+ / Good 45–59 / Fair under 45"**, which no longer matches the backend (strong is now ≥80). Re-bucket to the new scale so the picture and the per-card verdict agree.
+
+### Do this
+- Re-bucket the **Fit Spread** to: **Strong 80+**, **Good 60–79**, **Fair 40–59**, **Stretch under 40** — matching `STRONG_FIT/SOLID_FIT/MODERATE_FIT`.
+- Anywhere a card/label calls a score "strong/solid/…", use the same cutoffs (or better, the backend's `verdict` field) so the label and the number never disagree.
+- Note for context: scores read **low until a target role is set** (the matches aren't ranked against anything yet) — that's expected, not a bug; once the user sets a target they rise. Keep the empty-state copy honest about that.
+
+### Acceptance
+- The Fit Spread buckets read **Strong 80+ / Good 60–79 / Fair 40–59 / Stretch <40**, consistent with the per-card verdict and the dashboard's strong count.
+- No card shows a number and a label that disagree about "strong".
