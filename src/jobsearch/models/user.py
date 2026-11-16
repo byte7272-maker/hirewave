@@ -106,6 +106,13 @@ class UserProfile(DomainModel):
     #: Recently opened items across pages (most-recent first, capped) — powers a
     #: global "jump back in" rail on the dashboard.
     recently_viewed: list[RecentView] = Field(default_factory=list)
+    #: Which résumé the user keeps as the *profile default* on a given job board,
+    #: keyed by board slug ({"linkedin": "res_ab12", ...}). Résumés are tailored per
+    #: JOB, not per site — but a user may deliberately keep a different general résumé
+    #: on specific boards (e.g. a data-focused one on LinkedIn, a PM one on Indeed).
+    #: Empty / unset for a board ⇒ fall back to the user's primary résumé. A per-job
+    #: tailored variant is attached at apply time and never pinned here.
+    board_resume: dict[str, str] = Field(default_factory=dict)
 
     def record_search(self, role: str, *, location: str = "", remote: Optional[bool] = None,
                       cap: int = 25) -> None:

@@ -8327,3 +8327,36 @@ It must instead **make the research calls**, against a **real** company, and **r
 ### Acceptance
 - The Fit Spread buckets read **Strong 80+ / Good 60–79 / Fair 40–59 / Stretch <40**, consistent with the per-card verdict and the dashboard's strong count.
 - No card shows a number and a label that disagree about "strong".
+
+## P263 — "Keep your résumé current" panel: sync résumés across job sites, with a per-site default résumé
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Backend is already live — no server work needed.** Add a panel (on Documents, and a compact card on the Dashboard) that keeps the user's résumé up to date on the job boards they're connected to, and lets them keep a *different* résumé on specific sites.
+
+**The core idea (say it plainly in the UI):** résumés are tailored **per job**, and that tailored copy is attached when you apply. Separately, each job *site* holds one **profile résumé** it reuses — and a user may want a different general résumé on different sites (e.g. a data résumé on LinkedIn, a PM résumé on Indeed). This panel manages those per-site defaults and flags when a site is out of date.
+
+### Data (all endpoints exist)
+- `GET /api/v1/documents/board-sync` → `{ boards:[…], resume_options:[…], drifted, automation_live }`.
+  - Each **board row**: `{ board, label, doc_type, supported, auto, active_version, live_version, in_sync, drifted, manage_url, steps, reason, resume_id, resume_label, pinned }`.
+  - `resume_options`: `[{ resume_id, label, is_primary, job_tailored, active_version }]` — the résumés the user can pin to a site.
+- `PUT /api/v1/documents/board-sync/assignment` body `{board, resume_id}` → pin a résumé as that site's default; `resume_id:""` clears it (falls back to the primary). Returns the updated row.
+- `POST /api/v1/documents/board-sync/prepare` body `{board, doc_type:"resume", resume_id?}` → `{ mode:"assisted"|"automated", connected, download_url, manage_url, steps, … }`. Omit `resume_id` to use the site's pinned default.
+- `POST /api/v1/documents/board-sync` body `{board, doc_type, resume_id?}` → mark that site as now holding the current version (clears the drift badge).
+
+### Build
+1. **Panel list** — one row per connected board that supports a résumé profile (`supported:true`). Show the board name, the **résumé on it** (`resume_label`, with a small "default" chip when `pinned:false`), and a status pill: **In sync** (`in_sync`) or **Out of date** (`drifted`). Rows with `supported:false` (Greenhouse/Workday/Lever-style ATS) are **not** listed as syncable — if you surface them at all, show `reason` ("no reusable profile on this board; your résumé is attached per application").
+2. **Per-site résumé picker** — on each row, a dropdown from `resume_options` to change that site's default. On select → `PUT …/assignment`. If the chosen résumé has `job_tailored:true`, show a gentle hint ("This one's tailored to a single job — a general résumé usually works better as a site-wide default") but still allow it. Changing the pin makes the row `drifted` until pushed.
+3. **Update a site** — on a drifted row, an **Update** button → `POST …/prepare`.
+   - `mode:"assisted"` (the default today): open `manage_url` in a new tab, auto-start a download of `download_url`, and show the `steps` as a short checklist. Provide a **"Mark as updated"** button → `POST /documents/board-sync` with that row's `resume_id`, which flips the pill to In sync.
+   - `mode:"automated"`: (only if `automation_available`) show "Updating…"; on success call the same mark endpoint. Not expected live yet — assisted is the path.
+4. **Header summary** — "N sites out of date" from `drifted`; a **Download résumé** affordance (`.docx`/`.pdf` via the existing export endpoints) for manual uploads elsewhere.
+5. **Cover letters:** do **not** show per-site cover-letter sync — no board keeps a reusable profile cover letter. If asked, state that cover letters are attached per application, not stored on the site.
+
+### Honesty / tone
+- Never claim an automatic push happened unless `mode` came back `automated` and the mark succeeded. Assisted = "we opened the site and downloaded your file; upload it and tell me when it's done."
+- "Out of date" means the site's live version ≠ your résumé's active version (or you re-pinned a different résumé), nothing more.
+
+### Acceptance
+- Connected boards show the résumé currently on each, with a **default** chip when inherited from the primary and a clear label when pinned.
+- Changing a site's résumé persists (reopen → same pin) and marks that site out of date until updated.
+- **Update** opens the site + downloads the right résumé (the pinned one) and shows the steps; **Mark as updated** clears the badge.
+- Pure ATS boards are never shown as syncable; cover letters are never shown as per-site.

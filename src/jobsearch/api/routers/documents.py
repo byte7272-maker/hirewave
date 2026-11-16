@@ -2197,13 +2197,57 @@ def _primary_doc(repo, user_id: str, doc_id: str):
     return mine[-1] if mine else None
 
 
-def _board_rows(state: StateDep, user_id: str, resume, cover_letter) -> list[dict]:
+def _resume_label(resume) -> str:
+    """A short, human label for a résumé so the board panel shows WHICH one is pinned."""
+    if resume is None:
+        return ""
+    name = (getattr(resume, "target_role", "") or "").strip()
+    if not name:
+        name = (getattr(resume, "original_filename", "") or "").strip()
+    return name or "Résumé"
+
+
+def _default_resume(state: StateDep, user_id: str):
+    """The user's default résumé — their explicit PRIMARY when set, else the recency
+    default. This is the fallback for any board with no explicit per-board pin."""
+    pid = ensure_primary_resume(state, user_id)
+    if pid:
+        doc = state.resumes.get(pid)
+        if doc is not None:
+            return doc
+    return _primary_doc(state.resumes, user_id, "")
+
+
+def _resolve_board_resume(state: StateDep, user_id: str, board: str, primary):
+    """The résumé that is the profile default on *board*: the user's explicit per-board
+    pin when set and still valid (owned, not archived), else their primary résumé.
+
+    Résumés are tailored per JOB; this is the general résumé a user chooses to keep on a
+    specific site. Returns (resume, pinned) — ``pinned`` True only for an explicit choice."""
+    profile = state.profiles.get(user_id)
+    pinned_id = (getattr(profile, "board_resume", {}) or {}).get(board) if profile else ""
+    if pinned_id:
+        doc = state.resumes.get(pinned_id)
+        if doc is not None and doc.user_id == user_id and not getattr(doc, "archived", False):
+            return doc, True
+    return primary, False
+
+
+def _board_rows(state: StateDep, user_id: str, primary_resume, cover_letter) -> list[dict]:
     rows: list[dict] = []
     for board in sorted(_connected_boards(state, user_id)):
-        if resume is not None and board_supports(board, "resume"):
-            rows.append(sync_status_for(
-                board, "resume", active_version=resume.active_version,
-                synced=(resume.board_sync or {}).get(board)))
+        if board_supports(board, "resume"):
+            resume, pinned = _resolve_board_resume(state, user_id, board, primary_resume)
+            if resume is not None:
+                row = sync_status_for(
+                    board, "resume", active_version=resume.active_version,
+                    synced=(resume.board_sync or {}).get(board))
+                # Which résumé is (or will be) this board's profile default, and whether
+                # the user explicitly pinned it vs. inheriting their primary.
+                row["resume_id"] = resume.id
+                row["resume_label"] = _resume_label(resume)
+                row["pinned"] = pinned
+                rows.append(row)
         if cover_letter is not None and board_supports(board, "cover_letter"):
             rows.append(sync_status_for(
                 board, "cover_letter", active_version=cover_letter.active_version,
@@ -2211,26 +2255,82 @@ def _board_rows(state: StateDep, user_id: str, resume, cover_letter) -> list[dic
     return rows
 
 
+def _assignable_resumes(state: StateDep, user_id: str) -> list[dict]:
+    """The user's real résumés, as pick-list options for a board's profile default —
+    newest first, each labelled. A per-job tailored variant is flagged so the UI can
+    steer the user toward a general résumé for a site-wide default."""
+    mine = [
+        r for r in state.resumes.find(user_id=user_id)
+        if not getattr(r, "archived", False) and not getattr(r, "is_sample", False)
+    ]
+    mine.sort(key=_doc_created_ts, reverse=True)
+    return [
+        {
+            "resume_id": r.id,
+            "label": _resume_label(r),
+            "is_primary": bool(getattr(r, "is_primary", False)),
+            # Tailored to a single posting ⇒ a poor site-wide default; surfaced, not blocked.
+            "job_tailored": bool(getattr(r, "job_posting_id", None)),
+            "active_version": r.active_version,
+        }
+        for r in mine
+    ]
+
+
 @router.get("/documents/board-sync")
 def board_sync_status(
     user: CurrentUser, state: StateDep,
     resume_id: str = Query(""), cover_letter_id: str = Query(""),
 ) -> dict:
-    """Per connected board: is your résumé / cover letter up to date there, which
-    version is live, and how to update it. Boards with no reusable profile document
-    (pure per-application ATS) are reported as unsupported, not pretended."""
-    resume = _primary_doc(state.resumes, user.id, resume_id)
+    """Per connected board: is your résumé / cover letter up to date there, WHICH résumé
+    is that board's profile default (a user may keep different résumés on different
+    sites), the live version, and how to update it. Boards with no reusable profile
+    document (pure per-application ATS) are reported as unsupported, not pretended."""
+    resume = _primary_doc(state.resumes, user.id, resume_id) if resume_id else _default_resume(state, user.id)
     cover_letter = _primary_doc(state.cover_letters, user.id, cover_letter_id)
     rows = _board_rows(state, user.id, resume, cover_letter)
     return {
         "resume_id": resume.id if resume else "",
         "cover_letter_id": cover_letter.id if cover_letter else "",
         "boards": rows,
+        # Résumés the user can pin as a board's profile default (per-site choice).
+        "resume_options": _assignable_resumes(state, user.id),
         "drifted": sum(1 for r in rows if r["drifted"]),
         # Automated push runs only when the browser-automation runtime is live; else
-        # the rows carry manual steps + a deep link.
+        # the rows carry manual steps + a deep link (assisted upload via the extension).
         "automation_live": state.settings.automation_mode == "live",
     }
+
+
+@router.put("/documents/board-sync/assignment")
+def board_sync_assign(user: CurrentUser, state: StateDep, body: dict) -> dict:
+    """Pin a specific résumé as the profile default for one job board (or clear the pin
+    to fall back to the primary résumé). Résumés are tailored per job; this lets a user
+    deliberately keep a different general résumé on a specific site. Changing the pin
+    marks that board drifted until the new résumé is pushed there.
+    Body: {board, resume_id}. Empty resume_id clears the pin."""
+    board = str(body.get("board", "")).strip().lower()
+    resume_id = str(body.get("resume_id", "")).strip()
+    if not board_supports(board, "resume"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{board} has no reusable résumé profile to pin")
+    profile = state.profiles.get(user.id) or UserProfile(user_id=user.id)
+    mapping = dict(getattr(profile, "board_resume", {}) or {})
+    if resume_id:
+        doc = state.resumes.get(resume_id)
+        if doc is None or doc.user_id != user.id or getattr(doc, "archived", False):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "résumé not found")
+        mapping[board] = resume_id
+    else:
+        mapping.pop(board, None)
+    profile.board_resume = mapping
+    state.profiles.add(profile)
+    resume, pinned = _resolve_board_resume(state, user.id, board, _default_resume(state, user.id))
+    row = sync_status_for(board, "resume",
+                          active_version=resume.active_version if resume else 0,
+                          synced=(resume.board_sync or {}).get(board) if resume else None)
+    if resume is not None:
+        row.update({"resume_id": resume.id, "resume_label": _resume_label(resume), "pinned": pinned})
+    return row
 
 
 @router.post("/documents/board-sync")
@@ -2245,7 +2345,12 @@ def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
     if not board_supports(board, doc_type):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{board} can't sync a {doc_type} profile document")
     if doc_type == "resume":
-        doc = _primary_doc(state.resumes, user.id, str(body.get("resume_id", "")))
+        req_id = str(body.get("resume_id", "")).strip()
+        if req_id:
+            doc = _primary_doc(state.resumes, user.id, req_id)
+        else:
+            doc, _pinned = _resolve_board_resume(
+                state, user.id, board, _default_resume(state, user.id))
         repo = state.resumes
     else:
         doc = _primary_doc(state.cover_letters, user.id, str(body.get("cover_letter_id", "")))
@@ -2255,8 +2360,11 @@ def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
     doc.board_sync = {**(doc.board_sync or {}), board: {
         "version": doc.active_version, "at": utcnow().isoformat(), "status": "synced"}}
     repo.add(doc)
-    return sync_status_for(board, doc_type, active_version=doc.active_version,
-                           synced=doc.board_sync[board])
+    row = sync_status_for(board, doc_type, active_version=doc.active_version,
+                          synced=doc.board_sync[board])
+    if doc_type == "resume":
+        row.update({"resume_id": doc.id, "resume_label": _resume_label(doc)})
+    return row
 
 
 @router.post("/documents/board-sync/prepare")
@@ -2274,7 +2382,13 @@ def board_sync_prepare(user: CurrentUser, state: StateDep, body: dict) -> dict:
     if not board_supports(board, doc_type):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{board} can't sync a {doc_type} profile document")
     if doc_type == "resume":
-        doc = _primary_doc(state.resumes, user.id, str(body.get("resume_id", "")))
+        req_id = str(body.get("resume_id", "")).strip()
+        if req_id:
+            doc = _primary_doc(state.resumes, user.id, req_id)
+        else:
+            # No résumé named ⇒ use this board's pinned profile default (falls back to primary).
+            doc, _pinned = _resolve_board_resume(
+                state, user.id, board, _default_resume(state, user.id))
         base = "resumes"
     else:
         doc = _primary_doc(state.cover_letters, user.id, str(body.get("cover_letter_id", "")))
@@ -2283,9 +2397,23 @@ def board_sync_prepare(user: CurrentUser, state: StateDep, body: dict) -> dict:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"{doc_type} not found")
     row = sync_status_for(board, doc_type, active_version=doc.active_version,
                           synced=(doc.board_sync or {}).get(board))
+    if doc_type == "resume":
+        row.update({"resume_id": doc.id, "resume_label": _resume_label(doc)})
     connected = board in _connected_boards(state, user.id)
     automation_live = state.settings.automation_mode == "live"
     automated = bool(row["auto"]) and automation_live and connected
+    # The downloadable file to upload to the board: the user's ORIGINAL uploaded file
+    # when we have one (best fidelity), else a rendered export. ``/file`` 404s for a
+    # generated résumé, so fall back to a PDF export, which always renders from text.
+    has_stored = False
+    try:
+        has_stored = state.documents.get(doc.id) is not None
+    except Exception:  # noqa: BLE001 - treat a missing store as "no stored file"
+        has_stored = False
+    if has_stored:
+        download_url = f"/api/v1/{base}/{doc.id}/file"
+    else:
+        download_url = f"/api/v1/{base}/{doc.id}/export.pdf"
     return {
         **row,
         "connected": connected,
@@ -2293,5 +2421,5 @@ def board_sync_prepare(user: CurrentUser, state: StateDep, body: dict) -> dict:
         # "automated": the browser-automation runtime can push it; "assisted": we hand the
         # user the file + a deep link + steps to update it themselves (always available).
         "mode": "automated" if automated else "assisted",
-        "download_url": f"/api/v1/{base}/{doc.id}/file",
+        "download_url": download_url,
     }
