@@ -229,6 +229,47 @@ _COMPANY_CTX_RE = re.compile(
 )
 _COMPANY_WORD_RE = re.compile(r"\b(compan(?:y|ies)|employer|headquarter|stock|reviews?|ceo|leadership)\b")
 
+# Strip a leading role-lookup lead-in ("who is the CEO of <X>", "the founder of <X>")
+# so the research target is the COMPANY, not "ceo of <X>".
+_COMPANY_LEAD_RE = re.compile(
+    r"^(?:who (?:is|are)\s+)?(?:the\s+)?"
+    r"(?:ceo|cfo|coo|cto|founder|founders|owner|owners|head|boss|president|leadership|"
+    r"management|exec(?:utive)?s?)\s+(?:of|at|for)\s+",
+    re.I,
+)
+# Strip a trailing descriptor ("… as an employer", "… the company", a dangling "as")
+# without eating a real suffix like "Ford Motor Company" (needs an explicit "the").
+_COMPANY_TRAIL_RE = re.compile(
+    r"\s+as\s+(?:an?\s+)?(?:employer|company|business|startup|firm|organization|org|"
+    r"place(?:\s+to\s+work)?)\s*$"
+    r"|\s+the\s+(?:company|employer|business|firm)\s*$"
+    r"|\s+as\s*$",
+    re.I,
+)
+
+
+def _clean_company_name(name: str) -> str:
+    """Reduce an extracted span to the bare company: drop a role lead-in, a trailing
+    'as an employer' / 'the company' descriptor, a dangling connective, and articles."""
+    n = (name or "").strip(" ?.!,-")
+    n = _COMPANY_LEAD_RE.sub("", n)
+    prev = None
+    while prev != n:  # trailing descriptors can stack ("… as a company the employer")
+        prev = n
+        n = _COMPANY_TRAIL_RE.sub("", n).strip(" ?.!,-")
+    n = re.sub(r"^(?:the|a|an)\s+", "", n, flags=re.I).strip()
+    n = re.sub(r"\s+(?:as|at|for|of)\s*$", "", n, flags=re.I).strip()
+    return n
+
+
+# A reference to the current company rather than a named one: "this company", "it",
+# "the top match". After cleaning, such a span has no real name left.
+_COMPANY_REF_WORDS_RE = re.compile(
+    r"\b(this|that|these|those|the|a|an|compan(?:y|ies)|employer|place|one|job|role|"
+    r"match|top|it|them|here)\b",
+    re.I,
+)
+
 
 # --- document content edit (one prompt handles edits too) ---------------------
 # "update this bullet with the 2025 numbers", "rewrite the summary", "improve bullet 2".
@@ -348,8 +389,6 @@ def _info_search(t: str) -> Optional[IntentResult]:
     document) is left for the app handlers."""
     if not _INFO_TRIG_RE.search(t):
         return None
-    if _COMPANY_CTX_RE.search(t):
-        return IntentResult("research_company", 0.85, {"company": ""})
     q = _INFO_STRIP.sub(" ", t)
     q = re.sub(r"\s+", " ", q).strip(" ?.!,-")
     q = re.sub(r"^(the|a|an|on|about|of|more|some)\s+", "", q).strip()
@@ -359,8 +398,15 @@ def _info_search(t: str) -> Optional[IntentResult]:
         r"\bmy (?:match(?:es)?|jobs?|documents?|resumes?|dashboard|applications?|interviews?)\b", q
     ):
         return None  # "tell me about my matches/résumé" → app handlers, not a web search
-    if _COMPANY_INDICATOR_RE.search(q):
-        return IntentResult("research_company", 0.85, {"company": q})
+    # Company research when it's about a company — by a company cue in the sentence, or a
+    # company suffix in the span. Clean the span to the bare name; a pure reference
+    # ("this company") cleans to nothing → resolve from context ("").
+    name = _clean_company_name(q)
+    # A role lead-in ("the founder/CEO of X") is itself a company cue.
+    if _COMPANY_CTX_RE.search(t) or _COMPANY_INDICATOR_RE.search(q) or _COMPANY_LEAD_RE.search(q):
+        if not _COMPANY_REF_WORDS_RE.sub(" ", name).strip():
+            return IntentResult("research_company", 0.85, {"company": ""})
+        return IntentResult("research_company", 0.85, {"company": name})
     return IntentResult("web_search", 0.84, {"query": q})
 
 
@@ -374,7 +420,11 @@ def _research_company(t: str) -> Optional[str]:
     if _COMPANY_CTX_RE.search(t):
         return ""  # "this company" / "the top match" → frontend resolves from context
     residual = t[m.end():].strip(" ?.!,")
-    residual = re.sub(r"\b(the|a|an|company|employer|please|more|some|info|details)\b", " ", residual)
+    # Clean the bare name first (drops "as an employer", a trailing "the company", a role
+    # lead-in like "the CEO of …"), THEN drop stray fillers that may remain.
+    residual = _clean_company_name(residual)
+    residual = re.sub(r"\b(please|more|some|info|details)\b", " ", residual)
+    residual = _clean_company_name(residual)
     residual = re.sub(r"\s+", " ", residual).strip()
     # A job search ("research VP jobs") or a doc/section is not company research.
     if _JOB_NOUN_RE.search(t) or _match_section(residual) or _doc_target(residual):
@@ -382,6 +432,32 @@ def _research_company(t: str) -> Optional[str]:
     if _COMPANY_WORD_RE.search(t) and not residual:
         return ""  # "look up the company" with no name → context
     return residual or None
+
+
+# "is <X> legit / a real company", "find out if <X> is legitimate", "check whether <X> is
+# a scam" — a trust check about an employer → company research, not a job search.
+_LEGIT_RE = re.compile(
+    r"\b(?:find out|check|see|verify|confirm|look into)\b[^.?!]*?\b(?:if|whether)\s+(.+?)\s+"
+    r"is\s+(?:an?\s+)?(?:real|legit|legitimate|actual|genuine|trustworthy|a\s+scam|for\s+real)\b"
+    r"|\bis\s+(.+?)\s+(?:an?\s+)?(?:real|legit|legitimate|actual|genuine|trustworthy)\s+"
+    r"(?:company|employer|business|startup|firm|place)\b"
+    r"|\bis\s+(.+?)\s+(?:legit|legitimate|a\s+scam|for\s+real)\b",
+    re.I,
+)
+
+
+def _legitimacy_check(t: str) -> Optional[IntentResult]:
+    """"is <X> a real company / legit", "find out if <X> is legitimate" → research the
+    employer. Returns None when no company name is recoverable or it's really a job/doc ask."""
+    m = _LEGIT_RE.search(t)
+    if not m:
+        return None
+    name = _clean_company_name(next((g for g in m.groups() if g), ""))
+    if not name or _JOB_NOUN_RE.search(name) or _match_section(name) or _doc_target(name):
+        return None
+    if not _COMPANY_REF_WORDS_RE.sub(" ", name).strip():
+        return IntentResult("research_company", 0.8, {"company": ""})  # "is this place legit"
+    return IntentResult("research_company", 0.85, {"company": name})
 
 
 # --- manage a resource: connect / add / remove / change -----------------------
@@ -729,6 +805,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     rc = _research_company(t)
     if rc is not None:
         return IntentResult("research_company", 0.85, {"company": rc})
+
+    # trust check about an employer ("is Acme legit", "find out if Rylo is a real company")
+    # → company research, not a job search. Checked before search_jobs so "find out …" and
+    # "is …" phrasings don't fall through to the job-search verb matcher.
+    legit = _legitimacy_check(t)
+    if legit is not None:
+        return legit
 
     # job search ("find all jobs that are vice president or VP", "remote senior python
     # roles") — a free-text query with OR-alternatives + synonym expansion. Checked

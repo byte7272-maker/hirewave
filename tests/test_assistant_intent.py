@@ -235,6 +235,38 @@ def test_web_search_is_an_intent_for_common_phrasings():
     assert interpret("find all VP jobs").intent == "search_jobs"
 
 
+def test_company_slot_is_the_bare_name_across_phrasings():
+    # The company slot the web lookup runs on must be the bare name — not a trailing
+    # "as an employer" / "the company" descriptor or a "who is the CEO of" lead-in.
+    cases = {
+        "research Ross Stores as an employer": "ross stores",
+        "who is the CEO of Anterior": "anterior",
+        "tell me about Prudentia Sciences the company": "prudentia sciences",
+        "look up Plaid as a company": "plaid",
+        "tell me about the founder of Rylo": "rylo",
+    }
+    for phrase, name in cases.items():
+        r = interpret(phrase)
+        assert r.intent == "research_company", (phrase, r.intent)
+        assert r.slots.get("company") == name, (phrase, r.slots)
+    # a real suffix is NOT eaten, and a pure reference still resolves from context
+    assert interpret("tell me about Acme Corp").slots.get("company") == "acme corp"
+    assert interpret("tell me about this company").slots.get("company") == ""
+
+
+def test_is_x_legit_routes_to_company_research_not_job_search():
+    # Trust checks about an employer must research the company, not run a job search.
+    for phrase, name in {
+        "find out online whether Rylo is a real company": "rylo",
+        "is Globex legit": "globex",
+        "check if Initech is a legitimate employer": "initech",
+        "find out if Acme is a scam": "acme",
+    }.items():
+        r = interpret(phrase)
+        assert r.intent == "research_company", (phrase, r.intent)
+        assert r.slots.get("company") == name, (phrase, r.slots)
+
+
 def test_archive_and_unarchive_are_understood():
     # "unarchive my email" must NOT be mis-read as "connect my email".
     assert interpret("unarchive my email").slots == {"action": "unarchive", "target": "email"}
