@@ -125,19 +125,27 @@ def _absorb_richer(existing: JobPosting, incoming: JobPosting) -> None:
             existing.years_experience = detect_years_experience(blob)
 
 
-def _norm_key(job: JobPosting) -> str:
-    parts = f"{job.title} {job.company} {job.location}".lower()
-    return re.sub(r"\s+", " ", parts).strip()
-
-
 def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _norm_company(text: str) -> str:
+    """Company identity that ignores spacing and punctuation, so "JPMorgan Chase",
+    "JPMorganChase" and "J.P. Morgan Chase" collapse to one. Keeps every letter/
+    digit (does NOT strip "Group"/"Co" etc.), so distinct names stay distinct."""
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())
+
+
+def _norm_key(job: JobPosting) -> str:
+    # Company compared punctuation/spacing-insensitively (see _norm_company); title
+    # and location whitespace-collapsed. Delimited so parts can't bleed together.
+    return f"{_norm(job.title)}|{_norm_company(job.company)}|{_norm(job.location)}"
 
 
 def _group_key(job: JobPosting) -> str:
     """Key for "likely the same job across boards": company + position. Empty when
     the company is unknown (so we never group unrelated postings by title alone)."""
-    company = _norm(job.company)
+    company = _norm_company(job.company)
     title = _norm(job.title)
     return f"{company}|{title}" if company and title else ""
 

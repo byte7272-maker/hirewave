@@ -126,6 +126,37 @@ def test_identical_cross_board_repost_is_consolidated():
     assert not job.likely_duplicate  # nothing left standing beside it
 
 
+def test_company_spelling_variants_are_the_same_company():
+    # "JPMorgan Chase" vs "JPMorganChase" (spacing/punctuation only) must be treated
+    # as one company: with the same role + language they consolidate into one row,
+    # not two near-identical cards.
+    agg, jobs = _empty_aggregator()
+    r = agg.ingest([
+        {"source_platform": "indeed", "external_id": "in-7", "title": "Technology Support Director",
+         "company": "JPMorganChase", "location": "Jersey City, NJ", "description": _DESC_A},
+        {"source_platform": "linkedin", "external_id": "li-7", "title": "Technology Support Director",
+         "company": "JPMorgan Chase", "location": "Jersey City", "description": _DESC_A},
+    ])
+    assert r.ingested == 1 and r.duplicates == 1  # one row, not two
+    assert len(jobs.all()) == 1
+
+
+def test_company_spelling_variants_group_when_wording_differs():
+    # Same company (spacing variant) + role but DIFFERENT wording → both kept (per the
+    # cross-board policy) but LINKED as the same job, which they weren't before.
+    agg, jobs = _empty_aggregator()
+    agg.ingest([
+        {"source_platform": "indeed", "external_id": "in-8", "title": "IT Operations Manager",
+         "company": "Red Ventures", "location": "NYC", "description": _DESC_A},
+        {"source_platform": "linkedin", "external_id": "li-8", "title": "IT Operations Manager",
+         "company": "RedVentures", "location": "NYC", "description": _DESC_DIFF},
+    ])
+    stored = jobs.all()
+    assert len(stored) == 2
+    gids = {g.duplicate_group_id for g in stored}
+    assert len(gids) == 1 and "" not in gids  # linked under one group id
+
+
 # --- saved searches ---------------------------------------------------------
 def _saved_engine():
     agg, jobs, _ = _aggregator()
