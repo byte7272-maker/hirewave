@@ -7792,3 +7792,35 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - Saying/tapping **yes** produces **one comprehensive read** built from the full review payload — covering **bullet quality and every section** (impact, keywords, structure, clarity, length) — narrated **in** the focused, editable document with each item **highlighted in sync** (P243).
 - Actionable findings can be **accepted in place** (new version saved); nothing is ever dragged into the assistant window.
 - The single **"📄 Read the summary"** chip triggers the same path; "my résumé" resolves to the P241 primary; every chip issues its call (no dead chips).
+
+---
+
+## P247 — Fill missing pay/benefits by nudging the user to OPEN the job on its source site (passive capture), not a background fetch
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. **No new backend** — the capture endpoint (`POST /jobs/jd-by-url`) and the extension's passive content script already exist. Builds on **P235** (match cards show pay / location / workplace / benefits) and **P238** (the extension is the reliable enrichment path).
+
+**Why:** the *background* bulk fetch fails on Indeed/LinkedIn — Chrome throttles the service-worker tabs and the board serves a bot wall, so pay never loads (a real run just enriched 0/12). The dependable path is **passive capture**: when the user opens the job on the board in a real foreground tab, the extension's content script reads that rendered page **with the user's own cookies** and backfills pay/location/benefits. So: **stop relying on the silent bulk fetch for these boards; encourage the user to open the job, and capture when the page loads.**
+
+### 1. On any match missing pay/benefits, show an "Open on {source} to fill in pay" action
+- A match card (or its detail) that is **missing salary** (and/or location/benefits) and has a board URL shows a clear, primary call-to-action:
+  - **"💲 Open on {source} to fill in pay & benefits"** (name the board: "Open on Indeed", "Open on LinkedIn", …).
+- Tapping it opens the job's **own source URL** (`job.url` — the real posting/`cts` link that resolves to the live job page when opened in the user's browser) in a **new foreground tab**. Do **not** open a background tab, and do **not** use the board's generic search URL — it must land on the specific job page.
+- Keep it honest: this is framed as "open the posting" (something the user would do anyway to read it), and the fill happens automatically while they're there.
+
+### 2. Capture happens on the board page (already wired) — reassure + confirm
+- When the page loads, the extension's passive content script posts the rendered HTML to **`POST /jobs/jd-by-url { html, url }`**, which matches it to the user's own job by title and fills `salary_display` / `location` / `workplace` / `benefits` (scoped to the caller; the HTML goes only to the user's account and is parsed, never executed).
+- The response is `{ matched, job_id, updated, salary_display, location, workplace, benefits }`. When `matched && updated`, the data is now on the job server-side.
+- If the **extension isn't connected**, still open the posting (so the user can read it), but surface a one-line hint that connecting the extension (P238/P200) is what lets pay fill in automatically — don't silently do nothing.
+
+### 3. Refresh the card when the user comes back
+- After launching the source tab, mark the card **"Filling from {source}…"** and **re-fetch that job** to pick up the capture: poll `GET /jobs` (or the job's detail) briefly (e.g. every ~4s for ~60s) **and** on the app window regaining focus (`visibilitychange`/`focus`). The moment `salary_display` (or location/benefits) appears, update the card in place to **"Updated — {salary_display}"** and drop the CTA.
+- If nothing fills within the window (the posting genuinely lists no pay — common for exec roles), revert the CTA to its resting state and show a quiet **"No pay listed on {source}"** rather than an error. Never spin forever.
+
+### 4. Don't push the dead path
+- Remove/demote any "enrich in the background" affordance for Indeed/LinkedIn that silently fetches — it fails and gives false hope. The bulk/background fetch may remain for ATS boards where the cookied fetch works, but for Indeed/LinkedIn the **primary** affordance is "open the posting to fill it."
+
+### Acceptance
+- A match missing pay shows **"Open on {source} to fill in pay & benefits"**; tapping it opens the **specific job page** on the board in a foreground tab.
+- With the extension connected, returning to the app shows the card updated with the captured **pay/location/benefits** (via `POST /jobs/jd-by-url`), visible in the network panel — no background bot-wall fetch involved.
+- A posting with no pay ends in a quiet **"No pay listed"**, not a spinner or error.
+- Without the extension, the posting still opens and the app explains that connecting it is what auto-fills pay.
