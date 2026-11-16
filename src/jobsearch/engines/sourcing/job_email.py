@@ -138,6 +138,15 @@ def _is_job_sender(domain: str) -> bool:
     return False
 
 
+#: A match-quality badge ("Match", "92% match", "Strong fit") an Indeed/LinkedIn
+#: alert shows per job — never a company. Anchored so "Match Group" is exempt.
+_MATCH_BADGE = re.compile(
+    r"^\s*(?:\d{1,3}%\s*)?(?:strong|great|good|best|top|high|possible|fair|weak|low|potential)?\s*"
+    r"(?:match|applicant|fit)\s*$",
+    re.I,
+)
+
+
 def _company_from(sender_domain: str, subject: str, body: str = "") -> str:
     """Best-effort company name. For an ATS domain like 'acme.greenhouse.io' or
     'acme.workday.com', the left-most label is usually the company; otherwise pull a
@@ -151,7 +160,11 @@ def _company_from(sender_domain: str, subject: str, body: str = "") -> str:
         m = pat.search(text)
         if m:
             # stop a body match at a sentence/clause boundary
-            return re.split(r"[.,;!\n]", m.group(1).strip())[0].strip()
+            cand = re.split(r"[.,;!\n]", m.group(1).strip())[0].strip()
+            # a digest "…jobs that match…" / "N% match" badge is not a company
+            if _MATCH_BADGE.match(cand):
+                continue
+            return cand
     parts = (sender_domain or "").split(".")
     if len(parts) >= 3 and _is_job_sender(sender_domain) and parts[0] not in {"www", "mail", "jobs", "no-reply", "noreply", "us", "careers", "hire"}:
         return parts[0].replace("-", " ").title()

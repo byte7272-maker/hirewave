@@ -171,6 +171,23 @@ def _is_title(text: str) -> bool:
     return t.lower() not in _CTA and not _is_boilerplate_anchor(t)
 
 
+#: A match-quality badge an Indeed/LinkedIn digest card shows next to each job
+#: ("Match", "Strong match", "92% match", "Top applicant"). The token right after
+#: the title is often this badge, NOT the company — guard against it becoming the
+#: company (that's the "company: Match" ghost bug).
+# Anchored to the WHOLE token so a real company that merely starts with one of
+# these words (e.g. "Match Group") is NOT mistaken for a badge.
+_MATCH_BADGE = re.compile(
+    r"^\s*(?:\d{1,3}%\s*)?(?:strong|great|good|best|top|high|possible|fair|weak|low|potential)?\s*"
+    r"(?:match|applicant|fit)\s*$",
+    re.I,
+)
+
+
+def _is_badge(text: str) -> bool:
+    return bool(_MATCH_BADGE.match(text.strip()))
+
+
 def _postings_from_tokens(tokens: list[tuple], source: str) -> list[dict]:
     out: list[dict] = []
     seen_urls: set[str] = set()
@@ -184,16 +201,33 @@ def _postings_from_tokens(tokens: list[tuple], source: str) -> list[dict]:
             continue
         seen_urls.add(href)
         company, location = "", ""
-        # the next couple of text tokens usually carry "Company · Location"
-        for nxt in tokens[i + 1 : i + 4]:
-            if nxt[0] == "text" and nxt[1].lower() not in _CTA and _JOB_URL.search(nxt[1]) is None:
-                parts = _SPLIT.split(unescape(nxt[1]), maxsplit=1)
-                company = parts[0].strip()
-                location = parts[1].strip() if len(parts) > 1 else ""
-                break
+        # the next few text tokens usually carry "Company · Location". Skip past a
+        # match-quality badge ("Match", "92% match") or boilerplate so it doesn't
+        # get mistaken for the company — keep looking for the real one.
+        for nxt in tokens[i + 1 : i + 5]:
+            if nxt[0] != "text":
+                continue
+            cand = unescape(nxt[1]).strip()
+            if not cand or cand.lower() in _CTA or _JOB_URL.search(cand) is not None:
+                continue
+            if _is_badge(cand) or _is_boilerplate_anchor(cand):
+                continue
+            parts = _SPLIT.split(cand, maxsplit=1)
+            company = parts[0].strip()
+            location = parts[1].strip() if len(parts) > 1 else ""
+            break
+        # a split can still leave a badge as the leading segment — never keep it
+        if _is_badge(company):
+            company = ""
+        external_id = _external_id(href, source)
+        # A digest card we could attribute to neither a company nor a stable id is
+        # an un-enrichable duplicate of the board-sourced job (cts tracking URL, no
+        # pay/location) — it only re-creates noise on every import. Drop it.
+        if not company and not external_id:
+            continue
         out.append({
             "source_platform": source,
-            "external_id": _external_id(href, source),
+            "external_id": external_id,
             "title": text.strip(),
             "company": company,
             "location": location,

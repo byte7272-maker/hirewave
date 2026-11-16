@@ -315,6 +315,48 @@ def test_digest_drops_footer_tracking_links_keeps_real_job():
     assert titles == ["Operations Manager"], f"footer links leaked in: {titles}"
 
 
+def test_digest_match_badge_is_not_the_company():
+    # Indeed digest cards show a match-quality badge ("Match") right after the title,
+    # before "Company · Location". The badge must NOT become the company (the
+    # "company: Match" ghost); the real company is read past it.
+    eml = (
+        "From: alerts@indeed.com\r\n"
+        "Subject: New jobs for you\r\n"
+        "Content-Type: text/html\r\n\r\n"
+        "<html><body>"
+        '<a href="https://cts.indeed.com/v3/jk?jk=REAL123">VP, Customer Support</a>'
+        "<div>Match</div>"
+        "<div>MatrixCare &middot; Remote</div>"
+        "</body></html>"
+    )
+    parsed = parse_job_alert(eml)
+    assert [p["company"] for p in parsed.postings] == ["MatrixCare"]
+
+
+def test_digest_badge_only_card_never_names_the_badge_as_company():
+    # A card whose only sub-text is a match badge must yield a BLANK company —
+    # never "92% match" as the company (the ghost bug). It still carries its id.
+    eml = (
+        "From: alerts@indeed.com\r\n"
+        "Subject: New jobs for you\r\n"
+        "Content-Type: text/html\r\n\r\n"
+        "<html><body>"
+        '<a href="https://cts.indeed.com/v3/jk?jk=OPS9">Operations Manager</a>'
+        "<div>92% match</div>"
+        "</body></html>"
+    )
+    parsed = parse_job_alert(eml)
+    assert [(p["title"], p["company"]) for p in parsed.postings] == [("Operations Manager", "")]
+
+
+def test_company_from_subject_ignores_match_badge():
+    from jobsearch.engines.sourcing.job_email import _company_from
+    # "…jobs that match…" must not be read as a company via the "… at/from <X>" path,
+    # but a real company that starts with "Match" (Match Group) still comes through.
+    assert _company_from("alerts@indeed.com", "New role at Match", "") == ""
+    assert _company_from("alerts@indeed.com", "New role at Match Group", "") == "Match Group"
+
+
 # --- title extraction: the full role, not a truncated fragment -------------
 def test_better_title_prefers_full_subject_over_truncated_role():
     # Regex role truncates at the comma ("Technology"); the subject carries the full
