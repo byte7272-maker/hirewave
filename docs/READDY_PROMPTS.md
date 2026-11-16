@@ -7985,3 +7985,49 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - **My Work Highlights** offers a **large data-dump input** plus generate-prompts / extract / synthesize / experience-library / incorporate, in a clean layout, each hitting its live endpoint (visible in the network panel).
 - A bullet action (re-word / replace / update / search) can **use the user's pasted dump / experience library** as source material, and says so; the result is still an **editable draft** that commits + re-renders only on approve.
 - The assistant can offer to switch screens but never flips the screen on its own; the last-used screen is remembered for the session.
+
+---
+
+## P252 — Speak through EVERY step of the search/update flow; focus the window on one thing; answer anticipated questions aloud
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend narration + layout; no backend change** — the final spoken lines already come from the API (`research/company` `reply`, `research/summarize` `summary`); this wires the *interim* narration and declutters the view. Builds on **P250/P251** (bullet Update/Search + data dumps), **P237** (speak the question, mic-ready in the same render), **P225** (guide/highlight), **P221** (speak every step), **P227** (clean iOS narration).
+
+**The problems:** when the assistant searches for new updates it **goes silent** (no spoken steps), the window is **cluttered** (too many options/info at once), and nothing is **in focus**. Fix all three: narrate every step, show one thing at a time, and have a spoken answer ready for the obvious questions.
+
+### 1. Narrate every step of the search/update flow (never go silent)
+Each state in the bullet **Update/Search** flow (P250) has a **spoken line** (and the same text on screen); if TTS is muted, show the text. Never a silent spinner.
+- **Starting:** *"Let me check the web for current figures on {topic}."* (speak, then start).
+- **Searching:** a brief spoken + visible *"Searching the web now…"* — don't go quiet while it works.
+- **Found:** speak the result summary (from the API's `summary`/`reply`): *"I found a few sources. Here's what they say: …"*
+- **Proposing:** speak the proposed edit: *"Based on that, I'd change the bullet to: '{draft}.' Want me to apply it?"* — ask it the **P237 way** (mic ready + Yes/No chips in the same render).
+- **Applying:** *"Done — I updated the bullet and saved a version."*
+- **Nothing found / error:** *"I couldn't find anything solid on that — want me to try a different search, or leave the bullet as is?"* (spoken, with the retry/leave chips).
+Apply the same "speak each state" rule to the other bullet actions (Re-word, Replace, Move, Remove) and to the My Work Highlights extract/synthesize steps.
+
+### 2. Focus the window on ONE thing (declutter)
+- Show **only what the current step needs**. During a search: the one line of what it's doing **now** + (when results arrive) the **single proposed draft** in focus — not a wall of raw results, options, and panels.
+- **Progressive disclosure:** collapse everything not relevant to the current step; reveal the next piece only when it's the focus. Raw sources/links live behind a quiet "Show sources" — not open by default.
+- **Spotlight the focus** (P225): dim/recede the rest, bring the current item (the bullet being changed, the proposed draft, the pending question) forward, scrolled into view. One primary action visible at a time; secondary actions behind a small "More".
+- Keep the proposed change as the single **editable draft** (P250 §5) — the focal object of the step, with Approve/Cancel, not buried among other controls.
+
+### 3. Answer the anticipated questions — aloud, comprehensively
+Pre-wire a spoken answer for the questions a user will obviously ask during these functions (common-sense UX), so there's never dead-air. At minimum:
+- **"Where did this come from?"** → name the source(s): *"From {site} and {site} — I can show the links."*
+- **"Is this accurate / can I trust it?"** → the verification caution: *"It's summarized from public web pages, so double-check names and figures before you rely on them."* (web data is untrusted — P243).
+- **"What changed?"** → speak the before→after: *"It was '{old}'; the new version is '{new}.'"*
+- **"Can I edit it?"** → *"Yes — edit the draft right here and I'll save exactly what you approve."* (P250 §5).
+- **"Undo that."** → restore the prior version: *"Reverted to the previous version."*
+- **"What are you doing / are you still searching?"** → current status: *"Still searching — a few seconds."*
+- **"Why this bullet / why that change?"** → the rationale in one line.
+Each answer runs through the same dispatcher (P234) and is **spoken**; none is a silent UI change.
+
+### 4. The comprehensive-speaking rule (close the gaps)
+- **Every question the assistant asks is spoken** and mic-ready in the same render (P237) — no on-screen-only prompts.
+- **Every state the assistant enters is narrated** (working, found, proposing, applying, done, error) — no silent transitions, no wordless spinners.
+- For any function, **anticipate the likely follow-ups from its intent** and have a spoken answer ready, so the assistant speaks comprehensively through the flow rather than falling silent when asked something it should obviously handle.
+
+### Acceptance
+- Running a bullet **Update/Search** makes the assistant **speak each step** (starting → searching → found → proposing → applying), with the matching text on screen; muted TTS shows the same lines; no silent spinner.
+- During the flow the window shows **one focused item at a time** — the current action line and the single editable draft — with raw results/sources/extra options collapsed behind progressive disclosure; the focus is spotlighted and scrolled into view.
+- The assistant has **spoken answers** to "where did this come from", "is it accurate", "what changed", "can I edit it", "undo", "what are you doing", and "why" — answered aloud, not as a silent UI change.
+- No question the assistant asks is on-screen-only, and no state transition is silent.
