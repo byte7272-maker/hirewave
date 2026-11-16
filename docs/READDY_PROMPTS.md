@@ -7561,6 +7561,8 @@ Web research is **off by default** (the `web_research` consent scope).
 
 ## P240 — When a résumé or cover letter renders, the assistant offers to read its AI summary (spoken + as a chip)
 
+> **Revised by P246.** The offer wording is now *"Would you like me to read the summary of your document (résumé or cover letter)?"* and the summary is the **merged summary+review** (covers bullet quality + every section). P240's one-time-offer / chip / first-yes mechanics still apply; only the wording and what the summary contains change — see P246.
+
 **Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`), not the Readdy preview (no cross-origin calls there). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. This builds on the assistant wiring in **P233/P234** (route answers through `POST /assistant/interpret` with `context.pending`) and **P237** (act on the FIRST "yes"; mic ready + chips in the same render; answerable while minimized). The "AI summary" is the **review assessment narrative**, not a new concept.
 
 ### 1. The offer — once, when a document becomes the active rendered doc
@@ -7660,6 +7662,8 @@ On **"yes"** (voice, typed, or either chip), resolve through `interpret` with `c
 
 ## P243 — The document under discussion is always FOCUSED (readable + editable) and the assistant highlights in it; separate "read the summary" from "review the content"
 
+> **§1 revised by P246.** Do **not** split "read the summary" from "review the content" anymore — they are **one** flow (one question, one comprehensive summary). Everything else in P243 stands and is reinforced: the discussed document is always brought into editable focus (§2), the assistant navigates + highlights each item as it speaks (§3, `focus_document`/`highlight`), and edits happen in place (§4). P246 drives that highlight/focus machinery during the single merged read.
+
 **Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. Builds on **P240** (offer to read a doc's AI summary), **P4** (interactive bullet overlay on the preview), **P7/P2.3** (one shared readable+editable render). No new backend — highlighting is client-side; the review data comes from `POST /resumes/{id}/review`.
 
 **The problems to fix:**
@@ -7695,3 +7699,96 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - Saying "review my bullets" (or any content-review ask) **opens the résumé in the readable, editable render** and the assistant **highlights each bullet/sentence/section as it discusses it**, scrolling it into view — never asking the user to drag content into the assistant window.
 - The document being spoken about is always on screen and editable; "my résumé" resolves to the P241 primary.
 - Accepting a change edits the highlighted content in place and saves a new version; the highlight is visible and moves item to item.
+
+---
+
+## P244 — The full-size preview has an "Edit" button that opens the document in the editor and focuses it
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. **No new backend.** Builds on **P242** (marquee → full-view render, "Read full size"), **P7** (the unified Workspace editor), **P243** (`focus_document` brings a doc into the editable render).
+
+**The gap:** clicking a marquee card's preview opens a **full-size, read-only render**. From there the only way to actually change the document is to back out and find the editor separately. The full-size view should offer a direct, obvious way into editing.
+
+### 1. Add an "Edit" button to the full-size preview
+- The expanded/full-size preview (the "Read full size" / enlarged render reached by clicking a card's preview) gets a prominent **"Edit"** button in its chrome (top bar or action row, alongside Close/zoom) — visible without scrolling, comfortable hit-area on phone width.
+- Label it **"✏️ Edit"**. It applies to whichever document the full view is showing (résumé or cover letter).
+
+### 2. What "Edit" does — open in the editor, focused
+- On tap, **open that exact document in the Workspace editor** (P7) and **focus it**: dismiss the full-size overlay, route to the editor with the same document and the **same version** currently previewed (the single `selectedVersion` — never a stale `rendered_text`), and land with the document in the readable **+ editable** render.
+- Reuse P243's **`focus_document { doc_type, doc_id }`** path so the editor opens with that document front-and-center and scrolled to top — the same focus behavior the assistant uses. If a specific version was being previewed, activate/open that version in the editor.
+- This is a navigation + focus action; it does **not** by itself create a version or mutate the document. Editing/saving still goes through the normal editor save path (`POST /resumes/{id}/versions`, etc.).
+
+### 3. Keep viewing separate from editing
+- "Read full size" stays a pure **view**; "Edit" is the one-tap bridge from viewing into editing. A user who only wants to read is unaffected; a user who spots something to change gets there in one tap instead of backing out and hunting for the editor.
+
+### Acceptance
+- The full-size preview shows an **"✏️ Edit"** button; tapping it closes the overlay and opens the **same document and version** in the Workspace editor, focused and editable.
+- No stale content: the editor opens on the version that was being previewed (single `selectedVersion`), not a lagging render.
+- Tapping Edit does not itself save or create a version; subsequent edits save normally and the preview updates (P4b).
+- Works for both résumés and cover letters; comfortable on phone width.
+
+---
+
+## P245 — Fold the mic into the Assistant icon as a shimmering ring (green = expecting/ pointed-out / engaged; red = held & recording)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend only — no backend change.** Revises the mic affordance from **P226** (surface the hold-to-talk mic when a question is pending) and **P237** (mic ready in the same render): same push-to-talk behavior, new presentation.
+
+**The problem:** the hold-to-talk mic is a **large, separate, independent** control floating apart from the assistant. It should be **part of the assistant's own icon** — a ring on the assistant avatar that both *is* the mic and *signals state by color*.
+
+### 1. The mic becomes a ring on the Assistant icon
+- **Remove the big standalone mic button.** Replace it with a **circular ring framing the Assistant icon/avatar** (a halo around the existing assistant launcher/widget icon). The ring **is** the push-to-talk control: **press-and-hold the assistant icon** to talk, **release** to submit — identical capture/submit semantics to P226 (release = submit; a valid "yes"/"no" auto-runs; empty/unclear doesn't fire; mic releases after the answer resolves, no re-fire).
+- The ring is subtle when idle (thin, low-emphasis) and never covers or obscures the assistant icon. It must stay a comfortable touch target on phone (the icon + ring ≥44pt hit-area, per P220).
+
+### 2. Ring states — by color + shimmer
+- **Green shimmer** (the "I'm listening-ready / look here" state) whenever **any** of these is true:
+  - the assistant is **expecting an answer** — a question/offer is pending (P226 pending state); **or**
+  - the icon is **being pointed out in a walkthrough or tour** (the guided flow is drawing attention to the assistant); **or**
+  - the user has **manually engaged** the assistant (tapped to open/activate it, armed it to listen).
+  - Render as a **gently shimmering/pulsing green** ring — an invitation, calm not alarming.
+- **Red shimmer** (the "hot mic" state) **only while the icon is being held and the mic is actively capturing** — press-and-hold in progress, audio recording. The ring shimmers **red** for the duration of the hold and returns to its prior state (green if a question is still pending, else idle) on release.
+- **Idle** (nothing pending, not engaged, not recording): the ring rests quiet/neutral — no shimmer.
+- Precedence: **red while held** overrides everything; otherwise **green** if any green condition holds; otherwise idle. One ring, one color at a time.
+
+### 3. Keep the behavior, just move the surface
+- All P226/P237 rules still hold: chips (Yes/No) remain for tap answers; the question is answerable while the widget is minimized (the minimized widget shows the same ring state); release-to-submit with no extra "Run" tap for a clear spoken yes/no; destructive actions still confirm (P180).
+- Accessibility: the state must not be color-only — pair the ring with an aria-live/label ("Listening…", "Recording…", "Waiting for your answer") and a non-color cue (e.g. a small mic/▌ glyph) so the meaning survives for color-blind users and screen readers.
+
+### Acceptance
+- There is **no separate oversized mic button**; the push-to-talk control is the **ring on the Assistant icon** — press-and-hold the icon to talk, release to submit (P226 behavior intact).
+- The ring **shimmers green** when a question is pending, when a walkthrough points out the assistant, or when the user manually engages it; it **shimmers red** only while the icon is held and recording, then reverts.
+- Minimized, the ring still reflects state and the question is still answerable.
+- State is conveyed by more than color (label + glyph); hit-area is phone-friendly.
+
+---
+
+## P246 — Merge "read the summary" and "review": ONE question, ONE comprehensive summary (bullet quality + every section)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. **No new backend** — all data comes from the existing review endpoint. **Revises P240 §1 (offer wording) and P243 §1 (which split the two intents).** Keeps P243 §2–§4 intact (focus the document, highlight in sync, edit in place).
+
+**The problem:** even after P243, asking the assistant to **review** a document **still starts by asking the user to drag bullets** into the assistant window. And splitting "read the summary" from "review the content" created two confusing paths. **Merge them into one.** There is a single thing — the document's **summary** — and it already *is* the review: it covers bullet quality and every other section.
+
+### 1. One question, exact wording
+- When a résumé or cover letter becomes the active rendered document (per P240's one-time, same-render, mic-ready + chip offer), the assistant asks **one** question:
+  - **"Would you like me to read the summary of your document (résumé or cover letter)?"**
+  - (Name the actual type in context — "…the summary of your résumé?" / "…of your cover letter?" — but this single question replaces both the old "read the AI summary" offer **and** any separate "review your bullets / review the content" offer.)
+- **There is no separate "review" offer and no drag-bullets prompt.** Never ask the user to drag bullets into the assistant window — that path is removed. Reviewing *is* reading the summary.
+
+### 2. The summary is comprehensive — it IS the review
+- On **yes** (voice, typed, or the **"📄 Read the summary"** chip), call the review once and read back a **single merged summary** that includes **everything a review discovers**:
+  - **Résumé:** `POST /resumes/{resume_id}/review?narrative=true` — compose the spoken/shown summary from the full payload: the assessment **`summary`**, the headline **`score`/`grade`**, **`strengths`**, the per-standard **`ratings`** (so **every section** — impact, keywords/ATS, structure, clarity, length — is covered), and the **`suggestions`** (which include **bullet-quality** findings). Weave them into one readable narrative, not two separate reads.
+  - **Cover letter:** `POST /cover-letters/{cover_letter_id}/review` — same: `summary` + `score`/`grade` + `strengths` + `ratings` + `suggestions`.
+- **Bullet quality is part of the summary**, alongside every other section — it is not a separate "review the bullets" mode. If the review surfaces a weak bullet, that shows up **in the summary**.
+- Pass `job_posting_id` when the document is open against a target job (job-aware summary); `{}` otherwise. Served from cache when unchanged — fast.
+
+### 3. Read it IN the document, with highlighting (P243 §2–§4 intact)
+- The merged read is **not** a disembodied voiceover. As in **P243**: bring the document into the **focused, readable + editable** render first (`focus_document`), then as the assistant narrates each part of the summary — a section rating, a strength, a weak bullet — it **highlights that exact content in the document in sync** (`highlight { target }`: word/sentence → text-match, bullet → P4 overlay, section → heading) and scrolls it into view.
+- When the assistant reaches an actionable finding (a bullet to strengthen, a missing keyword), the user can **accept the change in place** (P243 §4 → `POST /resumes/{id}/versions`), highlighted in the document — still never dragging anything into the assistant window.
+- "my résumé" with no name → the **P241 primary** résumé.
+
+### 4. One chip, one path
+- The action chip reads **"📄 Read the summary"** (drop "AI"; drop any separate "Review my bullets" chip). Tap and voice take the identical path to the merged read above. Yes/No chips and this chip all resolve to the same action (P240 §2 wiring; no dead chips, P234).
+
+### Acceptance
+- The assistant asks exactly **one** question — *"Would you like me to read the summary of your document (résumé or cover letter)?"* — and there is **no separate review offer and no drag-bullets prompt anywhere**.
+- Saying/tapping **yes** produces **one comprehensive read** built from the full review payload — covering **bullet quality and every section** (impact, keywords, structure, clarity, length) — narrated **in** the focused, editable document with each item **highlighted in sync** (P243).
+- Actionable findings can be **accepted in place** (new version saved); nothing is ever dragged into the assistant window.
+- The single **"📄 Read the summary"** chip triggers the same path; "my résumé" resolves to the P241 primary; every chip issues its call (no dead chips).
