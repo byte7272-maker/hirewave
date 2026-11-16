@@ -7990,7 +7990,7 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 
 ## P252 — Speak through EVERY step of the search/update flow; focus the window on one thing; answer anticipated questions aloud
 
-**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend narration + layout; no backend change** — the final spoken lines already come from the API (`research/company` `reply`, `research/summarize` `summary`); this wires the *interim* narration and declutters the view. Builds on **P250/P251** (bullet Update/Search + data dumps), **P237** (speak the question, mic-ready in the same render), **P225** (guide/highlight), **P221** (speak every step), **P227** (clean iOS narration).
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend narration + layout.** The final spoken lines come from the API (`research/company` `reply`, `research/summarize` `summary`), and the **interim** per-state lines + anticipated-question answers are now **backend-scripted in the capability manifest** — `GET /assistant/capabilities` returns `flows` (per-flow `speak` map keyed by state, plus `ask` and `focus`) and `flow_faq` (spoken answers to "where from / is it accurate / what changed / can I edit / undo / status / why"). Read the lines from there and fill the `{placeholders}` — don't hand-author them in the client. Builds on **P250/P251**, **P237** (speak the question, mic-ready), **P225** (guide/highlight), **P221** (speak every step), **P227** (clean iOS narration).
 
 **The problems:** when the assistant searches for new updates it **goes silent** (no spoken steps), the window is **cluttered** (too many options/info at once), and nothing is **in focus**. Fix all three: narrate every step, show one thing at a time, and have a spoken answer ready for the obvious questions.
 
@@ -8031,3 +8031,31 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 - During the flow the window shows **one focused item at a time** — the current action line and the single editable draft — with raw results/sources/extra options collapsed behind progressive disclosure; the focus is spotlighted and scrolled into view.
 - The assistant has **spoken answers** to "where did this come from", "is it accurate", "what changed", "can I edit it", "undo", "what are you doing", and "why" — answered aloud, not as a silent UI change.
 - No question the assistant asks is on-screen-only, and no state transition is silent.
+
+---
+
+## P253 — The AI speaking-speed slider must change the voice in REAL TIME (while it's already speaking)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend only** — the slider is already wired and its value already persists (narration prefs). The bug is **real-time**: moving the slider only affects the *next* utterance, not the speech that's **currently playing**. Make a slider change take effect **immediately on the in-progress narration**, from its current position, without restarting from the top.
+
+**Why it doesn't update live today:** the two playback engines behave differently, and neither is being adjusted mid-stream —
+- **Server neural voice** (OpenAI voices like *shimmer*) plays through an **`<audio>` element**. Its speed is `audio.playbackRate`, which **can** be changed live — but nothing sets it when the slider moves.
+- **Browser voice** (`speechSynthesis`) reads `utterance.rate` **once, at `speak()` time**; it is **immutable while that utterance is speaking**. So a live change needs cancel + resume at the new rate.
+
+### 1. One governing rate (fix the split keys)
+- There are currently separate rate values (`hw_narration_rate`, `hw_narration_rate_readaloud`, `hw_narration_rate_walkthrough`) that **diverge** (e.g. 1.4 vs 0.8), so the slider and the voice that's actually playing can disagree. Make the slider the **single source of truth for the live rate**: moving it sets the rate for **whatever is speaking right now**, whatever context it's in. (If per-context defaults are still wanted, the slider overrides the active one live.) Keep persisting through the existing prefs path — but the live change must **not wait** on the save round-trip.
+
+### 2. Apply the new rate to the in-progress narration immediately
+- **`<audio>` path (server voice):** on slider change, set `currentAudio.playbackRate = rate` **right away** — the playing voice speeds up/slows down in place, no restart. (Keep `preservesPitch = true` so it doesn't chipmunk.)
+- **`speechSynthesis` path (browser voice):** `rate` can't change mid-utterance, so on slider change: capture the current position (the latest `onboundary` `charIndex`), `speechSynthesis.cancel()`, then `speak()` a **new utterance for the remaining text** (`text.slice(charIndex)`) at the new rate and the same voice. It resumes near where it was — **never from the beginning**, no repeated sentences.
+- Do this for **every active narration context** (read-aloud summary, walkthrough, step narration) — the slider governs the one that's currently speaking.
+
+### 3. Smooth, not stuttery
+- **Debounce** rapid slider movement (~100–150 ms) so dragging doesn't fire a cancel/resume per pixel on the browser-voice path; the `<audio>` path can update continuously.
+- Show the current multiplier (e.g. "1.4×") live as the user drags.
+- If nothing is speaking, the change simply applies to the next utterance (as today).
+
+### Acceptance
+- While a summary/step is **speaking**, moving the speed slider **immediately** changes the speed of the **current** voice: the `<audio>` server voice adjusts in place; the browser voice resumes the **remaining** text at the new speed (not from the start, no repeats).
+- The slider governs whatever is currently narrating (read-aloud, walkthrough, or step), and its value and the live voice agree — no stale split between the rate keys.
+- Dragging is smooth (debounced), shows the live multiplier, and preserves pitch; with nothing playing, the next utterance uses the new speed.

@@ -54,6 +54,10 @@ BEHAVIORS = [
     "guide_on_arrival", "recognize_verb_object", "pending_offer", "confirm_destructive",
     "highlight_and_dock", "speak_on_update", "surface_choices", "narrate_values",
     "error_aware", "one_source_of_truth",
+    # the assistant speaks a scripted line for EVERY state of a multi-step flow (never a
+    # silent spinner) and has a spoken answer ready for the questions a user predictably
+    # asks mid-flow — see FLOWS / FLOW_FAQ (P252).
+    "narrate_flow_steps", "answer_anticipated",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
@@ -75,6 +79,73 @@ VERBS: dict[str, list[str]] = {
 #: Verbs whose actions change or destroy data — the client must confirm before running
 #: (P180). Used generically: any action built from one of these is destructive.
 DESTRUCTIVE_VERBS = {"remove", "change"}
+
+#: Scripted interim narration for multi-step assistant flows, so the spoken lines are
+#: defined centrally (not authored per client) and the assistant never goes silent
+#: between the start and the final result (P252). ``speak`` maps a flow STATE to a
+#: spoken line; ``{placeholders}`` are filled from the live flow (topic, summary, draft,
+#: …). ``ask`` names the state that poses a yes/no question (surface it the P237 way:
+#: spoken + mic-ready + Yes/No chips in the same render). ``focus`` is the single item
+#: to spotlight while the flow runs (declutter — one thing at a time).
+FLOWS: dict[str, dict[str, Any]] = {
+    # The web-assisted bullet Update/Search flow (P250 §2 "Update"/"Search").
+    "bullet_update_search": {
+        "label": "Update a bullet from the web",
+        "focus": "the bullet being changed",
+        "ask": "proposing",
+        "speak": {
+            "start": "Let me check the web for current figures on {topic}.",
+            "searching": "Searching the web now…",
+            "found": "I found a few sources. Here's what they say: {summary}",
+            "proposing": "Based on that, I'd change the bullet to: '{draft}.' Want me to apply it?",
+            "applying": "Done — I updated the bullet and saved a version.",
+            "not_found": "I couldn't find anything solid on that — want me to try a different "
+                         "search, or leave the bullet as is?",
+            "error": "That search didn't go through. Want me to try again?",
+        },
+    },
+    # Re-word / Replace / Move / Remove on a selected bullet (P250 §2).
+    "bullet_action": {
+        "label": "Act on a selected bullet",
+        "focus": "the selected bullet",
+        "ask": "proposing",
+        "speak": {
+            "working": "One moment — working on that bullet.",
+            "proposing": "Here's the change: '{draft}.' Want me to apply it?",
+            "applying": "Done — saved a new version.",
+            "removing": "Removing this bullet — you can undo if you change your mind.",
+            "error": "That didn't go through. Want me to try again?",
+        },
+    },
+    # My Work Highlights: turn a pasted data dump into résumé-ready evidence (P251 §3).
+    "highlights_extract": {
+        "label": "Extract evidence from a data dump",
+        "focus": "the pasted notes",
+        "ask": "proposing",
+        "speak": {
+            "working": "Reading your notes and pulling out the accomplishments…",
+            "found": "I pulled out {count} points worth highlighting.",
+            "proposing": "Here are bullets I can add: review them and I'll save the ones you keep.",
+            "applying": "Added — saved a version.",
+            "not_found": "I couldn't find clear accomplishments in that — want to add more detail?",
+            "error": "That didn't go through. Want me to try again?",
+        },
+    },
+}
+
+#: Spoken answers to the questions a user predictably asks DURING a flow, so the
+#: assistant answers comprehensively instead of falling silent (P252 §3/§4).
+#: ``{placeholders}`` are filled from the live flow (sources, old/new text, reason).
+FLOW_FAQ: dict[str, str] = {
+    "where_from": "From {sources} — I can show the links.",
+    "accuracy": "It's summarized from public web pages, so double-check names and figures "
+                "before you rely on them.",
+    "what_changed": "It was '{old}'; the new version is '{new}.'",
+    "can_edit": "Yes — edit the draft right here and I'll save exactly what you approve.",
+    "undo": "Reverted to the previous version.",
+    "status": "Still working — just a few seconds.",
+    "why": "{reason}",
+}
 
 
 def _aliases(section: str) -> list[str]:
@@ -383,6 +454,11 @@ def manifest() -> dict[str, Any]:
         "destructive_verbs": sorted(DESTRUCTIVE_VERBS),
         "playbooks": sorted(_PLAYBOOKS),
         "sections": [for_section(s) for s in CAPABILITIES],
+        # Scripted interim narration per flow state + spoken answers to anticipated
+        # mid-flow questions, so the client speaks every step and never falls silent (P252).
+        "flows": {k: {kk: (dict(vv) if isinstance(vv, dict) else vv) for kk, vv in v.items()}
+                  for k, v in FLOWS.items()},
+        "flow_faq": dict(FLOW_FAQ),
         # The full keyword/intent index: every phrasing the assistant understands, so it
         # can match and compare user input to a real capability (not just the current
         # section's actions).

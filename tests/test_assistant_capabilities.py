@@ -163,3 +163,30 @@ def test_documents_right_pane_toggles_and_assistant_reads_data_dumps():
     assert "my work highlights" in does and "bullets" in does
     assert ("paste" in does or "data dump" in does) and "read" in does  # assistant uses the dump
     assert any(st["highlight"] == "Right-pane screen" for st in docs["steps"])
+
+
+def test_flows_script_every_state_and_answer_anticipated_questions():
+    # The assistant speaks a scripted line for every state of a multi-step flow (never a
+    # silent spinner) and has spoken answers for the questions a user asks mid-flow (P252).
+    m = caps.manifest()
+    assert "narrate_flow_steps" in m["behaviors"] and "answer_anticipated" in m["behaviors"]
+    flows = m["flows"]
+    # the reported-broken flow: bullet Update/Search must narrate start->searching->found->
+    # proposing->applying and the not-found/error branches, and name its ask + focus.
+    us = flows["bullet_update_search"]
+    for state in ("start", "searching", "found", "proposing", "applying", "not_found", "error"):
+        assert us["speak"].get(state), (state, us)
+    assert us["ask"] == "proposing" and us["focus"]
+    # the proposing line poses a yes/no question (mic-ready, P237)
+    assert us["speak"]["proposing"].rstrip().endswith("?")
+    # placeholders the client fills are present where expected
+    assert "{summary}" in us["speak"]["found"] and "{draft}" in us["speak"]["proposing"]
+    # anticipated mid-flow questions each have a spoken answer
+    faq = m["flow_faq"]
+    for q in ("where_from", "accuracy", "what_changed", "can_edit", "undo", "status", "why"):
+        assert faq.get(q), q
+    # every flow names the state that asks a question and spotlights a single focus
+    for name, f in flows.items():
+        assert f.get("speak"), name
+        assert f.get("ask") in f["speak"], (name, f.get("ask"))
+        assert f.get("focus"), name
