@@ -8059,3 +8059,32 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 - While a summary/step is **speaking**, moving the speed slider **immediately** changes the speed of the **current** voice: the `<audio>` server voice adjusts in place; the browser voice resumes the **remaining** text at the new speed (not from the start, no repeats).
 - The slider governs whatever is currently narrating (read-aloud, walkthrough, or step), and its value and the live voice agree — no stale split between the rate keys.
 - Dragging is smooth (debounced), shows the live multiplier, and preserves pitch; with nothing playing, the next utterance uses the new speed.
+
+---
+
+## P254 — Core behavior: the assistant MOVES a pointer to what it's talking about and stays out of the way (positional awareness, no blocking)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend behavior; no backend change** — advertised as core behaviors `point_to_focus` + `avoid_occlusion` in `GET /assistant/capabilities`. This is a **cross-cutting** capability, not a one-off: it applies everywhere the assistant references on-screen content. Builds on **P243** (`focus_document` / `highlight`), **P225** (guide/highlight), **P250/P251/P252** (spotlight + one-thing-in-focus).
+
+**Make this core:** whenever the assistant talks about, asks about, or acts on something on screen, it **points to it** — a visible indicator **moves** to the element and keeps it spotlighted — and it is **position-aware** so the assistant's own UI (dock, avatar, popovers, chips, toasts, the pointer itself) **never covers** the focused element or the content in view.
+
+### 1. Point to the focus — with movement
+- When the assistant references an element (a bullet, a match card, a control, a field, the thing a question is about), it shows a **visible pointer/indicator** (a cursor, arrow, ring, or caret) that **animates/moves to that element** and rests on it — so the user's eye is led there, not left hunting.
+- The pointer moves **in sync with the narration** (P252): as the spoken line names the item, the pointer arrives on it; moving to the next item moves the pointer. Scroll the target into view first, then point.
+- Pair with the existing **highlight/spotlight** (P243/P225): point **and** highlight the element; dim/recede the rest. The pointer is additive to the highlight, not a replacement.
+- Movement is smooth and quick (short eased transition), never frantic; it settles clearly on the target. Respect reduced-motion (users with `prefers-reduced-motion` get an instant move / a static indicator, no animation).
+
+### 2. Positional awareness — never block the content
+- The assistant's own surfaces — the **dock/panel, avatar, action chips, popovers, toasts, and the pointer** — must **not occlude** the element currently in focus or the content the user is reading.
+- Before pointing/speaking about a target, check overlap: if an assistant surface would cover the target (or the surrounding content the user needs), **reposition** it — move/anchor the dock to the opposite side, flip a popover above↔below or left↔right, offset a callout, or temporarily shrink/retract the panel — so the focus stays fully visible.
+- Keep a safe margin around the focused element (don't crowd it to a screen edge or under a surface). On small/phone screens where space is tight, prefer **retracting/minimizing** the assistant panel (leaving the pointer + a compact control) over covering the content.
+- When the assistant has nothing in focus, it rests in its default position; it only moves to get out of the way of an active focus.
+
+### 3. Applies everywhere (cross-cutting)
+- Document/bullets (P250), My Work Highlights (P251), the search/update flow (P252), matches, walkthroughs (P225), and any question the assistant asks: in each, it **points to the subject** and **keeps itself clear of it**. A pending question points at what it's about; a proposed edit points at the bullet; a walkthrough step points at the control it names.
+
+### Acceptance
+- When the assistant talks about or asks about an on-screen element, a **visible pointer moves to that element**, in sync with the narration, with the element scrolled into view and spotlighted; moving to the next item moves the pointer.
+- No assistant surface (dock, avatar, chips, popover, toast, pointer) **covers the focused element** or the content in view — it **repositions** (opposite side / flip / offset / retract) to keep the focus visible, with a safe margin; on phone width it retracts rather than covers.
+- `prefers-reduced-motion` is honored (instant/static pointer).
+- The behavior is consistent across documents, bullets, highlights, matches, the search/update flow, and walkthroughs — pointing at the subject and staying out of its way every time.

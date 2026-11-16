@@ -20,7 +20,9 @@ def test_manifest_shape_and_behaviors():
     # the generic behaviors every feature inherits are advertised
     for b in ("guide_on_arrival", "pending_offer", "confirm_destructive",
               "speak_on_update", "surface_choices", "narrate_values", "error_aware",
-              "one_source_of_truth"):
+              "one_source_of_truth",
+              # core spatial behaviors (P254): point to the focus, don't cover it
+              "point_to_focus", "avoid_occlusion"):
         assert b in m["behaviors"]
     assert m["sections"] and all("purpose" in s and "actions" in s for s in m["sections"])
     # the full keyword/intent catalog is present and every entry is a real command

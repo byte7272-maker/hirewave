@@ -58,6 +58,11 @@ BEHAVIORS = [
     # silent spinner) and has a spoken answer ready for the questions a user predictably
     # asks mid-flow — see FLOWS / FLOW_FAQ (P252).
     "narrate_flow_steps", "answer_anticipated",
+    # core spatial behaviors (P254): as the assistant talks about something it MOVES a
+    # visible pointer to that element and keeps it spotlighted (point_to_focus); and it
+    # is position-aware — its own dock/avatar/overlays/pointer never cover the focused
+    # element or the content in view, repositioning to keep the focus visible (avoid_occlusion).
+    "point_to_focus", "avoid_occlusion",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
