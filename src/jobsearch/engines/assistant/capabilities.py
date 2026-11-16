@@ -63,6 +63,10 @@ BEHAVIORS = [
     # is position-aware — its own dock/avatar/overlays/pointer never cover the focused
     # element or the content in view, repositioning to keep the focus visible (avoid_occlusion).
     "point_to_focus", "avoid_occlusion",
+    # reasoning (P255): the assistant explains in plain terms what it found, why it's
+    # suggesting an action, and how it benefits the user's goal, and it anticipates +
+    # BULKS the permissions a plan needs so the user grants once (POST /assistant/reasoning).
+    "reason_and_bulk_consent",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

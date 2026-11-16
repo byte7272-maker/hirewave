@@ -21,6 +21,7 @@ from jobsearch.api.schemas import (
     LiveFillResultOut,
     PrepareDraftsOut,
     PrepareDraftsRequest,
+    ReasoningRequest,
     ResearchOut,
     ResearchRequest,
     ResearchSearchOut,
@@ -69,6 +70,31 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         utterance=res.utterance,
         suggestions=[CommandSuggestion(**s) for s in res.suggestions],
     )
+
+
+@router.post("/reasoning")
+def reasoning(body: ReasoningRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Explain an action (or a multi-step plan) in plain terms — what I found, why I'm
+    suggesting it, and how it benefits your goal — and **anticipate + bundle** the
+    permissions it needs so you grant once.
+
+    The permission bundle is computed against the caller's CURRENT grants, so
+    ``to_request`` lists only what's still off and ``single_grant`` is the exact scope
+    list to POST to ``PUT /assistant/consent`` to turn them all on together. This never
+    grants anything itself — it only explains and prepares the one-tap ask (P116)."""
+    from jobsearch.engines.assistant import reasoning as rz
+
+    granted = state.assistant.get_consent(user.id).scopes
+    if body.actions:
+        out = rz.explain_plan(body.actions, subject=body.subject, goal=body.goal, granted=granted)
+        return {"plan": True, **out}
+    one = rz.explain(body.action, subject=body.subject, goal=body.goal, granted=granted)
+    if one is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"no reasoning for action '{body.action}'",
+        )
+    return {"plan": False, **one}
 
 
 @router.get("/capabilities")

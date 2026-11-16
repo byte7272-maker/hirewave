@@ -22,7 +22,9 @@ def test_manifest_shape_and_behaviors():
               "speak_on_update", "surface_choices", "narrate_values", "error_aware",
               "one_source_of_truth",
               # core spatial behaviors (P254): point to the focus, don't cover it
-              "point_to_focus", "avoid_occlusion"):
+              "point_to_focus", "avoid_occlusion",
+              # reasoning + bulked consent (P255)
+              "reason_and_bulk_consent"):
         assert b in m["behaviors"]
     assert m["sections"] and all("purpose" in s and "actions" in s for s in m["sections"])
     # the full keyword/intent catalog is present and every entry is a real command

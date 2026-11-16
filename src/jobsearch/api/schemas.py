@@ -1604,3 +1604,13 @@ class ExtensionLatestOut(BaseModel):
     installed: Optional[str] = None     # echoes the ?installed= the client sent
     update_available: Optional[bool] = None  # installed < version
     mandatory: Optional[bool] = None    # installed < min_supported (force update)
+
+
+class ReasoningRequest(BaseModel):
+    """Ask the assistant to explain an action/plan in plain terms and bulk the
+    permissions it needs. Give ``action`` (one step) or ``actions`` (a plan)."""
+
+    action: str = ""            # one action key or NLU intent
+    actions: list[str] = Field(default_factory=list)  # a multi-step plan
+    subject: str = ""           # the company/role/bullet the action is about
+    goal: str = ""              # the user's stated goal, to frame the benefit

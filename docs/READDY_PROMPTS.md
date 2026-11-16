@@ -8088,3 +8088,34 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 - No assistant surface (dock, avatar, chips, popover, toast, pointer) **covers the focused element** or the content in view — it **repositions** (opposite side / flip / offset / retract) to keep the focus visible, with a safe margin; on phone width it retracts rather than covers.
 - `prefers-reduced-motion` is honored (instant/static pointer).
 - The behavior is consistent across documents, bullets, highlights, matches, the search/update flow, and walkthroughs — pointing at the subject and staying out of its way every time.
+
+---
+
+## P255 — Backend reasoning: the assistant explains what it found, why, and the benefit — and BULKS the permissions it needs (grant once)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls `/api/v1/...` with Bearer auth. **Backend is LIVE** — `POST /api/v1/assistant/reasoning` returns the plain-language walk-through + the bundled permission ask; the consent scopes are the real ones (`GET/PUT /assistant/consent`). Advertised as the core behavior `reason_and_bulk_consent` in `GET /assistant/capabilities`. Builds on **P252** (narration), **P254** (point to focus), **P116/P185** (consent gating).
+
+**What this gives the user:** instead of a bare suggestion (and a string of separate permission pop-ups), the assistant **reasons out loud** — *here's what I found, here's why I'm suggesting this, here's how it helps your goal* — and when an action or a multi-step plan needs permissions, it **anticipates all of them and asks once**, so the user feels the benefit of automation rather than being nagged at every step.
+
+### 1. Narrate the reasoning (what → why → benefit)
+- Before suggesting or taking a non-trivial action, call `POST /assistant/reasoning { action | actions, subject, goal }` and **speak/show** the returned `narration` (P252): it walks `what` (what I found or will do) → `why` (the plain reason) → `benefit` (how it moves you toward your goal). Pass the user's stated `goal` when known so the benefit is framed around it.
+- Keep it in **basic terms** — the endpoint already phrases it plainly; don't bury it in jargon. Point at the subject while you say it (P254).
+- Use `action` for one step (an action key or an NLU intent like `research_company`, `web_search`, `apply_job`); use `actions` for a plan (e.g. `["research_and_apply"]` or several steps) to get one combined walk-through.
+
+### 2. Bulk the permissions — ask ONCE
+- The response's `permissions` block is computed against the user's **current grants**:
+  - `to_request` — the scopes still off that this action/plan needs (empty ⇒ nothing to ask; just proceed).
+  - `prompt` + `ask` — one combined, plain line naming everything needed (e.g. *"To do this I'll need your OK to: prepare drafts; fill forms; submit after review. Want me to turn those 3 on together? One approval and I'll handle the rest."*).
+  - `single_grant` — the exact scope list to send to **`PUT /assistant/consent { scopes }`** to turn them all on at once (it keeps already-granted scopes, so nothing is revoked).
+- Surface it as **one** approval (spoken + a single Yes/No, mic-ready per P237). On **yes**, `PUT /assistant/consent` with `single_grant`, then proceed through the whole plan without re-asking. On **no**, do the part that needs no permission and say what you skipped.
+- Never ask for a scope that's already granted (`to_request` already excludes them) — no redundant nags.
+
+### 3. Make the automation feel like a benefit
+- When permissions are bundled and granted once, run the plan end-to-end with the per-step narration (P252) and the editable-draft/confirm rules still intact (P250 §5 for edits; `submit_after_review` still means the user approves the final send). The point is fewer interruptions, not fewer safeguards.
+- If the user asks **"why are you doing this?"** mid-flow, answer with the `why`/`benefit` from the reasoning call (P252 §3 anticipated questions).
+
+### Acceptance
+- Suggesting a non-trivial action makes the assistant **speak a what→why→benefit walk-through** from `POST /assistant/reasoning`, framed around the user's goal when given.
+- A multi-step plan (e.g. apply-to-job) asks for its permissions **once**: a single combined prompt lists all still-needed scopes, and a yes does one `PUT /assistant/consent` with `single_grant`, then the plan runs without further permission pop-ups.
+- Already-granted scopes are never re-requested; when nothing is needed the assistant just proceeds.
+- The reasoning is in plain terms and the destructive safeguards (confirm-before-submit, editable drafts) remain.
