@@ -225,7 +225,8 @@ _RESEARCH_TRIG_RE = re.compile(
 )
 _COMPANY_CTX_RE = re.compile(
     r"\bthis (?:company|employer|place|one|job|role|match)\b|\bthe (?:company|employer)\b"
-    r"|\bthis match\b|\btop (?:match|job)\b|\bthem\b|\bit up\b"
+    r"|\bthis match\b|\btop (?:match|job|company|employer)\b|\bthem\b|\bit up\b"
+    r"|\bthis (?:role|job)'?s (?:company|employer)\b"
 )
 _COMPANY_WORD_RE = re.compile(r"\b(compan(?:y|ies)|employer|headquarter|stock|reviews?|ceo|leadership)\b")
 

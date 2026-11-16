@@ -252,6 +252,12 @@ def test_company_slot_is_the_bare_name_across_phrasings():
     # a real suffix is NOT eaten, and a pure reference still resolves from context
     assert interpret("tell me about Acme Corp").slots.get("company") == "acme corp"
     assert interpret("tell me about this company").slots.get("company") == ""
+    # "research this/the top company" is a CONTEXT reference (the focused/top match) —
+    # resolve from context, don't search for the literal words "top company".
+    for phrase in ("research this company", "research the top company",
+                   "research the top employer", "look up this company"):
+        r = interpret(phrase)
+        assert r.intent == "research_company" and r.slots.get("company") == "", (phrase, r.slots)
 
 
 def test_is_x_legit_routes_to_company_research_not_job_search():

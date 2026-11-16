@@ -8119,3 +8119,30 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 - A multi-step plan (e.g. apply-to-job) asks for its permissions **once**: a single combined prompt lists all still-needed scopes, and a yes does one `PUT /assistant/consent` with `single_grant`, then the plan runs without further permission pop-ups.
 - Already-granted scopes are never re-requested; when nothing is needed the assistant just proceeds.
 - The reasoning is in plain terms and the destructive safeguards (confirm-before-submit, editable drafts) remain.
+
+---
+
+## P256 — "Research this company" must run a genuine web search — not navigate to the matches screen
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls `/api/v1/...` with Bearer auth. **Frontend routing fix.** Backend is correct: `POST /assistant/interpret` classifies every "research this company" phrasing to intent **`research_company`** (with `company:""` meaning "resolve from the focused/top match"), and the research flow (`GET /assistant/research/company` → client web search → `POST /assistant/research/summarize`) is live. Builds on **P224/P237** (web search intent), **P252** (narrate the flow), **P255** (reasoning).
+
+**The bug:** tapping the **"Research this company"** chip/card leads to the **matches screen** instead of running a web search. The `research_company` intent (and that chip) is being routed as a navigate-to-matches action — likely because the offer is defined in the Matches section and/or because `company:""` is never resolved to a real company, so the call fails over to the matches list.
+
+### 1. Route `research_company` to the RESEARCH flow, never to matches
+- The `research_company` intent — and the **"Research this company"** chip/card — must invoke the **web-research flow**, not navigate to the Matches section. Opening matches is never the action for this intent.
+- Wire it through the same dispatcher as every chip (P234): `research_company` → the research handler below. Do not treat it as a section-nav just because the offer that proposes it lives on a match card.
+
+### 2. Resolve `company:""` from context FIRST
+- When the intent/chip carries `company:""` (or "this/the top company"), **resolve the real company before calling the endpoint**: use the company of the **focused match** (the card the chip is on), else the **top match** (dashboard `summary.matches.top.company`), else ask *"Which company?"* — never call research with an empty company (the endpoint requires a non-empty `company` and will 422, which is what's bouncing it to matches).
+- With a named company (`company:"plaid"`), use it directly.
+
+### 3. Run and narrate the genuine search
+- Call **`GET /assistant/research/company?company=<resolved>`** → it returns a spoken `reply` + `links` and `use_client:true` (web research is on). Because the search runs on the **user's connection**, perform the client-side fetch and then **`POST /assistant/research/summarize { company, query, sources }`** to get the structured brief (summary, facts, keywords, tailoring, sources, caution) — exactly the P252 flow (speak each step: "Looking up {company}…" → "Here's what I found…").
+- If `needs_permission:true` comes back (web_research off), surface the one-tap grant (P255 bundling) and, on yes, `PUT /assistant/consent` then run — still never navigating to matches.
+- Show the brief in the assistant/right pane and point at it (P254); offer the quick `links` as a fallback.
+
+### Acceptance
+- Tapping **"Research this company"** runs a **web search for that company** and shows/speaks the research brief — it does **not** open or navigate to the Matches screen.
+- `company:""` is resolved to the focused/top match's company before the call; a named company is used directly; an unresolvable one asks "which company?" (never a 422-to-matches fallback).
+- The flow hits `GET /assistant/research/company` and `POST /assistant/research/summarize` (visible in the network panel), narrates per P252, and offers the quick links as a fallback.
+- If web research is off, the user gets the one-tap permission ask (P255), not a bounce to matches.
