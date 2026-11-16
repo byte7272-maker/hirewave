@@ -40,3 +40,19 @@ def test_feedback_adjusts_weights(profile, matching_job):
     total = (after.semantic + after.skills + after.location + after.salary
              + after.seniority + after.recency)
     assert abs(total - 1.0) < 1e-6
+
+
+def test_companyless_posting_is_demoted_and_cannot_top(profile, matching_job):
+    # A posting with no company is a strong data-quality red flag (a mis-parsed alert
+    # row) — it must score LOWER than the same posting with a company, so it can't
+    # surface as the top match, but it's still ranked (not hidden).
+    engine = MatchingEngine()
+    with_co = engine.score(profile, matching_job)
+    nameless = matching_job.model_copy(update={"id": "job_nocompany", "company": ""})
+    without_co = engine.score(profile, nameless)
+    assert without_co.score < with_co.score
+    # and in a ranked list it sorts below its companyful twin
+    ranked = engine.rank(profile, [nameless, matching_job])
+    assert ranked[0].job.id == matching_job.id
+    # still present (demoted, not filtered)
+    assert any(r.job.id == "job_nocompany" for r in ranked)

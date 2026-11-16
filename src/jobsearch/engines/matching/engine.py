@@ -19,6 +19,12 @@ from jobsearch.engines.matching.scoring import (
 from jobsearch.llm import EmbeddingProvider, build_embedder, cosine_similarity
 from jobsearch.models import JobPosting, UserProfile
 
+#: Multiplier applied to a posting's composite score when it has no company name. An
+#: empty company is a strong low-quality signal — usually a mis-parsed job-alert row,
+#: not a real opening — so such a posting is demoted (it can't top the list) without
+#: being hidden outright. Tunable; 1.0 disables the penalty.
+_MISSING_COMPANY_FACTOR = 0.6
+
 
 class MatchingEngine:
     def __init__(
@@ -65,6 +71,10 @@ class MatchingEngine:
         )
         weights = self.feedback.weights_for(profile.user_id)
         composite = breakdown.composite(weights)
+        # Demote postings with no company — a strong data-quality red flag — so a
+        # mis-parsed, companyless alert row can't surface as the top match.
+        if not (job.company or "").strip():
+            composite *= _MISSING_COMPANY_FACTOR
         result = MatchResult(
             job=job,
             score=composite,
