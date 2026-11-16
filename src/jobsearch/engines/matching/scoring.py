@@ -87,7 +87,44 @@ class MatchBreakdown:
             + self.seniority * w.seniority
             + self.recency * w.recency
         )
-        return round(100.0 * max(0.0, min(1.0, raw)), 1)
+        return round(calibrate_fit(100.0 * max(0.0, min(1.0, raw))), 1)
+
+
+# --- fit calibration + one shared verdict scale -------------------------------
+# The blended raw score compresses into roughly [28, 85] on a 0-100 scale: semantic
+# similarity floors well above 0 for any text (``(cos+1)/2`` maps unrelated cos≈0 to
+# 0.5), and the component maxima for even excellent matches sit ~0.7-0.8, so nothing
+# reaches the extremes. A raw 55-60 therefore isn't a "strong" fit — it's the middle of
+# the real distribution. We stretch that working band across the full 0-100 so the
+# DISPLAYED number matches the sense of fit: a strong match reads 80+, a moderate one
+# ~50, a weak one <40. The map is linear and monotonic, so ranking order is unchanged.
+_CAL_FLOOR = 28.0  # raw at/below which fit is effectively 0 (noise floor of the blend)
+_CAL_CEIL = 85.0   # raw at/above which fit is ~100 (an exceptional blend across signals)
+
+
+def calibrate_fit(raw100: float) -> float:
+    """Map a raw blended score (0-100, compressed into ~[28,85]) onto a full-range,
+    intuitive 0-100 where a strong fit reads 80+. Monotonic → preserves ranking."""
+    return 100.0 * max(0.0, min(1.0, (raw100 - _CAL_FLOOR) / (_CAL_CEIL - _CAL_FLOOR)))
+
+
+#: ONE fit scale, used by the dashboard count AND the per-job verdict, so "strong"
+#: means the same thing everywhere (they used to disagree: dashboard ≥60 vs job ≥75).
+STRONG_FIT = 80.0
+SOLID_FIT = 60.0
+MODERATE_FIT = 40.0
+
+
+def fit_verdict(score: float) -> tuple[str, str]:
+    """(verdict word, friendly lead-in) for a calibrated 0-100 fit score — upbeat,
+    never harsh, and consistent with the dashboard's strong-match threshold."""
+    if score >= STRONG_FIT:
+        return "strong", "a strong"
+    if score >= SOLID_FIT:
+        return "solid", "a solid"
+    if score >= MODERATE_FIT:
+        return "moderate", "a workable"
+    return "stretch", "more of a stretch at"
 
 
 @dataclass

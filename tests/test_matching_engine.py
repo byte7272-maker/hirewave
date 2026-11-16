@@ -56,3 +56,34 @@ def test_companyless_posting_is_demoted_and_cannot_top(profile, matching_job):
     assert ranked[0].job.id == matching_job.id
     # still present (demoted, not filtered)
     assert any(r.job.id == "job_nocompany" for r in ranked)
+
+
+def test_fit_calibration_makes_strong_read_strong():
+    from jobsearch.engines.matching.scoring import calibrate_fit, fit_verdict, STRONG_FIT
+    # the compressed working band [28,85] stretches to a full 0-100
+    assert calibrate_fit(28) == 0.0
+    assert calibrate_fit(85) == 100.0
+    # a high raw blend now DISPLAYS as a strong fit (>=80) — the user's ask
+    assert calibrate_fit(74) >= STRONG_FIT
+    # a middling raw blend is explicitly NOT strong (fixes "strong starting at 50-60")
+    assert calibrate_fit(55) < STRONG_FIT
+    # monotonic → ranking order is preserved
+    assert calibrate_fit(40) < calibrate_fit(60) < calibrate_fit(80)
+
+
+def test_fit_verdict_thresholds_are_consistent_and_upbeat():
+    from jobsearch.engines.matching.scoring import fit_verdict
+    assert fit_verdict(80)[0] == "strong" and fit_verdict(79)[0] == "solid"
+    assert fit_verdict(60)[0] == "solid" and fit_verdict(59)[0] == "moderate"
+    assert fit_verdict(40)[0] == "moderate" and fit_verdict(39)[0] == "stretch"
+    # only the four allowed, never-harsh words
+    assert {fit_verdict(s)[0] for s in (10, 45, 65, 95)} <= {"strong", "solid", "moderate", "stretch"}
+
+
+def test_dashboard_and_job_verdict_share_one_strong_threshold():
+    # the dashboard's strong-match cutoff and the per-job "strong" verdict agree.
+    from jobsearch.api.routers.dashboard import _STRONG_MATCH
+    from jobsearch.engines.matching.scoring import fit_verdict, STRONG_FIT
+    assert _STRONG_MATCH == STRONG_FIT
+    assert fit_verdict(_STRONG_MATCH)[0] == "strong"
+    assert fit_verdict(_STRONG_MATCH - 0.1)[0] != "strong"

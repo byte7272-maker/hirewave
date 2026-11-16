@@ -18,7 +18,7 @@ from jobsearch.models.common import utcnow
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
-_STRONG_MATCH = 60.0  # score at/above which a match counts as "strong"
+from jobsearch.engines.matching.scoring import STRONG_FIT as _STRONG_MATCH  # one shared scale (P: fit calibration)
 _WEEKLY_TARGET = 5  # default weekly application goal (drives the progress bar)
 
 

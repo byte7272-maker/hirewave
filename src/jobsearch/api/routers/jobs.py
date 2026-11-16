@@ -629,14 +629,12 @@ def get_job(job_id: str, state: StateDep, _user: CurrentUser) -> JobPosting:
 
 
 def _verdict(score: int) -> tuple[str, str]:
-    """(verdict word, friendly lead-in) for a 0-100 fit score — upbeat, never harsh."""
-    if score >= 75:
-        return "strong", "a strong"
-    if score >= 60:
-        return "solid", "a solid"
-    if score >= 45:
-        return "moderate", "a workable"
-    return "stretch", "more of a stretch at"
+    """(verdict word, friendly lead-in) for a 0-100 fit score. Delegates to the ONE
+    shared fit scale (scoring.fit_verdict) so "strong" matches the dashboard's count
+    — the scores are now calibrated so a strong fit reads 80+ (see scoring.calibrate_fit)."""
+    from jobsearch.engines.matching.scoring import fit_verdict
+
+    return fit_verdict(score)
 
 
 def _doc_title(doc, fallback: str) -> str:
