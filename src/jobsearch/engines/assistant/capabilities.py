@@ -203,6 +203,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
              "remove, move, re-word, replace, update its numbers/dates to be current, or search the web for fresh facts "
              "to fold in. I show the result as an editable draft; you can tweak it, and it only commits and re-renders "
              "when you approve."},
+            {"label": "Right-pane screen", "does": "Switch the right pane between Bullets (select a bullet to act on) and "
+             "My Work Highlights (paste large notes, brags, or data dumps; generate prompts; extract and synthesize "
+             "evidence; your experience library). I can read and use anything you paste there when I act on your document."},
             {"label": "Ask AI", "does": "Describe a change in words; I edit the document (you confirm)."},
             {"label": "Versions", "does": "Switch, rename, or activate a saved version."},
         ],
@@ -218,6 +221,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"say": "Select any bullet and I'll ask what to do — remove, move, re-word, replace, update its "
                     "numbers and dates, or search the web for fresh facts to work in.",
              "highlight": "Selected bullet"},
+            {"say": "Switch the right pane to My Work Highlights to paste in big notes or data dumps — I'll read "
+                    "them and use them when I work on your document.",
+             "highlight": "Right-pane screen"},
             {"say": "Describe any change in plain words and I'll make it — you confirm before it's applied.",
              "highlight": "Ask AI"},
             {"say": "Every change saves its own version, so you can switch back any time.",

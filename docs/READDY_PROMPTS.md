@@ -125,7 +125,7 @@ dashboard banner when count > 0.
   {approved} of {total}"; keep non-submitted with inline notes. No silent/one-click submit.
 - Empty state: "You're all caught up."
 
-### P2.3 — "My Work Highlights" (consolidated hub)  _(folded into P7 — becomes the "My Work Highlights" tab)_
+### P2.3 — "My Work Highlights" (consolidated hub)  _(folded into P7 — becomes the "My Work Highlights" tab; delivered in the Workspace right pane as a switchable screen per P251)_
 One self-contained workspace. (Renamed from "Find my accomplishments".) Everything on one page —
 no modal-hopping. One **"Tailor to a role"** selector at the top feeds prompts, incorporation,
 and suggest-edits.
@@ -7946,3 +7946,42 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - Every assistant result is shown as an **editable draft** with **Approve/Cancel**; the user can hand-edit it first, and **Approve commits the edited text**, not the assistant's original.
 - Only on Approve is the change written to the **main editable document**, saved as a new version, and the **preview re-rendered**; the bullet is highlighted through the change; Undo restores the prior version. Cancel leaves the document untouched.
 - Direct typing edits still happen in the document pane, not the right pane.
+
+---
+
+## P251 — Right pane has two switchable screens (Bullets ↔ My Work Highlights); the assistant can read the user's data dumps
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. Builds on **P250** (assistant-driven Bullets screen), **P2.3** (the My Work Highlights functions), **P7** (the unified workspace), and **P246/P243** (editable doc + highlight). Folds **P2.3** into the Workspace right pane as one of its screens.
+
+**The intent:** the right pane isn't only the Bullets screen. The user can switch it to **My Work Highlights** — the place for **large inputs / data dumps** plus the evidence functions already built — with a clean look and feel. And the **assistant can read whatever the user dumps in**, using it when it acts on the document. The user chooses which screen is up; the assistant and its actions stay available on both.
+
+### 1. A clean screen switch at the top of the right pane
+- The right pane gets a small, unobtrusive **screen switch** (segmented control / two tabs): **Bullets** and **My Work Highlights**. One screen is shown at a time; switching is instant and preserves each screen's state (a half-written paste isn't lost when you flip to Bullets and back).
+- The **assistant's conversation + action chips remain available on both screens** (P250) — switching screens changes the *inputs* in view, not whether the assistant can help.
+
+### 2. Bullets screen = P250 (unchanged)
+- Selectable bullets → "What would you like to do with this bullet?" → remove / move / re-word / replace / update / search, result shown as an **editable draft**, commit + re-render on approve.
+
+### 3. My Work Highlights screen = the data-dump + evidence functions (P2.3), cleaned up
+- A prominent **large input** for **data dumps** — paste big notes, brag docs, performance reviews, old résumés, raw accomplishments — generous textarea, no tiny box. Clean, uncluttered layout.
+- Keep the existing, already-built functions, arranged simply:
+  - **Generate prompts** — `POST /resumes/{id}/evidence-prompts` (questions to pull out accomplishments).
+  - **Extract** — `POST /resumes/{id}/evidence/extract` (turn the pasted dump into structured points).
+  - **Synthesize** — `POST /resumes/{id}/evidence/synthesize` (cluster points into themed, résumé-ready bullets).
+  - **Experience library** — `GET/POST /api/v1/experience*` (a durable store of the user's accomplishments across sessions).
+  - **Suggest / incorporate** — turn chosen evidence into document edits (`/highlights/suggest` or `/suggest-edits` → `/apply-edits` → `/versions`, and `POST /resumes/{id}/incorporate`).
+- Everything the Highlights screen produces still follows the **accept-before-save / editable-draft** rule (P250 §5): a proposed bullet is editable, commits and re-renders only on approve.
+
+### 4. The assistant has ACCESS to the user's data dumps
+- Whatever the user pastes into My Work Highlights (and what's in their **experience library**) is **available to the assistant as context** when it formulates an action — so a bullet **Re-word / Replace / Update / Search** can draw on the user's own dumped material, not just the bullet's text. The assistant may say "I pulled this from your pasted notes" and cite which dump a fact came from.
+- Treat the pasted content as the **user's own data**: it is used only for this user's document, never sent to third parties, and when the assistant also pulls web facts those remain **untrusted data** (P243) kept separate from the user's dump.
+- Plumb it through the existing paths: the assistant reads the current paste / extracted points / experience library and feeds them into the same edit + incorporate endpoints above; the user still approves the editable draft before it commits.
+
+### 5. The user chooses the screen
+- The user controls which screen is up (Bullets vs My Work Highlights) via the switch; the assistant may **offer** to switch ("Want to open My Work Highlights so I can use your notes?") but doesn't flip it unasked. Remember the last-used screen per document for the session.
+
+### Acceptance
+- The right pane shows a **Bullets / My Work Highlights** switch; switching is instant, preserves each screen's state, and keeps the assistant + chips available on both.
+- **My Work Highlights** offers a **large data-dump input** plus generate-prompts / extract / synthesize / experience-library / incorporate, in a clean layout, each hitting its live endpoint (visible in the network panel).
+- A bullet action (re-word / replace / update / search) can **use the user's pasted dump / experience library** as source material, and says so; the result is still an **editable draft** that commits + re-renders only on approve.
+- The assistant can offer to switch screens but never flips the screen on its own; the last-used screen is remembered for the session.

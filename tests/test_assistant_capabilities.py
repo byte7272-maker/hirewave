@@ -151,3 +151,15 @@ def test_documents_bullet_actions_are_assistant_driven():
     assert "edit" in controls["Document preview"]
     # a step narrates the selected-bullet capability, highlighting that control
     assert any(st["highlight"] == "Selected bullet" for st in docs["steps"])
+
+
+def test_documents_right_pane_toggles_and_assistant_reads_data_dumps():
+    # The right pane can switch between the Bullets screen and My Work Highlights (large
+    # paste / data dumps), and the assistant can use whatever the user pastes there.
+    docs = caps.for_section("documents")
+    controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
+    assert "Right-pane screen" in controls, controls.keys()
+    does = controls["Right-pane screen"]
+    assert "my work highlights" in does and "bullets" in does
+    assert ("paste" in does or "data dump" in does) and "read" in does  # assistant uses the dump
+    assert any(st["highlight"] == "Right-pane screen" for st in docs["steps"])
