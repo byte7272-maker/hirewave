@@ -7824,3 +7824,40 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - With the extension connected, returning to the app shows the card updated with the captured **pay/location/benefits** (via `POST /jobs/jd-by-url`), visible in the network panel — no background bot-wall fetch involved.
 - A posting with no pay ends in a quiet **"No pay listed"**, not a spinner or error.
 - Without the extension, the posting still opens and the app explains that connecting it is what auto-fills pay.
+
+---
+
+## P248 — Interrupting a walkthrough pauses it (with confirmation), runs the new task, and offers a "Resume the walkthrough" chip
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend only — no backend change.** Builds on **P225** (walkthroughs are scripted, action-bound steps), **P231** (accepting a walkthrough RUNS it; never restart/re-announce), **P234** (every chip is wired to a real action), **P237** (act on the first "yes"; mic + chips in the same render).
+
+**The problem:** while the assistant is running a walkthrough/tour and the user interrupts to ask for **something else**, the assistant should not plow on with the tour (or mistake the request for the current step's answer). It should pause, confirm the switch, do the new task, and let the user come back to the tour later — from where they left off.
+
+### 1. Detect an interruption vs. an answer to the current step
+- While a walkthrough is active and a step's question is pending, classify the user's input:
+  - **An answer to the current step** (yes/no, a chosen option, a value, or a clarifying question *about this step*) → handle it inline as today; the tour continues.
+  - **A new/unrelated request** ("show me my matches", "edit my résumé", "what's this job's pay?") → treat it as an **interruption**, not the step's answer.
+- Never silently ignore the interruption and keep narrating, and never feed it into the step as if it were the answer.
+
+### 2. Confirm the switch, then run the task
+- On an interruption, ask one concise confirmation (P237 way — spoken/typed **and** mic-ready + Yes/No chips in the same render):
+  - *"Pause the walkthrough and {do the new task} instead?"*
+- **Yes** → **stop the walkthrough**: halt narration and auto-advance, clear its pending question and any highlight/spotlight, then run the requested task normally.
+- **No** → stay in the tour and **re-present the current step exactly where it was** (do not restart it — P231).
+- Act on the **first** yes (no re-asking, no re-intro).
+
+### 3. Remember where it was
+- When the walkthrough pauses, **save its position**: the tour id, the current step index, and any step state — so it can resume from **that** step, not from step 1.
+- Keep this in session state keyed to the user; a single active "paused tour" slot is enough (a new tour replaces it).
+
+### 4. Offer to continue later — as a chip
+- Right after confirming the switch (or when the interrupting task finishes), ask **once**: *"Want to pick the walkthrough back up later?"*
+- Surface a persistent action chip **"▶ Resume walkthrough — {tour name} (step N of M)"**. It stays available for the session even after the one-time ask, wired through the same dispatcher as every chip (P234 — no dead chips).
+- Tapping/saying it **resumes from the saved step**: re-focus the relevant screen/element and continue the script from where it paused (P231 — don't replay from the top). After it resumes and completes (or is dismissed), clear the paused slot and retire the chip.
+- Don't nag: make the "continue later?" offer once; the chip is the standing way back in.
+
+### Acceptance
+- Interrupting an active walkthrough with a new request makes the assistant **ask to pause** (it does not barrel on, and does not treat the request as the step's answer); on **yes** it stops the tour and does the task; on **no** it continues the current step unchanged.
+- A clarifying question *about the current step* is answered inline **without** pausing.
+- The paused position is saved; **"▶ Resume walkthrough — … (step N of M)"** appears, persists for the session, and resuming continues from that step — not the beginning.
+- The resume chip issues its action when tapped (no dead chip) and is retired once the tour is finished or dismissed.
