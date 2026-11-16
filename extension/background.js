@@ -238,6 +238,78 @@ async function enrichJobs(max) {
   return { ok: true, queued: items.length, processed, updated, failed, viaTab };
 }
 
+// --- résumé sync to a board's profile (assisted upload) ----------------------
+// The apply_sync.js content script (on a board profile page) asks for the user's
+// current résumé FILE for this board; we mint a token, ask the backend which résumé
+// is pinned to this board and where to download it, fetch the bytes authenticated as
+// the user, and hand them back base64-encoded. The content script sets the file on the
+// board's own upload input — the user reviews and saves. Then "mark" records the new
+// live version. No credential is read; the file is the user's own.
+function bytesToBase64(buf) {
+  var bytes = new Uint8Array(buf);
+  var bin = "";
+  var CHUNK = 0x8000; // avoid call-stack limits on large files
+  for (var i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+async function syncFetch(board) {
+  board = String(board || "").toLowerCase();
+  if (!board) return { ok: false, error: "unknown board" };
+  const a = await mintAccess();
+  if (a.error) return { ok: false, error: a.error };
+  // Ask the backend which résumé is this board's profile default + where to download it.
+  const pr = await fetch(a.base + "/api/v1/documents/board-sync/prepare", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.token },
+    body: JSON.stringify({ board: board, doc_type: "resume" }),
+  });
+  if (!pr.ok) {
+    let d = ""; try { d = (await pr.json()).detail || ""; } catch (_) { d = ""; }
+    return { ok: false, error: `(${pr.status}) ${d || "couldn't prepare the résumé for this site"}` };
+  }
+  const prep = await pr.json();
+  const dl = String(prep.download_url || "");
+  if (!dl) return { ok: false, error: "no résumé file to upload" };
+  const fr = await fetch(a.base + dl, { headers: { Authorization: "Bearer " + a.token } });
+  if (!fr.ok) return { ok: false, error: `couldn't download the résumé (${fr.status})` };
+  const buf = await fr.arrayBuffer();
+  const contentType = fr.headers.get("content-type") || "application/pdf";
+  // Filename from the download URL (export.pdf) or the content disposition.
+  let filename = dl.split("/").pop() || "resume.pdf";
+  const cd = fr.headers.get("content-disposition") || "";
+  const m = cd.match(/filename="?([^"]+)"?/i);
+  if (m) filename = m[1];
+  if (!/\.[a-z0-9]{2,4}$/i.test(filename)) filename += contentType.indexOf("pdf") >= 0 ? ".pdf" : ".docx";
+  return {
+    ok: true,
+    board: board,
+    resume_id: prep.resume_id || "",
+    resume_label: prep.resume_label || "",
+    filename: filename,
+    contentType: contentType,
+    b64: bytesToBase64(buf),
+    steps: prep.steps || [],
+    manage_url: prep.manage_url || "",
+  };
+}
+
+async function syncMark(board, resumeId) {
+  board = String(board || "").toLowerCase();
+  if (!board) return { ok: false, error: "unknown board" };
+  const a = await mintAccess();
+  if (a.error) return { ok: false, error: a.error };
+  const r = await fetch(a.base + "/api/v1/documents/board-sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + a.token },
+    body: JSON.stringify({ board: board, doc_type: "resume", resume_id: resumeId || "" }),
+  });
+  if (!r.ok) return { ok: false, error: `couldn't mark it updated (${r.status})` };
+  return { ok: true, data: await r.json() };
+}
+
 // Passive enrichment: a content script on a board job page the user is viewing hands
 // back that page's HTML; match it to one of the user's saved jobs (by title) server-side
 // and fill pay/benefits. The HTML goes only to the user's own account; parsed, not run.
@@ -352,6 +424,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // Passive enrichment from a board job page the user is viewing (content script).
       if (msg.type === "harbor-passive-enrich") {
         return sendResponse(await passiveEnrich(msg.url, msg.html));
+      }
+      // Résumé sync: fetch the user's board-pinned résumé file for an assisted upload.
+      if (msg.type === "harbor-sync-fetch") {
+        return sendResponse(await syncFetch(msg.board));
+      }
+      // Record that the board now holds the current résumé version (clears drift).
+      if (msg.type === "harbor-sync-mark") {
+        return sendResponse(await syncMark(msg.board, msg.resume_id));
       }
 
       if (msg.type !== "harbor-connect") {
