@@ -8126,15 +8126,22 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 
 **Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls `/api/v1/...` with Bearer auth. **Frontend routing fix.** Backend is correct: `POST /assistant/interpret` classifies every "research this company" phrasing to intent **`research_company`** (with `company:""` meaning "resolve from the focused/top match"), and the research flow (`GET /assistant/research/company` → client web search → `POST /assistant/research/summarize`) is live. Builds on **P224/P237** (web search intent), **P252** (narrate the flow), **P255** (reasoning).
 
-**The bug:** tapping the **"Research this company"** chip/card leads to the **matches screen** instead of running a web search. The `research_company` intent (and that chip) is being routed as a navigate-to-matches action — likely because the offer is defined in the Matches section and/or because `company:""` is never resolved to a real company, so the call fails over to the matches list.
+**The bug (confirmed live — fix all of these):** tapping **"Research the top company" / "Research this company"**:
+- fires **only** `narration/speak` — **no** `GET /assistant/research/company` and **no** `POST /assistant/research/summarize` ever go out, so **no real search happens**;
+- just **speaks a canned line** ("I've put together quick links — its website, LinkedIn, Glassdoor reviews, and recent news…") and **doesn't even render those links**;
+- then **pivots to the "Want me to walk your top matches?" offer** (the matches script) — which is what makes it feel like it "goes to matches";
+- and resolution is broken: the **top match's company can be empty** (`dashboard summary.matches.top.company == ""`, e.g. an "Intern …" posting with no company), so "the top company" resolves to **nothing**.
+
+It must instead **make the research calls**, against a **real** company, and **render the brief + links** — not speak a canned line and hand off to the matches walkthrough.
 
 ### 1. Route `research_company` to the RESEARCH flow, never to matches
+- The chip must **actually call the research endpoints** (below) — speaking the `reply` alone is not "research". Do not auto-follow it with the "walk your matches" offer; that hand-off is the bounce the user sees.
 - The `research_company` intent — and the **"Research this company"** chip/card — must invoke the **web-research flow**, not navigate to the Matches section. Opening matches is never the action for this intent.
 - Wire it through the same dispatcher as every chip (P234): `research_company` → the research handler below. Do not treat it as a section-nav just because the offer that proposes it lives on a match card.
 
-### 2. Resolve `company:""` from context FIRST
-- When the intent/chip carries `company:""` (or "this/the top company"), **resolve the real company before calling the endpoint**: use the company of the **focused match** (the card the chip is on), else the **top match** (dashboard `summary.matches.top.company`), else ask *"Which company?"* — never call research with an empty company (the endpoint requires a non-empty `company` and will 422, which is what's bouncing it to matches).
-- With a named company (`company:"plaid"`), use it directly.
+### 2. Resolve `company:""` to a REAL company (handle empty-company matches)
+- When the intent/chip carries `company:""` (or "this/the top company"), **resolve a non-empty company before calling the endpoint**, in order: the **focused match** (the card the chip is on) → the **top match** (`dashboard summary.matches.top.company`) → **the first match that actually has a company** (skip empty-company postings — e.g. the "Intern …" top match has `company:""`) → else **ask "Which company?"**.
+- **Never call research with an empty `company`** (the endpoint requires a non-empty value and 422s). A named company (`company:"plaid"`) is used directly.
 
 ### 3. Run and narrate the genuine search
 - Call **`GET /assistant/research/company?company=<resolved>`** → it returns a spoken `reply` + `links` and `use_client:true` (web research is on). Because the search runs on the **user's connection**, perform the client-side fetch and then **`POST /assistant/research/summarize { company, query, sources }`** to get the structured brief (summary, facts, keywords, tailoring, sources, caution) — exactly the P252 flow (speak each step: "Looking up {company}…" → "Here's what I found…").
@@ -8144,5 +8151,37 @@ Each answer runs through the same dispatcher (P234) and is **spoken**; none is a
 ### Acceptance
 - Tapping **"Research this company"** runs a **web search for that company** and shows/speaks the research brief — it does **not** open or navigate to the Matches screen.
 - `company:""` is resolved to the focused/top match's company before the call; a named company is used directly; an unresolvable one asks "which company?" (never a 422-to-matches fallback).
-- The flow hits `GET /assistant/research/company` and `POST /assistant/research/summarize` (visible in the network panel), narrates per P252, and offers the quick links as a fallback.
+- The flow hits `GET /assistant/research/company` and `POST /assistant/research/summarize` (**both visible in the network panel** — not just `narration/speak`), narrates per P252, and renders the brief **and** the clickable quick links.
+- It does **not** auto-follow with the "walk your top matches" offer; the research result is the outcome, not a hand-off to the matches script.
 - If web research is off, the user gets the one-tap permission ask (P255), not a bounce to matches.
+
+---
+
+## P257 — Move faster (with a speed control), ask before advancing on a skip, and never go silent without closing the loop
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend behavior; no backend change** — advertised as core behaviors `pace_control` + `confirm_task_boundary` in `GET /assistant/capabilities`. Builds on **P225** (walkthroughs), **P237** (act on the first yes), **P252** (narrate every state), **P253** (that's the *voice* rate — this is *pacing*, a different control).
+
+**Three fixes:** the assistant feels slow; when the user skips an item it should ask whether to move on; and it must never just **go quiet** — it always confirms a task is done or asks if it's still wanted.
+
+### 1. Move faster, and give a speed control for pacing
+- Tighten the default pace: shorter gaps between steps, start the next action as soon as the current one is ready, don't pad with filler. Keep narration (P252) but overlap it with work where safe so it isn't a bottleneck.
+- Add a **pacing speed control** (e.g. a Normal / Fast / Faster segmented control, or a slider) for **how quickly the assistant advances** through steps and list items — separate from, and in addition to, the TTS **voice-speed** slider (P253). Remember the choice for the session; "Fast" shortens inter-step delays and auto-advances sooner where no decision is required.
+- A spoken/typed "faster" / "slow down" adjusts the same pacing control live (P252 answers it).
+
+### 2. On a skip, ask before advancing to the next item
+- When the user **skips** the current item in a sequence (a job in the matches list, a bullet, a step) — says "skip", taps Next/Skip, or dismisses it — **ask once** whether to move on: *"Want me to go to the next job?"* (spoken + mic-ready Yes/No, P237).
+- **Yes** → advance to the next item and continue; **No** → stay / pause here. Don't silently jump ahead, and don't silently stop. Name the next item when it helps (*"Next up is {title} at {company} — go there?"*).
+- At the **end of the list**, say so and offer the next move (*"That's the last one — want me to refine the search or start applying to the ones you liked?"*).
+
+### 3. Never go silent — confirm complete or ask if still needed
+- The assistant must never just **stop talking** mid-task or after finishing without closing the loop. Every task/flow ends in one of:
+  - **Done:** confirm completion — *"Done — I updated the bullet and saved it. Anything else on this one?"*
+  - **Still needed?:** if it's been waiting on the user or a step stalled, ask — *"Want me to keep going here, or move on?"* / *"Should I finish this, or is it no longer needed?"*
+- If a step is waiting on the user (approval, a value, a sign-in) and nothing happens, after a short beat the assistant **prompts** rather than going quiet — *"Still here whenever you're ready — want to continue?"* (don't nag repeatedly; ask, then wait).
+- On an error or dead-end, say so and offer the next move (P252 error state) — never a silent spinner or a silent abandon.
+- This pairs with P252 (speak every state): there is **no silent state** — working, waiting, done, skipped, error, or "still needed?" each has a spoken line.
+
+### Acceptance
+- The assistant advances noticeably faster by default, and a **pacing speed control** (separate from the voice-speed slider) changes how fast it moves through steps/items; "faster"/"slow down" adjusts it live.
+- Skipping an item makes the assistant **ask "go to the next one?"** (mic-ready Yes/No); yes advances, no stays — never a silent jump or silent stop; the end of the list is announced with a next-move offer.
+- No task ever ends in silence: the assistant **confirms completion** or **asks if it's still needed**; a stalled wait gets a gentle prompt, not quiet; errors/dead-ends are spoken with a next step.

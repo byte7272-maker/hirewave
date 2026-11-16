@@ -67,6 +67,11 @@ BEHAVIORS = [
     # suggesting an action, and how it benefits the user's goal, and it anticipates +
     # BULKS the permissions a plan needs so the user grants once (POST /assistant/reasoning).
     "reason_and_bulk_consent",
+    # pacing (P257): the assistant moves briskly and exposes a speed control for how fast
+    # it advances through steps/items (distinct from the TTS voice rate, P253); and it
+    # never goes silent without closing the loop — it confirms a task is complete or asks
+    # if it's still wanted, and when the user skips an item it asks whether to go to the next.
+    "pace_control", "confirm_task_boundary",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
