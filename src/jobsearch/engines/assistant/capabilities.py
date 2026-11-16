@@ -72,6 +72,11 @@ BEHAVIORS = [
     # never goes silent without closing the loop — it confirms a task is complete or asks
     # if it's still wanted, and when the user skips an item it asks whether to go to the next.
     "pace_control", "confirm_task_boundary",
+    # badge-first (P258): on landing the assistant starts speaking while COMPACT (a badge),
+    # a tap expands the full window, press-and-hold the badge arms the mic, and the badge
+    # can surface a binary yes/no — distilling a larger question to its point — as a
+    # tap alternative to holding the mic.
+    "badge_first",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

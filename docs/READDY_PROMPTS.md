@@ -8185,3 +8185,59 @@ It must instead **make the research calls**, against a **real** company, and **r
 - The assistant advances noticeably faster by default, and a **pacing speed control** (separate from the voice-speed slider) changes how fast it moves through steps/items; "faster"/"slow down" adjusts it live.
 - Skipping an item makes the assistant **ask "go to the next one?"** (mic-ready Yes/No); yes advances, no stays — never a silent jump or silent stop; the end of the list is announced with a next-move offer.
 - No task ever ends in silence: the assistant **confirms completion** or **asks if it's still needed**; a stalled wait gets a gentle prompt, not quiet; errors/dead-ends are spoken with a next step.
+
+---
+
+## P258 — Badge-first assistant: speak from the compact badge on arrival; tap to expand, hold to talk, with a binary yes/no as the tap alternative
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). **Frontend behavior; no backend change** — advertised as core behavior `badge_first` in `GET /assistant/capabilities`. Builds on **P225** (guide-on-arrival), **P237** (speak the question + mic-ready), **P252** (speak every state), **P254** (badge stays out of the way), **P245** (the mic is the ring on the assistant icon).
+
+**Default behavior:** the assistant's resting form on every page is the **compact badge** — and it **starts speaking from the badge** on arrival, without the user opening anything. The big window is opt-in.
+
+### 1. On landing, speak from the badge (don't wait to be opened)
+- When a page becomes active, the assistant — in its **badge** form — gives the short guide-on-arrival line (P225): what this page is / the one useful next move. It speaks **while compact**; it does **not** auto-open the full window.
+- Keep it brief and get out of the way (P254): the badge narrates, points if it references something, and never covers content.
+
+### 2. Tap the badge = expand; press-and-hold = talk
+- **Tap** the badge → open the **full assistant window** (the expanded panel).
+- **Press-and-hold** the badge → arm the **mic** and capture the input stream (release to submit, P245/P226 push-to-talk). The badge's ring reflects state (green ready / red recording, P245).
+- A quick tap and a hold are distinct gestures — a hold must not also be read as a tap-to-expand, and vice-versa.
+
+### 3. Binary yes/no in the badge — a tap alternative to holding the mic
+- When the assistant asks a question, the **badge surfaces a Yes/No** the user can **tap** — so answering never requires holding the mic. Tap and hold-to-speak take the identical path (P237).
+- When the real question is bigger than yes/no, the assistant **distills it to the point as a binary decision** in the badge — summarize the larger idea into the one choice that moves things forward (e.g. a long tailoring suggestion → *"Apply this change? Yes / No"*), with the full detail available on tap-to-expand. The binary is the fast path; expanding shows the nuance.
+- The badge yes/no obeys the usual rules: it's bound to a real action (P234), acts on the first answer (P237), and a destructive choice still confirms (P180).
+
+### Acceptance
+- Landing on a page, the assistant **speaks its arrival line from the compact badge** without the full window opening.
+- **Tapping** the badge opens the full window; **pressing-and-holding** it arms the mic and captures speech (release submits); the two gestures don't collide.
+- When the assistant asks something, the **badge shows a tappable Yes/No** as an alternative to the mic; a larger question is distilled to a binary decision in the badge, with detail on expand.
+- The badge stays out of the way while it speaks (P254) and never auto-opens the big window on its own.
+
+---
+
+## P259 — Phone/tablet résumé rendering: open on a single tap, fill the screen as a clean document, pinch/swipe zooms the doc (not the page), portrait↔landscape proportional
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`) on a real phone/tablet (or device emulation). **Frontend rendering/layout; no backend change.** Builds on **P244** (full-size preview + Edit), **P246/P243** (the document is the focus), **P254** (don't crowd the content).
+
+**The problems on phone size:** the résumé preview is **clunky** — it needs a **double-tap** to open from the marquee, wastes space on **frame/border and buttons**, doesn't render as a clean readable document, forces the user to fiddle to read it, and **pinch/swipe zooms the whole page** instead of the résumé. Portrait and landscape look inconsistent. Make it **smooth and simple**.
+
+### 1. Single tap opens it
+- Tapping a résumé in the marquee **opens the preview on the first tap** — no double-tap. One tap = open; the full-view/zoom gestures happen inside the opened preview.
+
+### 2. Render as a clean document that fills the screen
+- Open the résumé as a **document that fits the screen width** (fit-to-width by default) with the page **centered**, minimal chrome. Strip the heavy **frame/border**; don't let a thick bezel or a row of buttons eat the viewport. The **document is the content** — buttons are secondary (a small, unobtrusive action bar or an overflow menu, auto-hiding), not the focus.
+- It must **render correctly without the user adjusting anything** — the right zoom, margins, and scroll position on open, so the reader just reads. No pre-zoom, no sideways scroll to find the text, no manual fit.
+
+### 3. Finger gestures zoom/pan the RÉSUMÉ, not the page
+- **Pinch** zooms the résumé; **swipe/drag** pans the zoomed résumé; a **double-tap** toggles fit-width ↔ zoomed-in. These gestures act on the **document surface only** — they must **not** zoom or scroll the whole app page. (Contain the gesture: prevent default page zoom/scroll within the preview; use `touch-action` appropriately so the document, not the browser page, responds.)
+- Keep it smooth: momentum pan, clamped zoom range, snap back to fit-width on a double-tap-out. No jank, no accidental page zoom leaking through.
+
+### 4. Portrait ↔ landscape, proportional
+- Lay the document out **proportionally to the viewport** in both orientations: portrait fits the page to width (tall scroll); landscape fits to height (or width, whichever shows the page fully) so rotating doesn't leave huge empty margins or a tiny page. Re-fit on rotation automatically, preserving the reading position. The document should look like the **same page, proportionally scaled** — not two different layouts.
+
+### Acceptance
+- A **single tap** on a marquee résumé opens the preview (no double-tap).
+- The résumé opens as a **clean, fit-to-width document** with minimal border/buttons, readable immediately with **no user adjustment** (no manual zoom/scroll to start reading).
+- **Pinch/swipe/double-tap zoom and pan the résumé only** — the surrounding app page does not zoom or scroll; gestures are smooth with clamped zoom and momentum.
+- Rotating between **portrait and landscape** re-fits the page **proportionally** (no huge margins, no tiny page), preserving reading position; it reads as the same document scaled, not a different layout.
