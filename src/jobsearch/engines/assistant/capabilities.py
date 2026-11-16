@@ -188,7 +188,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "actions": [
             _action("Show my résumé", "show", ["resume"], "navigate", {"section": "documents", "doc": "resume"}),
             _action("Show my cover letter", "show", ["cover_letter"], "navigate", {"section": "documents", "doc": "cover_letter"}),
-            _action("Review it", "walk", ["document"], "start_playbook", {"playbook": "bullets"}),
+            _action("Work on a bullet", "walk", ["document", "bullet"], "start_playbook", {"playbook": "bullets"}),
             _action("Edit it", "change", ["document"], "navigate", {"section": "documents"},
                     confirm="Apply this change to your document?"),
             _action("Tailor it to a job", "tailor", ["document"], "start_playbook", {"playbook": "tailor"}),
@@ -198,19 +198,26 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     destructive=False),
         ],
         "controls": [
-            {"label": "Document preview", "does": "Shows the current document; it centers and highlights on open."},
-            {"label": "Ask AI", "does": "Describe a change in words; it edits the document (you confirm)."},
+            {"label": "Document preview", "does": "The editable document — edit the text directly here; it centers and highlights on open."},
+            {"label": "Selected bullet", "does": "Select a bullet in the right pane and I'll ask what to do with it — "
+             "remove, move, re-word, replace, update its numbers/dates to be current, or search the web for fresh facts "
+             "to fold in. I show the result as an editable draft; you can tweak it, and it only commits and re-renders "
+             "when you approve."},
+            {"label": "Ask AI", "does": "Describe a change in words; I edit the document (you confirm)."},
             {"label": "Versions", "does": "Switch, rename, or activate a saved version."},
         ],
         "offers": [
-            _offer("Review it", "start_playbook", {"playbook": "bullets"}),
+            _offer("Work on a bullet?", "start_playbook", {"playbook": "bullets"}),
             _offer("Modify it", "navigate", {"section": "documents"}),
             _offer("Use it for a job application", "start_playbook", {"playbook": "apply_job"}),
             _offer("Tailor it to a job", "start_playbook", {"playbook": "tailor"}),
         ],
         "steps": [
-            {"say": "This is your document, shown exactly as it renders.",
+            {"say": "This is your document, shown exactly as it renders — and you can edit the text right here.",
              "highlight": "Document preview"},
+            {"say": "Select any bullet and I'll ask what to do — remove, move, re-word, replace, update its "
+                    "numbers and dates, or search the web for fresh facts to work in.",
+             "highlight": "Selected bullet"},
             {"say": "Describe any change in plain words and I'll make it — you confirm before it's applied.",
              "highlight": "Ask AI"},
             {"say": "Every change saves its own version, so you can switch back any time.",

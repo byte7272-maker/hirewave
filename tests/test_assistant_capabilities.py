@@ -136,3 +136,18 @@ def test_capabilities_endpoint_one_section():
 def test_capabilities_requires_auth():
     _, c = _app()
     assert c.get("/api/v1/assistant/capabilities").status_code == 401
+
+
+def test_documents_bullet_actions_are_assistant_driven():
+    # The right pane is assistant-driven: a selected bullet offers remove/move/re-word/
+    # replace/update/search — not an inline bullet editor. The document itself is editable.
+    docs = caps.for_section("documents")
+    controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
+    assert "Selected bullet" in controls, controls.keys()
+    does = controls["Selected bullet"]
+    for verb in ("remove", "move", "re-word", "replace", "update", "search"):
+        assert verb in does, (verb, does)
+    # the preview is editable (edit happens in the document, not the right pane)
+    assert "edit" in controls["Document preview"]
+    # a step narrates the selected-bullet capability, highlighting that control
+    assert any(st["highlight"] == "Selected bullet" for st in docs["steps"])

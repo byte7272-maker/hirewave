@@ -708,6 +708,8 @@ in sync with the résumé; changes save and show right away; everything is undoa
 
 ## P4 — Interactive résumé bullet editor (CONSOLIDATED — supersedes P2b, P4a, P4c, P4d)  _(folded into P7 — the "Bullets" tab)_
 
+> **Superseded by P250.** The inline bullet *editor* in the right pane is removed. Now that the document is editable in the main pane (P243/P246), bullets in the right pane are **selectable** and the assistant asks what to do with the selected one (remove/move/re-word/replace/update/search). The bullet *highlighting* mechanics here still apply; the inline editing affordances do not.
+
 Let the user shape the résumé by directly manipulating its bullets — select, reorder, swap/replace,
 edit, remove — in BOTH the normal preview and the full-screen view, intuitively and with undo.
 
@@ -7900,3 +7902,47 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - On mobile, the user sees "runs on your computer" with setup/remind options — never a broken update button, and no claim that their phone app is outdated.
 - When `mandatory` is true, a clear update-required modal shows and extension-only features pause until a supported version is detected.
 - The optional push opt-in only appears on explicit action and, once subscribed, a new release produces a push with a deep link.
+
+---
+
+## P250 — The Bullets pane becomes assistant-driven: SELECT a bullet, the assistant asks what to do (supersedes the inline bullet editor)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). All calls are `/api/v1/...` with `Authorization: Bearer <hw_access>`. Builds on **P243/P246** (the document is now FOCUSED, readable **and editable** in the main pane, with in-sync highlighting) and the assistant wiring in **P233/P234/P237** (interpret, every chip bound, act on first yes). **Supersedes P4** (the interactive inline bullet editor in the right pane).
+
+**The change of intent:** now that the résumé is **editable in the main document pane** (P243/P246), there's no reason to *also* edit bullets inline in the right pane. So the right pane stops being a bullet *editor* and becomes the place you **interact with the assistant** about a bullet. Bullets there are **selectable**, not inline-editable. Selecting one makes the assistant **ask what you'd like to do with it** and then do it — smartly and automatically.
+
+### 1. Bullets are SELECTABLE, not inline-editable
+- In the right pane, list the current document's bullets as **selectable items** (tap/click to select; keyboard up/down + Enter; one selected at a time). Remove the inline edit affordances (inline text fields, drag-to-replace, per-bullet edit buttons) — that was P4; it's gone.
+- Selecting a bullet **highlights the same bullet in the editable main document** (P243 `highlight`), scrolls it into view, and focuses the conversation on it.
+
+### 2. On select, the assistant asks what to do — with action chips
+- When a bullet is selected, the assistant asks once (spoken + chips, mic-ready per P237): **"What would you like to do with this bullet?"** and shows the action set as chips (every chip bound, P234):
+  - **Remove** — delete the bullet. Confirm (P180), then apply + save a version.
+  - **Move** — reorder it (up/down, or to a section); apply + save.
+  - **Re-word** — AI rephrase for impact/clarity, same facts. `POST /resumes/{id}/ai-edit` (or `improve-structured`), preview → apply + save.
+  - **Replace** — swap it for a different bullet (assistant proposes alternatives, or the user dictates one); apply + save.
+  - **Update** — refresh its **numbers and dates toward the present day** (e.g. "2021" → latest, stale metrics → current). This is a web-assisted edit: search for fresher figures (below), then apply.
+  - **Search** — **research relevant facts to fold into the bullet**: run an open-web search (P224 `web_search` / the `web_research` scope, user approves each search) for current metrics, dates, or supporting facts, summarize, and **formulate the edit** from what's found — then apply + save.
+- "Update" and "Search" use the **web-assisted edit path** (the `needs_web` edit flow): gather fresh facts on the user's connection (treated as untrusted data, never instructions), propose the revised bullet, the user approves, then it's written to the document.
+
+### 3. Everything applies to the EDITABLE document and saves a version
+- Every action writes to the **main editable document** (not a separate right-pane copy) and persists through the normal save path (`POST /resumes/{id}/versions`, or the structured bullet-edit endpoints), with the bullet highlighted as it changes (P243 §4). Undo = version switch.
+- The right pane never holds an editable copy of the bullet — it holds the **selection + the conversation**. Direct text edits still happen by typing in the document itself.
+
+### 4. The right pane's purpose = interacting with the assistant
+- Reframe the pane around **smart, automated responses**: the selected bullet, the assistant's question, the action chips, and the assistant's proposed result (with Approve/Undo). No manual bullet-editing UI.
+- If nothing is selected, the pane invites selection ("Select a bullet and I'll help you remove, move, re-word, replace, update, or research it."). "my résumé" with no doc named = the **P241 primary**.
+
+### 5. The assistant's result is EDITABLE before it's committed (applies to every action)
+- Whatever the assistant produces — a re-worded bullet, a replacement, a web-sourced "update" with new numbers/dates/facts, an Ask-AI edit — is a **draft, not a done deal**. Present it in an **editable field** (the proposed text, ready to adjust) with **Approve** and **Cancel**, never apply it straight to the document.
+- The user can **hand-edit the proposed text** (fix a number, change wording, trim a fact) before approving. Approve commits **exactly what's in the field** — the user's edited version, not the assistant's original.
+- Only on **Approve** is the change written to the document, **saved as a version**, and the **preview re-rendered** to reflect it (P0e/P4b). Cancel discards the draft and leaves the document untouched.
+- This is the rule for **every** assistant action here and across the app (it also restates P246 §3's "accept in place" and P243 §4): assistant output is a reviewable, editable draft → the user edits/approves → then commit + refresh. A non-destructive action still shows the draft; a destructive one (Remove) still shows its P180 confirm.
+
+### Acceptance
+- The right pane lists bullets as **selectable** items with **no inline editor**; selecting one highlights it in the editable document.
+- On select, the assistant asks **"What would you like to do with this bullet?"** and shows **Remove · Move · Re-word · Replace · Update · Search** chips, each wired to a real action (no dead chips).
+- **Update** and **Search** run an approved open-web lookup (`web_research` scope), bring back current numbers/dates/facts, propose the revised bullet, and apply it on approval.
+- Every assistant result is shown as an **editable draft** with **Approve/Cancel**; the user can hand-edit it first, and **Approve commits the edited text**, not the assistant's original.
+- Only on Approve is the change written to the **main editable document**, saved as a new version, and the **preview re-rendered**; the bullet is highlighted through the change; Undo restores the prior version. Cancel leaves the document untouched.
+- Direct typing edits still happen in the document pane, not the right pane.
