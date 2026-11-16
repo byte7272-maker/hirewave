@@ -7861,3 +7861,42 @@ Expose client-side actions the assistant drives as it talks (wire them through t
 - A clarifying question *about the current step* is answered inline **without** pausing.
 - The paused position is saved; **"▶ Resume walkthrough — … (step N of M)"** appears, persists for the session, and resuming continues from that step — not the beginning.
 - The resume chip issues its action when tapped (no dead chip) and is retired once the tour is finished or dismissed.
+
+---
+
+## P249 — Notify users of a new extension version (desktop toast + mobile "continue on desktop" + optional push)
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`). Reads `GET /api/v1/extension/latest` (LIVE, **no auth**) and the extension's own version via `harbor-ping` (P233/P238 bridge → `{ version }`). Reuses the existing `hirewave_extension_*` localStorage keys. Builds on **P238/P200** (connect the extension) and **P247** (the extension is the enrichment path).
+
+**The reality to design around:** you can't push the extension *bits* — the Chrome/Edge **Web Store auto-updates** them silently within hours. Mobile Chrome has **no extensions at all**. So this is about the **notification + nudge**, kept simple on both desktop and mobile. Never block the app except for a mandatory update.
+
+### 1. One source of truth
+- `GET /api/v1/extension/latest` → `{ version, min_supported, store_url, release_notes_url, whats_new[], installed, update_available, mandatory }`.
+- Pass the connected extension's version so the server does the compare: `GET /api/v1/extension/latest?installed={pingVersion}`. `update_available` = installed behind latest; `mandatory` = installed below `min_supported`.
+- Check on app load **and** on window focus (cheap). Get `installed` from the `harbor-ping` reply; if the extension isn't connected, skip the desktop nudge (see §3).
+
+### 2. Desktop — one quiet toast, once per version
+- When `update_available` and the extension is connected, show a small, dismissible banner on the extension status chip:
+  - *"Harbor Connect {version} is available — it updates automatically. [What's new] [Update now]"*
+- **"What's new"** lists `whats_new[]` (plain language). **"Update now"** opens `store_url` (or, if empty, the browser's own extensions page) so the impatient can force the Web Store check; otherwise it lands on its own.
+- Show it **once per version**: record the dismissed/notified version in **`hirewave_extension_update_notified`** (reuse the existing key). Don't renag on every load or focus.
+- When a later ping reports the new `version` (auto-update landed), replace the banner with a one-time quiet *"Updated to {version} ✓"*, then clear it.
+
+### 3. Mobile (or desktop without the extension) — "set it up on your computer"
+- On mobile, there is no extension to install/update. Detect mobile and show, instead of a dead install/update button:
+  - *"Harbor Connect runs in your computer's browser. [Email me the setup link] · [Remind me on desktop]."*
+- The web app/PWA itself updates automatically (service worker), so the **app** is always current on mobile — only the **extension** is desktop-bound. Say that plainly; don't imply the phone is out of date.
+- On desktop **without** the extension connected, show the normal connect CTA (P238), not an update nudge.
+
+### 4. Optional — true push when a version ships
+- Offer a one-tap **"Tell me about new versions"** (Web Push / PWA): store the subscription, and on a new publish send *"New Harbor Connect available"* with a deep link to the setup/what's-new page. This is the only path that reaches a **closed tab or a phone**; same subscribe button for desktop and mobile. Opt-in only; never prompt for notification permission unsolicited.
+
+### 5. Mandatory updates (safety valve)
+- When `mandatory` is true (installed below `min_supported`), replace the quiet toast with a clear, blocking-ish modal: *"Update required — Harbor Connect will refresh shortly; reconnect after it updates,"* and **pause the extension-dependent features** (enrichment, auto-fill) until a ping reports a supported version. Everything not needing the extension keeps working.
+
+### Acceptance
+- With the extension connected and behind, a **once-per-version** toast appears with **What's new** and **Update now**; dismissing it (stored in `hirewave_extension_update_notified`) stops the renag; when the auto-update lands the toast flips to "Updated ✓".
+- The toast only shows when `GET /api/v1/extension/latest?installed=…` returns `update_available: true`; the call is visible in the network panel.
+- On mobile, the user sees "runs on your computer" with setup/remind options — never a broken update button, and no claim that their phone app is outdated.
+- When `mandatory` is true, a clear update-required modal shows and extension-only features pause until a supported version is detected.
+- The optional push opt-in only appears on explicit action and, once subscribed, a new release produces a push with a deep link.

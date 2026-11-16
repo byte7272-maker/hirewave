@@ -1589,3 +1589,18 @@ class FitBriefOut(BaseModel):
     resume_options: list[DocOption] = []
     cover_letter_options: list[DocOption] = []
     next_steps: list[NextStep] = []
+
+
+class ExtensionLatestOut(BaseModel):
+    """What the app/extension read to decide whether to nudge an update. The Web
+    Store delivers the bits; this just advertises the current channel + what's new.
+    ``update_available`` / ``mandatory`` are filled only when ``installed`` is given."""
+
+    version: str                       # latest published Web Store version
+    min_supported: str                 # lowest version still allowed to run
+    store_url: str                     # listing URL ("" → use the browser's ext page)
+    release_notes_url: str = ""
+    whats_new: list[str] = []          # short, plain-language highlights
+    installed: Optional[str] = None     # echoes the ?installed= the client sent
+    update_available: Optional[bool] = None  # installed < version
+    mandatory: Optional[bool] = None    # installed < min_supported (force update)

@@ -62,6 +62,19 @@ class Settings(BaseSettings):
     #: Community reports at/above which a shared template auto-hides for review.
     template_flag_threshold: int = Field(default=3, validation_alias="JOBSEARCH_TEMPLATE_FLAG_THRESHOLD")
 
+    # --- Browser extension release channel ---------------------------------
+    # The latest published Chrome/Edge Web Store version, and the lowest version
+    # still supported. Clients read /api/v1/extension/latest to show a "new
+    # version" nudge (the Store auto-updates the bits; we only advertise + nudge).
+    # Bump JOBSEARCH_EXT_LATEST on each publish; drop JOBSEARCH_EXT_MIN_SUPPORTED
+    # only when an old version must be forced to update.
+    ext_latest_version: str = Field(default="1.6.5", validation_alias="JOBSEARCH_EXT_LATEST")
+    ext_min_supported: str = Field(default="1.6.0", validation_alias="JOBSEARCH_EXT_MIN_SUPPORTED")
+    #: Web Store listing URL (empty until published → clients fall back to the
+    #: browser's own extensions page for a manual update check).
+    ext_store_url: str = Field(default="", validation_alias="JOBSEARCH_EXT_STORE_URL")
+    ext_release_notes_url: str = Field(default="", validation_alias="JOBSEARCH_EXT_RELEASE_NOTES_URL")
+
     # --- LLM / embeddings --------------------------------------------------
     llm_provider: LLMProviderName = "mock"
     embedding_provider: EmbeddingProviderName = "mock"
