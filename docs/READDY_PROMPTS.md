@@ -8241,3 +8241,35 @@ It must instead **make the research calls**, against a **real** company, and **r
 - The résumé opens as a **clean, fit-to-width document** with minimal border/buttons, readable immediately with **no user adjustment** (no manual zoom/scroll to start reading).
 - **Pinch/swipe/double-tap zoom and pan the résumé only** — the surrounding app page does not zoom or scroll; gestures are smooth with clamped zoom and momentum.
 - Rotating between **portrait and landscape** re-fits the page **proportionally** (no huge margins, no tiny page), preserving reading position; it reads as the same document scaled, not a different layout.
+
+---
+
+## P260 — iOS "why can't I hear the assistant": route audio as playback (ignore the silent switch), detect the muted/locked state, and offer a one-tap unmute
+
+**Assumptions:** verify on the PUBLISHED site (`hlrtlg.readdy.co`) on a real iPhone. **Frontend; no backend change.** Builds on **P220** (iOS audio unlock on first gesture), **P227** (iPhone narration + mic guidance), **P245** (the assistant badge/ring state), **P252/P253** (narration + voice speed).
+
+**The problem:** on iOS, Web Audio defaults to the **`ambient`** session category, so it's **silenced by the phone's ring/silent switch** — and the page gives little indication, so the user can't tell why the assistant is inaudible. A web page **cannot read the hardware switch or override it**; what it *can* do is (1) declare a different audio-session type so the voice plays like media (not silenced by the switch), (2) detect the states it *can* detect and offer a one-tap fix, and (3) always show why it's silent.
+
+### 1. Change the default: declare a "playback" audio session
+- On the first user-gesture audio unlock (P220), set **`navigator.audioSession.type = 'playback'`** (guarded: `if ('audioSession' in navigator)`). On iOS 17+ this makes the assistant's audio play in the **playback** category, which is **not silenced by the ring/silent switch** — the closest thing to "changing the default." It's a declaration of intent, not a hardware override.
+- Reinforce it by routing TTS audio through an **`<audio>`/`<video>` media element** where possible — media elements ignore the silent switch, unlike raw Web Audio (`ambient`). Keep the Web-Speech fallback, but prefer the server-neural-voice `<audio>` path (P253) for audibility.
+- The API is a Safari-only draft with version-specific bugs, so **guard it and fall back gracefully** — never assume it worked (see §3).
+
+### 2. Detect the fixable state and offer one-tap unmute
+- **AudioContext locked/suspended** (autoplay not yet unlocked) is detectable: when `audioContext.state === 'suspended'` or audio hasn't been unlocked, show a clear, unmissable **"🔇 Tap to turn on the assistant's voice"** banner/badge. The user's **tap** (a gesture) does all of: `audioContext.resume()`, set `navigator.audioSession.type = 'playback'`, and play a short priming sound — then the assistant speaks.
+- This is the single most common cause ("no gesture yet") and the one we can reliably fix — make it obvious, not buried.
+
+### 3. The silent switch is undetectable — probe, then guide
+- We can't read the ring/silent switch, so after unlock run a **silent/near-silent probe**: play a tiny clip and check it actually **progressed** (e.g. an `<audio>`'s `timeupdate`/`ended` fired, or an AnalyserNode read non-zero output). If audio "played" but produced **no progress/output**, infer it's being silenced at the device level.
+- Then show honest guidance (don't claim to fix what we can't): **"I'm trying to speak but your phone may be on silent — flip the side switch off silent, or turn the volume up."** Pair it with the persistent muted indicator (below). Never leave the user guessing why it's quiet.
+
+### 4. Always show WHY it's silent (persistent indicator) + text fallback
+- The assistant's **badge/ring** (P245) carries a clear **muted state** whenever audio is locked or detected-silent: a mute glyph + "Tap to enable sound", one tap away from §2's unlock. The user should never wonder *is it broken or just muted?* — the badge says which.
+- When audio can't play (locked, or device-muted and the user hasn't fixed it), **fall back to showing the narration as text** (P252 already speaks-and-shows) so the assistant is **never unusable** on a muted phone — they can read what it would have said.
+- Remember the unlocked state for the session so the prompt doesn't re-nag once sound is on; re-show it only if audio starts failing again.
+
+### Acceptance
+- On a fresh iOS visit, the assistant audio is routed via a **playback** session (`navigator.audioSession.type='playback'` where supported) / a media element, so it is **not muted by the ring switch**; where unsupported it degrades without error.
+- When audio is **locked/suspended**, a clear **"Tap to enable sound"** prompt appears and a single tap unlocks + primes + starts the voice.
+- When audio is unlocked but a **silent-probe** shows no output, the user sees plain guidance about the **silent switch / volume** — not silence with no explanation.
+- The **badge always shows a muted indicator with a one-tap enable** when sound is off, and the narration is **shown as text** so the assistant works even while muted.
