@@ -8512,7 +8512,8 @@ It's present only when the utterance was coherent but unrecognized (`intent` = `
 ### 2. Tailor-my-résumé — a real, job-specific walkthrough (use the `tailor` flow)
 The backend now ships `flows.tailor` (via `GET /assistant/capabilities`) with job-specific lines whose `{placeholders}` you fill from **`POST /api/v1/resumes/{resume_id}/tailor`** (body `{job_posting_id}`) → `{fit_score, missing_keywords, qualifications, tailoring[], summary}`. Drive the walkthrough with the **real data**, not generic tips:
 - `start` → `checking` while you call tailor.
-- `fit` — fill `{verdict}`/`{score}` from `fit_score` (strong/solid/… per the scale) and `{missing}` from `missing_keywords`. Say what THIS posting wants that the résumé doesn't surface.
+- **If `needs_jd:true`** (the posting is a stub — no parsed requirements, only a short blurb; common for aggregator-reaped jobs) → use the **`needs_jd`** line: offer to **fetch the full job description first** (the extension's enrichment / `jd-by-url`), then re-run tailor. Don't show empty gaps or a false "no gaps" — get the real posting, THEN tailor. This is the #1 cause of a weak tailor result.
+- `fit` — fill `{verdict}`/`{score}` from `fit_score` (strong/solid/… per the scale) and `{missing}` from `missing_keywords`. Say what THIS posting wants that the résumé doesn't surface. If `tailoring[]` is empty but `summary` has advice, propose from the `summary`.
 - `proposing` — fill `{count}` + `{example}` from `tailoring[]` (the concrete suggested changes); ask Yes/No (arm as `pending`, P261).
 - On **yes** → apply the changes (`POST /resumes/{id}/apply-edits` / `…/versions` with the `job_posting_id`), then `applying` ("saved a version tailored to {job} — want to use it to apply?"). This records a `tailored` activity event.
 - `no_gaps` when there's nothing to change; `not_found`/`error` branches. **End by actually producing a tailored version** — the walkthrough's job is to complete the task, not describe it.

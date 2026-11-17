@@ -158,6 +158,8 @@ FLOWS: dict[str, dict[str, Any]] = {
             "checking": "Comparing your résumé to what {job} actually asks for…",
             "fit": "Right now you're {verdict} for this — about {score} out of 100. It leans on {missing}, "
                    "which your résumé doesn't surface yet.",
+            "needs_jd": "This posting only has a short blurb, so I can't pin down the real gaps yet. "
+                        "Want me to pull the full job description from the site first?",
             "proposing": "I can make {count} targeted changes to close those gaps — for example: {example}. "
                          "Want me to apply them?",
             "applying": "Applied — I saved a version tailored to {job}. Want to use it to apply?",

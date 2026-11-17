@@ -1482,6 +1482,12 @@ def tailor_resume(
         resume, job, fit_score=round(fit.score),
         matching_skills=fit.matching_skills, gap_skills=fit.gap_skills,
     )
+    # A posting with no parsed requirements and only a stub description gives nothing
+    # concrete to tailor against — flag it so the walkthrough offers to fetch the full
+    # posting (enrichment) first, instead of showing empty gaps.
+    needs_jd = (not [r for r in (job.requirements or []) if r.strip()]
+                and len((job.description or "").strip()) < 300
+                and not review.missing_keywords)
     return ResumeTailoring(
         resume_id=resume.id,
         job=JobCard.from_job(job),
@@ -1491,6 +1497,7 @@ def tailor_resume(
         qualifications=qualifications,
         summary=review.summary,
         tailoring=review.suggestions,
+        needs_jd=needs_jd,
     )
 
 

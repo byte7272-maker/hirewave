@@ -435,6 +435,10 @@ class ResumeTailoring(BaseModel):
     qualifications: str = ""  # perspective on how you qualify for THIS job
     summary: str = ""  # one-line overall
     tailoring: list[ResumeSuggestion] = Field(default_factory=list)  # concrete changes to tailor it
+    #: True when the posting has no parsed requirements / only a stub description, so there's
+    #: nothing concrete to tailor against — the walkthrough should offer to fetch the full job
+    #: posting first (enrichment) rather than limp along with empty gaps.
+    needs_jd: bool = False
 
 
 class CoverLetterTailoring(BaseModel):
