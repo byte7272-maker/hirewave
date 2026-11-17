@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Header, HTTPException, Query, status
 
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
@@ -251,10 +251,92 @@ def errors(user: CurrentUser, state: StateDep, limit: int = Query(30, ge=1, le=2
 @router.get("/troubleshooting")
 def troubleshooting(user: CurrentUser, state: StateDep, q: str = Query("")) -> dict:
     """The troubleshooting database: common errors and their causes + fixes, searchable in
-    plain language ('what does not-linked mean', 'mic not working'). Always answerable."""
+    plain language ('what does not-linked mean', 'mic not working'). Always answerable.
+    Runtime knowledge overrides (global + this user's) are applied."""
     from jobsearch.engines.assistant import troubleshooting as ts
+    from jobsearch.engines.assistant import knowledge as kb
 
-    return {"query": q, "matches": ts.search(q)}
+    ov = kb.overrides_for(state.knowledge.find(), "troubleshooting", user.id)
+    merged = kb.merge(ts.TROUBLESHOOTING, ov)
+    return {"query": q, "matches": ts.search(q, catalog=merged)}
+
+
+# --- dynamic knowledge base: correct/improve the assistant's instructions at runtime ---
+@router.get("/knowledge")
+def list_knowledge(user: CurrentUser, state: StateDep, category: str = Query("")) -> dict:
+    """List the active knowledge overrides that apply to this user (global + personal) —
+    corrections/improvements layered over the static catalogs. Optionally one category."""
+    from jobsearch.models.knowledge import CATEGORIES
+
+    entries = [e for e in state.knowledge.find()
+               if e.active and (e.scope == "global" or e.scope == user.id)
+               and (not category or e.category == category)]
+    entries.sort(key=lambda e: e.updated_at, reverse=True)
+    return {"categories": sorted(CATEGORIES),
+            "entries": [{"id": e.id, "scope": "global" if e.scope == "global" else "me",
+                         "category": e.category, "key": e.key, "data": e.data,
+                         "note": e.note, "updated_at": e.updated_at.isoformat()}
+                        for e in entries]}
+
+
+@router.put("/knowledge")
+def upsert_knowledge(body: dict, user: CurrentUser, state: StateDep,
+                     x_admin_token: str = Header("")) -> dict:
+    """Add or update a knowledge override — when something is proven more accurate/better,
+    correct the assistant's instructions without a deploy. Body: {category, key, data, note?,
+    scope?}. ``scope`` defaults to 'me' (this user's assistant); 'global' (everyone) requires
+    the admin token. ``data`` merges over the static entry; {"_remove": true} drops a key."""
+    import secrets
+    from jobsearch.models.knowledge import CATEGORIES, KnowledgeEntry
+    from jobsearch.models.common import utcnow
+
+    category = str(body.get("category", "")).strip().lower()
+    key = str(body.get("key", "")).strip()
+    data = body.get("data") or {}
+    scope_req = str(body.get("scope", "me")).strip().lower()
+    if category not in CATEGORIES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"category must be one of {sorted(CATEGORIES)}")
+    if not key or not isinstance(data, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "key and a data object are required")
+    if scope_req == "global":
+        token = state.settings.admin_token
+        if not token or not secrets.compare_digest(x_admin_token or "", token):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "global knowledge edits require the admin token")
+        scope = "global"
+    else:
+        scope = user.id
+    existing = next((e for e in state.knowledge.find()
+                     if e.scope == scope and e.category == category and e.key == key), None)
+    if existing:
+        existing.data, existing.note = data, str(body.get("note", existing.note))
+        existing.active, existing.updated_at = True, utcnow()
+        state.knowledge.add(existing)
+        entry = existing
+    else:
+        entry = state.knowledge.add(KnowledgeEntry(
+            scope=scope, category=category, key=key, data=data,
+            note=str(body.get("note", "")), source=f"user:{user.id}"))
+    return {"id": entry.id, "scope": "global" if scope == "global" else "me",
+            "category": entry.category, "key": entry.key, "data": entry.data, "note": entry.note}
+
+
+@router.delete("/knowledge/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_knowledge(entry_id: str, user: CurrentUser, state: StateDep,
+                     x_admin_token: str = Header("")) -> None:
+    """Revert an override (back to the static catalog). A user can delete their own; a
+    global override requires the admin token."""
+    import secrets
+
+    e = state.knowledge.get(entry_id)
+    if e is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if e.scope == "global":
+        token = state.settings.admin_token
+        if not token or not secrets.compare_digest(x_admin_token or "", token):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "global knowledge edits require the admin token")
+    elif e.scope != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "not your override")
+    state.knowledge.delete(entry_id)
 
 
 #: Max events accepted in one telemetry flush (protects the store from a runaway client).

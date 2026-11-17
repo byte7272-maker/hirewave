@@ -15,6 +15,7 @@ from jobsearch.models import (
     Application,
     AssistantError,
     AutoApplyGrant,
+    KnowledgeEntry,
     AutomationAction,
     AutomationConsent,
     Block,
@@ -90,6 +91,7 @@ _SPECS: dict[str, TableSpec] = {
     "notifications": TableSpec("notifications", Notification, "id", ("user_id",)),
     "activity": TableSpec("activity", ActivityEvent, "id", ("user_id",)),
     "assistant_errors": TableSpec("assistant_errors", AssistantError, "id", ("user_id",)),
+    "knowledge": TableSpec("knowledge", KnowledgeEntry, "id", ("scope", "category")),
     "oauth_tokens": TableSpec("oauth_tokens", OAuthToken, "id", ("user_id", "provider")),
     "mock_interviews": TableSpec("mock_interviews", MockInterviewSession, "id", ("user_id",)),
     "monitored_identifiers": TableSpec(

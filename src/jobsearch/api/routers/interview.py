@@ -192,7 +192,11 @@ def start_mock(
         persona_id=body.persona_id,
         questions=body.questions,
     )
-    return state.mock_interviews.add(session)
+    saved = state.mock_interviews.add(session)
+    state.log_activity(user.id, "created", "interview", subject_id=saved.id,
+                       subject_label=(getattr(job, "title", "") if job else "Practice interview"),
+                       topic="interview")
+    return saved
 
 
 def _owned_session(session_id: str, user, state) -> MockInterviewSession:

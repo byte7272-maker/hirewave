@@ -145,6 +145,27 @@ FLOWS: dict[str, dict[str, Any]] = {
             "error": "That didn't go through. Want me to try again?",
         },
     },
+    # Tailor the résumé to a specific job — a real, job-specific walkthrough that
+    # ends with a tailored version, not generic advice (P269). Placeholders are filled
+    # from POST /resumes/{id}/tailor (job title, fit score + verdict, missing keywords,
+    # the concrete suggested changes), so every line is about THIS job, not a template.
+    "tailor": {
+        "label": "Tailor your résumé to a job",
+        "focus": "your résumé beside the job's requirements",
+        "ask": "proposing",
+        "speak": {
+            "start": "Let's aim your résumé at {job}. First I'll compare it to the posting and find the gaps.",
+            "checking": "Comparing your résumé to what {job} actually asks for…",
+            "fit": "Right now you're {verdict} for this — about {score} out of 100. It leans on {missing}, "
+                   "which your résumé doesn't surface yet.",
+            "proposing": "I can make {count} targeted changes to close those gaps — for example: {example}. "
+                         "Want me to apply them?",
+            "applying": "Applied — I saved a version tailored to {job}. Want to use it to apply?",
+            "no_gaps": "Good news — your résumé already covers what {job} wants. Want to use it to apply as is?",
+            "not_found": "I couldn't load that job to compare against — want to pick the job again?",
+            "error": "That didn't go through — want me to try again?",
+        },
+    },
     # My Work Highlights: turn a pasted data dump into résumé-ready evidence (P251 §3).
     "highlights_extract": {
         "label": "Extract evidence from a data dump",

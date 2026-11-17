@@ -180,6 +180,9 @@ def run_saved(search_id: str, user: CurrentUser, state: StateDep) -> Aggregation
         raise HTTPException(status.HTTP_404_NOT_FOUND, "saved search not found")
     if result.ingested:
         _clear_user_samples(state, user.id)
+    state.log_activity(user.id, "searched", "job", subject_id=search_id,
+                       subject_label=getattr(result, "query", "") or "jobs",
+                       detail=f"({getattr(result, 'ingested', 0)} new)", topic="search")
     return _out(result)
 
 

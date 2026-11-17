@@ -119,6 +119,7 @@ class AppState:
         self.notifications = repos.notifications
         self.activity = repos.activity  # structured action log the assistant can recite
         self.assistant_errors = repos.assistant_errors  # failure log + troubleshooting
+        self.knowledge = repos.knowledge  # runtime overrides of the assistant's instructions
         self.mock_interviews = repos.mock_interviews
         self.saved_answers = repos.saved_answers  # user's kept interview answers
         self.monitored_identifiers = repos.monitored_identifiers
@@ -457,7 +458,13 @@ class AppState:
         from the troubleshooting catalog) and return the handling (ack/fix/retry/ask_again)
         so the caller can acknowledge it immediately. Best-effort persistence."""
         from jobsearch.engines.assistant import troubleshooting as ts
-        handled = ts.handle(kind, message, context)
+        from jobsearch.engines.assistant import knowledge as kb
+        try:  # apply runtime knowledge overrides (corrected causes/fixes) when any exist
+            ov = kb.overrides_for(self.knowledge.find(), "troubleshooting", user_id)
+            catalog = kb.merge(ts.TROUBLESHOOTING, ov) if ov else None
+        except Exception:  # noqa: BLE001
+            catalog = None
+        handled = ts.handle(kind, message, context, catalog=catalog)
         try:
             from jobsearch.models.assistant_error import AssistantError
             self.assistant_errors.add(AssistantError(

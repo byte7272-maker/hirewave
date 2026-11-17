@@ -156,22 +156,26 @@ def classify(kind: str = "", message: str = "") -> str:
     return "unknown"
 
 
-def lookup(kind: str) -> dict:
-    """The catalog entry for a kind (falls back to 'unknown')."""
-    return {"kind": kind, **TROUBLESHOOTING.get(kind, TROUBLESHOOTING["unknown"])}
+def lookup(kind: str, catalog: Optional[dict] = None) -> dict:
+    """The catalog entry for a kind (falls back to 'unknown'). ``catalog`` lets a merged
+    (override-applied) catalog be used instead of the static one."""
+    cat = catalog or TROUBLESHOOTING
+    return {"kind": kind, **cat.get(kind, cat.get("unknown", TROUBLESHOOTING["unknown"]))}
 
 
-def acknowledge(kind: str = "", message: str = "") -> str:
+def acknowledge(kind: str = "", message: str = "", catalog: Optional[dict] = None) -> str:
     """The quick spoken acknowledgment line for a failure — never empty, so the
     assistant always says *something* rather than going silent."""
-    return lookup(classify(kind, message))["ack"]
+    return lookup(classify(kind, message), catalog)["ack"]
 
 
-def handle(kind: str = "", message: str = "", context: str = "") -> dict:
+def handle(kind: str = "", message: str = "", context: str = "",
+           catalog: Optional[dict] = None) -> dict:
     """Full handling for a failure: the acknowledgment, cause, fix, and whether to retry
-    or ask again. ``reply`` is ready to speak (ack + fix for actionable errors)."""
+    or ask again. ``reply`` is ready to speak (ack + fix for actionable errors).
+    ``catalog`` applies runtime knowledge overrides when provided."""
     key = classify(kind, message)
-    e = lookup(key)
+    e = lookup(key, catalog)
     reply = e["ack"]
     # For an actionable (non-voice) error, append the fix so the user knows the next move.
     if e["fix"] and not e["ask_again"]:
@@ -188,22 +192,24 @@ def handle(kind: str = "", message: str = "", context: str = "") -> dict:
     }
 
 
-def search(query: str, limit: int = 8) -> list[dict]:
+def search(query: str, limit: int = 8, catalog: Optional[dict] = None) -> list[dict]:
     """Search the troubleshooting database by plain-language query → matching entries,
-    so the assistant (or a help page) can answer 'what does X mean / how do I fix Y'."""
+    so the assistant (or a help page) can answer 'what does X mean / how do I fix Y'.
+    ``catalog`` applies runtime knowledge overrides when provided."""
+    cat = catalog or TROUBLESHOOTING
     q = (query or "").strip().lower()
     if not q:
-        return [lookup(k) for k in TROUBLESHOOTING][:limit]
+        return [lookup(k, cat) for k in cat][:limit]
     scored: list[tuple[int, dict]] = []
     terms = [t for t in re.split(r"\W+", q) if t]
     best_kind = classify(q, q)  # the kind the query signatures point at
-    for kind, e in TROUBLESHOOTING.items():
-        blob = f"{kind} {e['ack']} {e['cause']} {e['fix']}".lower()
+    for kind, e in cat.items():
+        blob = f"{kind} {e.get('ack','')} {e.get('cause','')} {e.get('fix','')}".lower()
         score = sum(1 for t in terms if t in blob)
         if kind == best_kind and best_kind != "unknown":  # exact-kind boost
             score += 3
         if score:
-            scored.append((score, lookup(kind)))
+            scored.append((score, lookup(kind, cat)))
     scored.sort(key=lambda s: s[0], reverse=True)
     return [e for _, e in scored[:limit]]
 

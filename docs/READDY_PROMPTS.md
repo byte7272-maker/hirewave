@@ -8499,3 +8499,31 @@ It's present only when the utterance was coherent but unrecognized (`intent` = `
 - A recognized command ("go to my matches") → no web-search offer.
 - Keyboard-mash / garbled input → no web-search offer; the assistant re-asks (P267).
 - The offer is always shown as a yes/no dialog, never dropped.
+
+## P269 — ⚠ Walkthroughs run from the BADGE (never the full window), the Tailor flow actually completes the task, and instructions are dynamically correctable
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). **Backend is live.** Three linked fixes: (1) tours/walkthroughs must run in the **collapsed badge**, not the full dedicated window that blocks the very thing being explained; (2) the **Tailor-my-résumé** walkthrough is now a real, job-specific flow that walks to completion; (3) the assistant's instructions can be **corrected at runtime** when proven better. Builds on **P254** (point_to_focus/avoid_occlusion), **P258/P267** (badge-first), **P261** (pending), **P252** (narrate every step).
+
+### 1. Walkthroughs stay in the badge + point, never block
+- A walkthrough/tour **must not open the full dedicated window**. Run it from the **badge** (P267 default): speak each step's line as popup text, and use an **interactive pointer** to point at the element the step is about (`point_to_focus`), spotlighting it.
+- **Occlusion-aware** (`avoid_occlusion`): the badge, pointer, and any overlay **reposition so they never cover the focused element or the step content**. If the focus is bottom-right, the badge moves; the thing being explained is always visible.
+- Narrate **every** step (P252) — never a silent highlight; each step is a short line + the pointer + (where it asks) a Yes/No.
+
+### 2. Tailor-my-résumé — a real, job-specific walkthrough (use the `tailor` flow)
+The backend now ships `flows.tailor` (via `GET /assistant/capabilities`) with job-specific lines whose `{placeholders}` you fill from **`POST /api/v1/resumes/{resume_id}/tailor`** (body `{job_posting_id}`) → `{fit_score, missing_keywords, qualifications, tailoring[], summary}`. Drive the walkthrough with the **real data**, not generic tips:
+- `start` → `checking` while you call tailor.
+- `fit` — fill `{verdict}`/`{score}` from `fit_score` (strong/solid/… per the scale) and `{missing}` from `missing_keywords`. Say what THIS posting wants that the résumé doesn't surface.
+- `proposing` — fill `{count}` + `{example}` from `tailoring[]` (the concrete suggested changes); ask Yes/No (arm as `pending`, P261).
+- On **yes** → apply the changes (`POST /resumes/{id}/apply-edits` / `…/versions` with the `job_posting_id`), then `applying` ("saved a version tailored to {job} — want to use it to apply?"). This records a `tailored` activity event.
+- `no_gaps` when there's nothing to change; `not_found`/`error` branches. **End by actually producing a tailored version** — the walkthrough's job is to complete the task, not describe it.
+- The questions must be about the specific role/gaps (missing keywords, specific bullets), never generic career advice.
+
+### 3. Dynamically correct the assistant's instructions (knowledge base)
+When a script/fix/description is proven better or more accurate, update it without a deploy:
+- `PUT /api/v1/assistant/knowledge` body `{category, key, data, note?, scope?}` — `category` ∈ `troubleshooting|flow|function|faq`, `key` the entry (e.g. `"tailor"`, `"not_linked"`), `data` merges over the static entry; `scope` defaults to `me` (this user), `global` needs the admin token. `GET /assistant/knowledge` lists overrides; `DELETE /assistant/knowledge/{id}` reverts.
+- Surface an unobtrusive **"this worked better — remember it"** affordance when the user corrects the assistant (e.g. edits a proposed line, or a fix that didn't apply): write the improvement as a `me`-scoped override so the assistant uses it next time. `GET /assistant/troubleshooting` and the flows already reflect active overrides.
+
+### Acceptance
+- Starting any walkthrough/tour keeps the assistant as the **badge** — the full window does **not** take over; the pointer points at each step's element and nothing covers the focused content.
+- "Tailor my résumé" walks through **fit → the posting's specific gaps → concrete proposed changes → apply**, ending with a **tailored version saved** — the lines name the job and its real missing keywords, not generic advice.
+- Editing/correcting an instruction persists via `PUT /assistant/knowledge` and the assistant uses the corrected version next time; reverting restores the default.

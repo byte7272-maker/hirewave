@@ -11,6 +11,7 @@ from jobsearch.models import (
     Application,
     AssistantError,
     AutoApplyGrant,
+    KnowledgeEntry,
     AutomationAction,
     AutomationConsent,
     Block,
@@ -72,6 +73,7 @@ class Repositories:
     notifications: Repository[Notification]
     activity: Repository[ActivityEvent]
     assistant_errors: Repository[AssistantError]
+    knowledge: Repository[KnowledgeEntry]
     mock_interviews: Repository[MockInterviewSession]
     monitored_identifiers: Repository[MonitoredIdentifier]
     exposure_findings: Repository[ExposureFinding]
@@ -127,6 +129,7 @@ def build_repositories(
             notifications=InMemoryRepository(),
             activity=InMemoryRepository(),
             assistant_errors=InMemoryRepository(),
+            knowledge=InMemoryRepository(),
             mock_interviews=InMemoryRepository(),
             monitored_identifiers=InMemoryRepository(),
             exposure_findings=InMemoryRepository(),
@@ -182,6 +185,7 @@ def build_repositories(
         notifications=repo("notifications"),
         activity=repo("activity"),
         assistant_errors=repo("assistant_errors"),
+        knowledge=repo("knowledge"),
         mock_interviews=repo("mock_interviews"),
         monitored_identifiers=repo("monitored_identifiers"),
         exposure_findings=repo("exposure_findings"),

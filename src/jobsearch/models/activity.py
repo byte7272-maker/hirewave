@@ -29,6 +29,7 @@ VERBS: dict[str, str] = {
     "synced": "updated on a job site",
     "pinned": "pinned",
     "generated": "generated",
+    "searched": "searched for",
     "applied": "applied with",
     "uploaded": "uploaded",
     "deleted": "deleted",
