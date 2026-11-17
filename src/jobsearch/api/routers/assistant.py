@@ -222,6 +222,40 @@ def functions(user: CurrentUser, state: StateDep, topic: str = Query("")) -> dic
     return al.functions_overview(topic)
 
 
+@router.post("/error")
+def report_error(body: dict, user: CurrentUser, state: StateDep) -> dict:
+    """Record a failure or undesirable event (with its time, cause, and fix) and return a
+    ready-to-speak acknowledgment so the assistant NEVER goes silent. For a bad mic read or
+    nonsensical input, the reply is a re-ask (``ask_again: true``) — the assistant asks again
+    rather than stalling. Body: {kind?, message?, context?}. ``kind`` is a troubleshooting
+    key; when omitted it's inferred from ``message``."""
+    handled = state.log_error(
+        user.id, str(body.get("kind", "")), str(body.get("message", "")),
+        context=str(body.get("context", "")))
+    return handled
+
+
+@router.get("/errors")
+def errors(user: CurrentUser, state: StateDep, limit: int = Query(30, ge=1, le=200)) -> dict:
+    """The assistant error log — recent failures with time/date, cause, and fix, plus counts
+    by kind. For a 'what went wrong' / troubleshooting history view."""
+    from jobsearch.engines.assistant import troubleshooting as ts
+
+    mine = list(state.assistant_errors.find(user_id=user.id))
+    s = ts.summarize(mine)
+    return {"total": s["total"], "by_kind": s["by_kind"],
+            "errors": [ts.row(e) for e in s["recent"][:limit]]}
+
+
+@router.get("/troubleshooting")
+def troubleshooting(user: CurrentUser, state: StateDep, q: str = Query("")) -> dict:
+    """The troubleshooting database: common errors and their causes + fixes, searchable in
+    plain language ('what does not-linked mean', 'mic not working'). Always answerable."""
+    from jobsearch.engines.assistant import troubleshooting as ts
+
+    return {"query": q, "matches": ts.search(q)}
+
+
 #: Max events accepted in one telemetry flush (protects the store from a runaway client).
 _TELEMETRY_BATCH_CAP = 200
 

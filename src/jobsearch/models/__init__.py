@@ -76,6 +76,7 @@ from jobsearch.models.monitoring import (
 from jobsearch.models.board import Board, BoardMember, BoardPost, member_key
 from jobsearch.models.inbox import InboxMessage
 from jobsearch.models.activity import ActivityEvent
+from jobsearch.models.assistant_error import AssistantError
 from jobsearch.models.notification import Notification, NotificationType
 from jobsearch.models.onboarding import OnboardingProgress
 from jobsearch.models.cover_letter_schema import CoverLetterData
@@ -170,6 +171,7 @@ __all__ = [
     "MockInterviewSummary",
     "MonitoredIdentifier",
     "ActivityEvent",
+    "AssistantError",
     "Notification",
     "NotificationType",
     "OnboardingProgress",

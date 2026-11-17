@@ -8441,3 +8441,38 @@ The background stores `refreshToken` and later mints short-lived access tokens f
 - "What have I done lately with my résumé?" → recent résumé events only (not applications), with relative times.
 - "What can you do?" → the function catalog, in plain language; topic pages scope it.
 - A recent-activity panel reflects real actions (upload a résumé, tailor it, sync it → they appear).
+
+## P267 — ⚠ Badge-first by default + live, editable mic transcript + the assistant never goes silent on an error
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). **Backend is live.** Makes the **collapsed badge** the global default (not the full window), shows what the mic is hearing so the user can correct it, and guarantees the assistant **acknowledges every error and never falls silent** — especially on a bad mic read. Supersedes the "opens the full window each time" behavior; builds on **P258** (badge-first), **P261** (pending-question state), **P245** (badge ring), **P252/P257** (never silent).
+
+### Backend (all exist)
+- `POST /api/v1/assistant/error` body `{kind?, message?, context?}` → `{kind, reply, ack, cause, fix, retry, ask_again}`. `reply` is a ready-to-speak acknowledgment; for a bad mic read / nonsense input `ask_again:true` (re-ask), for an actionable error the `fix` is included. `kind` is inferred from `message` when omitted. Each call is logged with time/date + cause.
+- `GET /api/v1/assistant/errors` → recent failures (time, cause, fix) + counts by kind — a "what went wrong" history.
+- `GET /api/v1/assistant/troubleshooting?q=` → the common-errors database (cause + fix), searchable in plain language.
+
+### 1. Collapsed badge is the GLOBAL DEFAULT
+- The assistant lives as the **badge** by default on every page — never auto-open the full window. The badge shows the **speaking animation** (P245 ring) while talking and relays **concise, friendly** messages/questions as **popup text** beside it (one or two short lines, not a panel).
+- **Click the badge → open the bigger window** (the full assistant). **Hold → mic** (P258). The full window is opt-in, per interaction; when it closes, return to the badge. Persist "collapsed" as the default across pages/sessions.
+- Every prompt the badge poses is a **concise yes/no or short question** (summarize a longer idea to a binary when possible, P258), answerable by the badge's yes/no controls or by voice.
+
+### 2. Show what the mic is picking up — live and editable
+- While the mic is active, show the **live transcript** in the badge popup (interim + final text) so the user sees exactly what's being heard — there's otherwise no way to tell it's getting the wrong words.
+- The user can **stop/cancel** at any time (a visible control) — never a state where wrong input can't be interrupted.
+- **Before acting**, the recognized text is shown as an **editable field**: the user can fix it and **re-submit**, or cancel. Don't fire the command until they confirm (or a short, clearly-indicated auto-send they can cancel). If the assistant **writes/transcribes words**, keep them **visible and editable** — never consume-and-discard.
+
+### 3. Never go silent — acknowledge every error, always re-ask on bad input
+- On ANY failure or undesirable event (mic empty/garbled, nonsense, network, not-linked, etc.), call `POST /assistant/error` and **speak/show `reply` immediately**. The assistant must never just stop.
+- When `ask_again:true` (bad mic read / nonsense / empty), **re-prompt** with `reply` and **keep listening / keep the editable field open** — ask again rather than stalling. Show the **green "awaiting" ring** (P261) while waiting for the retry.
+- When `ask_again:false` but there's a `fix`, show the acknowledgment + the fix (and a Retry when `retry:true`).
+- Tie into the pending-question state (P261): an error while awaiting an answer re-asks the same question; it doesn't drop it.
+
+### 4. Optional: a "what went wrong" surface
+- A small, dismissible "Recent issues" view (from `GET /assistant/errors`) listing failures with time + fix; "how do I fix X" routes through `GET /assistant/troubleshooting?q=`.
+
+### Acceptance
+- Landing on any page shows the **badge**, speaking in collapsed form with popup text — the full window does **not** auto-open; a click opens it, and it returns to the badge after.
+- With the mic on, the **live transcript is visible**; the user can **edit the recognized text and re-submit**, or cancel mid-stream.
+- A garbled or empty mic read makes the assistant **say a re-ask line and listen again** — it never goes silent; the green awaiting ring shows.
+- A real error (e.g. not-linked) gets an **immediate spoken acknowledgment + the fix**, and appears in the error log with a timestamp.
+- Any words the assistant transcribes remain **visible and editable** for correction before they take effect.

@@ -118,6 +118,7 @@ class AppState:
         self.applications = repos.applications
         self.notifications = repos.notifications
         self.activity = repos.activity  # structured action log the assistant can recite
+        self.assistant_errors = repos.assistant_errors  # failure log + troubleshooting
         self.mock_interviews = repos.mock_interviews
         self.saved_answers = repos.saved_answers  # user's kept interview answers
         self.monitored_identifiers = repos.monitored_identifiers
@@ -449,3 +450,21 @@ class AppState:
             ))
         except Exception:  # noqa: BLE001 - never let activity logging break a real action
             pass
+
+    def log_error(self, user_id: str, kind: str = "", message: str = "", *,
+                  context: str = "", meta: Optional[dict] = None) -> dict:
+        """Record an assistant failure/undesirable event with its cause + fix (resolved
+        from the troubleshooting catalog) and return the handling (ack/fix/retry/ask_again)
+        so the caller can acknowledge it immediately. Best-effort persistence."""
+        from jobsearch.engines.assistant import troubleshooting as ts
+        handled = ts.handle(kind, message, context)
+        try:
+            from jobsearch.models.assistant_error import AssistantError
+            self.assistant_errors.add(AssistantError(
+                user_id=user_id, kind=handled["kind"], message=message, context=context,
+                cause=handled["cause"], fix=handled["fix"], retry=handled["retry"],
+                ask_again=handled["ask_again"], meta=meta or {},
+            ))
+        except Exception:  # noqa: BLE001 - logging a failure must not cause another
+            pass
+        return handled

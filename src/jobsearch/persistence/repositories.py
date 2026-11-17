@@ -9,6 +9,7 @@ from jobsearch.config import Settings, get_settings
 from jobsearch.models import (
     ActivityEvent,
     Application,
+    AssistantError,
     AutoApplyGrant,
     AutomationAction,
     AutomationConsent,
@@ -70,6 +71,7 @@ class Repositories:
     applications: Repository[Application]
     notifications: Repository[Notification]
     activity: Repository[ActivityEvent]
+    assistant_errors: Repository[AssistantError]
     mock_interviews: Repository[MockInterviewSession]
     monitored_identifiers: Repository[MonitoredIdentifier]
     exposure_findings: Repository[ExposureFinding]
@@ -124,6 +126,7 @@ def build_repositories(
             applications=InMemoryRepository(),
             notifications=InMemoryRepository(),
             activity=InMemoryRepository(),
+            assistant_errors=InMemoryRepository(),
             mock_interviews=InMemoryRepository(),
             monitored_identifiers=InMemoryRepository(),
             exposure_findings=InMemoryRepository(),
@@ -178,6 +181,7 @@ def build_repositories(
         applications=repo("applications"),
         notifications=repo("notifications"),
         activity=repo("activity"),
+        assistant_errors=repo("assistant_errors"),
         mock_interviews=repo("mock_interviews"),
         monitored_identifiers=repo("monitored_identifiers"),
         exposure_findings=repo("exposure_findings"),
