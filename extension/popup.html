@@ -20,7 +20,23 @@
   </style>
 </head>
 <body>
-  <h1>Connect to Project Harbor</h1>
+  <h1>Project Harbor Connect</h1>
+  <p class="sub">Two quick steps make this work on its own across your job sites.</p>
+
+  <div id="setup" style="border:1px solid #e3e3e3;border-radius:8px;padding:10px 12px;margin:0 0 14px">
+    <div class="setup-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 0">
+      <span id="accessLabel" class="muted" style="font-size:12px">Checking site access…</span>
+      <button id="accessBtn" type="button" style="width:auto;margin:0;padding:5px 10px;font-size:12px">Enable</button>
+    </div>
+    <div class="setup-row" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 2px">
+      <span id="linkLabel" class="muted" style="font-size:12px">Checking account link…</span>
+      <button id="linkBtn" type="button" style="width:auto;margin:0;padding:5px 10px;font-size:12px">Link</button>
+    </div>
+    <p class="note" style="margin-top:8px">Enable lets the assistant act on the job sites you use. Link connects it to your Project Harbor account (opens the app — no password, no code).</p>
+  </div>
+
+  <hr style="margin:4px 0 16px;border:0;border-top:1px solid #ddd" />
+  <h1>Connect a site session</h1>
   <p class="sub">Captures your login session — cookies only, never your password.</p>
 
   <label for="provider">Job site</label>

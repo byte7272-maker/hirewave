@@ -265,6 +265,52 @@ async function pullJobs() {
   }
 }
 
+// --- setup: site access + account link (makes the extension work on its own) ------
+const APP_URL = "https://hlrtlg.readdy.co";
+// The broad host permission; granting it lets the board content scripts auto-inject
+// (résumé sync, apply autofill, passive enrich) AND powers web research — one grant.
+const ALL_SITES = { origins: ["*://*/*"] };
+
+async function hasAllSites() {
+  try { return await chrome.permissions.contains(ALL_SITES); } catch (_) { return false; }
+}
+
+async function isLinked() {
+  try { return !!(await chrome.storage.local.get("refreshToken")).refreshToken; } catch (_) { return false; }
+}
+
+async function refreshSetupUI() {
+  const granted = await hasAllSites();
+  const linked = await isLinked();
+  const aL = $("accessLabel"), aB = $("accessBtn"), lL = $("linkLabel"), lB = $("linkBtn");
+  aL.textContent = granted ? "✓ Enabled on your job sites" : "Enable on your job sites";
+  aL.className = granted ? "ok" : "muted";
+  aB.style.display = granted ? "none" : "";
+  lL.textContent = linked ? "✓ Linked to Project Harbor" : "Not linked yet";
+  lL.className = linked ? "ok" : "muted";
+  lB.textContent = linked ? "Re-link" : "Link";
+}
+
+async function enableAccess() {
+  const b = $("accessBtn");
+  b.disabled = true;
+  try {
+    // Must run in a user gesture — this click qualifies.
+    await chrome.permissions.request(ALL_SITES);
+  } catch (_) {}
+  b.disabled = false;
+  await refreshSetupUI();
+  await refreshResearchUI();
+}
+
+// Open Project Harbor so the app links the extension (it pushes the session token to
+// the background worker). We can't link from here without the app — this is the handoff.
+async function openAppToLink() {
+  try { await chrome.tabs.create({ url: APP_URL + "/dashboard" }); } catch (_) {}
+  $("linkLabel").textContent = "Opened Project Harbor — sign in to finish linking";
+  $("linkLabel").className = "muted";
+}
+
 // --- web research opt-in (broad OPTIONAL host permission, granted on a click) ---
 const WEB_ORIGIN = { origins: ["*://*/*"] };
 
@@ -319,5 +365,8 @@ async function toggleResearch() {
   $("code").addEventListener("keydown", (e) => { if (e.key === "Enter") connect(); });
   $("pull").addEventListener("click", pullJobs);
   $("researchToggle").addEventListener("click", toggleResearch);
+  $("accessBtn").addEventListener("click", enableAccess);
+  $("linkBtn").addEventListener("click", openAppToLink);
+  await refreshSetupUI();
   await refreshResearchUI();
 })();

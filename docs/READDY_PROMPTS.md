@@ -8387,3 +8387,26 @@ The background stores `refreshToken` and later mints short-lived access tokens f
 - Clearing/keeping the `hirewave_extension_*_seen` flags has **no effect** on whether linking happens.
 - Rotating the access/refresh token (re-login, refresh) keeps the extension linked without user action.
 - The connect card shows **"Linked"** only when the token was actually pushed; otherwise it offers a working **Link extension** action.
+
+## P265 — Installation wizard: add the extension setup so autonomous features work with no mystery steps
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Builds on **P264** (the app auto-links the extension). Depends on Project Harbor Connect **v1.7.0+**, whose popup now has a **Setup** block with **"Enable on your job sites"** and **"Link"** buttons. **Goal:** the onboarding/installation wizard must walk a new user through the three things that make the extension act on its own — install, enable site access, link — and **verify each** rather than assuming it.
+
+**Why:** live testing showed a fresh install silently does nothing — content scripts don't inject until the user grants site access ("On all sites"), and no feature works until the extension holds the account token. Users can't guess either. The wizard must make both explicit and confirm them.
+
+### Add a wizard step group "Browser extension" with three sub-steps
+1. **Install** — if the extension isn't detected (`document.documentElement.dataset.harborConnect` is unset and no `harbor-connect-ready` event), show **Install** (store link / instructions). When detected, show **✓ Installed (v<version>)** using the version from `dataset.harborConnect`. Poll/listen so it flips to ✓ without a reload.
+2. **Enable on your job sites** — the content scripts (résumé sync, apply autofill, passive enrich) only run once the user grants the extension access to the job boards. The app **cannot read** this permission, so: instruct the user to **open the extension (toolbar icon) and click "Enable on your job sites"** (or set site access to "On all sites"), with a 2-line inline visual. Offer an **"I've enabled it"** confirm that advances the step, and a **Re-check** that re-tests linking (below) — a working link is a good proxy that access is granted.
+3. **Link your account** — this is **automatic** via P264: when the extension is detected and the user is signed in, the app pushes `harbor-session` and marks the step **✓ Linked** on the `{ok:true, linked:true}` reply. If the push hasn't confirmed within ~2s, show a **"Link now"** button that performs the same push on click (and tell the user they can also use the extension popup's **Link** button, which opens the app). Never show "Linked" unless the push was acknowledged.
+
+### Behavior
+- **Gate the autonomous features honestly:** anywhere the app offers an extension-powered action (sync a résumé to a board, Fill with Harbor, bulk enrich), if the extension isn't **installed + linked**, show a compact "Finish extension setup" link back to this wizard step instead of letting the action fail with "not linked."
+- **Idempotent + resumable:** each sub-step reflects live state every time the wizard opens; a user who already did a step sees ✓ and isn't asked again.
+- **Don't block the rest of onboarding:** the extension group is skippable ("Set up later") — the core app (matches, documents, applications) works without it; the wizard just reminds later via a dashboard nudge.
+- **One honest status line** on the dashboard "Connect a site" card: **Installed**, **Linked**, and **Enabled on sites** as three ticks (the first two the app can verify; the third is user-confirmed), replacing the current "ready" wording that over-claims.
+
+### Acceptance
+- A brand-new user is walked through Install → Enable → Link, each showing live ✓/action, and can't reach a state where the dashboard says "ready" while features return "not linked."
+- With the extension freshly installed and the user signed in, the **Link** step turns ✓ on its own (P264), no code/password.
+- The "Enable on your job sites" step explains the one action only the user can take, and a successful re-check (link works) confirms the extension is reachable on sites.
+- Extension-powered buttons never dead-end: when setup is incomplete they route back to the wizard step.

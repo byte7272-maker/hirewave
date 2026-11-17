@@ -24,9 +24,31 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DIST = HERE / "dist"
 
-# Exactly what ships in the package (everything else is dev/store paperwork).
-INCLUDE_FILES = ["manifest.json", "popup.html", "popup.js", "content.js", "background.js", "apply.js"]
+# Exactly what ships in the package (everything else is dev/store paperwork). Every
+# content script named in manifest.json MUST be listed here, or the store build loads
+# a manifest that references a missing file.
+INCLUDE_FILES = [
+    "manifest.json", "popup.html", "popup.js", "content.js", "background.js",
+    "apply.js", "passive_enrich.js", "apply_sync.js",
+]
 INCLUDE_DIRS = ["icons"]
+
+
+def _assert_manifest_scripts_included() -> None:
+    """Guard: fail the build if the manifest references a JS file we don't package."""
+    manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
+    referenced: set[str] = set()
+    bg = manifest.get("background", {})
+    if isinstance(bg, dict):
+        if bg.get("service_worker"):
+            referenced.add(bg["service_worker"])
+        referenced.update(bg.get("scripts", []) or [])
+    for cs in manifest.get("content_scripts", []) or []:
+        referenced.update(cs.get("js", []) or [])
+    missing = sorted(j for j in referenced if j not in INCLUDE_FILES)
+    if missing:
+        raise SystemExit(
+            "manifest.json references files not in INCLUDE_FILES: " + ", ".join(missing))
 
 # Firefox add-on id (stable; used on AMO + for updates). Keep it constant.
 FIREFOX_ID = "project-harbor-connect@hirewave.app"
@@ -71,10 +93,25 @@ def _write_zip(out: Path, members: list[Path], manifest_override: dict | None) -
 
 
 def main() -> None:
+    _assert_manifest_scripts_included()
     manifest = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
     version = manifest.get("version", "0.0.0")
     members = _members()
     DIST.mkdir(exist_ok=True)
+
+    # Also refresh the unpacked/ dir for this version (load-unpacked + store review).
+    unpacked = DIST / f"unpacked-{version}"
+    if unpacked.exists():
+        import shutil
+        shutil.rmtree(unpacked)
+    unpacked.mkdir(parents=True)
+    for m in members:
+        rel = m.relative_to(HERE)
+        dest = unpacked / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if m.is_file():
+            dest.write_bytes(m.read_bytes())
+    print(f"Refreshed {unpacked.relative_to(HERE.parent)}/ ({len(members)} members)")
 
     # Chrome / Edge — manifest as authored.
     _write_zip(DIST / f"project-harbor-connect-{version}.zip", members, None)
