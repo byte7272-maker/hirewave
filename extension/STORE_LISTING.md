@@ -157,6 +157,13 @@ registration if you've never published.
 
 ## Published (Chrome Web Store)
 
+> **v1.7.0 (current — folds in the never-submitted 1.6.x):** see **`SUBMIT_1.7.0.md`** for the
+> exact fields to overwrite. Two new data uses since the last submission: **match enrichment**
+> (reads job postings the user views/saved to fill in pay & benefits) and **résumé sync**
+> (places the user's own résumé into a site's upload field on the user's click). Overwrite the
+> Summary, Description, Single purpose, and the `tabs`/`scripting`/`storage`/host justifications;
+> **tick "Personally identifiable information"** in data collection. Expect a fresh review.
+
 > **v1.4.1 note:** this version adds the pull-jobs and **Fill with Harbor** behaviors, which
 > read page content on the job-site hosts. That is a new data use, so on upload you MUST
 > overwrite the **Single purpose**, the **host permission** justification, add a **scripting**
