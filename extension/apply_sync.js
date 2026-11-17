@@ -133,6 +133,22 @@
     return b;
   }
 
+  // A small muted privacy reminder line (so the user never exposes a résumé unwittingly).
+  function privacyLine(text) {
+    var p = document.createElement("div");
+    p.setAttribute("style", "margin-top:6px;font-size:11px;opacity:.85;line-height:1.4");
+    p.textContent = text || "Your privacy on this site is unchanged — this doesn't make your résumé public.";
+    return p;
+  }
+
+  // Container for the success toast: the privacy reminder + the "mark updated" button.
+  function successExtra(board, resumeId, note) {
+    var wrap = document.createElement("div");
+    wrap.appendChild(privacyLine(note));
+    wrap.appendChild(markButton(board, resumeId));
+    return wrap;
+  }
+
   function markButton(board, resumeId) {
     return makeBtn("I saved it — mark updated", function (e) {
       var b = e.currentTarget; b.disabled = true; b.textContent = "Marking…";
@@ -199,7 +215,8 @@
     if (attached) {
       var save = findSaveButton(input);
       if (save) { try { save.style.outline = "3px solid #2f6f4f"; save.style.outlineOffset = "2px"; save.scrollIntoView({ block: "center" }); } catch (e) {} }
-      return toast("Attached " + label + ". Review, then click the highlighted Save.", "ok", markButton(board, resp.resume_id || ""));
+      return toast("Attached " + label + ". Review, then click the highlighted Save.", "ok",
+        successExtra(board, resp.resume_id || "", resp.privacy_note));
     }
     toast("Couldn't attach " + label + " here automatically — download it and upload it to this site:", "muted", fallbackCard(board, resp));
   }

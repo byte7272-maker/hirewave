@@ -293,6 +293,7 @@ async function syncFetch(board) {
     b64: bytesToBase64(buf),
     steps: prep.steps || [],
     manage_url: prep.manage_url || "",
+    privacy_note: prep.privacy_note || "",
   };
 }
 

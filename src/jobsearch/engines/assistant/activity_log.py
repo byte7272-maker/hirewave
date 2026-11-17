@@ -91,6 +91,7 @@ HOW_TO: dict[str, dict] = {
             "On the site's résumé page, click 'Update résumé with Harbor'.",
             "I place your current résumé into the site's upload field — review it.",
             "Click the site's own Save. (If the site won't accept it directly, I download it with upload steps.)",
+            "Your résumé's visibility on the site stays as you set it — this never makes it public or searchable.",
             "I record that the site now holds that version, so I can tell you what's where.",
         ],
     },

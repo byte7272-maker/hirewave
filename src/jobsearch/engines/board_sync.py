@@ -89,6 +89,17 @@ def board_supports(board: str, doc_type: str) -> bool:
     return bool(cap and cap.get(doc_type))
 
 
+#: Shown on every sync so the user never exposes a résumé unwittingly. Updating the file
+#: must NOT change the site's visibility/searchability — that stays as the user set it.
+PRIVACY_NOTE = (
+    "Your résumé's visibility on this site stays exactly as you set it — updating the file "
+    "doesn't make it public or searchable. If you're unsure, check the site's résumé "
+    "privacy/visibility setting and keep it the way you want."
+)
+#: Appended to each board's steps so the reminder travels with the instructions.
+_PRIVACY_STEP = "Leave your résumé's privacy/visibility on the site as you set it — this doesn't change it."
+
+
 def sync_status_for(
     board: str, doc_type: str, *, active_version: int, synced: Optional[dict]
 ) -> dict:
@@ -100,6 +111,7 @@ def sync_status_for(
     supported = bool(cap.get(doc_type))
     live_version = (synced or {}).get("version") if synced else None
     in_sync = supported and live_version == active_version and active_version > 0
+    steps = (list(cap.get("steps", [])) + [_PRIVACY_STEP]) if supported else []
     return {
         "board": board,
         "label": cap.get("label", board.title()),
@@ -111,6 +123,8 @@ def sync_status_for(
         "in_sync": in_sync,
         "drifted": supported and not in_sync,
         "manage_url": cap.get("url", ""),
-        "steps": list(cap.get("steps", [])) if supported else [],
+        "steps": steps,
+        # Surfaced in the sync UI/extension so the user never exposes a résumé unwittingly.
+        "privacy_note": PRIVACY_NOTE if supported else "",
         "reason": "" if supported else "no reusable profile document on this board",
     }
