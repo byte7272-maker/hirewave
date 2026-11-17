@@ -77,6 +77,15 @@ BEHAVIORS = [
     # can surface a binary yes/no — distilling a larger question to its point — as a
     # tap alternative to holding the mic.
     "badge_first",
+    # error handling (P267): every failure is acknowledged immediately and logged with its
+    # cause/fix (POST /assistant/error, GET /assistant/errors, /troubleshooting); the assistant
+    # NEVER goes silent on a bad mic read or nonsense — it re-asks; the live mic transcript is
+    # shown and stays editable so wrong input can be corrected and re-submitted.
+    "never_silent_errors", "editable_transcript",
+    # web fallback (P268): when a request is COHERENT but unrecognized (not gibberish), the
+    # assistant surfaces a yes/no offer to search the web for it instead of dead-ending; the
+    # offer arms as `pending` so a "yes" resolves to web_search (interpret → `offer`).
+    "offer_web_on_unrecognized",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

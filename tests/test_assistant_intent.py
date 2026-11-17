@@ -609,3 +609,29 @@ def test_pending_yes_reply_names_the_action():
 
     r2 = interpret("no", context={"section": "matches", "pending": pending})
     assert r2.intent == "decline" and r2.reply.strip()
+
+
+# --- web-search offer on a coherent-but-unrecognized request (P268) ---------
+def test_coherent_unrecognized_offers_web_search():
+    r = interpret("what is the capital of Mongolia")
+    assert r.intent in ("ask", "unknown")
+    assert r.offer and r.offer["on_yes"]["intent"] == "web_search"
+    assert r.offer["on_yes"]["slots"]["query"] == "what is the capital of Mongolia"
+    assert "web" in r.reply.lower()
+
+
+def test_gibberish_gets_no_web_offer():
+    for junk in ("asdfghjkl", "qwrtzxcv", "x", "zzzzzzzzzzzzzzzzz"):
+        r = interpret(junk)
+        assert not r.offer, junk
+
+
+def test_recognized_command_has_no_web_offer():
+    r = interpret("go to my matches")
+    assert r.intent != "unknown" and not r.offer
+
+
+def test_web_offer_yes_resolves_via_pending():
+    # the offer arms as pending; a "yes" then resolves to web_search server-side
+    r = interpret("yes", context={"pending": {"intent": "web_search", "slots": {"query": "capital of Mongolia"}}})
+    assert r.intent == "web_search" and r.slots.get("query") == "capital of Mongolia"

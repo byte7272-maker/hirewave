@@ -1262,6 +1262,10 @@ class InterpretResponse(BaseModel):
     # When the utterance wasn't understood, the nearest wordings it WOULD understand —
     # so the assistant can offer "did you mean…" instead of a dead end.
     suggestions: list[CommandSuggestion] = Field(default_factory=list)
+    # A yes/no offer to surface when the request is coherent but unrecognized — e.g.
+    # "want me to search the web for that?" The client arms `on_yes` as `pending` so a
+    # spoken "yes" resolves to web_search. {prompt, on_yes:{intent,slots}, yes, no}.
+    offer: dict = Field(default_factory=dict)
 
 
 class SuggestionsOut(BaseModel):

@@ -69,6 +69,7 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         reply=res.reply, needs_disambiguation=res.needs_disambiguation,
         utterance=res.utterance,
         suggestions=[CommandSuggestion(**s) for s in res.suggestions],
+        offer=res.offer,
     )
 
 

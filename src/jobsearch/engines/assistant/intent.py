@@ -98,6 +98,9 @@ class IntentResult:
     #: When the utterance wasn't understood, the nearest wordings that WOULD be —
     #: so the assistant can suggest phrasing it can act on. Each item: {text,intent,slots}.
     suggestions: list[dict[str, Any]] = field(default_factory=list)
+    #: A yes/no offer to surface when the request is coherent but unrecognized — e.g.
+    #: "want me to search the web for that?" {prompt, on_yes:{intent,slots}, yes, no}.
+    offer: dict[str, Any] = field(default_factory=dict)
 
 
 def _norm(text: str) -> str:
@@ -1292,5 +1295,37 @@ def interpret(
     # understand, so the assistant suggests phrasing it can act on instead of a dead end.
     if result.intent in ("unknown", "ask"):
         result.suggestions = nearest_commands(raw, context)
+        # Offer a web search ONLY for a GENERIC couldn't-understand — not a disambiguation
+        # (a clarify slot / needs_disambiguation) or a result that already set its own reply.
+        # If the request is coherent (not gibberish), offer to search the web for it so a real
+        # request we can't handle internally doesn't dead-end. Surfaced as a yes/no the client
+        # arms as `pending`, so a "yes" resolves to web_search server-side (P261).
+        generic = (not result.slots.get("clarify")
+                   and not result.needs_disambiguation and not result.reply)
+        if generic and not _is_gibberish(raw):
+            result.offer = {
+                "prompt": f"I can't do that in the app — want me to search the web for “{raw.strip()[:70]}”?",
+                "on_yes": {"intent": "web_search", "slots": {"query": raw.strip()}},
+                "yes": "Search the web", "no": "No thanks",
+            }
+            result.reply = "I couldn't make sense of that for the app — want me to search the web for it?"
 
     return _finalize(result, raw, context)
+
+
+_VOWELS = set("aeiou")
+
+
+def _is_gibberish(text: str) -> bool:
+    """A light guard so we don't offer a web search for keyboard-mash/garbled input.
+    True for obvious junk; lenient otherwise so real requests still get the offer."""
+    letters = [c for c in text.lower() if c.isalpha()]
+    if len(letters) < 3:
+        return True
+    vowel_ratio = sum(1 for c in letters if c in _VOWELS) / len(letters)
+    if vowel_ratio < 0.18:  # consonant mash like "asdfghjkl" / "qwrtzx"
+        return True
+    toks = text.split()
+    if len(toks) == 1 and len(toks[0]) > 14:  # one long unbroken blob
+        return True
+    return False

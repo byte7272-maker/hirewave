@@ -8476,3 +8476,26 @@ The background stores `refreshToken` and later mints short-lived access tokens f
 - A garbled or empty mic read makes the assistant **say a re-ask line and listen again** — it never goes silent; the green awaiting ring shows.
 - A real error (e.g. not-linked) gets an **immediate spoken acknowledgment + the fix**, and appears in the error log with a timestamp.
 - Any words the assistant transcribes remain **visible and editable** for correction before they take effect.
+
+## P268 — Offer a web search when a request is coherent but unrecognized (and always surface the yes/no)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). **Backend is live.** When `POST /assistant/interpret` can't map a request to an app action but the request is **coherent** (not gibberish), the response now includes an **`offer`** — a yes/no to search the web for it — instead of dead-ending. Gibberish still just re-asks (P267). Builds on **P261** (pending-question state).
+
+### What the backend returns
+`POST /api/v1/assistant/interpret` → `InterpretResponse` now has:
+```
+offer: { prompt, on_yes: { intent: "web_search", slots: { query } }, yes, no }
+```
+It's present only when the utterance was coherent but unrecognized (`intent` = `ask`/`unknown`, no disambiguation). `reply` is the spoken line ("I couldn't make sense of that for the app — want me to search the web for it?"). It is **absent** for gibberish/keyboard-mash and for recognized commands.
+
+### Wire it
+1. **Whenever `offer` is present, surface the yes/no dialog** — always, in the badge (P258/P267): speak `reply`, show the `prompt` with **Yes / No** controls (the `yes`/`no` labels). Never silently drop it.
+2. **Arm `offer.on_yes` as the pending question** (P261): set `context.pending = offer.on_yes`, show the green awaiting ring. A spoken/clicked **"yes"** goes back through `interpret` with that `pending` and resolves to **`web_search`** with the `query` — then run the web-search flow (the existing research/search path, with the user's web-research consent). **"No"** clears it.
+3. **Gibberish is not offered a web search** — those come back with no `offer`; handle them via P267 (re-ask, never silent).
+4. Keep it a **binary**: don't bury it in a menu; the point is a one-tap yes/no.
+
+### Acceptance
+- "What's the capital of Mongolia" (coherent, not an app command) → the badge asks **"…want me to search the web for it?"** with Yes/No; Yes runs a web search for that text.
+- A recognized command ("go to my matches") → no web-search offer.
+- Keyboard-mash / garbled input → no web-search offer; the assistant re-asks (P267).
+- The offer is always shown as a yes/no dialog, never dropped.
