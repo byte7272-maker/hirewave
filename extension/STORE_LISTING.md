@@ -157,7 +157,14 @@ registration if you've never published.
 
 ## Published (Chrome Web Store)
 
-> **v1.7.0 (current — folds in the never-submitted 1.6.x):** see **`SUBMIT_1.7.0.md`** for the
+> **v1.7.1 (follow-up to the submitted 1.7.0):** see **`SUBMIT_1.7.1.md`**. Adds a sync privacy
+> reminder (visibility never changes) and an easier Save — a one-click "Save on this site" plus
+> an **opt-in** auto-save (off by default, cancellable) scoped to résumé updates, never job
+> applications. Only the **Single purpose** changes; everything else carries over from 1.7.0.
+> The extension can now click a site's *Save* (résumé updates only, opt-in) — reviewer-relevant.
+> Upload 1.7.1 only after 1.7.0 finishes review (one pending version per item).
+
+> **v1.7.0 (submitted — folds in the never-submitted 1.6.x):** see **`SUBMIT_1.7.0.md`** for the
 > exact fields to overwrite. Two new data uses since the last submission: **match enrichment**
 > (reads job postings the user views/saved to fill in pay & benefits) and **résumé sync**
 > (places the user's own résumé into a site's upload field on the user's click). Overwrite the
