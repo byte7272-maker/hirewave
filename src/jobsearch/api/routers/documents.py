@@ -2351,7 +2351,7 @@ def board_sync_assign(user: CurrentUser, state: StateDep, body: dict) -> dict:
     if resume_id and resume is not None:
         state.log_activity(user.id, "pinned", "resume", subject_id=resume.id,
                            subject_label=_resume_label(resume),
-                           detail=f"as the default on {row.get('label', board)}",
+                           detail=f"on {row.get('label', board)}",
                            meta={"board": board, "board_label": row.get("label", board)})
     return row
 

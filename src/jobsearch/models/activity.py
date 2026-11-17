@@ -27,7 +27,7 @@ VERBS: dict[str, str] = {
     "downloaded": "downloaded",
     "exported": "exported",
     "synced": "updated on a job site",
-    "pinned": "set as a site's default",
+    "pinned": "pinned",
     "generated": "generated",
     "applied": "applied with",
     "uploaded": "uploaded",
