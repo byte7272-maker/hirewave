@@ -141,14 +141,6 @@
     return p;
   }
 
-  // Container for the success toast: the privacy reminder + the "mark updated" button.
-  function successExtra(board, resumeId, note) {
-    var wrap = document.createElement("div");
-    wrap.appendChild(privacyLine(note));
-    wrap.appendChild(markButton(board, resumeId));
-    return wrap;
-  }
-
   function markButton(board, resumeId) {
     return makeBtn("I saved it — mark updated", function (e) {
       var b = e.currentTarget; b.disabled = true; b.textContent = "Marking…";
@@ -156,6 +148,26 @@
         toast(r && r.ok ? "Marked up to date on this site." : ("Couldn't mark it: " + ((r && r.error) || "error")), r && r.ok ? "ok" : "err");
       });
     });
+  }
+
+  // Read a stored preference (content scripts share the extension's chrome.storage).
+  function storageGet(key) {
+    return new Promise(function (res) {
+      try { chrome.storage.local.get(key, function (o) { res(o ? o[key] : undefined); }); }
+      catch (e) { res(undefined); }
+    });
+  }
+
+  // Click the SITE'S OWN Save button for the user (one click in our UI), then record it.
+  // This is a résumé-profile update, never an application submit. Applications stay manual.
+  function doSiteSave(board, resumeId, save) {
+    try { save.click(); } catch (e) {}
+    send({ type: "harbor-sync-mark", board: board, resume_id: resumeId });
+    toast("Saved on the site. ✓ If the site asks you to confirm, finish there.", "ok");
+  }
+
+  function saveOnSiteButton(board, resumeId, save) {
+    return makeBtn("Save on this site", function () { doSiteSave(board, resumeId, save); });
   }
 
   // Trigger a browser download of the fetched résumé so the user can upload it by hand.
@@ -215,8 +227,28 @@
     if (attached) {
       var save = findSaveButton(input);
       if (save) { try { save.style.outline = "3px solid #2f6f4f"; save.style.outlineOffset = "2px"; save.scrollIntoView({ block: "center" }); } catch (e) {} }
-      return toast("Attached " + label + ". Review, then click the highlighted Save.", "ok",
-        successExtra(board, resp.resume_id || "", resp.privacy_note));
+      var rid = resp.resume_id || "";
+      var auto = save && (await storageGet("syncAutoSave")) === true;
+      var extra = document.createElement("div");
+      extra.appendChild(privacyLine(resp.privacy_note));
+      if (auto) {
+        // Opt-in auto-save: click the site's Save after a short, cancellable countdown.
+        var done = false;
+        var t = setTimeout(function () { if (!done) { done = true; doSiteSave(board, rid, save); } }, 3500);
+        extra.appendChild(makeBtn("Cancel auto-save", function () {
+          if (done) return; done = true; clearTimeout(t);
+          var w = document.createElement("div");
+          w.appendChild(saveOnSiteButton(board, rid, save));
+          w.appendChild(markButton(board, rid));
+          toast("Auto-save cancelled — save when you're ready.", "muted", w);
+        }));
+        return toast("Attached " + label + " — saving on the site in a moment. Review now, or cancel.", "ok", extra);
+      }
+      // Default: one-click Save (or the user clicks the site's highlighted Save), then mark.
+      if (save) extra.appendChild(saveOnSiteButton(board, rid, save));
+      extra.appendChild(markButton(board, rid));
+      var how = save ? "click 'Save on this site' (or the site's highlighted Save)." : "click the site's Save.";
+      return toast("Attached " + label + ". Review, then " + how, "ok", extra);
     }
     toast("Couldn't attach " + label + " here automatically — download it and upload it to this site:", "muted", fallbackCard(board, resp));
   }

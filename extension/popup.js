@@ -367,6 +367,11 @@ async function toggleResearch() {
   $("researchToggle").addEventListener("click", toggleResearch);
   $("accessBtn").addEventListener("click", enableAccess);
   $("linkBtn").addEventListener("click", openAppToLink);
+  // Opt-in: let the extension click a site's Save when updating your résumé (never applications).
+  try { $("autoSaveChk").checked = (await chrome.storage.local.get("syncAutoSave")).syncAutoSave === true; } catch (_) {}
+  $("autoSaveChk").addEventListener("change", async (e) => {
+    try { await chrome.storage.local.set({ syncAutoSave: !!e.target.checked }); } catch (_) {}
+  });
   await refreshSetupUI();
   await refreshResearchUI();
 })();
