@@ -8528,3 +8528,33 @@ When a script/fix/description is proven better or more accurate, update it witho
 - Starting any walkthrough/tour keeps the assistant as the **badge** — the full window does **not** take over; the pointer points at each step's element and nothing covers the focused content.
 - "Tailor my résumé" walks through **fit → the posting's specific gaps → concrete proposed changes → apply**, ending with a **tailored version saved** — the lines name the job and its real missing keywords, not generic advice.
 - Editing/correcting an instruction persists via `PUT /assistant/knowledge` and the assistant uses the corrected version next time; reverting restores the default.
+
+## P270 — ⚠ CRITICAL: fix the crash that stops the assistant following ANY command ("Cannot access 'l' before initialization")
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). **This is a frontend crash, not the mic and not the backend.** Live diagnosis: typing or saying a simple command ("show my matches", "show my cover letter") calls `POST /assistant/interpret`, which returns **200 with the correct intent** (`navigate` → the section), but the app then **throws and never executes it**, so nothing happens (and voice shows "can't hear it").
+
+**The exact error (console), on every command submit AND on assistant mount:**
+```
+ReferenceError: Cannot access 'l' before initialization
+  at assets/index-*.js  (the assistant command-handling code)
+```
+That's a **temporal dead zone (TDZ)**: a `const`/`let` is read before its initializer runs. Because it fires both on the assistant's **mount** and on **submit**, it lives in a **shared module/store or the interpret-result dispatcher** that both paths import.
+
+### Find & fix (most-likely causes, in order)
+1. **Circular import** between the assistant panel/store and a helper it uses at init time (e.g. the navigation/dispatch module imports the store, and the store imports the dispatcher). At module-eval time one side reads the other's not-yet-initialized `const` export → TDZ. **Break the cycle**: move the shared piece into its own module, or defer the access (read it *inside* the function/handler, not at module top level).
+2. **Use-before-declaration** in the command handler: a `const handle = () => { … use(dispatch) … }` where `dispatch`/a map/const is declared **below** and also referenced during initial render. Hoist the declaration above its first use, or wrap the use in a function so it's read lazily.
+3. **A `const` referenced in its own initializer** (or in a sibling `const` evaluated earlier in the same module scope).
+
+### How to confirm you fixed it
+- Open DevTools console; it must be **clean on load** (the error currently fires twice on mount).
+- Type **"show my matches"** → the app navigates to matches and the assistant says "Taking you to your matches." Type **"show my cover letter"** → documents. No console error.
+- Then voice: hold-to-talk, say "show my matches" → same result (the mic path runs the same handler — fixing the crash fixes voice too).
+
+### While you're there (defense in depth, ties to P267)
+- Wrap the interpret-result execution in a try/catch so a handler error **surfaces as an acknowledgment** (`POST /assistant/error`) and re-prompt, instead of silently doing nothing — the assistant must never swallow a command (P267 "never go silent").
+- The backend already returns the right intent for these phrases — verified: `show my matches` → `{intent:"navigate", slots:{section:"matches"}}`, `show my cover letter` → `{navigate, documents, cover_letter}`. The only work here is making the client **execute** the returned intent without crashing.
+
+### Acceptance
+- No `ReferenceError`/initialization error in the console on load or on any command.
+- Typed AND spoken "show my matches" / "show my cover letter" navigate and the assistant confirms — every time.
+- A handler failure (if any remains) is acknowledged out loud, never silent.
