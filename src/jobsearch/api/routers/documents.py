@@ -359,7 +359,10 @@ def generate_resume(body: ResumeGenerateRequest, user: CurrentUser, state: State
     resume = state.generation.generate_resume(
         profile, job, tone=body.tone, format=body.format, version=len(prior) + 1
     )
-    return state.resumes.add(resume)
+    saved = state.resumes.add(resume)
+    state.log_activity(user.id, "generated", "resume", subject_id=saved.id,
+                       subject_label=_resume_label(saved))
+    return saved
 
 
 @router.post("/resumes/upload", response_model=Resume, status_code=status.HTTP_201_CREATED)
@@ -406,6 +409,8 @@ async def upload_resume(
     _seed_original_version(resume, text_attr="rendered_text")  # show an "Original" in the marquee at once
     saved = ensure_resume_grade(state, state.resumes.add(resume))
     _clear_samples(state, user.id, "resume")  # a real résumé replaces the seeded sample
+    state.log_activity(user.id, "uploaded", "resume", subject_id=saved.id,
+                       subject_label=_resume_label(saved))
     return saved
 
 
@@ -776,6 +781,9 @@ def ai_edit_resume(
         resume.quality_score = None
         resume.quality_grade = ""
         state.resumes.add(resume)
+        state.log_activity(user.id, "edited", "resume", subject_id=resume.id,
+                           subject_label=_resume_label(resume),
+                           detail=body.instruction.strip()[:80])
     return ensure_resume_grade(state, resume)
 
 
@@ -1504,6 +1512,10 @@ def create_resume_version(
     resume.quality_score = None  # active text changed -> re-grade cheaply
     resume.quality_grade = ""
     state.resumes.add(resume)
+    state.log_activity(
+        user.id, "tailored" if job else "versioned", "resume",
+        subject_id=resume.id, subject_label=_resume_label(resume),
+        detail=(f"for {job.title}" if job else (body.label or "")))
     return ensure_resume_grade(state, resume)
 
 
@@ -1703,6 +1715,8 @@ def generate_cover_letter(
     _seed_original_version(cl, text_attr="content")  # generated letter is its Original version
     saved = state.cover_letters.add(cl)
     _clear_samples(state, user.id, "cover_letter")
+    state.log_activity(user.id, "generated", "cover_letter", subject_id=saved.id,
+                       subject_label=getattr(job, "title", ""), detail=f"for {job.title}")
     return saved
 
 
@@ -2334,6 +2348,10 @@ def board_sync_assign(user: CurrentUser, state: StateDep, body: dict) -> dict:
                           synced=(resume.board_sync or {}).get(board) if resume else None)
     if resume is not None:
         row.update({"resume_id": resume.id, "resume_label": _resume_label(resume), "pinned": pinned})
+    if resume_id and resume is not None:
+        state.log_activity(user.id, "pinned", "resume", subject_id=resume.id,
+                           subject_label=_resume_label(resume),
+                           detail=f"as the default on {row.get('label', board)}")
     return row
 
 
@@ -2366,8 +2384,12 @@ def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
     repo.add(doc)
     row = sync_status_for(board, doc_type, active_version=doc.active_version,
                           synced=doc.board_sync[board])
+    label = row.get("label", board)
     if doc_type == "resume":
         row.update({"resume_id": doc.id, "resume_label": _resume_label(doc)})
+    state.log_activity(user.id, "synced", doc_type, subject_id=doc.id,
+                       subject_label=(_resume_label(doc) if doc_type == "resume" else ""),
+                       detail=f"on {label}")
     return row
 
 

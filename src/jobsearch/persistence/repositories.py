@@ -7,6 +7,7 @@ from typing import Optional
 
 from jobsearch.config import Settings, get_settings
 from jobsearch.models import (
+    ActivityEvent,
     Application,
     AutoApplyGrant,
     AutomationAction,
@@ -68,6 +69,7 @@ class Repositories:
     cover_letters: Repository[CoverLetter]
     applications: Repository[Application]
     notifications: Repository[Notification]
+    activity: Repository[ActivityEvent]
     mock_interviews: Repository[MockInterviewSession]
     monitored_identifiers: Repository[MonitoredIdentifier]
     exposure_findings: Repository[ExposureFinding]
@@ -121,6 +123,7 @@ def build_repositories(
             cover_letters=InMemoryRepository(),
             applications=InMemoryRepository(),
             notifications=InMemoryRepository(),
+            activity=InMemoryRepository(),
             mock_interviews=InMemoryRepository(),
             monitored_identifiers=InMemoryRepository(),
             exposure_findings=InMemoryRepository(),
@@ -174,6 +177,7 @@ def build_repositories(
         cover_letters=repo("cover_letters"),
         applications=repo("applications"),
         notifications=repo("notifications"),
+        activity=repo("activity"),
         mock_interviews=repo("mock_interviews"),
         monitored_identifiers=repo("monitored_identifiers"),
         exposure_findings=repo("exposure_findings"),

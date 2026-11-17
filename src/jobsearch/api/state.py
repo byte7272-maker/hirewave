@@ -117,6 +117,7 @@ class AppState:
         self.cover_letters = repos.cover_letters
         self.applications = repos.applications
         self.notifications = repos.notifications
+        self.activity = repos.activity  # structured action log the assistant can recite
         self.mock_interviews = repos.mock_interviews
         self.saved_answers = repos.saved_answers  # user's kept interview answers
         self.monitored_identifiers = repos.monitored_identifiers
@@ -431,3 +432,20 @@ class AppState:
 
     def profile_for(self, user_id: str) -> Optional[UserProfile]:
         return self.profiles.get(user_id)
+
+    def log_activity(
+        self, user_id: str, verb: str, subject_type: str, *,
+        subject_id: str = "", subject_label: str = "", detail: str = "",
+        topic: str = "", meta: Optional[dict] = None,
+    ) -> None:
+        """Record one action in the activity log so the assistant can recite it later.
+        Best-effort: a logging failure must never break the action it describes."""
+        try:
+            from jobsearch.models.activity import ActivityEvent, topic_for
+            self.activity.add(ActivityEvent(
+                user_id=user_id, verb=verb, subject_type=subject_type,
+                subject_id=subject_id, subject_label=subject_label, detail=detail,
+                topic=topic or topic_for(subject_type, verb), meta=meta or {},
+            ))
+        except Exception:  # noqa: BLE001 - never let activity logging break a real action
+            pass

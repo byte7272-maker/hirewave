@@ -331,6 +331,9 @@ def submit(
         from jobsearch.models.notification import NotificationType
         _record_activity(state, user, f"Applied to {_app_label(app)}", NotificationType.APPLICATION_SUBMITTED)
         _notify_status(state, user, app)
+        state.log_activity(user.id, "applied", "application", subject_id=app.id,
+                           subject_label=_app_label(app),
+                           meta={"resume_id": getattr(app, "resume_id", "") or ""})
     return SubmitResponse(
         success=result.success,
         platform=result.platform,

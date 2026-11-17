@@ -174,6 +174,54 @@ def status_report(user: CurrentUser, state: StateDep) -> dict:
     }
 
 
+@router.get("/activity")
+def activity(
+    user: CurrentUser, state: StateDep,
+    subject_type: str = Query(""), subject_id: str = Query(""),
+    topic: str = Query(""), verb: str = Query(""), limit: int = Query(50, ge=1, le=500),
+) -> dict:
+    """The user's activity log — filtered events + an aggregate summary (counts by
+    verb/subject/topic). Drives "recent activity" and "which résumés / how many times"
+    without any NLU. All filters are optional."""
+    from jobsearch.engines.assistant import activity_log as al
+
+    mine = [e for e in state.activity.find(user_id=user.id)]
+    events = al.filter_events(
+        mine, subject_type=subject_type, subject_id=subject_id, topic=topic, verb=verb)
+    summary = al.summarize(events)
+    return {
+        "total": summary["total"],
+        "by_verb": summary["by_verb"],
+        "by_topic": summary["by_topic"],
+        "subjects": summary["subjects"][:20],
+        "events": [al._event_row(e) for e in events[:limit]],
+    }
+
+
+@router.post("/ask")
+def ask(body: dict, user: CurrentUser, state: StateDep) -> dict:
+    """Answer a plain-language question about the user's own activity, or about what the
+    app can do, using the activity log + the function catalog. The assistant knows the
+    app's major functions and can recite recent activity by relevance/topic, in different
+    forms. Body: {query, form?} where form ∈ {count,list,recent,summary,functions} forces
+    a shape (otherwise inferred)."""
+    from jobsearch.engines.assistant import activity_log as al
+
+    query = str(body.get("query", "")).strip()
+    form = str(body.get("form", "")).strip()
+    mine = list(state.activity.find(user_id=user.id))
+    return al.answer(query, mine, form=form)
+
+
+@router.get("/functions")
+def functions(user: CurrentUser, state: StateDep, topic: str = Query("")) -> dict:
+    """The app's major functions in plain language (optionally one topic) — so the
+    assistant can always answer "what can you do?" even with no activity yet."""
+    from jobsearch.engines.assistant import activity_log as al
+
+    return al.functions_overview(topic)
+
+
 #: Max events accepted in one telemetry flush (protects the store from a runaway client).
 _TELEMETRY_BATCH_CAP = 200
 

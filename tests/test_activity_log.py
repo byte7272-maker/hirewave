@@ -1,0 +1,141 @@
+"""Activity log: recording real actions, aggregation, the function catalog, and the
+assistant's plain-language answers in different forms."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+from fastapi.testclient import TestClient
+
+from jobsearch.api.app import create_app
+from jobsearch.api.state import AppState
+from jobsearch.engines.assistant import activity_log as al
+from jobsearch.engines.integration import MockTokenExchanger
+from jobsearch.models import ActivityEvent
+from jobsearch.models.common import utcnow
+
+
+def _ev(verb, subject_type, label="", topic="documents", subject_id="x", ago_min=0):
+    return ActivityEvent(
+        user_id="u", verb=verb, subject_type=subject_type, subject_label=label,
+        subject_id=subject_id, topic=topic, at=utcnow() - timedelta(minutes=ago_min))
+
+
+# --- pure engine ------------------------------------------------------------
+def test_summarize_counts_by_verb_subject_topic():
+    events = [
+        _ev("tailored", "resume", "Data Analyst", subject_id="r1"),
+        _ev("tailored", "resume", "Data Analyst", subject_id="r1", ago_min=5),
+        _ev("edited", "resume", "PM", subject_id="r2", ago_min=10),
+        _ev("applied", "application", "Acme", topic="applications", subject_id="a1", ago_min=1),
+    ]
+    s = al.summarize(events)
+    assert s["total"] == 4
+    assert s["by_verb"]["tailored"] == 2
+    assert s["by_topic"]["documents"] == 3 and s["by_topic"]["applications"] == 1
+    # subjects ranked by count — r1 (2) first
+    assert s["subjects"][0]["subject_id"] == "r1" and s["subjects"][0]["count"] == 2
+
+
+def test_filter_by_verb_and_subject():
+    events = [_ev("tailored", "resume", subject_id="r1"), _ev("edited", "resume", subject_id="r1"),
+              _ev("tailored", "resume", subject_id="r2")]
+    assert len(al.filter_events(events, verb="tailored")) == 2
+    assert len(al.filter_events(events, subject_id="r1")) == 2
+    assert len(al.filter_events(events, verb="tailored", subject_id="r2")) == 1
+
+
+def test_answer_count_form():
+    events = [_ev("tailored", "resume"), _ev("tailored", "resume"), _ev("edited", "resume")]
+    out = al.answer("how many times have I tailored my résumé?", events)
+    assert out["form"] == "count" and out["count"] == 2
+    assert "twice" in out["reply"].lower()
+    # none-yet reads honestly
+    out0 = al.answer("how many times have I applied?", events)
+    assert out0["count"] == 0 and "haven't" in out0["reply"].lower()
+
+
+def test_answer_which_resumes_list():
+    events = [
+        _ev("tailored", "resume", "Data Analyst", subject_id="r1"),
+        _ev("edited", "resume", "Data Analyst", subject_id="r1"),
+        _ev("edited", "resume", "Product Manager", subject_id="r2"),
+    ]
+    out = al.answer("which résumés have I worked on?", events)
+    assert out["form"] == "list" and len(out["subjects"]) == 2
+    assert "Data Analyst" in out["reply"] and "Product Manager" in out["reply"]
+
+
+def test_answer_recent_by_topic():
+    events = [
+        _ev("synced", "resume", "Data Analyst", topic="sync", ago_min=2),
+        _ev("applied", "application", "Acme", topic="applications", ago_min=1),
+        _ev("tailored", "resume", "Data Analyst", ago_min=30),
+    ]
+    out = al.answer("what have I done lately with my résumé?", events)
+    assert out["form"] == "recent" and out["events"]
+    # scoped to résumé subject → no application event in the recited list
+    assert all(e["subject_type"] == "resume" for e in out["events"])
+
+
+def test_answer_functions_catalog():
+    out = al.answer("what can you do?", [])
+    assert out["form"] == "functions" and len(out["functions"]) >= 8
+    assert any("résumé" in f["title"].lower() or "match" in f["title"].lower() for f in out["functions"])
+    # topic-scoped overview
+    docs = al.functions_overview("documents")
+    assert docs["form"] == "functions" and all(f["topic"] == "documents" for f in docs["functions"])
+
+
+def test_answer_summary_default_and_empty():
+    # a neutral request with no count/which/recent/capability cue → overall summary
+    empty = al.answer("give me an overview", [])
+    assert empty["form"] == "summary" and empty["summary"]["total"] == 0
+    assert "no activity" in empty["reply"].lower()
+    out = al.answer("give me an overview", [_ev("tailored", "resume"), _ev("applied", "application", topic="applications")])
+    assert out["form"] == "summary" and out["summary"]["total"] == 2
+    # "tell me about my activity" reasonably reads as a recency request
+    assert al.answer("tell me about my activity", [])["form"] == "recent"
+
+
+# --- endpoints + real recording ---------------------------------------------
+def _client():
+    state = AppState(exchanger=MockTokenExchanger())
+    return TestClient(create_app(state=state)), state
+
+
+def _auth(c, email="act@x.com"):
+    c.post("/api/v1/auth/register", json={"email": email, "password": "supersecret", "full_name": "A"})
+    tok = c.post("/api/v1/auth/login", json={"email": email, "password": "supersecret"}).json()
+    return {"Authorization": f"Bearer {tok['access_token']}"}
+
+
+def test_upload_records_activity_and_ask_endpoint():
+    c, _ = _client()
+    h = _auth(c)
+    c.post("/api/v1/resumes/upload", headers=h,
+           files={"file": ("Data Analyst.md", b"# Me\n- x", "text/markdown")})
+
+    # the activity endpoint shows the uploaded event
+    act = c.get("/api/v1/assistant/activity", headers=h).json()
+    assert act["total"] >= 1
+    assert any(e["verb"] == "uploaded" and e["subject_type"] == "resume" for e in act["events"])
+
+    # the assistant answers a count question in plain language
+    ask = c.post("/api/v1/assistant/ask", headers=h, json={"query": "how many résumés have I uploaded?"}).json()
+    assert ask["form"] == "count" and ask["count"] >= 1
+
+
+def test_functions_endpoint_knows_app():
+    c, _ = _client()
+    h = _auth(c)
+    r = c.get("/api/v1/assistant/functions", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["form"] == "functions" and len(body["functions"]) >= 8
+
+
+def test_activity_endpoints_require_auth():
+    c, _ = _client()
+    assert c.get("/api/v1/assistant/activity").status_code == 401
+    assert c.post("/api/v1/assistant/ask", json={"query": "hi"}).status_code == 401

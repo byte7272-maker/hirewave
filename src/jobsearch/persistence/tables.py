@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import JSON, Column, MetaData, String, Table
 
 from jobsearch.models import (
+    ActivityEvent,
     Application,
     AutoApplyGrant,
     AutomationAction,
@@ -86,6 +87,7 @@ _SPECS: dict[str, TableSpec] = {
     "cover_letters": TableSpec("cover_letters", CoverLetter, "id", ("user_id",)),
     "applications": TableSpec("applications", Application, "id", ("user_id",)),
     "notifications": TableSpec("notifications", Notification, "id", ("user_id",)),
+    "activity": TableSpec("activity", ActivityEvent, "id", ("user_id",)),
     "oauth_tokens": TableSpec("oauth_tokens", OAuthToken, "id", ("user_id", "provider")),
     "mock_interviews": TableSpec("mock_interviews", MockInterviewSession, "id", ("user_id",)),
     "monitored_identifiers": TableSpec(

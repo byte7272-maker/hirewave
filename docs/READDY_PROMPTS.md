@@ -8410,3 +8410,32 @@ The background stores `refreshToken` and later mints short-lived access tokens f
 - With the extension freshly installed and the user signed in, the **Link** step turns ✓ on its own (P264), no code/password.
 - The "Enable on your job sites" step explains the one action only the user can take, and a successful re-check (link works) confirms the extension is reachable on sites.
 - Extension-powered buttons never dead-end: when setup is incomplete they route back to the wizard step.
+
+## P266 — The assistant knows your activity and the app's functions: answer "what have I done", "how many times", "which résumés", "what can you do" in plain language
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). **Backend is live — no server work.** A new activity log records real actions (résumé uploaded/generated/tailored/edited/versioned, synced to a site, pinned as a site default, cover letter generated, applied) and a function catalog describes what the app does. The assistant can now recite activity by relevance/topic and answer capability questions, in different forms.
+
+### Endpoints (all exist)
+- `POST /api/v1/assistant/ask` body `{query, form?}` → `{reply, form, …}`. `reply` is a ready-to-speak plain-language answer; `form` ∈ `count | list | recent | summary | functions`; the rest is structured data for the UI:
+  - `count` → `{count, filters}` ("You've tailored a résumé 4 times.")
+  - `list` → `{subjects:[{subject_type, subject_id, label, count, last_at}]}` ("You've worked on 3 résumés: Data Analyst (6 times)…")
+  - `recent` → `{events:[{verb, subject_type, subject_label, topic, detail, at, phrase}]}` ("Recently with your résumé: tailored "Data Analyst" (2h ago)…")
+  - `summary` → `{summary:{total, by_verb, by_topic, subjects, recent}}`
+  - `functions` → `{functions:[{title, blurb, topic}]}`
+  - `form?` in the request forces a shape; omit to let the backend infer from the wording.
+- `GET /api/v1/assistant/activity?subject_type=&subject_id=&topic=&verb=&limit=` → `{total, by_verb, by_topic, subjects, events}` — the log itself, filtered, for a timeline/history view (no NLU).
+- `GET /api/v1/assistant/functions?topic=` → the app's major functions in plain language (always answerable, even with zero activity).
+
+### Wire it
+1. **Route these questions through `/assistant/ask`** (voice or typed), and **speak/show `reply`** verbatim; use the structured data to render (a count chip, a résumé list, a recent-activity timeline, or a capabilities card). Questions to route: "what have I done lately", "what did I do with my résumé", "how many times did I tailor/apply/update", "which résumés have I worked on", "what can you do / what does this app do / what are your features".
+2. **Activity by topic:** when the user asks within a context (on Documents → "what have I done here"), pass the wording through as-is — the backend scopes to the résumé/topic. You can also hit `/assistant/activity?topic=documents` for a filtered timeline.
+3. **Capabilities:** for "what can you do", show the `functions` list (title + blurb). The assistant should offer this proactively when a new user asks for help. Topic-scope it on a section page (`?topic=documents`).
+4. **Recent-activity surface:** a small "Recent activity" panel (dashboard or assistant) can read `GET /assistant/activity` and show the latest `events` by `phrase` with relative time; filter chips map to `topic`/`verb`.
+5. **Honesty:** when there's no activity yet, `reply` already says so ("No activity recorded yet — once you start, I'll keep track"). Show that, don't fabricate.
+
+### Acceptance
+- "How many times have I tailored my résumé?" → a spoken count that matches the log; "…applied?" with none yet reads "You haven't applied yet."
+- "Which résumés have I worked on?" → lists the real résumés with per-item counts.
+- "What have I done lately with my résumé?" → recent résumé events only (not applications), with relative times.
+- "What can you do?" → the function catalog, in plain language; topic pages scope it.
+- A recent-activity panel reflects real actions (upload a résumé, tailor it, sync it → they appear).
