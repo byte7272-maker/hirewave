@@ -8360,3 +8360,30 @@ It must instead **make the research calls**, against a **real** company, and **r
 - Changing a site's résumé persists (reopen → same pin) and marks that site out of date until updated.
 - **Update** opens the site + downloads the right résumé (the pinned one) and shows the steps; **Mark as updated** clears the badge.
 - Pure ATS boards are never shown as syncable; cover letters are never shown as per-site.
+
+## P264 — ⚠ Auto-link the extension: push the session token on every authenticated load (a fresh install pings but never links)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`) with Project Harbor Connect **v1.7.0+** installed. **Frontend bug — confirmed live.** The app **detects** the extension (sets `document.documentElement.dataset.harborConnect` and the content script relays `harbor-ping`, so the dashboard shows "Project Harbor Connect is ready · v1.7.0 · Last seen just now") but it **never pushes the refresh token** to the extension. Result: on a freshly (re)loaded extension build, `chrome.storage.local.refreshToken` is empty, so every extension feature that mints a token — **job enrichment, apply autofill (`/apply/field-map`), and résumé sync (`harbor-sync-fetch`)** — fails with **"not linked — open Project Harbor to link the extension."** Reloading the app and even signing out/in do **not** fix it.
+
+**Root cause:** the link push is gated behind the one-time "announce/promo" flags (`hirewave_extension_announce_seen`, `_promo_seen`, `_update_notified`, `_updated_ack`). Once those are set (from a prior install), the app skips the step that sends the token — but a new extension install has empty storage, so the two go out of sync and never re-link.
+
+**How linking works (don't change the bridge):** the content script (`content.js`) relays a window message from the app to the background worker, which stores it:
+```js
+window.postMessage({ source: "harbor-app", type: "harbor-session",
+  refreshToken: <the app's hw_refresh>, apiBase: <API base> }, window.location.origin);
+```
+The background stores `refreshToken` and later mints short-lived access tokens from it. The token stays entirely in the browser (app → content script → background); nothing is sent to our server.
+
+### Do this
+- **Push `harbor-session` whenever ALL of:** (a) the user is authenticated (the app holds `hw_refresh`), and (b) the extension is present (`dataset.harborConnect` is set, or the `harbor-connect-ready` event fired). Do it **on every app load/route-in**, not once — it must be **idempotent** and **independent of the announce/promo "seen" flags**.
+- **Re-push after every token refresh** (whenever `hw_refresh` rotates), so the extension's stored token never goes stale.
+- **Decouple the promo UI from the link:** the `hirewave_extension_*_seen/ack` flags may keep suppressing the *promotional* "get/you-updated the extension" banner, but they must **never** gate the actual `harbor-session` push.
+- **Feature-detect before pushing:** only send when the extension is detected (avoid posting the token into a page with no extension to receive it). Post to `window.location.origin` only, exactly as the bridge expects.
+- **Surface link state honestly:** the "Project Harbor Connect is ready" card should distinguish *detected* (pinged) from *linked* (token stored). If you can't confirm linked, show a one-tap "Link extension" that performs the push, instead of implying it's ready when features will say "not linked."
+
+### Acceptance
+- With the extension freshly (re)loaded and empty storage, **opening the app while signed in links it automatically** — within a second, no banner, no sign-out/in.
+- After that, clicking **Update résumé with Harbor** (sync), **Fill with Harbor** (apply), and running enrichment all proceed past auth (no "not linked"), using the stored token.
+- Clearing/keeping the `hirewave_extension_*_seen` flags has **no effect** on whether linking happens.
+- Rotating the access/refresh token (re-login, refresh) keeps the extension linked without user action.
+- The connect card shows **"Linked"** only when the token was actually pushed; otherwise it offers a working **Link extension** action.

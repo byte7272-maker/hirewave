@@ -2198,12 +2198,16 @@ def _primary_doc(repo, user_id: str, doc_id: str):
 
 
 def _resume_label(resume) -> str:
-    """A short, human label for a résumé so the board panel shows WHICH one is pinned."""
+    """A short, human label for a résumé so the board panel shows WHICH one is pinned.
+    Prefers the target role; falls back to the uploaded filename with its extension
+    stripped (the delivered upload is a rendered export, so the label shouldn't imply
+    a specific file type)."""
     if resume is None:
         return ""
     name = (getattr(resume, "target_role", "") or "").strip()
     if not name:
-        name = (getattr(resume, "original_filename", "") or "").strip()
+        fname = (getattr(resume, "original_filename", "") or "").strip()
+        name = re.sub(r"\.(pdf|docx?|txt|rtf|md)$", "", fname, flags=re.IGNORECASE).strip()
     return name or "Résumé"
 
 
