@@ -124,28 +124,60 @@
     if (!extra) el.__t = setTimeout(function () { try { el.remove(); } catch (e) {} }, 9000);
   }
 
-  function markButton(board, resumeId) {
-    var wrap = document.createElement("div");
-    wrap.setAttribute("style", "margin-top:8px");
+  function makeBtn(text, onClick) {
     var b = document.createElement("button");
     b.type = "button";
-    b.textContent = "I saved it — mark updated";
-    b.setAttribute("style", "padding:6px 10px;border:0;border-radius:8px;background:#fff;color:#2f6f4f;font:600 12px system-ui,sans-serif;cursor:pointer");
-    b.addEventListener("click", function () {
-      b.disabled = true; b.textContent = "Marking…";
+    b.textContent = text;
+    b.setAttribute("style", "margin:8px 8px 0 0;padding:6px 10px;border:0;border-radius:8px;background:#fff;color:#2f6f4f;font:600 12px system-ui,sans-serif;cursor:pointer");
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function markButton(board, resumeId) {
+    return makeBtn("I saved it — mark updated", function (e) {
+      var b = e.currentTarget; b.disabled = true; b.textContent = "Marking…";
       send({ type: "harbor-sync-mark", board: board, resume_id: resumeId }).then(function (r) {
         toast(r && r.ok ? "Marked up to date on this site." : ("Couldn't mark it: " + ((r && r.error) || "error")), r && r.ok ? "ok" : "err");
       });
     });
-    wrap.appendChild(b);
+  }
+
+  // Trigger a browser download of the fetched résumé so the user can upload it by hand.
+  function downloadResume(resp) {
+    try {
+      var blob = new Blob([b64ToBytes(resp.b64 || "")], { type: resp.contentType || "application/pdf" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = resp.filename || "resume.pdf";
+      document.body.appendChild(a); a.click();
+      setTimeout(function () { try { a.remove(); URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Fallback when we can't attach the file to the page (no input, or the board's replace
+  // flow opens the OS picker): hand the user the downloadable résumé + the board's steps,
+  // then let them mark it updated once they've uploaded it themselves.
+  function fallbackCard(board, resp) {
+    var wrap = document.createElement("div");
+    wrap.setAttribute("style", "margin-top:4px");
+    wrap.appendChild(makeBtn("Download résumé", function () {
+      downloadResume(resp);
+      toast("Downloaded. Upload it on this site's résumé section, then mark it updated.", "muted", markButton(board, resp.resume_id || ""));
+    }));
+    var steps = (resp.steps || []).slice(0, 4);
+    if (steps.length) {
+      var ol = document.createElement("ol");
+      ol.setAttribute("style", "margin:8px 0 0 16px;padding:0;font-size:12px;line-height:1.45");
+      steps.forEach(function (s) { var li = document.createElement("li"); li.textContent = s; ol.appendChild(li); });
+      wrap.appendChild(ol);
+    }
     return wrap;
   }
 
   async function doSync() {
     var board = boardFor(location.hostname);
     if (!board) return toast("This site isn't a résumé-sync board.", "err");
-    var input = findFileInput();
-    if (!input) return toast("Open the résumé upload on this page, then click again.", "err");
     toast("Fetching your current résumé…", "muted");
     var resp = await send({ type: "harbor-sync-fetch", board: board });
     if (!resp || !resp.ok) {
@@ -154,13 +186,22 @@
     var bytes;
     try { bytes = b64ToBytes(resp.b64 || ""); } catch (e) { bytes = null; }
     if (!bytes || !bytes.length) return toast("Couldn't read the résumé file.", "err");
-    if (!setFile(input, bytes, resp.filename, resp.contentType)) {
-      return toast("This site blocked an automatic file set — use the download + upload steps instead.", "err");
-    }
-    var save = findSaveButton(input);
-    if (save) { try { save.style.outline = "3px solid #2f6f4f"; save.style.outlineOffset = "2px"; save.scrollIntoView({ block: "center" }); } catch (e) {} }
+
     var label = resp.resume_label ? ('"' + resp.resume_label + '"') : "your résumé";
-    toast("Attached " + label + ". Review, then click the highlighted Save.", "ok", markButton(board, resp.resume_id || ""));
+    // Try the automatic attach; fall back to download + steps if there's no attachable
+    // input, or the file set is rejected (e.g. a replace flow that opens the OS picker).
+    var input = findFileInput();
+    var attached = false;
+    if (input) {
+      try { attached = setFile(input, bytes, resp.filename, resp.contentType) && !!(input.files && input.files.length); }
+      catch (e) { attached = false; }
+    }
+    if (attached) {
+      var save = findSaveButton(input);
+      if (save) { try { save.style.outline = "3px solid #2f6f4f"; save.style.outlineOffset = "2px"; save.scrollIntoView({ block: "center" }); } catch (e) {} }
+      return toast("Attached " + label + ". Review, then click the highlighted Save.", "ok", markButton(board, resp.resume_id || ""));
+    }
+    toast("Couldn't attach " + label + " here automatically — download it and upload it to this site:", "muted", fallbackCard(board, resp));
   }
 
   function injectButton() {
@@ -174,8 +215,16 @@
     document.body.appendChild(b);
   }
 
-  // Offer the button only when the page actually has a résumé file input.
-  function maybeShow() { try { if (boardFor(location.hostname) && findFileInput()) injectButton(); } catch (e) {} }
+  // Does the URL look like the board's résumé/profile area (where a replace flow lives)?
+  function onResumeArea() {
+    var u = (location.host + location.pathname).toLowerCase();
+    return /(^|\.)profile\.|\/profile|\/resume|\/my-resume|\/cv(\/|$)|application-settings|\/member\/profile/.test(u);
+  }
+
+  // Offer the button when the page has a résumé file input OR is a board résumé/profile
+  // page — so the fallback (download + steps) is reachable even when the board hides its
+  // upload behind an OS picker with no attachable input.
+  function maybeShow() { try { if (boardFor(location.hostname) && (findFileInput() || onResumeArea())) injectButton(); } catch (e) {} }
   if (document.readyState === "interactive" || document.readyState === "complete") maybeShow();
   document.addEventListener("DOMContentLoaded", maybeShow);
   setTimeout(maybeShow, 1500);
