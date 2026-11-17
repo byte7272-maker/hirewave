@@ -8614,3 +8614,30 @@ A **tap that just opens the window must not touch any audio/speech/mic API.** Op
 - Holding to talk either records (guarded) or, where iOS can't, **falls back to the type input** with a clear message — never a crash.
 - A thrown error shows the error-boundary fallback + an acknowledgment, not a white screen.
 - No unguarded `navigator.audioSession` / `new webkitSpeechRecognition()` on iOS.
+
+## P273 — ⚠ The exact iOS crash: the mic-error catalog lookup returns undefined for unmapped codes (`tj(e).text`)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`) on a real iPhone. Follows P272 (the error boundary now catches it — good; the page no longer white-screens). This pins the **specific** error the boundary showed: `undefined is not an object (evaluating 'tj(e).text')`.
+
+**Root cause (from the live bundle):** there's a mic-error handler roughly like
+```js
+function de(e){ ue('mic', tj(e).text, … ) }   // throws when tj(e) is undefined
+```
+`tj(code)` is the **mic-error message catalog** — it returns `{text, …}` for known codes (`'no-device'`, `'not-allowed'`, `'blocked'`, …) but **`undefined` for any code not in it**, and the handler reads `.text` unguarded. On iOS the mic/SpeechRecognition path fails with a code the catalog doesn't have (e.g. `service-not-allowed`, `audio-capture`, or SpeechRecognition is absent), so `de(unmappedCode)` → `tj(undefined/unknown).text` → crash. It fires on a plain tap because the window's open path initializes the mic (see P272 §1).
+
+### Fix (two small, exact changes)
+1. **Never read `.text` off an unmapped lookup.** Default it:
+   ```js
+   const info = tj(e) || tj('blocked') || { text: "I couldn't use the mic here — you can type instead." };
+   ue('mic', info.text, …)
+   ```
+   (optional-chaining alone isn't enough — you still need a usable message; provide the fallback object.)
+2. **Map the iOS error codes** into the `tj` catalog: `not-allowed`, `service-not-allowed`, `audio-capture`, `no-speech`, `aborted`, `network`, and an **`unsupported`** entry for when `SpeechRecognition` doesn't exist at all — each with a friendly `text` + the type-to-assistant fallback.
+
+### Also (prevents it firing on open at all — ties to P272 §1)
+- **Opening the window must not start the mic**, so this error path can't run on a tap. Only an explicit hold/mic-arm starts recognition, and on iOS where SpeechRecognition is unsupported, **don't construct it** — route straight to the type input (P272 §2). Feature-detect once (`const SR = window.SpeechRecognition||window.webkitSpeechRecognition`) and treat `!SR` as the `unsupported` case through the same catalog.
+
+### Acceptance (on a real iPhone)
+- Tapping the assistant opens the window with **no mic init and no error** — no "Something went wrong".
+- If a mic error does occur (any code, mapped or not), the user sees a **friendly message + a way to type**, never a thrown `tj(e).text`.
+- With SpeechRecognition unsupported (iOS), holding to talk falls back to typing with a clear note — no crash, no error boundary.
