@@ -2351,7 +2351,8 @@ def board_sync_assign(user: CurrentUser, state: StateDep, body: dict) -> dict:
     if resume_id and resume is not None:
         state.log_activity(user.id, "pinned", "resume", subject_id=resume.id,
                            subject_label=_resume_label(resume),
-                           detail=f"as the default on {row.get('label', board)}")
+                           detail=f"as the default on {row.get('label', board)}",
+                           meta={"board": board, "board_label": row.get("label", board)})
     return row
 
 
@@ -2389,7 +2390,8 @@ def board_sync_mark(user: CurrentUser, state: StateDep, body: dict) -> dict:
         row.update({"resume_id": doc.id, "resume_label": _resume_label(doc)})
     state.log_activity(user.id, "synced", doc_type, subject_id=doc.id,
                        subject_label=(_resume_label(doc) if doc_type == "resume" else ""),
-                       detail=f"on {label}")
+                       detail=f"on {label}", meta={"board": board, "board_label": label,
+                                                    "version": doc.active_version})
     return row
 
 

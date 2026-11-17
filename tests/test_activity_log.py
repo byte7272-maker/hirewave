@@ -81,10 +81,44 @@ def test_answer_recent_by_topic():
 def test_answer_functions_catalog():
     out = al.answer("what can you do?", [])
     assert out["form"] == "functions" and len(out["functions"]) >= 8
+    # the assistant knows the résumé UPLOAD function explicitly
+    assert any("upload" in f["title"].lower() for f in out["functions"])
     assert any("résumé" in f["title"].lower() or "match" in f["title"].lower() for f in out["functions"])
     # topic-scoped overview
     docs = al.functions_overview("documents")
     assert docs["form"] == "functions" and all(f["topic"] == "documents" for f in docs["functions"])
+
+
+def test_answer_howto_upload_and_sync_with_steps():
+    up = al.answer("how do I upload my résumé?", [])
+    assert up["form"] == "how_to" and up["steps"]
+    assert any("upload" in s.lower() or "pick your file" in s.lower() for s in up["steps"])
+    sync = al.answer("what do I need to put my résumé on a job site?", [])
+    assert sync["form"] == "how_to" and sync["requirements"]
+    # the sync requirements name the extension setup (install / enable / link)
+    reqtext = " ".join(sync["requirements"]).lower()
+    assert "extension" in reqtext and "link" in reqtext
+    # a site name routes to the sync how-to too
+    assert al.answer("how do I update my résumé on Indeed?", [])["form"] == "how_to"
+
+
+def test_answer_sites_what_is_where_and_when():
+    events = [
+        _ev("synced", "resume", "Data Analyst", topic="sync", ago_min=120),
+        _ev("synced", "resume", "Product Manager", topic="sync", ago_min=5),
+    ]
+    events[0].meta = {"board": "indeed", "board_label": "Indeed"}
+    events[1].meta = {"board": "linkedin", "board_label": "LinkedIn"}
+    out = al.answer("what have I put on which sites?", events)
+    assert out["form"] == "sites" and len(out["sites"]) == 2
+    # newest-updated first (LinkedIn), and the résumé + relative time are in the reply
+    assert out["sites"][0]["board"] == "linkedin"
+    assert "LinkedIn" in out["reply"] and "Indeed" in out["reply"]
+    # scoped to one named site
+    one = al.answer("what's on Indeed?", events)
+    assert one["form"] == "sites" and len(one["sites"]) == 1 and one["sites"][0]["board"] == "indeed"
+    # nothing synced yet reads honestly
+    assert al.answer("which sites have my résumé?", [])["sites"] == []
 
 
 def test_answer_summary_default_and_empty():
@@ -124,6 +158,22 @@ def test_upload_records_activity_and_ask_endpoint():
     # the assistant answers a count question in plain language
     ask = c.post("/api/v1/assistant/ask", headers=h, json={"query": "how many résumés have I uploaded?"}).json()
     assert ask["form"] == "count" and ask["count"] >= 1
+
+
+def test_sync_records_board_and_ask_reports_sites():
+    from jobsearch.models import Provider
+    c, state = _client()
+    h = _auth(c)
+    uid = state.users.find(email="act@x.com")[0].id
+    state.integration.tokens.save(user_id=uid, provider=Provider.INDEED, access_token="t", account_email="")
+    up = c.post("/api/v1/resumes/upload", headers=h,
+                files={"file": ("Data Analyst.md", b"# Me\n- x", "text/markdown")}).json()
+    # mark it synced on Indeed
+    c.post("/api/v1/documents/board-sync", headers=h,
+           json={"board": "indeed", "doc_type": "resume", "resume_id": up["id"]})
+    out = c.post("/api/v1/assistant/ask", headers=h, json={"query": "what's on Indeed?"}).json()
+    assert out["form"] == "sites" and out["sites"] and out["sites"][0]["board"] == "indeed"
+    assert "Indeed" in out["reply"]
 
 
 def test_functions_endpoint_knows_app():

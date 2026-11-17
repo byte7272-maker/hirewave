@@ -28,6 +28,8 @@ from jobsearch.models.common import utcnow
 FUNCTIONS: list[dict] = [
     {"key": "matches", "topic": "matches", "title": "Find & rank job matches",
      "blurb": "I score open roles against your résumé and preferences and show the strongest fits first."},
+    {"key": "upload", "topic": "documents", "title": "Upload your own résumé",
+     "blurb": "Add your existing résumé file (PDF, DOCX, MD or TXT) so I can review, tailor, and use it in applications and on job sites."},
     {"key": "tailor", "topic": "documents", "title": "Tailor your résumé to a job",
      "blurb": "I rewrite your résumé for a specific posting, keeping your real experience and surfacing the relevant parts."},
     {"key": "cover_letter", "topic": "documents", "title": "Draft cover letters",
@@ -37,7 +39,7 @@ FUNCTIONS: list[dict] = [
     {"key": "versions", "topic": "documents", "title": "Keep résumé versions",
      "blurb": "I save tailored variants you can switch between, so you reuse the right one per job."},
     {"key": "sync", "topic": "sync", "title": "Keep your résumé current across job sites",
-     "blurb": "I put your latest résumé onto the job sites you use — or hand you the file and steps — and track which site has which version."},
+     "blurb": "I put your latest résumé onto the job sites you use — or hand you the file and steps — and track which site has which version. Needs the Project Harbor Connect browser extension, enabled on your job sites and linked to your account."},
     {"key": "apply", "topic": "applications", "title": "Fill applications",
      "blurb": "On an application page I fill your own saved details for you to review and submit — never your password, and I never submit for you."},
     {"key": "track", "topic": "applications", "title": "Track applications",
@@ -64,6 +66,82 @@ def functions_overview(topic: str = "") -> dict:
         lead = "Here's what I can do: " + _join(titles) + "."
     return {"reply": lead, "form": "functions",
             "functions": [{"title": f["title"], "blurb": f["blurb"], "topic": f["topic"]} for f in items]}
+
+
+# --- how-to steps the assistant can recite (requirements + the actual steps) --------
+#: What the user must do to make a function work — the setup/requirements and the steps.
+HOW_TO: dict[str, dict] = {
+    "upload_resume": {
+        "title": "Upload your résumé",
+        "requirements": [],
+        "steps": [
+            "Open Documents and choose 'Upload résumé'.",
+            "Pick your file — PDF, DOCX, MD, or TXT.",
+            "I read it in so you can review, tailor, and use it everywhere.",
+        ],
+    },
+    "sync_resume": {
+        "title": "Put your résumé on a job site",
+        "requirements": [
+            "Install the Project Harbor Connect browser extension.",
+            "Enable it on your job sites (grant site access, 'On all sites').",
+            "Link it to your Project Harbor account (open the app, or use the extension's Link button).",
+        ],
+        "steps": [
+            "On the site's résumé page, click 'Update résumé with Harbor'.",
+            "I place your current résumé into the site's upload field — review it.",
+            "Click the site's own Save. (If the site won't accept it directly, I download it with upload steps.)",
+            "I record that the site now holds that version, so I can tell you what's where.",
+        ],
+    },
+}
+
+
+def how_to(key: str) -> dict:
+    """Recite the requirements + steps for a function, in plain language + structured."""
+    h = HOW_TO.get(key)
+    if not h:
+        return functions_overview()
+    reqs = h.get("requirements", [])
+    parts = []
+    if reqs:
+        parts.append("First, " + _join([r.rstrip(".").lower() for r in reqs]) + ".")
+    parts.append(("Then: " if reqs else "") + _join([s.rstrip(".") for s in h["steps"]]) + ".")
+    return {"reply": f"To {h['title'].lower()}: " + " ".join(parts), "form": "how_to",
+            "title": h["title"], "requirements": reqs, "steps": h["steps"]}
+
+
+def _board_in(text: str) -> str:
+    """The job-site slug named in the text, if any (e.g. 'what's on Indeed')."""
+    try:
+        from jobsearch.engines.board_sync import BOARD_PROFILE_SYNC
+    except Exception:  # noqa: BLE001
+        return ""
+    t = (text or "").lower()
+    for slug, cap in BOARD_PROFILE_SYNC.items():
+        if slug in t or (cap.get("label", "").lower() and cap["label"].lower() in t):
+            return slug
+    return ""
+
+
+def sites_summary(events: list, board: str = "") -> list:
+    """What résumé is on which job site and when, from synced/pinned events, grouped by
+    board (optionally one board). Newest-updated first."""
+    sites: dict[str, dict] = {}
+    for e in events:
+        if e.verb not in ("synced", "pinned"):
+            continue
+        b = (e.meta or {}).get("board", "")
+        if not b or (board and b != board):
+            continue
+        label = (e.meta or {}).get("board_label") or b.title()
+        s = sites.setdefault(b, {"board": b, "label": label, "resume": e.subject_label,
+                                 "last_at": e.at, "count": 0, "last_verb": e.verb})
+        s["count"] += 1
+        if e.at >= s["last_at"]:
+            s["last_at"], s["last_verb"] = e.at, e.verb
+            s["resume"] = e.subject_label or s["resume"]
+    return sorted(sites.values(), key=lambda s: s["last_at"], reverse=True)
 
 
 # --- filtering + aggregation -------------------------------------------------------
@@ -153,6 +231,14 @@ _WHICH_RE = re.compile(r"\b(which|what) (résumés?|resumes?|cvs?|documents?|cov
 _RECENT_RE = re.compile(
     r"\b(recent|lately|latest|so far|history|activity|what have i|what did i|last (few|couple|several|\d+)|"
     r"this week|today|up to now|been (up to|doing)|track record)\b", re.I)
+_HOWTO_RE = re.compile(
+    r"\b(how (do|can|should) i|how to|steps? (to|for)|what('?s| is) needed|what do i need|"
+    r"how does .* work|set ?up|get .* working)\b", re.I)
+_SITES_RE = re.compile(
+    r"\b(which sites?|what sites?|on which site|where .*(résumé|resume|synced|uploaded|updated)|"
+    r"what('?s| is) on (my |the )?[a-z]+|synced where|been done on|on each site|per site)\b", re.I)
+_UPLOAD_RE = re.compile(r"\bupload|add (my |a )?(résumé|resume|cv)\b", re.I)
+_SYNC_RE = re.compile(r"\b(sync|on (a |the )?(job )?site|on (indeed|linkedin|a board)|keep.*current|update.*site)\b", re.I)
 
 
 def _match(text: str, table: dict) -> str:
@@ -177,11 +263,40 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
     if form == "functions" or (not form and _CAPABILITY_RE.search(q) and not _RECENT_RE.search(q)):
         return functions_overview(topic if topic in TOPICS else "")
 
+    # 2) How-to / "what do I need" / "set up" — recite requirements + steps.
+    if form == "how_to" or (not form and _HOWTO_RE.search(q)):
+        if _SYNC_RE.search(q) or topic == "sync" or _board_in(q):
+            return how_to("sync_resume")
+        if _UPLOAD_RE.search(q) or subject_type in ("resume", "cover_letter"):
+            return how_to("upload_resume")
+        return functions_overview()
+
+    # 3) Per-site history — "what's on which site when", "where is my résumé".
+    if form == "sites" or (not form and _SITES_RE.search(q)):
+        board = _board_in(q)
+        rows = sites_summary(events, board=board)
+        if not rows:
+            where = f" on {board.title()}" if board else " on any job site"
+            return {"reply": f"You haven't put your résumé{where} yet. Want me to walk you through it?",
+                    "form": "sites", "sites": []}
+        bits = []
+        for r in rows:
+            verb = "set as the default" if r["last_verb"] == "pinned" else "updated"
+            res = f' with "{r["resume"]}"' if r["resume"] else ""
+            bits.append(f'{r["label"]}: {verb}{res} {_relative(r["last_at"])}')
+        reply = (f'On {rows[0]["label"]}: ' + bits[0].split(": ", 1)[1] + "."
+                 if board else "Here's what's on each site — " + _join(bits) + ".")
+        return {"reply": reply, "form": "sites",
+                "sites": [{"board": r["board"], "label": r["label"], "resume": r["resume"],
+                           "last_verb": r["last_verb"], "count": r["count"],
+                           "last_at": r["last_at"].isoformat() if hasattr(r["last_at"], "isoformat") else str(r["last_at"])}
+                          for r in rows]}
+
     scoped = filter_events(
         events, verb=verb, topic=(topic if not subject_type else ""),
         subject_type=subject_type)
 
-    # 2) Count — "how many times have I tailored a résumé?"
+    # 4) Count — "how many times have I tailored a résumé?"
     if form == "count" or (not form and _COUNT_RE.search(q)):
         n = len(scoped)
         what = _count_phrase(verb, subject_type, topic)
@@ -189,7 +304,7 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
         return {"reply": reply, "form": "count", "count": n,
                 "filters": {"verb": verb, "subject_type": subject_type, "topic": topic}}
 
-    # 3) Which subjects — "which résumés have I worked on?"
+    # 5) Which subjects — "which résumés have I worked on?"
     if form == "list" or (not form and _WHICH_RE.search(q)):
         st = subject_type or "resume"
         summary = summarize([e for e in events if e.subject_type == st])
@@ -201,7 +316,7 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
         reply = f"You've worked on {len(subs)} {noun}{'s' if len(subs) != 1 else ''}: " + _join(names) + "."
         return {"reply": reply, "form": "list", "subjects": subs}
 
-    # 4) Recent / history — "what have I done lately (with my résumé)?"
+    # 6) Recent / history — "what have I done lately (with my résumé)?"
     if form == "recent" or (not form and _RECENT_RE.search(q)) or verb or topic or subject_type:
         recent = scoped[:8] if scoped else filter_events(events)[:8]
         if not recent:
@@ -215,7 +330,7 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
         lead = f"Recently{scope}: " + _join([_recent_phrase(e) for e in recent]) + "."
         return {"reply": lead, "form": "recent", "events": [_event_row(e) for e in recent]}
 
-    # 5) Default — an overall summary.
+    # 7) Default — an overall summary.
     s = summarize(events)
     if not s["total"]:
         return {"reply": "No activity recorded yet — once you start tailoring résumés and applying, I'll track it here.",
