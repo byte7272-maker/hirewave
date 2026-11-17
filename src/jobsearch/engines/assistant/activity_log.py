@@ -126,8 +126,9 @@ def _board_in(text: str) -> str:
 
 
 def sites_summary(events: list, board: str = "") -> list:
-    """What résumé is on which job site and when, from synced/pinned events, grouped by
-    board (optionally one board). Newest-updated first."""
+    """Per job site: whether the résumé is actually ON it (a sync/upload) vs. only
+    chosen as its default (a pin — internal, nothing uploaded), and when. Honest about
+    exposure: a pin never put the résumé on the site. Newest-activity first."""
     sites: dict[str, dict] = {}
     for e in events:
         if e.verb not in ("synced", "pinned"):
@@ -137,12 +138,23 @@ def sites_summary(events: list, board: str = "") -> list:
             continue
         label = (e.meta or {}).get("board_label") or b.title()
         s = sites.setdefault(b, {"board": b, "label": label, "resume": e.subject_label,
-                                 "last_at": e.at, "count": 0, "last_verb": e.verb})
+                                 "last_at": e.at, "count": 0, "last_verb": e.verb,
+                                 "on_site": False})
         s["count"] += 1
+        if e.verb == "synced":
+            s["on_site"] = True  # an actual upload to the site; a pin never sets this
         if e.at >= s["last_at"]:
             s["last_at"], s["last_verb"] = e.at, e.verb
             s["resume"] = e.subject_label or s["resume"]
     return sorted(sites.values(), key=lambda s: s["last_at"], reverse=True)
+
+
+def _site_phrase(r: dict) -> str:
+    res = f' "{r["resume"]}"' if r.get("resume") else " your résumé"
+    when = _relative(r["last_at"])
+    if r.get("on_site"):
+        return f'{r["label"]}:{res} is on it, updated {when}'
+    return f'{r["label"]}:{res} chosen as the default — not uploaded there yet ({when})'
 
 
 # --- filtering + aggregation -------------------------------------------------------
@@ -280,16 +292,15 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
             where = f" on {board.title()}" if board else " on any job site"
             return {"reply": f"You haven't put your résumé{where} yet. Want me to walk you through it?",
                     "form": "sites", "sites": []}
-        bits = []
-        for r in rows:
-            verb = "set as the default" if r["last_verb"] == "pinned" else "updated"
-            res = f' with "{r["resume"]}"' if r["resume"] else ""
-            bits.append(f'{r["label"]}: {verb}{res} {_relative(r["last_at"])}')
-        reply = (f'On {rows[0]["label"]}: ' + bits[0].split(": ", 1)[1] + "."
-                 if board else "Here's what's on each site — " + _join(bits) + ".")
+        bits = [_site_phrase(r) for r in rows]
+        if board:
+            reply = bits[0].split(":", 1)[1].strip().capitalize() + f" (on {rows[0]['label']})."
+        else:
+            reply = "Here's where your résumé stands by site — " + _join(bits) + "."
         return {"reply": reply, "form": "sites",
                 "sites": [{"board": r["board"], "label": r["label"], "resume": r["resume"],
-                           "last_verb": r["last_verb"], "count": r["count"],
+                           "on_site": r.get("on_site", False), "last_verb": r["last_verb"],
+                           "count": r["count"],
                            "last_at": r["last_at"].isoformat() if hasattr(r["last_at"], "isoformat") else str(r["last_at"])}
                           for r in rows]}
 

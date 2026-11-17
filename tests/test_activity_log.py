@@ -121,6 +121,21 @@ def test_answer_sites_what_is_where_and_when():
     assert al.answer("which sites have my résumé?", [])["sites"] == []
 
 
+def test_sites_distinguishes_on_site_from_pinned_default():
+    # a PIN is internal (nothing uploaded) — never reported as "on the site"
+    pin = _ev("pinned", "resume", "Data Analyst", topic="sync")
+    pin.meta = {"board": "indeed", "board_label": "Indeed"}
+    out = al.answer("what's on Indeed?", [pin])
+    assert out["sites"][0]["on_site"] is False
+    assert "not uploaded" in out["reply"].lower()
+    # an actual sync IS on the site
+    sync = _ev("synced", "resume", "Data Analyst", topic="sync")
+    sync.meta = {"board": "indeed", "board_label": "Indeed"}
+    out2 = al.answer("what's on Indeed?", [sync])
+    assert out2["sites"][0]["on_site"] is True
+    assert "is on it" in out2["reply"].lower()
+
+
 def test_answer_summary_default_and_empty():
     # a neutral request with no count/which/recent/capability cue → overall summary
     empty = al.answer("give me an overview", [])
