@@ -117,6 +117,11 @@ it loads and mentions résumé sync + match enrichment **before** submitting.
 - `python extension/build.py` → upload `project-harbor-connect-1.7.0.zip`; confirm the
   dashboard shows version **1.7.0**. (The build now fails if the manifest references a JS file
   the zip omits — e.g. `apply_sync.js` / `passive_enrich.js`.)
+- **Manifest `description` ≤132 chars** — the store rejects a longer one. v1.7.0's is set to
+  131 chars (the same copy as the Summary). Don't re-expand it.
 - Ctrl+F every free-text field for provider names → zero matches.
-- Open the privacy-policy URL; confirm it mentions **match enrichment** and **résumé sync**.
+- ✅ **Privacy-policy URL verified live (2026-11-16):**
+  `https://hirewave-production-3db3.up.railway.app/static/privacy.html` loads the updated
+  policy showing **match enrichment** ("Fill in pay & benefits on your matches") and **résumé
+  sync** ("Keep your résumé current"), dated November 16, 2026.
 - Tick **Personally identifiable information** in data collection (see above).

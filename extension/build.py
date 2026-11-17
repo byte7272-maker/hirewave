@@ -18,6 +18,9 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import shutil
+import stat
 import zipfile
 from pathlib import Path
 
@@ -100,17 +103,32 @@ def main() -> None:
     DIST.mkdir(exist_ok=True)
 
     # Also refresh the unpacked/ dir for this version (load-unpacked + store review).
+    # Overwrite in place and prune stale files — rmtree can hit transient Windows/OneDrive
+    # locks on a synced folder, so never depend on deleting the tree first.
     unpacked = DIST / f"unpacked-{version}"
-    if unpacked.exists():
-        import shutil
-        shutil.rmtree(unpacked)
-    unpacked.mkdir(parents=True)
+    shutil.rmtree(unpacked, ignore_errors=True)  # best-effort; locks are tolerated below
+    unpacked.mkdir(parents=True, exist_ok=True)
+    member_rel = {str(m.relative_to(HERE)).replace("\\", "/") for m in members}
     for m in members:
-        rel = m.relative_to(HERE)
-        dest = unpacked / rel
+        if not m.is_file():
+            continue
+        dest = unpacked / m.relative_to(HERE)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if m.is_file():
-            dest.write_bytes(m.read_bytes())
+        if dest.exists():
+            try:
+                os.chmod(dest, stat.S_IWRITE)  # clear read-only (OneDrive) before overwrite
+            except OSError:
+                pass
+        dest.write_bytes(m.read_bytes())
+    # Prune anything left over from a previous build that isn't in this package.
+    for p in sorted(unpacked.rglob("*"), reverse=True):
+        rel = str(p.relative_to(unpacked)).replace("\\", "/")
+        if p.is_file() and rel not in member_rel:
+            try:
+                os.chmod(p, stat.S_IWRITE)
+                p.unlink()
+            except OSError:
+                pass
     print(f"Refreshed {unpacked.relative_to(HERE.parent)}/ ({len(members)} members)")
 
     # Chrome / Edge — manifest as authored.
