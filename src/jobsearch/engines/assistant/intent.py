@@ -35,6 +35,10 @@ _SECTIONS = {
     "matches": ("matches", "match", "my jobs", "jobs", "job matches", "roles"),
     "documents": ("documents", "document", "my files", "files", "resume", "résumé",
                   "resumes", "cover letter", "cover letters", "my documents"),
+    # Applications = the tracker of jobs you've applied to. Listed BEFORE auto_apply so
+    # "my applications" resolves here, not to the automation setup (they're distinct pages).
+    "applications": ("applications", "my applications", "application tracker",
+                     "applied jobs", "jobs i applied to", "submissions", "application status"),
     "auto_apply": ("auto apply", "auto-apply", "autoapply", "apply bot", "automation"),
     "design": ("design", "styles", "style", "templates", "template", "look"),
     "interview": ("interview", "interviews", "practice interview", "practice", "mock interview"),

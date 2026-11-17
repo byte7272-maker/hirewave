@@ -8558,3 +8558,28 @@ That's a **temporal dead zone (TDZ)**: a `const`/`let` is read before its initia
 - No `ReferenceError`/initialization error in the console on load or on any command.
 - Typed AND spoken "show my matches" / "show my cover letter" navigate and the assistant confirms — every time.
 - A handler failure (if any remains) is acknowledged out loud, never silent.
+
+## P271 — Route every assistant section, incl. the new "applications" (and fix auto_apply landing on matches)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Follows P270 (commands now execute). **Backend is live.** Spot-checking navigation after the P270 fix surfaced a **section→route gap**: the backend returns `{intent:"navigate", slots:{section}}`, but the client doesn't route every section — `go to applications` landed on `/dashboard/matches`, and the backend had no distinct "applications" section at all (now fixed: it returns `section:"applications"`).
+
+### Fix the client's section → route map
+Map **every** section the backend can emit to its real page, and never silently fall back to matches/dashboard:
+- `matches` → `/dashboard/matches`
+- `applications` → **`/dashboard/applications`** (the tracker of jobs you've applied to — **new**, was mis-routing)
+- `auto_apply` → `/dashboard/auto-apply` (the automation setup — **was landing on matches; fix it**)
+- `documents` → `/dashboard/documents`
+- `interview` → the Practice-interviews page
+- `inbox` → the Inbox
+- `connect` → the Connect/sources page
+- `dashboard` → `/dashboard`
+- `community` → the Community page
+Applications and Auto-apply are **different pages** — keep them distinct (the backend now distinguishes "my applications" → `applications` from "set up auto apply" → the `auto_apply` playbook).
+
+### Guardrails
+- If a `navigate` returns a `section` with no route mapping, **log it and tell the user** ("I don't have a page for that yet") via `POST /assistant/error` — don't silently drop it or dump them on matches.
+- After navigating, the assistant re-narrates for the new page (already working for matches/documents).
+
+### Acceptance
+- "go to applications" / "show my applications" → the **Applications** page; "set up auto apply" → **Auto-apply**; the two never collide.
+- Every section verb ("go to documents/interviews/inbox/connect/community/dashboard/matches") lands on the correct page, with no console error.
