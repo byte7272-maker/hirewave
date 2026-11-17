@@ -8583,3 +8583,34 @@ Applications and Auto-apply are **different pages** — keep them distinct (the 
 ### Acceptance
 - "go to applications" / "show my applications" → the **Applications** page; "set up auto apply" → **Auto-apply**; the two never collide.
 - Every section verb ("go to documents/interviews/inbox/connect/community/dashboard/matches") lands on the correct page, with no console error.
+
+## P272 — ⚠ CRITICAL (iOS): tapping/holding the assistant crashes the page on iPhone — guard the iOS-fragile audio/speech APIs and never mount them on open
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`) **on a real iPhone (Safari)**. **iOS/WebKit-specific crash** — the desktop command-crash (P270) is fixed; this is different. On iPhone, tapping the assistant to open the broader window, or holding to talk, **crashes the page** (white screen / "a problem repeatedly occurred"). Evidence from the live bundle: it uses `navigator.audioSession` (7×, iOS-17-only), `webkitSpeechRecognition` (iOS support is absent/unreliable), and heavy `AudioContext`/`getUserMedia`/`MediaRecorder` init, with **no** `-webkit-touch-callout` guard; the bundle is ~4.7 MB.
+
+### 1. Decouple OPENING from audio/mic init (the main fix)
+A **tap that just opens the window must not touch any audio/speech/mic API.** Opening is pure UI. Only an explicit **hold / mic-arm** may initialize audio — and even then, guarded (below). Right now the open path mounts a component whose effect initializes `audioSession`/`AudioContext`/`SpeechRecognition`, which throws on iOS → crash. Move all audio init out of mount/open and into the mic-arm handler, lazily.
+
+### 2. Feature-detect + try/catch EVERY iOS-fragile API (never let one throw)
+- **`navigator.audioSession`**: `if (navigator && 'audioSession' in navigator) { try { navigator.audioSession.type = 'playback' } catch {} }` — never read/set it unguarded (it's iOS-17+ only).
+- **SpeechRecognition**: `const SR = window.SpeechRecognition || window.webkitSpeechRecognition; if (!SR) → use the fallback, do NOT `new SR()`.` On iOS (where SR is missing/flaky), **fall back to the type-to-assistant input** (which works) or MediaRecorder→server STT — never construct SR when absent.
+- **AudioContext**: `const AC = window.AudioContext || window.webkitAudioContext;` construct only inside a user gesture, in try/catch; `await ctx.resume()` guarded. If it fails, degrade to text — don't crash.
+- **getUserMedia/MediaRecorder**: call only on the mic action, in try/catch; a rejected permission/absent API shows a message (P267 `POST /assistant/error`), never throws to the top.
+
+### 3. Wrap the assistant in an error boundary + guarded handlers
+- Put a **React error boundary** around the whole assistant so ANY throw renders a small "the assistant hit a snag — tap to retry" instead of white-screening the app.
+- Wrap the tap/hold/open handlers in try/catch; on error, acknowledge via `POST /assistant/error` (P267 never-silent), keep the page alive.
+
+### 4. iOS touch hygiene on the badge/hold target
+- Add `-webkit-touch-callout: none; user-select: none; -webkit-user-select: none; touch-action: manipulation;` to the badge and the hold-to-talk control, so a long-press doesn't trigger the native callout/selection that fights the gesture.
+- Use pointer events with passive listeners; don't assume a hold completes (iOS may cancel it) — handle `pointercancel`/`touchcancel`.
+
+### 5. Reduce the mobile memory footprint (the 4.7 MB bundle can OOM iOS)
+- On a phone, default to the **lightweight collapsed badge + type input** (P267); **lazy-mount** the heavy full window and the audio graph only when actually needed, and tear them down on close.
+- Don't hold multiple AudioContext instances; reuse one and close it when idle (iOS caps active audio contexts).
+
+### Acceptance (on a real iPhone)
+- Tapping the assistant **opens the window without any audio init and never crashes**; the page stays alive.
+- Holding to talk either records (guarded) or, where iOS can't, **falls back to the type input** with a clear message — never a crash.
+- A thrown error shows the error-boundary fallback + an acknowledgment, not a white screen.
+- No unguarded `navigator.audioSession` / `new webkitSpeechRecognition()` on iOS.
