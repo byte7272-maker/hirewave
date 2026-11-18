@@ -21,6 +21,7 @@ from jobsearch.api.schemas import (
     DocumentLocateRequest,
     DocumentMapRequest,
     MetricRefreshRequest,
+    SummaryReviewRequest,
     EvidenceExtractRequest,
     EvidenceExtractResponse,
     EvidenceGroup,
@@ -2004,6 +2005,36 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
     llm = getattr(state.resume_assistant, "premium", None)
     proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)
     return {"stage": "proposal", **proposal}
+
+
+@router.get("/resumes/{resume_id}/summary-review")
+def resume_summary_review(
+    resume_id: str, user: CurrentUser, state: StateDep,
+    last_fingerprint: str = Query("", description="fingerprint stored when the summary was last refreshed"),
+) -> dict:
+    """Understand, critique, and freshness-check the résumé's **Summary** — not just read
+    it. Returns a plain-language read of what the summary claims, the concrete weaknesses
+    found (each with the fix that addresses it), a proposed rewrite built only from résumé
+    facts, and a freshness verdict: whether it's drifted out of sync with the rest of the
+    résumé, and (via ``last_fingerprint``) whether the document changed materially since
+    the summary was last refreshed — so the assistant can prompt a periodic update."""
+    from jobsearch.engines.assistant import summary_review
+
+    resume = get_resume(resume_id, user, state)
+    llm = getattr(state.resume_assistant, "premium", None)
+    return summary_review.review_summary(
+        strip_inline_html(_resume_text(resume)), last_fingerprint=last_fingerprint, llm=llm)
+
+
+@router.post("/documents/summary-review")
+def document_summary_review(body: SummaryReviewRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Summary review for arbitrary résumé text — e.g. the live editor buffer with unsaved
+    edits — so the freshness/weakness read reflects exactly what's on screen."""
+    from jobsearch.engines.assistant import summary_review
+
+    llm = getattr(state.resume_assistant, "premium", None)
+    return summary_review.review_summary(
+        strip_inline_html(body.text or ""), last_fingerprint=body.last_fingerprint or "", llm=llm)
 
 
 @router.get("/cover-letters/{cover_letter_id}/preview.html", response_class=HTMLResponse)

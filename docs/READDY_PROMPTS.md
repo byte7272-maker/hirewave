@@ -8713,3 +8713,43 @@ The backend troubleshooting catalog now has the right text (`GET /assistant/trou
 - "Go to Experience" scrolls to + highlights the Experience section; "highlight leadership" / "where does it say Education" spotlights the exact text; the cover-letter path highlights a word/paragraph in prose.
 - Pinpointing a bullet opens a workbench that reads it and proposes **specific** rewrites/refreshes for that line (editable, commit-on-approve) — not a copy of the bullet list.
 - A bullet with FY2024/FY2025-style figures is flagged; the assistant offers to refresh, runs search → reads its findings + reasoning aloud → proposes an edited bullet with the current figure + sources for the user to accept/edit/reject; nothing is applied without approval.
+
+## P276 — Summary health: the assistant UNDERSTANDS the summary, lists its weaknesses with fixes, keeps it fresh, and walks it in the right pane (badge moving/pointing/narrating)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Builds on P275. The résumé **Summary** (the 2–3 line pitch at the top) goes stale — you add a role, pick up skills, land a bigger number, and the summary still describes last year's you. Today the assistant just *reads* it. It should **understand** it, find what's weak, suggest a fix for each weakness, and **keep it fresh** — prompting a periodic refresh, especially after a major change to the document. Do this as a guided right-pane activity where the badge moves, points, narrates, and navigates step by step.
+
+### 0. New backend you must call (don't rebuild client-side)
+- `GET /api/v1/resumes/{id}/summary-review?last_fingerprint=<fp>` (and `POST /api/v1/documents/summary-review {text, last_fingerprint?}` for the live editor buffer). Returns:
+  - `present` (is there a summary), `summary` (its text), and `understanding` — a plain-language read: `{reads_as, years, states_role, named_skills, quantifies, sentences, word_count}`. **Use `reads_as` to prove the assistant understood it**, e.g. *"Your summary positions you as an IT Director; names Python, AWS; doesn't cite a number."*
+  - `weaknesses[]` — each `{id, title, detail, severity:high|medium|low, fix}`. Ids include `no_role`, `cliche`, `no_metric`, `missing_skills`, `too_short/too_long`, `stale_metric`, `first_person`, `missing`. **Each already has the fix that addresses it — show the weakness and its fix together.**
+  - `suggestion` — a proposed rewrite built ONLY from résumé facts (role, years, top skills, a real metric); never invented.
+  - `fresh` (bool), `stale_reasons[]` (why it drifted — current role omitted, top skills missing, or the document changed since last refresh), `changed_since_review` (bool — the fingerprint moved), and `fingerprint` (string).
+  - `signals` — `{role, company, top_skills, metrics}` the summary should reflect.
+- Manifest (`GET /assistant/capabilities`) adds: the `summary_review` **flow** (scripted lines per state), a **Summary health** control, a **"Review my summary"** action, a **"review your summary and flag anything out of date?"** offer, a `summary.fresh` readout, the `summary_review` endpoint under `data`, and behavior flags `understand_summary` + `keep_summary_fresh`. `POST /assistant/interpret` returns a new **`review_summary`** intent.
+
+### 1. Keep it fresh — don't let the summary go stale
+- **Persist the `fingerprint`** whenever the summary is refreshed/accepted (per résumé — localStorage keyed by resume id is fine). On opening Documents, call summary-review with that stored `last_fingerprint`. If `changed_since_review` is true (a major change happened — new role, skills, metrics), the assistant **proactively** flags it (badge, don't force the panel open): *"Your résumé changed since your summary was last refreshed — want me to update it so it matches?"*
+- Also surface `fresh`/`stale_reasons` passively: a small "Summary: up to date" vs "Summary: needs a refresh" indicator on the Summary section in the map (ties to P275's section map).
+- Re-check after any save that changes Experience/Skills (that's what moves the fingerprint).
+
+### 2. Understand it — don't just read it
+- When the user runs it (clicks Summary health, or says **"review my summary" / "is my summary up to date?" / "what's wrong with my summary?"** → `review_summary` intent), the FIRST thing the assistant says is the `understanding.reads_as` — a genuine read of what the summary claims — then that it's checking it against the rest of the résumé. Never a generic "let me look at your summary."
+
+### 3. The right-pane walkthrough (badge moving, pointing, narrating, navigating)
+Run the **`summary_review` flow** (scripted lines in `capabilities.flows.summary_review`; speak each state, never silent). Drive it in the **right pane** as a step sequence, with the compact badge as the guide:
+  1. `start` → `understanding`: badge sits by the Summary section, points at it, speaks `understanding.reads_as`.
+  2. `stale` (only if `stale_reasons`): badge narrates why it drifted.
+  3. `weaknesses` → then **one `weakness` at a time**: the right pane lists the findings; the badge **moves to and points at each finding in turn** as it narrates `"{title}. {detail} — here's the fix: {fix}"`, advancing on Next/▶ (honor the pace control). Each finding card shows its **severity** and its **fix**, and (where it maps to text) can highlight the offending part of the summary via `/documents/locate`.
+  4. `proposing`: show the `suggestion` as an **editable rewrite** (diff against the current summary). The badge asks `"…want me to use it?"` — yes/no, mic-ready.
+  5. On accept, apply the rewrite to the Summary section (via `/resumes/{id}/ai-edit` or save a version), then **recompute summary-review and store the new `fingerprint`** so it's marked fresh (`applying`).
+  6. If `fresh` and no weaknesses, say the `fresh` line and don't invent work.
+- The badge must **navigate** the user through it (move to the Summary, then to each finding card), **point** (a visible pointer/spotlight on the thing being discussed), **narrate** every step, and never cover the text it's pointing at (`avoid_occlusion`). This is the P258 badge-first + P254 point_to_focus behavior applied to a multi-step review.
+
+### 4. Suggest changes that actually work
+- Each weakness's `fix` is concrete and specific to this résumé (e.g. "Work in Python, AWS — they're your strongest signal", "Open with your title — 'IT Director with …'"). Present them as actionable, and let the user apply the whole rewrite or cherry-pick a single fix (apply one `fix` as a targeted Ask-AI edit on the summary). The rewrite uses only `signals`/résumé facts — never surface an invented number or claim; show it as a draft the user edits before it commits.
+
+### Acceptance
+- Opening Documents after a real change to Experience/Skills → the assistant flags that the summary is out of date and offers to refresh (fingerprint moved).
+- "Review my summary" → the assistant first says **what the summary actually claims** (not a generic line), then walks each weakness **with its fix** one at a time in the right pane, the **badge moving/pointing/narrating** to each, and proposes an editable rewrite built from the résumé's own facts for accept/edit/reject.
+- A strong, current, role-led, quantified summary is reported **fresh** with nothing to change.
+- Accepting the rewrite updates the summary, saves a version, and marks it fresh (new fingerprint stored).

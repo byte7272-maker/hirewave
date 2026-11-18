@@ -94,6 +94,12 @@ BEHAVIORS = [
     # with its reasoning shown (refresh_metric → /documents/refresh-metric).
     "compartmentalize_document", "navigate_and_highlight", "analyze_bullets",
     "refresh_stale_metrics",
+    # summary health (P276): the assistant UNDERSTANDS the summary (not just reads it),
+    # lists the weaknesses it found with a fix for each, and keeps it fresh — prompting a
+    # refresh when the document changed materially (GET /resumes/{id}/summary-review →
+    # understanding/weaknesses/suggestion/fresh/fingerprint; the summary_review flow walks
+    # it in the right pane, badge pointing/narrating step by step).
+    "understand_summary", "keep_summary_fresh",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
@@ -196,6 +202,28 @@ FLOWS: dict[str, dict[str, Any]] = {
             "not_found": "I couldn't find a clear, newer figure for that — want to point me at a "
                          "specific page, or leave the bullet as it is?",
             "error": "That search didn't go through. Want me to try again?",
+        },
+    },
+    # Understand + critique + refresh the SUMMARY, walked step by step in the right pane
+    # (badge pointing/narrating/navigating) — the assistant reads what it says, lists the
+    # weaknesses it found with a fix for each, and proposes a rewrite (P276). Placeholders
+    # come from GET /resumes/{id}/summary-review.
+    "summary_review": {
+        "label": "Review and refresh your summary",
+        "focus": "the summary, with the findings in the right pane",
+        "ask": "proposing",
+        "speak": {
+            "start": "Let me actually read your summary and see how well it's holding up.",
+            "understanding": "Here's what it says right now: {reads_as}",
+            "stale": "It's drifted from the rest of your résumé — {stale_reasons}. Worth a refresh.",
+            "weaknesses": "I found {count} things to tighten. I'll take them one at a time.",
+            "weakness": "{title}. {detail} — here's the fix: {fix}",
+            "proposing": "Here's a rewrite that addresses those, using only what's already in your "
+                         "résumé: '{suggestion}.' Want me to use it?",
+            "applying": "Done — I refreshed your summary and saved a version.",
+            "fresh": "Your summary is in good shape and still matches your résumé — nothing to change "
+                     "right now. I'll flag it if a big change makes it drift.",
+            "error": "That didn't go through. Want me to try again?",
         },
     },
     # My Work Highlights: turn a pasted data dump into résumé-ready evidence (P251 §3).
@@ -359,6 +387,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "map_cover_letter": "/api/v1/cover-letters/{id}/map",
             "locate": "/api/v1/documents/locate",
             "refresh_metric": "/api/v1/documents/refresh-metric",
+            "summary_review": "/api/v1/resumes/{id}/summary-review",
         },
         "actions": [
             _action("Show my résumé", "show", ["resume"], "navigate", {"section": "documents", "doc": "resume"}),
@@ -367,6 +396,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     {"section": "documents", "mode": "section", "highlight": True}),
             _action("Find or highlight text", "search", ["text"], "focus_document",
                     {"section": "documents", "mode": "text", "highlight": True}),
+            _action("Review my summary", "walk", ["summary"], "review_summary", {}),
             _action("Read a bullet to me", "walk", ["bullet"], "read_bullets", {}),
             _action("Sharpen a bullet", "change", ["bullet"], "start_playbook", {"playbook": "bullets"},
                     confirm="Apply this change to the bullet?"),
@@ -384,6 +414,11 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Section map", "does": "The document's outline — Summary, Experience, Education, Skills "
              "(cover letters: the body paragraphs). Pick a section to jump to it; a marker shows which parts have "
              "something worth a look, like dated figures."},
+            {"label": "Summary health", "does": "I actually read your summary — tell you what it claims, "
+             "then list the weaknesses I found (no role, vague, no number, missing your top skills, drifted "
+             "from your experience) each with a fix, and propose a rewrite from your own résumé. I keep it "
+             "fresh too: when a big change makes it out of date I flag it to refresh. Walked step by step in "
+             "the right pane — I point at each finding as I narrate it."},
             {"label": "Bullet workbench", "does": "Pinpoint a single bullet and I read it, then offer real "
              "improvements on THAT line — reword it stronger, rephrase for clarity, fold in a work highlight, or "
              "refresh an out-of-date number. Not a copy of the bullet list — it's where we actually change one. "
@@ -397,6 +432,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Versions", "does": "Switch, rename, or activate a saved version — every change saves one."},
         ],
         "offers": [
+            _offer("Want me to review your summary and flag anything out of date?", "review_summary", {}),
             _offer("Want me to walk the document section by section?", "focus_document",
                    {"section": "documents", "mode": "section", "target": "summary", "highlight": True}),
             _offer("I spotted dated figures — refresh them from the web?", "refresh_metric", {}),
@@ -415,6 +451,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     "a stronger rewording, a cleaner rephrase, or a work highlight folded in. You edit the draft; "
                     "it only changes when you approve.",
              "highlight": "Bullet workbench"},
+            {"say": "I keep your Summary honest — I read what it actually says, call out what's weak or out of "
+                    "date, and propose a tighter version from your own résumé. I'll nudge you to refresh it after "
+                    "a big change so it never goes stale.",
+             "highlight": "Summary health"},
             {"say": "If a bullet's numbers are tied to an old year, I'll flag it and can look up the current figure "
                     "on the web, tell you what I found and why, and propose the update for you to accept or reject.",
              "highlight": "Refresh figures"},
@@ -424,6 +464,8 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         # Read from the current résumé map/review (GET /resumes/{id} + /map).
         "readouts": [
             {"key": "sections", "label": "Sections", "source": "map.stats.sections", "highlight": "Section map"},
+            {"key": "summary_fresh", "label": "Summary freshness", "source": "summary.fresh",
+             "highlight": "Summary health"},
             {"key": "flagged", "label": "Dated figures to refresh", "source": "map.stats.flagged",
              "highlight": "Refresh figures"},
             {"key": "version", "label": "Version", "source": "active_version", "highlight": "Versions"},

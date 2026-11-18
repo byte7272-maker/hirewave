@@ -23,8 +23,9 @@ INTENTS = {
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
     "web_search", "sync_documents", "archive", "edit_document",
-    # within-document: jump to + highlight a section/keyword; refresh a stale metric from the web
-    "focus_document", "refresh_metric",
+    # within-document: jump to + highlight a section/keyword; refresh a stale metric from the
+    # web; understand + freshness-check the summary
+    "focus_document", "refresh_metric", "review_summary",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -305,6 +306,28 @@ def _refresh_metric(t: str, context: dict) -> Optional[IntentResult]:
     if m:
         slots["bullet"] = int(m.group(1))
     return IntentResult("refresh_metric", 0.86, slots)
+
+
+# "review my summary", "is my summary up to date?", "what's wrong with my summary",
+# "check my summary" → the summary-review flow (understand it, list weaknesses + fixes,
+# freshness-check it). Distinct from "rewrite the summary" (an edit) and "go to the
+# summary" (navigation).
+_SUMMARY_NOUN_RE = re.compile(r"\b(summary|profile|objective|headline|opening line|intro)\b")
+_REVIEW_VERB_RE = re.compile(
+    r"\b(review|check|audit|critique|assess|evaluate|grade|look at|go over|whats? wrong with|"
+    r"how(?:'?s| is| good is)|rate)\b")
+
+
+def _review_summary(t: str, context: dict) -> Optional[IntentResult]:
+    """Understand + critique + freshness-check the summary → ``review_summary``. Fires on a
+    review/quality question or a staleness question aimed at the summary."""
+    if not _SUMMARY_NOUN_RE.search(t):
+        return None
+    is_review = bool(_REVIEW_VERB_RE.search(t) or _STALE_Q_RE.search(t)
+                     or re.search(r"\b(weak|weakness|improve the focus|out of sync|needs updating)\b", t))
+    if not is_review:
+        return None
+    return IntentResult("review_summary", 0.88, {})
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -903,6 +926,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ma is not None:
         return ma
 
+    # understand + freshness-check the SUMMARY ("review my summary", "is my summary up to
+    # date?", "what's wrong with my summary") — the summary-review flow. Before focus/edit
+    # so it isn't read as "go to the summary" or a bare rewrite.
+    rs = _review_summary(t, context)
+    if rs is not None:
+        return rs
+
     # web-refresh a bullet's DATED figures ("are these numbers still current?", "refresh
     # the figures from the web", "find the latest metrics for this bullet") — the
     # metric-refresh flow (research → propose). Checked before _edit_document so a
@@ -1150,6 +1180,8 @@ _SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Highlight the word leadership", ("documents",)),
     ("Are these numbers still current?", ("documents",)),
     ("Refresh the figures from the web", ("documents",)),
+    ("Review my summary", ("documents",)),
+    ("Is my summary up to date?", ("documents",)),
     # getting around
     ("Take me to my matches", ("documents", "dashboard", "interview", "inbox")),
     ("Set up auto apply", ("dashboard", "auto_apply")),

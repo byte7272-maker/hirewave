@@ -1398,6 +1398,15 @@ class DocumentLocateRequest(BaseModel):
     limit: int = 20
 
 
+class SummaryReviewRequest(BaseModel):
+    """Understand + freshness-check a résumé summary from document text (e.g. the live
+    editor buffer). ``last_fingerprint`` is what the client stored when the summary was
+    last refreshed — a mismatch means the document changed materially since."""
+
+    text: str = ""
+    last_fingerprint: str = ""
+
+
 class MetricRefreshRequest(BaseModel):
     """Refresh a single bullet's dated figures from browser-fetched web pages. With no
     ``sources`` the response is the research PLAN (queries to run); with sources it's a

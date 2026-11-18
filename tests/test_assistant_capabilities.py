@@ -66,7 +66,7 @@ def test_every_offer_is_bound_to_a_real_action():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
              "status_report", "sync_documents", "web_search",
              # P275 within-document actions (jump/highlight a section/keyword; web-refresh a metric)
-             "focus_document", "refresh_metric"}
+             "focus_document", "refresh_metric", "review_summary"}
     playbooks = set(caps.manifest()["playbooks"])
     for s in caps.manifest()["sections"]:
         for o in s.get("offers", []):
@@ -80,8 +80,9 @@ def test_every_offer_is_bound_to_a_real_action():
 def test_manifest_actions_name_real_intents():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
              "status_report", "sync_documents",
-             # P275: within-document focus/highlight, web-refresh a metric, read a bullet aloud
-             "focus_document", "refresh_metric", "read_bullets"}
+             # P275/P276: within-document focus/highlight, web-refresh a metric, read a bullet,
+             # review the summary
+             "focus_document", "refresh_metric", "read_bullets", "review_summary"}
     for s in caps.manifest()["sections"]:
         for a in s["actions"]:
             assert a["intent"] in valid, (s["section"], a)
@@ -216,6 +217,29 @@ def test_flows_script_every_state_and_answer_anticipated_questions():
         assert f.get("speak"), name
         assert f.get("ask") in f["speak"], (name, f.get("ask"))
         assert f.get("focus"), name
+
+
+def test_summary_review_flow_understands_lists_weaknesses_and_keeps_fresh():
+    # P276: the summary flow reads what it says, walks each weakness with its fix, proposes a
+    # rewrite, and has a fresh branch — the right-pane, badge-narrated activity.
+    m = caps.manifest()
+    assert "understand_summary" in m["behaviors"] and "keep_summary_fresh" in m["behaviors"]
+    sr = m["flows"]["summary_review"]
+    for state in ("start", "understanding", "stale", "weaknesses", "weakness",
+                  "proposing", "applying", "fresh", "error"):
+        assert sr["speak"].get(state), (state, sr)
+    assert sr["ask"] == "proposing" and sr["focus"]
+    # it understands (reads_as), walks each finding (title/detail/fix), and proposes a rewrite
+    assert "{reads_as}" in sr["speak"]["understanding"]
+    for ph in ("{title}", "{detail}", "{fix}"):
+        assert ph in sr["speak"]["weakness"]
+    assert "{suggestion}" in sr["speak"]["proposing"] and sr["speak"]["proposing"].rstrip().endswith("?")
+    # the documents section exposes the control, action, offer and endpoint
+    docs = caps.for_section("documents")
+    assert "Summary health" in {c["label"] for c in docs["controls"]}
+    assert any(a["intent"] == "review_summary" for a in docs["actions"])
+    assert any((o.get("on_yes") or {}).get("intent") == "review_summary" for o in docs["offers"])
+    assert docs["data"]["summary_review"].endswith("/summary-review")
 
 
 def test_metric_refresh_flow_reads_findings_and_reasoning():

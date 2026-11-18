@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.engines.assistant import document_refresh as R
+from jobsearch.engines.assistant import summary_review as SR
 from jobsearch.engines.assistant.document_map import analyze_block, build_map, locate
 from jobsearch.engines.integration import MockTokenExchanger
 
@@ -144,6 +145,72 @@ def test_refresh_propose_sources_without_match_not_found():
     assert out["found"] is False
 
 
+_WEAK_SUMMARY_RESUME = """John Williams
+IT Director | New York, NY
+
+## Summary
+Results-driven professional seeking new challenges and growth opportunities.
+
+## Experience
+**Publicis Groupe** -- Global IT Director (2019 - Present)
+- Cut incident response time by 38% through a new on-call rotation.
+- Delivered global IT projects across AWS, Python, and Kubernetes.
+
+## Skills
+Python, AWS, Kubernetes, Leadership, Project Delivery
+"""
+
+_STRONG_SUMMARY_RESUME = """John Williams
+IT Director | New York, NY
+
+## Summary
+IT Director with 12+ years leading global delivery in Python and AWS, cutting incident response 38%.
+
+## Experience
+**Publicis Groupe** -- Global IT Director (2019 - Present)
+- Cut incident response time by 38% through a new on-call rotation.
+
+## Skills
+Python, AWS, Leadership
+"""
+
+
+# --- summary_review ---------------------------------------------------------
+def test_summary_review_understands_and_lists_weaknesses_with_fixes():
+    out = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)
+    assert out["present"] is True and out["fresh"] is False
+    # it UNDERSTANDS the summary (a plain read of what it claims)
+    assert out["understanding"]["reads_as"] and out["understanding"]["quantifies"] is False
+    # every weakness carries a fix; the key ones are found
+    kinds = {w["id"] for w in out["weaknesses"]}
+    assert {"no_role", "cliche", "no_metric", "missing_skills"} <= kinds, kinds
+    assert all(w["fix"] for w in out["weaknesses"])
+    # it's stale because it omits the current role + top skills, and it proposes a rewrite
+    assert out["stale_reasons"] and out["suggestion"]
+    assert "IT Director" in out["suggestion"]
+    assert out["fingerprint"]
+
+
+def test_summary_review_fresh_when_in_sync():
+    out = SR.review_summary(_STRONG_SUMMARY_RESUME, year=2027)
+    # a role-led, quantified, skill-bearing, current summary is fresh with few/no weaknesses
+    assert out["fresh"] is True and out["stale_reasons"] == []
+    assert out["understanding"]["states_role"] and out["understanding"]["quantifies"]
+
+
+def test_summary_review_detects_major_change_via_fingerprint():
+    out = SR.review_summary(_STRONG_SUMMARY_RESUME, year=2027, last_fingerprint="stale00000000")
+    assert out["changed_since_review"] is True
+    assert "changed since" in out["stale_reasons"][0]
+
+
+def test_summary_review_empty_summary_flags_missing():
+    no_summary = "John Williams\nIT Director\n\n## Experience\n- Did things.\n"
+    out = SR.review_summary(no_summary)
+    assert out["present"] is False
+    assert out["weaknesses"] and out["weaknesses"][0]["id"] == "missing"
+
+
 # --- endpoints --------------------------------------------------------------
 def _client():
     state = AppState(exchanger=MockTokenExchanger())
@@ -204,3 +271,22 @@ def test_refresh_metric_empty_bullet_400():
     c, _ = _client()
     h = _auth(c)
     assert c.post("/api/v1/documents/refresh-metric", headers=h, json={"bullet": "  "}).status_code == 400
+
+
+def test_summary_review_endpoints():
+    c, _ = _client()
+    h = _auth(c)
+    rid = _upload_resume(c, h, _WEAK_SUMMARY_RESUME)
+    r = c.get(f"/api/v1/resumes/{rid}/summary-review", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["present"] and not body["fresh"] and body["weaknesses"]
+    fp = body["fingerprint"]
+    # a stored fingerprint that no longer matches → "changed since" prompt
+    r2 = c.get(f"/api/v1/resumes/{rid}/summary-review", headers=h,
+               params={"last_fingerprint": "does-not-match"})
+    assert r2.json()["changed_since_review"] is True
+    # live-buffer variant with the SAME fingerprint → not a major-change prompt
+    r3 = c.post("/api/v1/documents/summary-review", headers=h,
+                json={"text": _WEAK_SUMMARY_RESUME, "last_fingerprint": fp})
+    assert r3.status_code == 200 and r3.json()["changed_since_review"] is False
