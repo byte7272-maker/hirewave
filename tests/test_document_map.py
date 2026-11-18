@@ -390,6 +390,26 @@ def test_refresh_metric_endpoint_plan_then_proposal():
     assert r2.status_code == 200 and r2.json()["stage"] == "proposal"
 
 
+def test_saving_a_body_only_version_keeps_name_and_summary():
+    # Regression: an editor that saves only the body (text starts at a section heading,
+    # no name line) must NOT drop the candidate's name or summary.
+    c, _ = _client()
+    h = _auth(c)
+    rid = _upload_resume(c, h, _RESUME)  # has "John Williams" + a ## Summary
+    body_only = ("## Experience\n**Publicis Groupe** — Global IT Director (2019 - Present)\n"
+                 "- Cut incident response time by 41%.\n\n## Skills\nPython, AWS, Kubernetes\n")
+    r = c.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": body_only})
+    assert r.status_code == 200
+    text = r.json()["rendered_text"]
+    assert "John Williams" in text          # name preserved
+    assert "Technology leader" in text       # summary preserved
+    assert "41%" in text and "Kubernetes" in text  # the real edit is kept
+    # a NORMAL save (text leads with a name) is untouched
+    normal = "Jane Doe\nPM | NYC\n\n## Summary\nProduct leader.\n\n## Experience\n- Shipped things.\n"
+    r2 = c.post(f"/api/v1/resumes/{rid}/versions", headers=h, json={"content": normal})
+    assert r2.status_code == 200 and r2.json()["rendered_text"].startswith("Jane Doe")
+
+
 def test_refresh_metric_empty_bullet_400():
     c, _ = _client()
     h = _auth(c)

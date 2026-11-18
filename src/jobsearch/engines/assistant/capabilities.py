@@ -513,15 +513,21 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"say": "Paste bigger notes into My Work Highlights and I'll pull out evidence to strengthen a line.",
              "highlight": "My Work Highlights"},
         ],
-        # Read from the current résumé map/review (GET /resumes/{id} + /map).
+        # Marquee readouts — resolvable from the résumé itself (GET /resumes/{id}) so the
+        # marquee always renders. The richer signals (section count, summary freshness,
+        # dated-figure count) come from the /map and /summary-review endpoints and are NOT
+        # marquee readouts (they'd force extra fetches the marquee can't assume).
         "readouts": [
+            {"key": "version", "label": "Version", "source": "active_version", "highlight": "Versions"},
+            {"key": "score", "label": "Score", "source": "quality_grade", "highlight": "Document"},
+        ],
+        # Optional, fetched-on-demand signals (not part of the marquee).
+        "signals": [
             {"key": "sections", "label": "Sections", "source": "map.stats.sections", "highlight": "Section map"},
             {"key": "summary_fresh", "label": "Summary freshness", "source": "summary.fresh",
              "highlight": "Summary health"},
             {"key": "flagged", "label": "Dated figures to refresh", "source": "map.stats.flagged",
              "highlight": "Refresh figures"},
-            {"key": "version", "label": "Version", "source": "active_version", "highlight": "Versions"},
-            {"key": "score", "label": "Score", "source": "quality_grade", "highlight": "Document"},
         ],
     },
     "connect": {
@@ -653,6 +659,8 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         "walkthrough": cap.get("walkthrough"),
         "steps": cap.get("steps", []),
         "readouts": cap.get("readouts", []),
+        # Optional, fetched-on-demand signals (not marquee readouts); [] when none.
+        "signals": cap.get("signals", []),
         "offers": cap.get("offers", []),
         # P275: how to behave on arrival (center the whole document, read its map) and
         # where the live structure/analysis lives, so the client never defaults to the

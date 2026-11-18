@@ -212,6 +212,79 @@ def _review_focus_points(review) -> list[str]:
     return [f"{s.title}: {s.detail}" for s in getattr(review, "suggestions", [])][:8]
 
 
+_BULLET_START_RE = re.compile(r"^\s*[-*•‣●▪·]")
+
+
+def _head_until_sections(text: str) -> str:
+    """The leading identity block of a résumé — name, contact, and anything before the
+    FIRST recognized section heading (so it includes a Summary section)."""
+    from jobsearch.models.resume_schema import _section_of
+
+    out: list[str] = []
+    for ln in (text or "").split("\n"):
+        if _section_of(ln)[0] is not None:
+            break
+        out.append(ln)
+    return "\n".join(out).rstrip()
+
+
+def _extract_section(text: str, canon: str) -> str:
+    """A section's heading + body (until the next heading), or '' if absent."""
+    from jobsearch.models.resume_schema import _section_of
+
+    lines = (text or "").split("\n")
+    out: list[str] = []
+    grabbing = False
+    for ln in lines:
+        c, _ = _section_of(ln)
+        if c == canon:
+            grabbing = True
+            out.append(ln)
+            continue
+        if grabbing and c is not None:
+            break
+        if grabbing:
+            out.append(ln)
+    return "\n".join(out).rstrip()
+
+
+def _restore_identity_block(new_text: str, prev_text: str) -> str:
+    """Guard against an editor that saves only the body: if the new text comes in
+    headerless (it starts at a section heading or a bullet, with no name line on top), keep
+    the previous version's name/contact — and its Summary if the new text dropped that too —
+    so a save can never silently delete the candidate's name or summary. A normal save
+    (text that starts with a name line) is returned unchanged."""
+    from jobsearch.models.resume_schema import _section_of
+
+    nt = new_text or ""
+    first = next((ln for ln in nt.split("\n") if ln.strip()), "").strip()
+    if not first:
+        return nt
+    headerless = (first.startswith("#") or bool(_BULLET_START_RE.match(first))
+                  or _section_of(first)[0] is not None)
+    if not headerless:
+        return nt  # starts with a real name/top line — leave the save alone
+    name_block = _head_until_sections(prev_text)
+    # the part of the prev head BEFORE its own summary = name + contact only
+    prev_canons = [_section_of(l)[0] for l in (prev_text or "").split("\n")]
+    name_only_lines: list[str] = []
+    for ln in (prev_text or "").split("\n"):
+        if _section_of(ln)[0] is not None:
+            break
+        name_only_lines.append(ln)
+    name_only = "\n".join(name_only_lines).rstrip()
+    if not name_only.strip():
+        return nt  # nothing to restore (prev had no header either)
+    parts = [name_only]
+    new_canons = {_section_of(l)[0] for l in nt.split("\n")}
+    if "summary" not in new_canons:
+        sm = _extract_section(prev_text, "summary")
+        if sm:
+            parts.append(sm)
+    parts.append(nt.lstrip())
+    return "\n\n".join(p for p in parts if p.strip())
+
+
 def _version_bodies(body) -> tuple[str, str]:
     """Resolve the (plain_text, sanitized_html) to save for a version request.
 
@@ -1390,7 +1463,12 @@ def update_resume(
     resume_id: str, body: ResumeUpdate, user: CurrentUser, state: StateDep
 ) -> Resume:
     resume = get_resume(resume_id, user, state)
+    prev_text = resume.rendered_text or ""
     fields = body.model_dump(exclude_unset=True)
+    # Guard a headerless in-place body save from dropping the name/summary (same protection
+    # as the version endpoint) before it's written.
+    if "rendered_text" in fields:
+        fields["rendered_text"] = _restore_identity_block(fields["rendered_text"] or "", prev_text)
     for field, value in fields.items():
         setattr(resume, field, value)
     # An in-place body edit must also update the active version's stored text, or a
@@ -1516,6 +1594,10 @@ def create_resume_version(
     if not new_text.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "content is required")
     resume = get_resume(resume_id, user, state)
+    # Never let a body-only save drop the candidate's name/summary (e.g. an editor whose
+    # HTML omits the header): preserve them from the current active text when the incoming
+    # text comes in headerless.
+    new_text = _restore_identity_block(new_text, resume.rendered_text or "")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     _add_version(resume, text_attr="rendered_text", new_content=new_text, label=body.label,
                  source=("tailored" if job else "revision"), instruction=body.instruction,

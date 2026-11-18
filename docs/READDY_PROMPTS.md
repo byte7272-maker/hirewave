@@ -8889,3 +8889,27 @@ The review response now carries the locations — use them:
 ### Acceptance
 - On entering the app, if something's worth raising, the assistant proactively says one short line and shows a prioritized brief **in the right pane** — a prior error with its fix, a drifted summary / dated figures with a one-tap action, and a recent-activity recap — then offers the top next step.
 - It fires **once per session** (same `session_id` → no repeat), never blocks the page, and stays the compact badge when there's nothing to raise.
+
+## P282 — ⚠ FIX: marquee won't show, the assistant doesn't know it's on Documents, and a save dropped the name + summary
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Three issues: (1) the assistant can't show the marquee, (2) it doesn't know it's on the Documents page, and (3) a save removed the candidate's **name and summary** from the current résumé version. Backend fixes for the data loss + marquee are already live; the rest is client wiring.
+
+### 1. Data loss — the name + summary (backend fixed; recover now + stop relying on the guard)
+- **Recover the lost content now:** old versions are intact. Open the version switcher and **activate an earlier version** (the Original or the one before the bad save) — `POST /api/v1/resumes/{id}/versions/{v}/activate`. The name/summary come back; then re-apply your edits.
+- **Root cause:** the version save derives the plain text from the editor's **`content_html`**. If that HTML contains only the body (experience/skills) and not the header (name/contact) + summary, the save loses them. **Fix the editor to include the WHOLE document in `content_html`** — name, contact line, and the Summary section — not just the body fields. The name/summary must be part of the saved content, not a separate non-editable header.
+- **Backstop (now live):** the backend guards this — `POST /resumes/{id}/versions` and `PUT /resumes/{id}` now detect a **headerless** save (text that starts at a section heading or a bullet, with no name line) and **restore the name/contact (and the Summary if it was dropped)** from the current version. A normal save (text leading with a name) is untouched. So even a bad editor can't silently delete the name again — but still fix the editor so the guard isn't needed.
+
+### 2. The marquee won't show
+- The marquee reads the section's **`readouts`** from `GET /assistant/capabilities` → the `documents` section. Those are now just **`active_version` and `quality_grade`**, both resolvable straight from `GET /resumes/{id}` — so the marquee can always render. **Resolve each readout's `source` against the résumé response; if a value is missing, skip that chip — never throw or blank the whole marquee.**
+- The richer figures (section count, summary freshness, dated-figure count) moved to a new **`signals`** array on the section (same shape). These are **fetched on demand** from `/map` and `/summary-review` — do **not** put them in the marquee (they'd force extra calls). Show them only where you explicitly fetch them.
+- If the marquee still won't show, it's usually #3 below — the client doesn't know the section, so it never loads the documents arrival brief/readouts.
+
+### 3. The assistant must know it's on the Documents page
+- On every `POST /assistant/interpret` and when loading the arrival brief/readouts, **pass `context`** with the current page: `{ section: "documents", resume_id, doc: "resume"|"cover_letter" }`. Derive `section` from the active route/tab — don't leave it empty. This is what tells the assistant where it is (and lets "go to Experience", the marquee, and the section actions work).
+- Keep `context.section` updated as the user navigates (Documents ↔ Matches ↔ Dashboard …). When it's `documents`, use the `documents` arrival brief (purpose, readouts, controls, offers) from the manifest; the assistant should say it's on Documents and show that section's marquee.
+- Tie-in with P281: pass the same `session_id` and the current `section` so the proactive scan and the marquee both have context.
+
+### Acceptance
+- Activating a previous version restores the user's name + summary; a new body-only save no longer drops them (the header is preserved), and the editor includes the header in `content_html`.
+- The marquee renders on Documents from `active_version` + `quality_grade`, skipping any missing chip instead of blanking.
+- The assistant correctly reports it's on the Documents page and drives the documents section (marquee, navigation, review) because `context.section` is passed on every call.
