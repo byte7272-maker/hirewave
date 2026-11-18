@@ -8913,3 +8913,34 @@ The review response now carries the locations — use them:
 - Activating a previous version restores the user's name + summary; a new body-only save no longer drops them (the header is preserved), and the editor includes the header in `content_html`.
 - The marquee renders on Documents from `active_version` + `quality_grade`, skipping any missing chip instead of blanking.
 - The assistant correctly reports it's on the Documents page and drives the documents section (marquee, navigation, review) because `context.section` is passed on every call.
+
+## P283 — ⚠ iOS: mic "allowed" but still blocked, re-locks on refresh, and the assistant window + popups are off-screen/un-movable
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`) on a real iPhone. Report: the **speaker** can be turned on via a popup (good, keep it). The **mic** is reported blocked even though Settings → Safari → Microphone and the per-site aA → Website Settings have it set to **Allow**; when it's on "Ask" there's **no prompt**; either way it refuses. And each **refresh re-locks** the mic. Separately, the assistant is **centered** on mobile and its popups trail **off-screen**, can't be moved, and resize badly.
+
+### 1. Why the mic "won't work even when allowed" — and what to actually do
+There is **no server speech-to-text**; voice relies on the browser's `webkitSpeechRecognition`, which on **iOS Safari is unreliable and often throws `not-allowed`/`service-not-allowed` even when the mic is allowed in Settings** (Apple gates on-device dictation separately from the site mic permission). So the settings toggle is a dead end. Do this instead:
+- **Trigger the real prompt from a user gesture.** Request the mic with `navigator.mediaDevices.getUserMedia({ audio: true })` **inside the press-and-hold handler** (a direct tap/press), never on page load. That is what makes Safari show its Allow prompt and **persist** the grant for the site. (Settings "Ask" shows no prompt until a gesture asks.)
+- **Don't claim "blocked" when it's the iOS limitation.** If `getUserMedia` resolves (mic granted) but `webkitSpeechRecognition` is missing or throws `not-allowed`/`service-not-allowed`, classify it as **`mic_ios_unreliable`** (backend `GET /assistant/troubleshooting`) — say *"Voice typing is unreliable in this browser — just type and I've got you,"* and switch to typing. Don't loop the user back through settings.
+- **Make typing first-class on iOS.** The keyboard input must be always visible and fully drive the assistant (interpret/ask/review all work by text). Voice is a bonus, not a requirement. Detect iOS Safari up front and default to the type affordance with a small "voice may not work here" note, rather than presenting a mic that fails.
+- Keep the generic `mic_blocked` copy (press-and-hold to trigger the prompt) for the first-time, not-yet-allowed case; use `mic_ios_unreliable` once it's allowed-but-refusing.
+
+### 2. Stop the mic re-locking on every refresh
+- The re-lock is almost always one of: (a) the mic is requested **on load** instead of on a gesture, so Safari denies it; or (b) the published app runs in an **iframe without `allow="microphone"`**, so the permission can't persist. Fix both:
+  - Request only on the press-and-hold gesture (above).
+  - Ensure the app's own frame/embed carries `allow="microphone; camera; autoplay"` (Permissions-Policy). If Readdy embeds the published app in an iframe you don't control, the mic **cannot** persist on iOS — in that case commit to the type-first path and stop presenting voice as working.
+- Don't re-request or re-probe the mic on every mount; probe once per gesture and cache the `MediaStream`/permission state for the session.
+
+### 3. The speaker (keep what works)
+- The popup that unlocks audio output works — keep it. Make sure TTS playback is **resumed from a user gesture** (the same unlock tap), and that a muted/silent-switch state shows the existing sound guidance (`mic_muted`). Don't tie speaker unlock to the mic — they're independent.
+
+### 4. Mobile layout — the window + popups must stay on-screen (P279, mobile)
+- On a phone the assistant is **not** a centered floating window. It's a **bottom sheet docked to the bottom edge**, full width minus a 16px gutter, that the content scrolls within — exactly the right-pane home from P279, in its mobile form.
+- **Every message/popup renders inside that sheet**, wrapping to width, never positioned by fixed pixel coordinates that trail off the right/bottom. No horizontal overflow; long text wraps; the sheet scrolls vertically.
+- **No manual drag/resize on mobile.** The sheet has two states — a compact badge and the expanded sheet — toggled by a tap/handle, not free-dragged or pinch-resized. Height is a sensible fraction of the viewport (e.g. ~60vh expanded), with internal scrolling; it never needs moving to read it.
+- The compact badge sits just above the sheet/keyboard and never covers the input. When the keyboard opens, the sheet sits above it (use the visual-viewport height), so the text field and messages stay visible.
+
+### Acceptance (real iPhone)
+- Pressing and holding the mic shows Safari's Allow prompt once; if voice still refuses after allowing, the assistant says voice is unreliable here and the user types — no settings dead-end, no "blocked" when it's allowed.
+- The mic/permission state does not reset on every refresh (or, if embedded and it can't persist, the app is cleanly type-first and never presents a failing mic).
+- The assistant is a bottom sheet; all messages/popups stay on-screen and wrap, scroll within the sheet, and need no dragging or resizing; the speaker still unlocks via its popup.

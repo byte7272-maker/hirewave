@@ -101,6 +101,19 @@ def test_error_endpoints_require_auth():
     assert c.get("/api/v1/assistant/errors").status_code == 401
 
 
+def test_ios_mic_allowed_but_refusing_is_its_own_case():
+    # "allowed in settings but still blocked" on iOS is the Apple limitation, not a settings
+    # fix — it must route to type-first guidance, distinct from the generic mic_blocked.
+    for msg in ("mic is allowed in settings but still blocked",
+                "I set Safari to allow but the mic refuses",
+                "ios voice keeps being blocked even though allowed"):
+        assert ts.classify("", msg) == "mic_ios_unreliable", (msg, ts.classify("", msg))
+    h = ts.handle("mic_ios_unreliable")
+    assert "type" in h["fix"].lower() and h["ack"].strip()
+    # a plain "blocked for this site" is still the generic case (press-and-hold prompt)
+    assert ts.classify("", "microphone blocked for this site") == "mic_blocked"
+
+
 def test_document_assistant_error_awareness():
     # P275/P276 flows: each new failure mode classifies, acknowledges (never silent), and
     # carries an actionable fix.

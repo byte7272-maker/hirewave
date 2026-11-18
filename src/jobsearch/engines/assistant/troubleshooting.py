@@ -46,10 +46,23 @@ TROUBLESHOOTING: dict[str, dict] = {
     "mic_blocked": {
         "ack": "I can't use the microphone — it's blocked for this site.",
         "cause": "Safari blocks the mic for a website until you allow it (it is NOT under "
-                 "Settings → Privacy → Microphone, which only lists installed apps).",
-        "fix": "Allow it in Safari: tap the ‘aA’ button at the left of the address bar → "
-               "Website Settings → Microphone → Allow (and Camera if asked). Or globally: "
-               "Settings → Safari → Microphone → Ask. Then reload. You can also just type to me.",
+                 "Settings → Privacy → Microphone, which only lists installed apps). The prompt "
+                 "only appears when you START talking — press and hold the mic to trigger it.",
+        "fix": "Press and hold the mic button — that's what triggers Safari's Allow prompt "
+               "(a settings toggle alone won't start it). If it still won't go, allow it in "
+               "Safari: tap ‘aA’ at the left of the address bar → Website Settings → Microphone "
+               "→ Allow. You can always just type to me instead.",
+        "retry": False, "ask_again": False,
+    },
+    # iOS Safari specifically: the mic is allowed, yet in-page voice still refuses — Apple's
+    # on-device speech recognition is unreliable from a web page. Don't send the user in
+    # circles through settings; make typing the answer.
+    "mic_ios_unreliable": {
+        "ack": "Voice typing is unreliable in this browser — just type and I've got you.",
+        "cause": "iOS Safari's in-page speech recognition often refuses even when the "
+                 "microphone is allowed in Settings — it's an Apple limitation, not your setup.",
+        "fix": "Type your request in the box — everything works by typing. (Voice is more "
+               "reliable in Chrome or Safari on a computer.)",
         "retry": False, "ask_again": False,
     },
     "mic_unsupported": {
@@ -189,6 +202,12 @@ _SIGNATURES: list[tuple[str, str]] = [
     (r"no summary|summary (is )?(missing|empty)|without a summary|doesn'?t have a summary", "no_summary"),
     (r"(couldn'?t|could not|can'?t) (find|locate).*(word|phrase|section|in (the |your )?(document|résumé|resume))|"
      r"not (in|found in) (the |your )?(document|résumé|resume)|no match (in|for).*(document|text)", "locate_no_match"),
+    # "allowed in settings but still blocked/refusing" on iOS → the Apple limitation, not a
+    # settings fix. Checked before the generic mic_blocked so it wins that phrasing.
+    (r"(allow(ed)?|granted|set to allow|enabled).{0,40}(still|but).{0,20}(block|refus|not work|denied)|"
+     r"(still|keeps?).{0,20}(block|refus).{0,20}(allow|granted|enabled)|"
+     r"ios.{0,20}(mic|speech|voice).{0,20}(refus|block|not work)|"
+     r"mic.{0,20}allow.{0,20}(but|still).{0,20}(block|refus|not work)", "mic_ios_unreliable"),
     (r"not-?allowed|service-?not-?allowed|audio-?capture|notallowed|permission.*(mic|microphone)|"
      r"(mic|microphone).*(denied|blocked|not allowed)|block.*mic", "mic_blocked"),
     (r"not ?support|unsupported|no ?speechrecognition|no-?recognition|webkitspeech.*undefined", "mic_unsupported"),
