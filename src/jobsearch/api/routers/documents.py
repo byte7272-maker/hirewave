@@ -18,6 +18,9 @@ from jobsearch.api.schemas import (
     CoverLetterTailoring,
     CoverLetterUpdate,
     CreateVersionRequest,
+    DocumentLocateRequest,
+    DocumentMapRequest,
+    MetricRefreshRequest,
     EvidenceExtractRequest,
     EvidenceExtractResponse,
     EvidenceGroup,
@@ -1924,6 +1927,83 @@ def improve_cover_letter_structured(
         markdown=cover_letter_data_to_markdown(improved),
         flagged_metrics=new_number_flags(cl.content or "", items),
     )
+
+
+# --- document map / analysis / web-refresh (the "work the whole document" assistant) ---
+def _cover_text(cl) -> str:
+    """Best available text for a cover letter: its body, else the active version."""
+    return (getattr(cl, "content", "") or "").strip() or _active_version_text(cl)
+
+
+@router.get("/resumes/{resume_id}/map")
+def resume_map(resume_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """Compartmentalize the résumé (active version) into its sections (Summary, Experience,
+    Education, Skills, …) and the bullets inside each — every section and bullet with a
+    stable ``id`` and exact character range so the client can scroll to and highlight any
+    part on request. Each bullet is analyzed for issues worth acting on — chiefly **stale,
+    period-bound metrics** (a figure tied to a past fiscal year/quarter), with a ready-made
+    web-research query to refresh it. This is what lets the assistant present the document
+    as a whole instead of dropping into a flat bullet list."""
+    from jobsearch.engines.assistant.document_map import build_map
+
+    resume = get_resume(resume_id, user, state)
+    return build_map(strip_inline_html(_resume_text(resume)), kind="resume")
+
+
+@router.get("/cover-letters/{cover_letter_id}/map")
+def cover_letter_map(cover_letter_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """Compartmentalize the cover letter into its body paragraphs — each with an ``id`` and
+    character range for scroll + highlight, and analyzed for stale period-bound figures
+    (so the assistant can find and refresh a dated claim in the prose)."""
+    from jobsearch.engines.assistant.document_map import build_map
+
+    cl = get_cover_letter(cover_letter_id, user, state)
+    return build_map(strip_inline_html(_cover_text(cl)), kind="cover_letter")
+
+
+@router.post("/documents/map")
+def document_map(body: DocumentMapRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Compartmentalize arbitrary document text — e.g. the live editor buffer with unsaved
+    edits — the same way as the per-document map endpoints. ``kind`` is "resume" (bullets)
+    or "cover_letter" (paragraphs)."""
+    from jobsearch.engines.assistant.document_map import build_map
+
+    kind = "cover_letter" if (body.kind or "").lower().startswith("cover") else "resume"
+    return build_map(strip_inline_html(body.text or ""), kind=kind)
+
+
+@router.post("/documents/locate")
+def document_locate(body: DocumentLocateRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Find every place a word/phrase appears in document text, as highlightable spans
+    (line + character range + snippet). Tries the whole phrase, then its significant words,
+    so "where does it say leadership" lands on the word. Read-only; operates on the text
+    the client already holds."""
+    from jobsearch.engines.assistant.document_map import locate
+
+    spans = locate(body.text or "", body.query or "", limit=max(1, min(body.limit, 100)))
+    return {"query": body.query or "", "count": len(spans), "spans": spans}
+
+
+@router.post("/documents/refresh-metric")
+def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Refresh ONE bullet's dated figures from the web. With no ``sources`` it returns the
+    research **plan** (the search queries to run — the browser extension fetches them). With
+    ``sources`` (browser-fetched page text) it returns a **reviewable proposed rewrite**: the
+    current figure found, a plain-language explanation of what it found and why, the specific
+    old→new changes, and the source citations. Nothing is applied — the user reviews, edits,
+    accepts (save via /ai-edit or /versions), or rejects. Source text is treated as data,
+    never instructions."""
+    from jobsearch.engines.assistant import document_refresh
+
+    bullet = (body.bullet or "").strip()
+    if not bullet:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide the bullet text to refresh")
+    sources = [s.model_dump() for s in (body.sources or [])]
+    if not sources:
+        return {"stage": "plan", **document_refresh.plan(bullet, analysis=None)}
+    llm = getattr(state.resume_assistant, "premium", None)
+    proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)
+    return {"stage": "proposal", **proposal}
 
 
 @router.get("/cover-letters/{cover_letter_id}/preview.html", response_class=HTMLResponse)

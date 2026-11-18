@@ -23,6 +23,8 @@ INTENTS = {
     "stop", "pause", "continue", "next", "back", "repeat", "skip", "cancel",
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
     "web_search", "sync_documents", "archive", "edit_document",
+    # within-document: jump to + highlight a section/keyword; refresh a stale metric from the web
+    "focus_document", "refresh_metric",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -190,6 +192,119 @@ def _doc_target(text: str) -> Optional[str]:
     if re.search(r"\b(resume|résumé|resumé|cv)\b", text):
         return "resume"
     return None
+
+
+#: Résumé / cover-letter PARTS the user can jump to and highlight within the open
+#: document (distinct from the app's top-level sections). Canonical ids line up with
+#: ``document_map``'s section canons so the client can anchor the right block.
+_DOC_SUBSECTIONS = {
+    "summary": ("professional summary", "work summary", "summary", "objective", "profile",
+                "about me"),
+    "experience": ("work experience", "professional experience", "work history",
+                   "employment history", "experience section", "experience", "employment"),
+    "education": ("education section", "education", "schooling", "my degree", "degrees"),
+    "skills": ("technical skills", "core skills", "key skills", "skills section", "skills"),
+    "projects": ("projects section", "projects"),
+    "certifications": ("certifications", "certificates", "licenses", "awards", "achievements"),
+}
+# Verbs that mean "take me there / put it in view" inside a document.
+_FOCUS_VERB_RE = re.compile(
+    r"\b(go to|take me to|jump to|scroll to|bring me to|show me|show|open|point (?:to|me to)|"
+    r"read (?:me )?(?:the|my)|highlight|find|locate|where (?:is|does it say|are))\b")
+# Verbs that specifically mean "mark/locate this text" (keyword highlight).
+_HIGHLIGHT_VERB_RE = re.compile(
+    r"\b(highlight|find|locate|point (?:to|out)|where (?:is|does it say|are))\b")
+
+
+def _match_doc_subsection(text: str) -> Optional[str]:
+    """The résumé/cover-letter part named, longest synonym first (so 'work experience'
+    beats 'experience'). None if no part is named."""
+    best, blen = None, 0
+    for canon, syns in _DOC_SUBSECTIONS.items():
+        for s in syns:
+            if len(s) > blen and re.search(rf"\b{re.escape(s)}\b", text):
+                best, blen = canon, len(s)
+    return best
+
+
+def _focus_document(t: str, context: dict) -> Optional[IntentResult]:
+    """Jump to + highlight a SECTION ("go to Experience") or a WORD/PHRASE ("highlight
+    leadership", "where does it say Education") within the open document → ``focus_document``
+    (the client scrolls to and spotlights it; keyword highlight uses /documents/locate).
+    Read-only navigation, never an edit. Returns None when it isn't a within-doc focus."""
+    section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+    on_doc = any(w in section for w in ("document", "resume", "cover"))
+    sub = _match_doc_subsection(t)
+    # A section jump, not an edit: "rewrite/improve the summary" is an edit → let
+    # _edit_document handle it (unless it's an explicit highlight/find of the section).
+    if sub and (_FOCUS_VERB_RE.search(t) or on_doc) and (
+        _HIGHLIGHT_VERB_RE.search(t) or not _EDIT_VERB_RE.search(t)
+    ):
+        slots: dict[str, Any] = {"section": "documents", "mode": "section",
+                                 "target": sub, "highlight": True}
+        dt = _doc_target(t)
+        if dt:
+            slots["doc"] = dt
+        return IntentResult("focus_document", 0.88, slots)
+    # Keyword / phrase highlight. An explicit "highlight …" is unambiguously about the
+    # open document, so it parses anywhere; "find/where does it say …" needs document
+    # context so it never steals a global/job search.
+    if (on_doc or _DOC_CTX_RE.search(t) or re.search(r"\bhighlight\b", t)) and _HIGHLIGHT_VERB_RE.search(t):
+        m = (re.search(r"\bhighlight\b(?:\s+(?:the|my))?\s+(?:word|phrase|line|part|mention of\s+)?\s*(.+)$", t)
+             or re.search(r"\bwhere (?:does it say|is|are)\b\s+(.+)$", t)
+             or re.search(r"\b(?:find|locate)\b(?:\s+the)?\s+(?:word|phrase|mention of)\s+(.+)$", t))
+        if m:
+            q = re.sub(
+                r"\b(on|in)\s+(my\s+)?(resume|résumé|resumé|cv|cover\s*-?\s*letter|document)\b.*$",
+                "", m.group(1)).strip(" ?.!'\"").strip()
+            if q and len(q) >= 2:
+                return IntentResult("focus_document", 0.85, {
+                    "section": "documents", "mode": "text", "target": q, "highlight": True})
+    return None
+
+
+# "are these numbers still current?", "refresh the figures from the web", "find the latest
+# metrics for this bullet" → a web-assisted refresh of a bullet's DATED figures (distinct
+# from a user-supplied edit like "update it with the 2025 numbers").
+_METRIC_WORD_RE = re.compile(
+    r"\b(numbers?|figures?|metrics?|stats?|statistics|data|percentages?|growth|revenue|"
+    r"earnings|results?)\b")
+_STALE_Q_RE = re.compile(
+    r"\b(current|accurate|up[- ]?to[- ]?date|updated|outdated|out of date|stale|old|"
+    r"still (?:right|correct|true|accurate)|recent)\b")
+_REFRESH_VERB_RE = re.compile(
+    r"\b(refresh|update|re-?check|recheck|check|find|get|pull|look up|research|verify)\b")
+_FROM_WEB_RE = re.compile(r"\b(latest|web|online|internet|current)\b")
+
+
+def _refresh_metric(t: str, context: dict) -> Optional[IntentResult]:
+    """Web-refresh a bullet's dated figures → ``refresh_metric`` (runs the metric-refresh
+    flow: research → propose an updated bullet to review). Fires on a staleness question
+    or an explicit "refresh/find the latest … from the web", scoped to the document."""
+    if not _METRIC_WORD_RE.search(t):
+        return None
+    # "update it WITH the 2024/2025 numbers" supplies the data itself — that's an edit,
+    # not a web-refresh; let _edit_document handle it.
+    if re.search(r"\bwith\b", t):
+        return None
+    asking_stale = bool(re.search(r"\b(are|is|how old|still)\b", t)) and bool(_STALE_Q_RE.search(t))
+    acting = bool(_REFRESH_VERB_RE.search(t)) and bool(_STALE_Q_RE.search(t) or _FROM_WEB_RE.search(t))
+    if not (asking_stale or acting):
+        return None
+    section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+    on_doc = any(w in section for w in ("document", "resume", "cover"))
+    # Scope to the document so a generic "find the latest news results" stays a web search:
+    # on the doc page, an explicit this/these/bullet reference, or "the figures/numbers/…".
+    anchored = (on_doc or _DOC_CTX_RE.search(t)
+                or re.search(r"\b(bullet|line|this|these|it)\b", t)
+                or re.search(r"\bthe (figures?|numbers?|metrics?|stats?|statistics|percentages?)\b", t))
+    if not anchored:
+        return None
+    slots: dict[str, Any] = {}
+    m = re.search(r"\b(?:bullet|line|item)\s*(\d+)\b", t)
+    if m:
+        slots["bullet"] = int(m.group(1))
+    return IntentResult("refresh_metric", 0.86, slots)
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -788,6 +903,21 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ma is not None:
         return ma
 
+    # web-refresh a bullet's DATED figures ("are these numbers still current?", "refresh
+    # the figures from the web", "find the latest metrics for this bullet") — the
+    # metric-refresh flow (research → propose). Checked before _edit_document so a
+    # staleness/refresh request runs the research flow, not a bare Ask-AI edit.
+    rm = _refresh_metric(t, context)
+    if rm is not None:
+        return rm
+
+    # jump to + highlight a SECTION or WORD inside the open document ("go to Experience",
+    # "highlight leadership", "where does it say Education"). Before _edit_document/web so a
+    # within-doc focus isn't read as an edit or a global search.
+    fd = _focus_document(t, context)
+    if fd is not None:
+        return fd
+
     # document content edit ("update this bullet with the 2025 numbers", "rewrite the
     # summary") — the one prompt handles edits; needs_web triggers a web search first.
     ed = _edit_document(t, context)
@@ -1016,6 +1146,10 @@ _SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Make bullets from my work", ("documents",)),
     ("Change the design", ("documents",)),
     ("Improve my résumé", ("documents",)),
+    ("Go to my experience section", ("documents",)),
+    ("Highlight the word leadership", ("documents",)),
+    ("Are these numbers still current?", ("documents",)),
+    ("Refresh the figures from the web", ("documents",)),
     # getting around
     ("Take me to my matches", ("documents", "dashboard", "interview", "inbox")),
     ("Set up auto apply", ("dashboard", "auto_apply")),

@@ -1382,6 +1382,32 @@ class ResearchOut(BaseModel):
     caution: str = ""
 
 
+class DocumentMapRequest(BaseModel):
+    """Compartmentalize arbitrary document text (e.g. the live editor buffer) into its
+    sections + analyzed bullets/paragraphs."""
+
+    text: str = ""
+    kind: str = "resume"  # "resume" | "cover_letter"
+
+
+class DocumentLocateRequest(BaseModel):
+    """Find where a word/phrase appears in document text, for scroll + highlight."""
+
+    text: str = ""
+    query: str = ""
+    limit: int = 20
+
+
+class MetricRefreshRequest(BaseModel):
+    """Refresh a single bullet's dated figures from browser-fetched web pages. With no
+    ``sources`` the response is the research PLAN (queries to run); with sources it's a
+    reviewable proposed rewrite + reasoning + citations. Nothing is applied."""
+
+    bullet: str = ""
+    sources: list[ResearchSource] = Field(default_factory=list)
+    research: Optional[dict] = None  # the analyze_block research hint (entity/subject/old_values)
+
+
 class EmailImportOut(BaseModel):
     source: str  # detected board (linkedin/indeed/…)
     parsed: int  # postings found in the email

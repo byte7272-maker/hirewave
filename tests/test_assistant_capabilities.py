@@ -64,7 +64,9 @@ def test_every_offer_is_bound_to_a_real_action():
     # Every scripted yes/no question the assistant asks must carry an on_yes action it can
     # actually run — so it never asks something (e.g. "want a walkthrough?") it can't action.
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
-             "status_report", "sync_documents", "web_search"}
+             "status_report", "sync_documents", "web_search",
+             # P275 within-document actions (jump/highlight a section/keyword; web-refresh a metric)
+             "focus_document", "refresh_metric"}
     playbooks = set(caps.manifest()["playbooks"])
     for s in caps.manifest()["sections"]:
         for o in s.get("offers", []):
@@ -77,7 +79,9 @@ def test_every_offer_is_bound_to_a_real_action():
 
 def test_manifest_actions_name_real_intents():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
-             "status_report", "sync_documents"}
+             "status_report", "sync_documents",
+             # P275: within-document focus/highlight, web-refresh a metric, read a bullet aloud
+             "focus_document", "refresh_metric", "read_bullets"}
     for s in caps.manifest()["sections"]:
         for a in s["actions"]:
             assert a["intent"] in valid, (s["section"], a)
@@ -146,31 +150,45 @@ def test_capabilities_requires_auth():
     assert c.get("/api/v1/assistant/capabilities").status_code == 401
 
 
-def test_documents_bullet_actions_are_assistant_driven():
-    # The right pane is assistant-driven: a selected bullet offers remove/move/re-word/
-    # replace/update/search — not an inline bullet editor. The document itself is editable.
+def test_documents_arrival_centers_whole_document_and_maps_sections():
+    # P275: on arrival the assistant centers the WHOLE document and reads its section map —
+    # it does not drop into a bullet pane or ask "what would you like to do here?".
     docs = caps.for_section("documents")
-    controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
-    assert "Selected bullet" in controls, controls.keys()
-    does = controls["Selected bullet"]
-    for verb in ("remove", "move", "re-word", "replace", "update", "search"):
-        assert verb in does, (verb, does)
-    # the preview is editable (edit happens in the document, not the right pane)
-    assert "edit" in controls["Document preview"]
-    # a step narrates the selected-bullet capability, highlighting that control
-    assert any(st["highlight"] == "Selected bullet" for st in docs["steps"])
+    assert docs["arrival"] == {"center": "document", "map": True, "announce": "whole_document"}
+    data = docs["data"]
+    assert data["map_resume"].endswith("/map") and data["locate"].endswith("/locate")
+    assert data["refresh_metric"].endswith("/refresh-metric")
+    # the first step narrates the whole document + its sections, highlighting the Document
+    assert docs["steps"][0]["highlight"] == "Document"
+    assert "section" in docs["steps"][0]["say"].lower()
 
 
-def test_documents_right_pane_toggles_and_assistant_reads_data_dumps():
-    # The right pane can switch between the Bullets screen and My Work Highlights (large
-    # paste / data dumps), and the assistant can use whatever the user pastes there.
+def test_documents_bullet_workbench_makes_real_improvements():
+    # The bullet workbench is where a SINGLE bullet is worked — read it, then reword/rephrase/
+    # fold in a highlight/refresh its figures — explicitly NOT a copy of the bullet list.
     docs = caps.for_section("documents")
     controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
-    assert "Right-pane screen" in controls, controls.keys()
-    does = controls["Right-pane screen"]
-    assert "my work highlights" in does and "bullets" in does
-    assert ("paste" in does or "data dump" in does) and "read" in does  # assistant uses the dump
-    assert any(st["highlight"] == "Right-pane screen" for st in docs["steps"])
+    assert "Bullet workbench" in controls, controls.keys()
+    does = controls["Bullet workbench"]
+    for cue in ("reword", "rephrase", "refresh", "read", "draft"):
+        assert cue in does, (cue, does)
+    assert "not a copy" in does or "not a" in does
+    # the document itself is centered + editable; section navigation is first-class
+    assert "centered" in controls["Document"] and "edit" in controls["Document"]
+    assert "Section map" in controls
+    assert any(st["highlight"] == "Bullet workbench" for st in docs["steps"])
+
+
+def test_documents_refresh_figures_and_highlights_controls():
+    # Stale period-bound figures are flagged and refreshable from the web (review/accept/
+    # reject), and My Work Highlights still feeds evidence into a bullet.
+    docs = caps.for_section("documents")
+    controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
+    assert "Refresh figures" in controls and "My Work Highlights" in controls
+    refresh = controls["Refresh figures"]
+    assert "web" in refresh and ("accept" in refresh or "reject" in refresh)
+    assert "paste" in controls["My Work Highlights"]
+    assert any(st["highlight"] == "Refresh figures" for st in docs["steps"])
 
 
 def test_flows_script_every_state_and_answer_anticipated_questions():
@@ -198,3 +216,18 @@ def test_flows_script_every_state_and_answer_anticipated_questions():
         assert f.get("speak"), name
         assert f.get("ask") in f["speak"], (name, f.get("ask"))
         assert f.get("focus"), name
+
+
+def test_metric_refresh_flow_reads_findings_and_reasoning():
+    # P275: the stale-figure refresh flow flags the dated bullet, narrates planning/searching/
+    # reading, reads the reasoning aloud, and proposes a reviewable updated bullet.
+    mr = caps.manifest()["flows"]["metric_refresh"]
+    for state in ("flagged", "planning", "searching", "reading", "found", "proposing",
+                  "applying", "not_found", "error"):
+        assert mr["speak"].get(state), (state, mr)
+    assert mr["ask"] == "proposing" and mr["focus"]
+    # it asks before applying, reads its reasoning, and fills the proposed draft
+    assert mr["speak"]["flagged"].rstrip().endswith("?")
+    assert mr["speak"]["proposing"].rstrip().endswith("?")
+    assert "{reasoning}" in mr["speak"]["found"] and "{draft}" in mr["speak"]["proposing"]
+    assert "{period}" in mr["speak"]["flagged"]

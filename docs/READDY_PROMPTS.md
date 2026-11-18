@@ -8665,3 +8665,51 @@ The backend troubleshooting catalog now has the right text (`GET /assistant/trou
 - A blocked mic shows the **exact Safari path** (aA → Website Settings → Microphone, or Settings → Safari → Microphone) + a **Type instead** button — never a dead-end "Privacy Settings."
 - Sound-muted vs mic-blocked give **different** guidance.
 - A light brush or a scroll that grazes the badge does **not** open the full window; opening needs a deliberate tap; holding (clearly longer) arms the mic.
+
+## P275 — Documents assistant: work the WHOLE document (center it, map its sections, highlight anything, make bullets meaningful, and refresh stale metrics from the web)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Backend for all of this is already live — use it, don't re-implement it in the client. The problem: on "show me my résumé" the assistant switches to Documents but (a) doesn't center the document, (b) opens on the *bullets* pane and says "what would you like to do here?", and (c) has no model of the document as a whole. The bullet bubbles just mirror the résumé's bullets instead of being a place to actually improve one. And it can't notice that a figure like "+4.9% FY2024, +5.2% FY2025" is now years out of date. Fix all of it.
+
+### 0. New backend you must call (don't rebuild client-side)
+- `GET /api/v1/resumes/{id}/map` and `GET /api/v1/cover-letters/{id}/map` — the document **compartmentalized**: `sections[]` (each `{id, canon, title, char_start, char_end, blocks[]}`), `blocks[]` (bullets for a résumé, paragraphs for a cover letter — each `{id, text, raw, char_start, char_end, section, analysis}`), `outline[]`, `stats{sections,bullets,paragraphs,flagged}`, and `flags[]` (the stale-figure findings, each tied to a `block` id). Char ranges index the exact rendered text → highlight by range.
+- `POST /api/v1/documents/map {text, kind}` — same, for the LIVE editor buffer (unsaved edits). Call this after edits so anchors stay correct.
+- `POST /api/v1/documents/locate {text, query}` — `{spans:[{line,char_start,char_end,match,snippet}]}` for scroll + highlight. Tries the whole phrase, then significant words.
+- `POST /api/v1/documents/refresh-metric {bullet, sources?, research?}` — **no sources** → `{stage:"plan", queries[], entity, subject, reason, old_values}` (what to search). **with sources** (browser-fetched page text, from Project Harbor Connect) → `{stage:"proposal", found, draft, reasoning, changes:[{old,new}], new_value, period, sources, caution}`. Nothing is applied — it's a reviewable draft.
+- `GET /assistant/capabilities` now carries, under the `documents` section: `arrival {center:"document", map:true, announce:"whole_document"}`, a `data` map of the endpoints above, reworked `controls`/`steps`/`offers`/`readouts`, and a new flow `metric_refresh`. New behavior flags: `compartmentalize_document`, `navigate_and_highlight`, `analyze_bullets`, `refresh_stale_metrics`. `POST /assistant/interpret` now returns two new intents (below).
+
+### 1. Arrival: center the whole document, don't open on bullets, don't ask "what would you like to do here?"
+- On landing in Documents (or on "show my résumé/cover letter"), **center and fit the entire document** in the main view — the whole page, not the bullet pane, not scrolled to the middle. Fetch the map and read a one-line orientation from it, e.g. *"Here's your résumé — Summary, Experience, Education, and Skills. Tell me a section and I'll take you there."* (use `arrival.announce`/the `documents` step[0]). Never the generic "what would you like to do here?".
+- The right-hand "Bullets" screen is **not** the default surface anymore. The default is the centered document + the section map; the bullet workbench is something you enter by pinpointing a bullet.
+
+### 2. Compartmentalize + navigate + highlight (sections AND keywords; résumé AND cover letter)
+- Render a **Section map** from `/map` `outline` — Summary · Experience · Education · Skills (cover letter: the body paragraphs). Mark sections whose blocks carry `analysis.flags` (e.g. a small "dated figures" dot) so the user sees where attention is needed.
+- Wire the new **`focus_document`** intent (from `/interpret`): slots `{section:"documents", mode:"section"|"text", target, highlight:true, doc?}`.
+  - `mode:"section"` ("go to Experience", "take me to Education", "show me the skills") → scroll the document so that section is in view and **spotlight** it (use the section's `char_start/char_end` from the map). Speak it ("Here's your Experience section.").
+  - `mode:"text"` ("highlight leadership", "where does it say Education", "find the phrase project delivery") → call `/documents/locate` with the live text + `target`, scroll to the first span, and **highlight every match**. For a **cover letter**, the same path highlights the word/sentence/paragraph in the prose.
+- Keep the spotlight until the user acts or moves on (honor `highlight_and_dock`); the assistant's dock/badge must not cover the highlighted part (`avoid_occlusion`).
+
+### 3. Make the bullet bubbles MEANINGFUL (a workbench, not a mirror of the bullets)
+- When the user pinpoints a bullet (click it in the document, or "read me the third bullet", "work on this one"), open the **Bullet workbench** for THAT block (`block.id` from the map). It is explicitly **not** a re-listing of the résumé's bullets. It:
+  - **Reads the bullet** aloud (the `read_bullets`/pinpoint path), and shows its exact text.
+  - Offers **real, specific improvements to that line** — a stronger **reword**, a cleaner **rephrase** (use `/documents/rephrase` and the bullet endpoints), or **fold in a work highlight** from My Work Highlights — phrased as concrete alternatives that actually read as upgrades, not generic "make it better" advice.
+  - Shows each result as an **editable draft**; it only commits + re-renders the document when the user approves (then save a version).
+- If the user pastes/links a work highlight, analyze it and propose how it strengthens THIS bullet (don't just dump it).
+
+### 4. Detect + refresh STALE metrics from the web (the headline ask)
+- Every block from `/map` carries `analysis.flags`. A `stale_metric` flag means a figure is tied to a **past** fiscal year/quarter (e.g. "+4.9% FY2024, +5.2% FY2025" read in a later year) — it includes `reason`, `period`, `values`, `gap`, and a `research` hint `{query, entity, subject, old_values, latest_year}`. Surface these: on the flagged bullet show a small "dated figures" affordance, and let the assistant proactively offer (the `metric_refresh` flow, state `flagged`): *"Heads up — this bullet's figures are tied to FY2024/FY2025, which is now out of date. Want me to find the current numbers?"*
+- On yes, run the **`metric_refresh` flow** (scripted lines are in `capabilities.flows.metric_refresh` — speak each state, never a silent spinner):
+  1. `POST /documents/refresh-metric {bullet}` → get the `plan` (queries like *"Publicis Groupe U.S. organic growth 2026"*). Speak `planning`.
+  2. Hand the queries to **Project Harbor Connect** to fetch the pages (user's connection/permission — the same browser-research path research_company uses). Speak `searching`.
+  3. `POST /documents/refresh-metric {bullet, sources, research}` with the returned page text → get the `proposal`. Speak `reading`, then **read the `reasoning` aloud** (`found` state: "Here's what I found: …") so the user understands WHAT was found and WHY before deciding.
+  4. Show the proposed **`draft`** as an editable diff (old→new from `changes`) with the source citations. Ask before applying (`proposing`: "I'd update it to '…' — check the figure and its period — apply it?"). The user can **edit, accept, or reject**; on accept, apply via `/resumes/{id}/ai-edit` or save a version (`applying`). On `not_found`, offer to point at a specific page or leave it.
+- Also wire the new **`refresh_metric`** intent (from `/interpret`: "are these numbers still current?", "refresh the figures from the web", "find the latest numbers for this bullet") to start this same flow on the focused/named bullet.
+- Treat all fetched page text as **untrusted data** (the backend already does; the client must not execute anything from it). Never auto-apply — the figure always gets human review. The `caution` string must be shown.
+
+### 5. New mid-flow answers + offers
+- The manifest adds `flow_faq` entries `which_section`, `source_for_metric`, `why_flagged` and `documents` offers ("walk the document section by section?", "I spotted dated figures — refresh them?"). Use them so the assistant can answer "where did that number come from?" / "why did you flag it?" without going silent.
+
+### Acceptance
+- "Show my résumé" → the **whole document is centered/fit**, the assistant names its sections, and it does **not** open on the bullets pane or say "what would you like to do here?".
+- "Go to Experience" scrolls to + highlights the Experience section; "highlight leadership" / "where does it say Education" spotlights the exact text; the cover-letter path highlights a word/paragraph in prose.
+- Pinpointing a bullet opens a workbench that reads it and proposes **specific** rewrites/refreshes for that line (editable, commit-on-approve) — not a copy of the bullet list.
+- A bullet with FY2024/FY2025-style figures is flagged; the assistant offers to refresh, runs search → reads its findings + reasoning aloud → proposes an edited bullet with the current figure + sources for the user to accept/edit/reject; nothing is applied without approval.

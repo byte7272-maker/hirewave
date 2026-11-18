@@ -86,6 +86,14 @@ BEHAVIORS = [
     # assistant surfaces a yes/no offer to search the web for it instead of dead-ending; the
     # offer arms as `pending` so a "yes" resolves to web_search (interpret → `offer`).
     "offer_web_on_unrecognized",
+    # document mastery (P275): on a document the assistant models the WHOLE thing, not a
+    # flat bullet list. It centers the document, compartmentalizes it into its sections
+    # (GET /resumes|cover-letters/{id}/map), can jump to and highlight any section or
+    # keyword (focus_document → /documents/locate), works a single bullet in place (read,
+    # reword, rephrase), and detects dated/stale figures and refreshes them from the web
+    # with its reasoning shown (refresh_metric → /documents/refresh-metric).
+    "compartmentalize_document", "navigate_and_highlight", "analyze_bullets",
+    "refresh_stale_metrics",
 ]
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
@@ -168,6 +176,28 @@ FLOWS: dict[str, dict[str, Any]] = {
             "error": "That didn't go through — want me to try again?",
         },
     },
+    # Refresh a bullet's DATED figures from the web, reading the findings + reasoning aloud
+    # so the user understands the change before accepting (P275). Placeholders are filled
+    # from /documents/refresh-metric (entity/subject/period from the analysis; draft/
+    # reasoning/changes from the proposal). The user reviews/edits/accepts/rejects.
+    "metric_refresh": {
+        "label": "Refresh a dated figure from the web",
+        "focus": "the bullet with the outdated numbers",
+        "ask": "proposing",
+        "speak": {
+            "flagged": "Heads up — this bullet's figures are tied to {period}, which is now out "
+                       "of date. Want me to find the current numbers?",
+            "planning": "I'll look up {entity} {subject} for the latest period.",
+            "searching": "Searching the web for the current figures now…",
+            "reading": "Reading what the sources say and lining it up against your bullet…",
+            "found": "Here's what I found: {reasoning}",
+            "proposing": "I'd update it to: '{draft}.' Check the figure and its period — want me to apply it?",
+            "applying": "Done — I swapped in the current figure and saved a version.",
+            "not_found": "I couldn't find a clear, newer figure for that — want to point me at a "
+                         "specific page, or leave the bullet as it is?",
+            "error": "That search didn't go through. Want me to try again?",
+        },
+    },
     # My Work Highlights: turn a pasted data dump into résumé-ready evidence (P251 §3).
     "highlights_extract": {
         "label": "Extract evidence from a data dump",
@@ -196,6 +226,13 @@ FLOW_FAQ: dict[str, str] = {
     "undo": "Reverted to the previous version.",
     "status": "Still working — just a few seconds.",
     "why": "{reason}",
+    # Documents / metric-refresh (P275).
+    "which_section": "You're looking at {section}. I can take you to any section — Summary, "
+                     "Experience, Education, or Skills — just name it.",
+    "source_for_metric": "I based it on {sources} — the figure and its period are on that page; "
+                         "I can show you the line.",
+    "why_flagged": "The figures are tied to {period}, so as of this year they're out of date — "
+                   "that's why I flagged them to refresh.",
 }
 
 
@@ -304,15 +341,36 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         ],
     },
     "documents": {
-        "purpose": "Your résumés and cover letters — pick one to review, edit, tailor, or use to apply.",
-        "current": "the open document and its active version; résumé unless a cover letter is shown",
+        "purpose": "Your résumé or cover letter, shown whole — I center it, lay out its sections, "
+                   "and can jump to, read, or sharpen any part.",
+        "current": "the open document, centered — résumé unless a cover letter is shown",
         "walkthrough": None,
+        # On arrival the assistant does NOT ask "what would you like to do here?" — it
+        # centers the whole document and gives a one-line map of its sections (from
+        # GET /resumes|cover-letters/{id}/map), then offers the first useful move.
+        "arrival": {
+            "center": "document",  # center the full document, not the bullet pane
+            "map": True,           # read the section outline so the assistant knows the whole doc
+            "announce": "whole_document",
+        },
+        # Where the live structure + analysis come from (the client fetches these).
+        "data": {
+            "map_resume": "/api/v1/resumes/{id}/map",
+            "map_cover_letter": "/api/v1/cover-letters/{id}/map",
+            "locate": "/api/v1/documents/locate",
+            "refresh_metric": "/api/v1/documents/refresh-metric",
+        },
         "actions": [
             _action("Show my résumé", "show", ["resume"], "navigate", {"section": "documents", "doc": "resume"}),
             _action("Show my cover letter", "show", ["cover_letter"], "navigate", {"section": "documents", "doc": "cover_letter"}),
-            _action("Work on a bullet", "walk", ["document", "bullet"], "start_playbook", {"playbook": "bullets"}),
-            _action("Edit it", "change", ["document"], "navigate", {"section": "documents"},
-                    confirm="Apply this change to your document?"),
+            _action("Go to a section", "show", ["section"], "focus_document",
+                    {"section": "documents", "mode": "section", "highlight": True}),
+            _action("Find or highlight text", "search", ["text"], "focus_document",
+                    {"section": "documents", "mode": "text", "highlight": True}),
+            _action("Read a bullet to me", "walk", ["bullet"], "read_bullets", {}),
+            _action("Sharpen a bullet", "change", ["bullet"], "start_playbook", {"playbook": "bullets"},
+                    confirm="Apply this change to the bullet?"),
+            _action("Refresh its figures from the web", "research", ["bullet", "metrics"], "refresh_metric", {}),
             _action("Tailor it to a job", "tailor", ["document"], "start_playbook", {"playbook": "tailor"}),
             _action("Change the design", "change", ["design"], "start_playbook", {"playbook": "design"},
                     destructive=False),
@@ -320,41 +378,56 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     destructive=False),
         ],
         "controls": [
-            {"label": "Document preview", "does": "The editable document — edit the text directly here; it centers and highlights on open."},
-            {"label": "Selected bullet", "does": "Select a bullet in the right pane and I'll ask what to do with it — "
-             "remove, move, re-word, replace, update its numbers/dates to be current, or search the web for fresh facts "
-             "to fold in. I show the result as an editable draft; you can tweak it, and it only commits and re-renders "
-             "when you approve."},
-            {"label": "Right-pane screen", "does": "Switch the right pane between Bullets (select a bullet to act on) and "
-             "My Work Highlights (paste large notes, brags, or data dumps; generate prompts; extract and synthesize "
-             "evidence; your experience library). I can read and use anything you paste there when I act on your document."},
+            {"label": "Document", "does": "The whole document, centered and editable. On open I center it and "
+             "map its sections; say 'go to Experience' (or any section) and I scroll to and highlight it, and "
+             "'highlight …' / 'where does it say …' spotlights a word or paragraph — for a cover letter too."},
+            {"label": "Section map", "does": "The document's outline — Summary, Experience, Education, Skills "
+             "(cover letters: the body paragraphs). Pick a section to jump to it; a marker shows which parts have "
+             "something worth a look, like dated figures."},
+            {"label": "Bullet workbench", "does": "Pinpoint a single bullet and I read it, then offer real "
+             "improvements on THAT line — reword it stronger, rephrase for clarity, fold in a work highlight, or "
+             "refresh an out-of-date number. Not a copy of the bullet list — it's where we actually change one. "
+             "I show the result as an editable draft and only commit when you approve."},
+            {"label": "Refresh figures", "does": "When a bullet's figures are tied to a past period (e.g. '+4.9% "
+             "FY2024' read years later) I flag it and can look up the current numbers on the web, explain what I "
+             "found and why, and propose an updated bullet for you to review, edit, accept, or reject."},
+            {"label": "My Work Highlights", "does": "Paste big notes, brags, or data dumps; I extract and synthesize "
+             "evidence I can work into a bullet. Your experience library — I read and use it when I sharpen a line."},
             {"label": "Ask AI", "does": "Describe a change in words; I edit the document (you confirm)."},
-            {"label": "Versions", "does": "Switch, rename, or activate a saved version."},
+            {"label": "Versions", "does": "Switch, rename, or activate a saved version — every change saves one."},
         ],
         "offers": [
-            _offer("Work on a bullet?", "start_playbook", {"playbook": "bullets"}),
-            _offer("Modify it", "navigate", {"section": "documents"}),
-            _offer("Use it for a job application", "start_playbook", {"playbook": "apply_job"}),
-            _offer("Tailor it to a job", "start_playbook", {"playbook": "tailor"}),
+            _offer("Want me to walk the document section by section?", "focus_document",
+                   {"section": "documents", "mode": "section", "target": "summary", "highlight": True}),
+            _offer("I spotted dated figures — refresh them from the web?", "refresh_metric", {}),
+            _offer("Sharpen a bullet?", "start_playbook", {"playbook": "bullets"}),
+            _offer("Tailor it to a job?", "start_playbook", {"playbook": "tailor"}),
         ],
         "steps": [
-            {"say": "This is your document, shown exactly as it renders — and you can edit the text right here.",
-             "highlight": "Document preview"},
-            {"say": "Select any bullet and I'll ask what to do — remove, move, re-word, replace, update its "
-                    "numbers and dates, or search the web for fresh facts to work in.",
-             "highlight": "Selected bullet"},
-            {"say": "Switch the right pane to My Work Highlights to paste in big notes or data dumps — I'll read "
-                    "them and use them when I work on your document.",
-             "highlight": "Right-pane screen"},
-            {"say": "Describe any change in plain words and I'll make it — you confirm before it's applied.",
-             "highlight": "Ask AI"},
-            {"say": "Every change saves its own version, so you can switch back any time.",
-             "highlight": "Versions"},
+            {"say": "Here's your whole document, centered. It has a Summary, Experience, Education, and Skills — "
+                    "tell me a section and I'll take you right to it.",
+             "highlight": "Document"},
+            {"say": "Say 'go to Experience' (or any section) and I scroll to it and highlight it. 'Highlight "
+                    "leadership' or 'where does it say Education' spotlights an exact word or line — for a cover "
+                    "letter I'll find and highlight the paragraph.",
+             "highlight": "Section map"},
+            {"say": "Point me at any single bullet and I'll read it, then suggest real improvements to that line — "
+                    "a stronger rewording, a cleaner rephrase, or a work highlight folded in. You edit the draft; "
+                    "it only changes when you approve.",
+             "highlight": "Bullet workbench"},
+            {"say": "If a bullet's numbers are tied to an old year, I'll flag it and can look up the current figure "
+                    "on the web, tell you what I found and why, and propose the update for you to accept or reject.",
+             "highlight": "Refresh figures"},
+            {"say": "Paste bigger notes into My Work Highlights and I'll pull out evidence to strengthen a line.",
+             "highlight": "My Work Highlights"},
         ],
-        # Read from the current résumé (GET /resumes/{id}).
+        # Read from the current résumé map/review (GET /resumes/{id} + /map).
         "readouts": [
+            {"key": "sections", "label": "Sections", "source": "map.stats.sections", "highlight": "Section map"},
+            {"key": "flagged", "label": "Dated figures to refresh", "source": "map.stats.flagged",
+             "highlight": "Refresh figures"},
             {"key": "version", "label": "Version", "source": "active_version", "highlight": "Versions"},
-            {"key": "score", "label": "Score", "source": "quality_grade", "highlight": "Document preview"},
+            {"key": "score", "label": "Score", "source": "quality_grade", "highlight": "Document"},
         ],
     },
     "connect": {
@@ -487,6 +560,11 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         "steps": cap.get("steps", []),
         "readouts": cap.get("readouts", []),
         "offers": cap.get("offers", []),
+        # P275: how to behave on arrival (center the whole document, read its map) and
+        # where the live structure/analysis lives, so the client never defaults to the
+        # bullet pane or "what would you like to do here?".
+        "arrival": cap.get("arrival"),
+        "data": cap.get("data"),
     }
 
 
