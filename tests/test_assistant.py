@@ -186,3 +186,28 @@ def test_api_consent_available_scopes_listed():
 def test_api_assistant_requires_auth():
     client = _client()
     assert client.get("/api/v1/assistant/consent").status_code == 401
+
+
+def test_interpret_backstop_uses_general_provider_when_premium_unset():
+    # Setting the general provider (OpenAI/Anthropic) alone must enable the interpret LLM
+    # backstop — it should NOT require the separate premium var. A mock stays deterministic.
+    from jobsearch.api.routers.assistant import _backstop_llm
+    from jobsearch.api.state import AppState
+    from jobsearch.config import Settings
+    from jobsearch.engines.integration import MockTokenExchanger
+
+    # default (mock) → no backstop LLM (deterministic only)
+    st_mock = AppState(exchanger=MockTokenExchanger(), settings=Settings(llm_provider="mock"))
+    assert _backstop_llm(st_mock) is None
+
+    # general = openai WITH a key, premium unset → backstop LLM present (not mock)
+    st_oa = AppState(exchanger=MockTokenExchanger(),
+                     settings=Settings(llm_provider="openai", openai_api_key="sk-test",
+                                       premium_llm_provider=""))
+    assert _backstop_llm(st_oa) is not None
+
+    # openai WITHOUT a key → still deterministic (no real provider)
+    st_nokey = AppState(exchanger=MockTokenExchanger(),
+                        settings=Settings(llm_provider="openai", openai_api_key="",
+                                          premium_llm_provider=""))
+    assert _backstop_llm(st_nokey) is None

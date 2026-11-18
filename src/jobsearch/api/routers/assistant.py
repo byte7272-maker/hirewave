@@ -50,6 +50,21 @@ def set_consent(body: ConsentUpdate, user: CurrentUser, state: StateDep) -> Cons
     return ConsentOut(granted=con.scopes, available=AUTOMATION_SCOPES)
 
 
+def _backstop_llm(state):
+    """The LLM to use for the interpret backstop: the premium tier if configured, else the
+    GENERAL provider (so JOBSEARCH_LLM_PROVIDER=openai|anthropic alone enables real
+    understanding), and never a mock (an unconfigured app stays deterministic-only)."""
+    s = state.settings
+    # Mirrors the factory's real-provider check: Anthropic resolves its key from the SDK
+    # env; OpenAI needs a configured key.
+    general_real = s.llm_provider == "anthropic" or (s.llm_provider == "openai" and bool(s.openai_api_key))
+    ra = state.resume_assistant
+    llm = getattr(ra, "_premium", None)
+    if llm is None and general_real:
+        llm = getattr(ra, "premium", None)
+    return llm
+
+
 @router.post("/interpret", response_model=InterpretResponse)
 def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> InterpretResponse:
     """Classify a free-form utterance into a structured intent for the assistant.
@@ -60,10 +75,7 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
     matcher covers the whole command set; the configured premium LLM (if any) is a
     backstop for free-form phrasing. See ``docs/ASSISTANT_INTENT.md``."""
     ctx = body.context.model_dump() if body.context else {}
-    # Only use the LLM backstop when a premium provider is actually configured
-    # (resolves to None otherwise, so the deterministic path stands alone).
-    llm = getattr(state.resume_assistant, "_premium", None)
-    res = interpret_intent(body.transcript, context=ctx, llm=llm)
+    res = interpret_intent(body.transcript, context=ctx, llm=_backstop_llm(state))
     return InterpretResponse(
         intent=res.intent, confidence=res.confidence, slots=res.slots,
         reply=res.reply, needs_disambiguation=res.needs_disambiguation,
