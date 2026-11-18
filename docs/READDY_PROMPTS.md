@@ -8966,3 +8966,29 @@ The overlap/clicks come from firing utterances concurrently and/or cancelling mi
 - The assistant speaks each line to the end, one at a time, with no overlap, no clicks, and no cut-off sentences; the walkthrough advances exactly once per line on audio end.
 - Interrupting stops the current line cleanly and starts the new one without clicking.
 - The mic-permission help names the **⋯ → Website Settings → Microphone** path on iOS 26 (aA only as the older-iOS fallback).
+
+## P285 — De-clutter Documents: ONE home (the right pane) for all assistant material, the main area is just the document, and focus follows what's being read
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Report: the Documents page is cluttered with assistant-supported material; there's **redundant and hidden info that overlaps and must be scrolled through**; the **bullet summary sits at the top of the page** but the assistant **never focuses on what it's reading/speaking to**; the **view is stuck centered** on the résumé; and **all interactions — including bullet reviews and revisions — should happen in the right pane**. Consolidate. (Backend: an intent fix for "remove the bullets from my header / email line" is already live — see §4.)
+
+### 1. One home for assistant material — the right pane (P279, enforced)
+- **Everything the assistant produces lives in the right pane**: the section map, review/findings, the bullet workbench (review AND revision), proposals, answers, the proactive scan. The main area holds **only the document**. The compact badge is the only floating element.
+- **Remove the "bullet summary at the top of the page."** Any assistant strip/summary/card rendered above or around the document moves into the right pane. There is no assistant content at the top or in the margins.
+- **Kill redundancy.** Audit the page for assistant material that appears in more than one place (a summary both at top and in a panel; findings both inline and in a list). Keep **one** instance, in the right pane. Nothing the user has to hunt for or scroll past twice.
+
+### 2. The main area is just the document — and it scrolls to what's discussed
+- The document is centered and readable, but the view is **not frozen centered**. When the assistant reads or speaks about a part — the summary, a specific bullet, a role, the header — **scroll that element into view and spotlight it** using the `anchor`/`locate` the endpoints already return (`/map`, `/summary-review`, `/full-review`, `/documents/locate`). The badge/pointer sits beside it (never over it).
+- Every narrated step (P276–P280 scripts) carries a focus target; moving the spotlight is mandatory, not optional. If a step has no specific `locate`, focus its section `anchor`. The user should always see the exact thing the assistant is talking about.
+
+### 3. Bullet reviews AND revisions happen in the right pane
+- Selecting/pinpointing a bullet opens the **bullet workbench in the right pane** (P275): it reads the bullet, shows the proposed reword/rephrase/refresh as an **editable draft**, and the Apply/Edit/Reject controls are **in the pane**. No inline bullet editor in the document body, no revision popups floating over the page.
+- The document updates in place only when the user approves in the pane; the pane is the single surface for the whole review→edit→save loop.
+
+### 4. Formatting edits route correctly (backend fixed — just honor the intent)
+- "Remove the bullets from my name/title header and the email address line", "strip the bullets off my header", "change the font on my header" now return **`navigate` → `{section:"documents", doc, edit:"…"}`** from `/assistant/interpret` (not the connect-an-email flow). Honor it by running the Ask-AI edit on the current document (with the P180 confirm) — do **not** open the email-connect help. Connecting/removing an email *account* still routes to the connect flow, unchanged.
+
+### Acceptance
+- The Documents page shows the document in the main area and **all** assistant material in the right pane — nothing at the top, no duplicated/overlapping panels, nothing to scroll to find.
+- As the assistant reads/reviews, the document **scrolls to and highlights** each part (summary, bullet, role, header); the view is never stuck centered.
+- Bullet review and revision happen entirely in the right pane; the document changes only on approval there.
+- "Remove the bullets from my header / the email address line" edits the résumé, never opening email-connect help.

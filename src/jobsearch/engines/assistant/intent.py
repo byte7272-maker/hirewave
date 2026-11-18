@@ -678,6 +678,50 @@ _NAV_VERB_RE = re.compile(
 )
 
 
+# A request about the FORMATTING of a résumé/cover-letter element — bullets, the header,
+# the name/title/contact/email LINE, spacing, font — is a DOCUMENT EDIT, never email-account
+# management. This guard keeps "remove the bullets from my header and the email address line"
+# out of the connect-an-email flow.
+_DOC_FORMAT_TARGET_RE = re.compile(
+    r"\bbullet(?:\s*points?|s)?\b|\bheader\b|\bheading\b|\bname\s*(?:line|header)?\b|"
+    r"\btitle\s*(?:line|header)?\b|\bcontact\s*(?:line|info|details)?\b|"
+    r"\b(?:e-?mail(?:\s*address)?|phone|contact)\s*line\b")
+# Formatting-ONLY verbs (remove a bullet marker, bold, align …) — NOT content verbs like
+# "update/rewrite", so "update this bullet with the 2025 numbers" stays a content edit.
+_DOC_FORMAT_VERB_RE = re.compile(
+    r"\b(remove|strip|take\b.*\boff|delete|clear|drop|get rid of|un-?bullet|reformat|"
+    r"re-?format|align|indent|outdent|bold|italic|underline|capitali[sz]e)\b")
+# Pure-formatting targets — a plain "change/fix" on these is still a formatting edit.
+_PURE_FORMAT_TARGET_RE = re.compile(
+    r"\bformat(?:ting)?\b|\bindent\w*|\bspacing\b|\bfont\b|\bbold\b|\bitalic\b|\bunderline\b|"
+    r"\balignment\b|\bmargins?\b")
+_PURE_FORMAT_VERB_RE = re.compile(r"\b(change|fix|set|make|adjust)\b")
+
+
+def _doc_format_edit(t: str, context: dict) -> Optional[IntentResult]:
+    """A formatting edit on a résumé/cover-letter element ("remove the bullets from my header
+    and the email address line", "strip the bullets off my name and title", "change the font")
+    → open the document for the edit. Checked BEFORE email-account management so a header/
+    bullet/email-LINE formatting change is never mistaken for connecting an email account.
+    Only FORMATTING verbs count here — a content edit ("update this bullet with …") is left
+    to :func:`_edit_document`."""
+    is_format = (
+        bool(_DOC_FORMAT_TARGET_RE.search(t) and _DOC_FORMAT_VERB_RE.search(t))
+        or bool(_PURE_FORMAT_TARGET_RE.search(t) and _PURE_FORMAT_VERB_RE.search(t))
+    )
+    if not is_format:
+        return None
+    # Only bail for a STRONG non-document target. An incidental "email" word resolves
+    # _match_section to "inbox", but "remove the bullets from … the email line" is still a
+    # résumé formatting edit — don't let that stray word send it to the inbox/connect flow.
+    if _match_section(t) in ("matches", "dashboard", "interview", "auto_apply", "applications"):
+        return None  # "remove this from my matches" etc. isn't a document edit
+    section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+    doc = _doc_target(t) or ("cover_letter" if "cover" in section else "resume")
+    return IntentResult("navigate", 0.85,
+                        {"section": "documents", "doc": doc, "edit": t})
+
+
 def _manage_action(t: str, context: dict) -> Optional[IntentResult]:
     """Resolve an explicit connect/add/remove/change request to a concrete action.
 
@@ -947,6 +991,14 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     sd = _sync_documents(t)
     if sd is not None:
         return sd
+
+    # a FORMATTING edit on a résumé element ("remove the bullets from my header and the
+    # email address line", "strip the bullets off my name and title") — a document edit.
+    # Checked before _manage_action so an email/header formatting change is never mistaken
+    # for connecting or removing an email account.
+    dfe = _doc_format_edit(t, context)
+    if dfe is not None:
+        return dfe
 
     # manage a resource ("connect a new email account", "add an email source",
     # "disconnect my inbox", "replace the email on my résumé") — an explicit

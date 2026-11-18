@@ -185,6 +185,27 @@ def test_edit_document_with_current_data_flags_needs_web():
     assert interpret("make this bullet more current", context=ctx).intent == "edit_document"
     # a plain edit (no freshness cue) has no needs_web
     assert "needs_web" not in interpret("improve bullet 3", context=ctx).slots
+
+
+def test_formatting_edit_on_header_is_a_doc_edit_not_email_connect():
+    # Regression: "remove the bullets from my header and the email address line" is a résumé
+    # FORMATTING edit — it must open the document, never the connect-an-email flow.
+    ctx = {"section": "documents"}
+    for phrase in (
+        "remove the bullet points from my name and title header and the email address line",
+        "remove the bullets from my header and email line",
+        "take the bullets off my name and title",
+        "strip the bullets from the header",
+        "delete the bullet point on the email line",
+        "change the font on my header",
+    ):
+        r = interpret(phrase, context=ctx)
+        assert r.intent == "navigate" and r.slots.get("section") == "documents", (phrase, r.intent)
+        assert r.slots.get("edit")  # carries the instruction for Ask-AI
+    # connecting / managing an email ACCOUNT still routes to the connect flow
+    assert interpret("connect an email account").intent == "start_playbook"
+    assert interpret("add an email source").intent == "start_playbook"
+    assert interpret("remove my gmail account").slots.get("section") == "connect"
     # not a doc edit: "update my matches" is a refresh, not edit_document
     assert interpret("update my matches", context=ctx).intent == "navigate"
     assert interpret("update my matches", context={"section": "matches"}).slots.get("refresh") is True
