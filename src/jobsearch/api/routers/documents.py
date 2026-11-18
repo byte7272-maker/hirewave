@@ -264,7 +264,13 @@ def _restore_identity_block(new_text: str, prev_text: str) -> str:
                   or _section_of(first)[0] is not None)
     if not headerless:
         return nt  # starts with a real name/top line — leave the save alone
-    name_block = _head_until_sections(prev_text)
+    # Only preserve when the PREVIOUS version actually has an identity block (a real name
+    # line on top). If it's headerless too (e.g. a bare bullet list), there's nothing to
+    # restore — never fabricate a header or duplicate the body.
+    prev_first = next((ln for ln in (prev_text or "").split("\n") if ln.strip()), "").strip()
+    if not prev_first or prev_first.startswith("#") or _BULLET_START_RE.match(prev_first) \
+            or _section_of(prev_first)[0] is not None:
+        return nt
     # the part of the prev head BEFORE its own summary = name + contact only
     prev_canons = [_section_of(l)[0] for l in (prev_text or "").split("\n")]
     name_only_lines: list[str] = []

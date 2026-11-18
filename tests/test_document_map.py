@@ -410,6 +410,17 @@ def test_saving_a_body_only_version_keeps_name_and_summary():
     assert r2.status_code == 200 and r2.json()["rendered_text"].startswith("Jane Doe")
 
 
+def test_headerless_save_on_a_headerless_resume_is_not_fabricated():
+    # When the résumé itself has no header (a bare bullet list), a body-only save must NOT
+    # fabricate or duplicate a header — the guard only preserves a real identity block.
+    c, _ = _client()
+    h = _auth(c)
+    rid = _upload_resume(c, h, "- Responsible for billing\n- Worked on the API\n")
+    bullets = "- Responsible for billing\n- Worked on the API\n- Added tests\n"
+    r = c.put(f"/api/v1/resumes/{rid}", headers=h, json={"rendered_text": bullets})
+    assert r.status_code == 200 and r.json()["rendered_text"] == bullets
+
+
 def test_refresh_metric_empty_bullet_400():
     c, _ = _client()
     h = _auth(c)
