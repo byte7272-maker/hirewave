@@ -9044,7 +9044,7 @@ The overlap/clicks come from firing utterances concurrently and/or cancelling mi
 
 ### 3. Make the LLM actually ON (the real reason unscripted phrasing fails)
 The app understands/edits with an LLM **only if one is configured**. By default it runs on a **mock** provider — pure pattern-matching, no real comprehension — which is why arbitrary phrasing fails. On the server (Railway env vars), set:
-- `LLM_PROVIDER=anthropic` (or `openai`) and the matching key `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`).
+- `JOBSEARCH_LLM_PROVIDER=anthropic` (or `openai`) and the matching key `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`).
 - `JOBSEARCH_PREMIUM_LLM_PROVIDER=anthropic` (recommended) so the **assistant's interpret backstop and the Ask-AI edits/rewrites** use a strong model. Optionally `JOBSEARCH_PREMIUM_MODEL`.
 Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` falls back to deterministic/mock — so "clear language" keeps failing no matter the wording. With them, the deterministic layer handles the common cases instantly and the LLM covers everything else, so the user doesn't script phrases.
 
