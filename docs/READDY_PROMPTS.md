@@ -9051,3 +9051,34 @@ Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` 
 ### Acceptance
 - Typing or saying a plain-language change to the document ("make the title bigger", "combine these two lines", "remove the bullets from my header and the email line") **applies the edit** (with Undo), never opens a remove/connect menu, and doesn't require an exact phrase.
 - With an LLM provider configured, phrasings the deterministic layer doesn't know still work (the backstop + ai-edit handle them).
+
+## P288 — ⚠ SINGLE PURPOSE: the mic broke on desktop too — request it ONLY on the press-and-hold gesture, never on load; recover a "denied" site permission
+
+**Do only this. Change nothing else.** Verified on the published page (`hlrtlg.readdy.co`): the app is NOT in an iframe and Permissions-Policy already allows the microphone — the problem is the browser **site permission is `denied`** and it re-locks on every refresh. That signature means the app is requesting the mic **without a user gesture** (on load / mount / a `useEffect`), which the browser denies and then remembers. Fix exactly that:
+
+1. **Never request the mic on load.** Remove every `navigator.mediaDevices.getUserMedia(...)` and every `webkitSpeechRecognition`/`SpeechRecognition` `.start()` that runs on page load, on component mount, or inside any `useEffect`/effect that fires without a direct user action. Voice capture starts **only inside the mic button's press-and-hold handler** (`pointerdown`/`touchstart` → a real gesture). An ungestured request is what poisons the permission to "denied" and makes it re-lock each refresh.
+2. **Read permission passively on load (no request).** On mount, call `navigator.permissions.query({ name: 'microphone' })` to *read* state only. If `state === 'denied'`, show a one-line inline hint and keep typing fully working:
+   - **Desktop:** "Click the mic/camera icon in the address bar → set Microphone to Allow, then reload."
+   - **iOS 26:** "⋯ (next to the address bar) → Website Settings → Microphone → Allow."
+   Do not auto-request or re-probe; do not loop the user through OS settings.
+3. **Scope the iOS type-first fallback to iOS only.** The `mic_ios_unreliable` "voice is unreliable here — just type" behavior applies **only when the browser is iOS Safari**. On desktop, actually attempt voice on the gesture and report blocked **only on a real error** — never globally declare voice unavailable on desktop.
+4. **Probe once per gesture, cache for the session.** On the gesture, request once, cache the resulting permission/`MediaStream` for the session, and reuse it — never re-request on every mount or refresh.
+
+### Acceptance (desktop + iOS)
+- A fresh page load requests the mic **zero** times (check: no permission prompt, state stays whatever it was).
+- Press-and-hold on the mic shows the browser's Allow prompt once; after allowing, voice works **and survives a refresh** (no re-lock).
+- When the permission is already `denied`, the app shows the address-bar/Website-Settings hint and typing still fully drives the assistant; once the user allows + reloads, voice works.
+- On desktop, "can't understand verbal commands" is gone once audio is actually captured (the mic was the blocker, not the LLM).
+
+## P289 — ⚠ SINGLE PURPOSE: remove "Ask AI to improve it" and "My Work Highlights" from the default Documents right pane (nothing else)
+
+**Do only this. Change nothing else in the pane.** On the published Documents page the right pane still shows an **"Ask AI to improve it"** control/input and a **"My Work Highlights"** card — both were meant to leave the default view. Remove exactly those two, and stop there:
+
+1. **Delete "Ask AI to improve it"** (its button and any dedicated "ask for a change" input) from the default right-pane view. The pane **is** the assistant — the user types or talks to the assistant directly; there is no separate "Ask AI" input.
+2. **Delete "My Work Highlights"** from the default view. It becomes a **separate on-demand view only** (manifest `pages[]` already declares `{label:"Work Highlights", view:"work_highlights"}`): reachable by a menu/nav item labeled "Work Highlights" or by saying "open work highlights" → `navigate {section:"documents", view:"work_highlights"}`. It is not part of the default pane.
+3. **Leave everything else exactly as-is** — the section map, the current review/finding/proposal, the bullet workbench, the summary walk, sizing, titles. This prompt touches only the two removals above.
+
+### Acceptance
+- The default Documents right pane shows **neither** "Ask AI to improve it" **nor** "My Work Highlights".
+- Saying/clicking "open work highlights" still opens Work Highlights as its own view.
+- No other pane content, layout, or behavior changed.
