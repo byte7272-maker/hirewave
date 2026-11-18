@@ -19,8 +19,11 @@ def test_manifest_shape_and_behaviors():
     assert m["version"] == caps.VERSION
     # the generic behaviors every feature inherits are advertised
     for b in ("guide_on_arrival", "pending_offer", "confirm_destructive",
-              "speak_on_update", "surface_choices", "narrate_values", "error_aware",
+              "speak_on_update", "narrate_values", "error_aware",
               "one_source_of_truth",
+              # P286: reversible edits apply + Undo instead of prompting; pane auto-sizes
+              # to content (no pulsing arrows / hidden-scroll)
+              "undo_over_confirm", "autosize_to_content",
               # core spatial behaviors (P254): point to the focus, don't cover it
               "point_to_focus", "avoid_occlusion",
               # reasoning + bulked consent (P255)
@@ -180,15 +183,20 @@ def test_documents_bullet_workbench_makes_real_improvements():
     assert any(st["highlight"] == "Bullet workbench" for st in docs["steps"])
 
 
-def test_documents_refresh_figures_and_highlights_controls():
-    # Stale period-bound figures are flagged and refreshable from the web (review/accept/
-    # reject), and My Work Highlights still feeds evidence into a bullet.
+def test_documents_refresh_figures_control_and_work_highlights_is_a_separate_page():
+    # P286: stale figures refresh from the web (apply + Undo); Work Highlights is NOT a
+    # default-pane control any more — it's a separate page.
     docs = caps.for_section("documents")
     controls = {c["label"]: c["does"].lower() for c in docs["controls"]}
-    assert "Refresh figures" in controls and "My Work Highlights" in controls
+    assert "Refresh figures" in controls and "My Work Highlights" not in controls
     refresh = controls["Refresh figures"]
-    assert "web" in refresh and ("accept" in refresh or "reject" in refresh)
-    assert "paste" in controls["My Work Highlights"]
+    assert "web" in refresh and ("undo" in refresh or "accept" in refresh or "reject" in refresh)
+    # the default pane no longer offers "Ask AI" (the assistant IS the AI, working in the pane)
+    assert "Ask AI" not in controls
+    # Work Highlights moved to a separate page
+    pages = {p["label"]: p for p in docs.get("pages", [])}
+    assert "Work Highlights" in pages and pages["Work Highlights"]["view"] == "work_highlights"
+    assert "paste" in pages["Work Highlights"]["does"].lower()
     assert any(st["highlight"] == "Refresh figures" for st in docs["steps"])
 
 

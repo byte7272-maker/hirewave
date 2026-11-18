@@ -14,7 +14,13 @@ they are all instances of the SAME small set of generic behaviors:
                          releasing it submits the spoken answer and auto-runs on an
                          affirmed/valid answer; once answered, clear the offer + release
                          the mic permission (no re-fire)
-  * confirm-destructive— any action marked destructive confirms before it runs
+  * confirm-destructive— only a truly IRREVERSIBLE action (permanent delete, send, connect/
+                         disconnect an account) confirms. A reversible edit does NOT prompt —
+                         see undo-over-confirm
+  * undo-over-confirm  — for anything the app can undo/restore (every document edit saves a
+                         version), APPLY it and offer a one-tap Undo instead of asking first.
+                         Fewer prompts; the same safety, via easy undo. Apply this everywhere
+                         a change is reversible
   * highlight + dock    — point at the element being discussed; keep it visible; HOLD the
                          position + highlight until the user acts or a timeout expires
                          (don't snap back and cover the target); interruptible at once.
@@ -24,8 +30,10 @@ they are all instances of the SAME small set of generic behaviors:
   * speak-on-update    — narrate whenever the overlay text changes (every screen); SPEAK
                          every walkthrough step's `say` as it highlights/advances (and on
                          Next) — never highlight a step silently; guide tasks end to end
-  * surface-choices    — offered options render in view/reachable; an unobtrusive cue
-                         (a pulsing arrow) signals content below the fold
+  * autosize-to-content— the assistant's right-pane window sizes itself to fit its content
+                         comfortably; nothing is hidden or needs scrolling and there are NO
+                         pulsing up/down arrows (the right pane has room — grow the pane,
+                         don't hide content)
   * narrate-values     — read a section's live `readouts` and, while narrating, speak each
                          value and highlight its element (aware of what's on screen)
   * error-aware        — detect a visible error/empty/failed-load state on the page and
@@ -52,7 +60,10 @@ VERSION = 1
 #: and the contract these engines honor). Flags, not free text, so the UI can key off them.
 BEHAVIORS = [
     "guide_on_arrival", "recognize_verb_object", "pending_offer", "confirm_destructive",
-    "highlight_and_dock", "speak_on_update", "surface_choices", "narrate_values",
+    # reversible changes apply + offer Undo instead of prompting; the pane auto-sizes to its
+    # content (no hidden/scrolled content, no pulsing arrows) — P286.
+    "undo_over_confirm", "autosize_to_content",
+    "highlight_and_dock", "speak_on_update", "narrate_values",
     "error_aware", "one_source_of_truth",
     # the assistant speaks a scripted line for EVERY state of a multi-step flow (never a
     # silent spinner) and has a spoken answer ready for the questions a user predictably
@@ -454,12 +465,16 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             _action("Review my whole résumé", "walk", ["document", "resume"], "review_document", {}),
             _action("Review my summary", "walk", ["summary"], "review_summary", {}),
             _action("Read a bullet to me", "walk", ["bullet"], "read_bullets", {}),
+            # A bullet edit saves a version, so it APPLIES and offers Undo — no confirm prompt.
             _action("Sharpen a bullet", "change", ["bullet"], "start_playbook", {"playbook": "bullets"},
-                    confirm="Apply this change to the bullet?"),
+                    destructive=False),
             _action("Refresh its figures from the web", "research", ["bullet", "metrics"], "refresh_metric", {}),
             _action("Tailor it to a job", "tailor", ["document"], "start_playbook", {"playbook": "tailor"}),
             _action("Change the design", "change", ["design"], "start_playbook", {"playbook": "design"},
                     destructive=False),
+            # Work Highlights is its OWN page — reachable when needed, not part of the default pane.
+            _action("Open Work Highlights", "show", ["highlights"], "navigate",
+                    {"section": "documents", "view": "work_highlights"}),
             _action("Update it on my job sites", "change", ["document", "boards"], "sync_documents", {},
                     destructive=False),
         ],
@@ -481,11 +496,16 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
              "I show the result as an editable draft and only commit when you approve."},
             {"label": "Refresh figures", "does": "When a bullet's figures are tied to a past period (e.g. '+4.9% "
              "FY2024' read years later) I flag it and can look up the current numbers on the web, explain what I "
-             "found and why, and propose an updated bullet for you to review, edit, accept, or reject."},
-            {"label": "My Work Highlights", "does": "Paste big notes, brags, or data dumps; I extract and synthesize "
-             "evidence I can work into a bullet. Your experience library — I read and use it when I sharpen a line."},
-            {"label": "Ask AI", "does": "Describe a change in words; I edit the document (you confirm)."},
-            {"label": "Versions", "does": "Switch, rename, or activate a saved version — every change saves one."},
+             "found and why, and propose an updated bullet — I apply it and you can Undo."},
+            {"label": "Versions", "does": "Switch, rename, or activate a saved version — every change saves one, "
+             "so any edit is one tap to undo."},
+        ],
+        # Work Highlights is a SEPARATE page, not part of the default right-pane view — the
+        # assistant works in the right pane; open this when you want to paste big notes.
+        "pages": [
+            {"label": "Work Highlights", "view": "work_highlights",
+             "does": "A separate page: paste big notes, brags, or data dumps and I extract and synthesize "
+             "evidence you can work into a bullet. Your experience library — open it when you need it."},
         ],
         "offers": [
             _offer("Want me to review your whole résumé, section by section?", "review_document", {}),
@@ -512,11 +532,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     "date, and propose a tighter version from your own résumé. I'll nudge you to refresh it after "
                     "a big change so it never goes stale.",
              "highlight": "Summary health"},
-            {"say": "If a bullet's numbers are tied to an old year, I'll flag it and can look up the current figure "
-                    "on the web, tell you what I found and why, and propose the update for you to accept or reject.",
+            {"say": "If a bullet's numbers are tied to an old year, I'll flag it, look up the current figure on the "
+                    "web, tell you what I found and why, apply the update — and you can Undo if you don't like it.",
              "highlight": "Refresh figures"},
-            {"say": "Paste bigger notes into My Work Highlights and I'll pull out evidence to strengthen a line.",
-             "highlight": "My Work Highlights"},
         ],
         # Marquee readouts — resolvable from the résumé itself (GET /resumes/{id}) so the
         # marquee always renders. The richer signals (section count, summary freshness,
@@ -661,6 +679,8 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         "current": cap.get("current"),
         "can_do": [a["label"] for a in cap.get("actions", [])],
         "controls": cap.get("controls", []),
+        # Separate pages reachable from the section (not part of the default pane), [] if none.
+        "pages": cap.get("pages", []),
         "walkthrough": cap.get("walkthrough"),
         "steps": cap.get("steps", []),
         "readouts": cap.get("readouts", []),

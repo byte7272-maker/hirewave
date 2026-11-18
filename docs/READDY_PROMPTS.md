@@ -8992,3 +8992,36 @@ The overlap/clicks come from firing utterances concurrently and/or cancelling mi
 - As the assistant reads/reviews, the document **scrolls to and highlights** each part (summary, bullet, role, header); the view is never stuck centered.
 - Bullet review and revision happen entirely in the right pane; the document changes only on approval there.
 - "Remove the bullets from my header / the email address line" edits the résumé, never opening email-connect help.
+
+## P286 — Clean up the assistant's right-pane window: de-brand "AI", drop Ask-AI + Work Highlights from the default view, fewer permissions (apply + Undo), auto-size, no pulsing arrows
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Refinements to the Documents right pane. Manifest changes below are already live (`GET /assistant/capabilities`).
+
+### 1. Default view: only the assistant's working content
+- **Remove "Ask AI to improve it" from the default right-pane view.** The assistant *is* the AI and operates in the pane — a separate "Ask AI" control is redundant. The user just talks/types to the assistant.
+- **Remove "My Work Highlights" from the default view.** It's now a **separate page** (manifest `pages[]` → `{label:"Work Highlights", view:"work_highlights"}`): reachable by a nav/menu item or by saying "open work highlights" (`navigate → {section:"documents", view:"work_highlights"}`), used when the user wants to paste big notes. It is not part of the default pane.
+- The default pane shows the assistant's live interaction content only (orientation, the section map, the current review/finding/proposal, the bullet workbench when active).
+
+### 2. De-brand: it's the assistant, not "AI"
+- Rename the **"AI Summary"** title to just **"Summary"** (drop "AI"). It's a core function of the assistant, not a generic AI widget. Do the same for any other "AI …" labels in the pane.
+- **The written summary appears below the assistant's active window** (the badge/narration card): as the assistant works through the summary, the summary text sits beneath, and the assistant **points to / highlights each item** as it narrates it (reuse the `anchor`/`locate`/`script` from `/summary-review`). One flow, in the right pane.
+
+### 3. One pane only — no third pane
+- **Do not add a third pane for the assistant.** The **right pane is the single working area** for ALL assistant interaction content (map, reviews, bullet review+revision, proposals, answers, the summary walk). The main area is the document; the right pane is the assistant. Nothing assistant-related renders in a separate/extra panel.
+
+### 4. Fewer permissions — apply then Undo (manifest `undo_over_confirm`)
+- The window is cluttered with **redundant messages and permission prompts**. For any action the app can undo/restore — **every document edit saves a version** — **apply it immediately and show a one-tap "Undo,"** instead of asking "Apply this change?" first. The "Sharpen a bullet" / refresh / reword / summary-rewrite flows no longer prompt before applying (`destructive:false` on those actions now) — apply + offer Undo.
+- Keep a confirm ONLY for the genuinely irreversible: permanently deleting a document, disconnecting an account, sending/posting, syncing to external job sites. Everything reversible is apply-then-Undo.
+- **Mimic this across the site** where a change is reversible (versioned docs, saved jobs, pins, settings with history): prefer apply + Undo over a prompt. One undo affordance, consistently placed.
+- Collapse redundant messages: one acknowledgment per action, not a stack. Don't re-announce the same state.
+
+### 5. Auto-size, no hidden content, no pulsing arrows (manifest `autosize_to_content`, `surface_choices` removed)
+- **Remove the pulsating up/down arrows** entirely — they're distracting and signal content below the fold.
+- **Nothing is hidden or needs scrolling inside the assistant's window.** The right pane has room — **size the pane/window to fit its content** (grow to a sensible max, then scroll only if genuinely huge). Content is laid out to be fully visible, not tucked behind a scroll with an arrow cue.
+- On mobile (the bottom sheet, P283) the same rule applies: expand the sheet to fit content up to its max, no pulsing-arrow cues.
+
+### Acceptance
+- The default Documents right pane has no "Ask AI" and no "My Work Highlights"; Work Highlights opens as its own page when asked.
+- The summary panel is titled "Summary" (no "AI"); the summary text sits below the assistant's active window and each item is highlighted as it's narrated.
+- Reversible edits apply immediately with a one-tap Undo and no pre-prompt; only irreversible actions confirm — same pattern elsewhere on the site.
+- No pulsing arrows; the pane auto-sizes so content is fully visible without scrolling; the assistant uses a single right pane (no third panel).
