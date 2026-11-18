@@ -56,6 +56,18 @@ def test_generative_work_uses_premium_not_the_review_llm():
     assert review.calls == 0   # the cheap/critique tier was not used for the rewrite
 
 
+def test_ai_edits_use_premium_for_both_resume_and_cover_letter():
+    # Every Ask-AI edit — résumé and cover letter, minimal pass and whole-doc fallback —
+    # runs on the premium tier so edit quality is consistent and user-facing.
+    for kind in ("resume", "cover letter"):
+        review = _RecordingLLM("review")
+        premium = _RecordingLLM("premium", reply="[]")
+        ra = ResumeAssistant(llm=review, premium_llm=premium)
+        ra.targeted_edits_text("Summary\nEngineer.", "make the summary punchier", kind=kind)
+        assert premium.calls >= 1, kind   # minimal edits went to premium
+        assert review.calls == 0, kind    # not the cheap/critique tier
+
+
 def test_review_summary_uses_the_general_llm_not_premium():
     review = _RecordingLLM("review", reply="Solid resume with clear impact.")
     premium = _RecordingLLM("premium")

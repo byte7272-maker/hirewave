@@ -1737,7 +1737,9 @@ class ResumeAssistant:
         (``kind`` = "resume" | "cover letter") — change only what's asked and leave
         everything else untouched. Small, fast LLM output (just the edits, not a full
         rewrite). Returns [{action, section, before, after, rationale}]. Uses ONLY facts
-        present (plus wording the instruction supplies); empty on failure (no guessing)."""
+        present (plus wording the instruction supplies); empty on failure (no guessing).
+        Runs on the premium tier so every Ask-AI edit — résumé and cover letter, the
+        minimal pass and the whole-document fallback alike — uses the same model."""
         text = (text or "").strip()
         instruction = (instruction or "").strip()
         if not text or not instruction:
@@ -1752,7 +1754,7 @@ class ResumeAssistant:
             reqs = "\nTarget role: " + (job.title or "") + " - " + ", ".join(job.requirements[:10])
         doc = kind if kind in ("resume", "cover letter") else "resume"
         try:
-            out = self.llm.complete(
+            out = self.premium.complete(
                 f"Apply ONLY this instruction to the {doc}, changing nothing else: \"" + instruction
                 + "\". Return the minimal set of edits as a JSON array; each item: {\"action\":\"add\"|"
                 "\"remove\"|\"reword\", \"section\":<the section it's in>, \"before\":<the EXACT "
