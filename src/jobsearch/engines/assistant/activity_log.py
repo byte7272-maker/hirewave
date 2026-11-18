@@ -36,6 +36,8 @@ FUNCTIONS: list[dict] = [
      "blurb": "I write and revise a cover letter for a role from your background."},
     {"key": "review", "topic": "documents", "title": "Review & grade documents",
      "blurb": "I review a résumé or cover letter and point out concrete improvements."},
+    {"key": "full_review", "topic": "documents", "title": "Walk your whole document",
+     "blurb": "I read through the entire résumé (header, summary, every role with its dates and bullets, education, skills) — or cover letter (greeting, opening, body, closing) — announce what I found in each part, and offer to walk you through fixing it, section by section."},
     {"key": "navigate_document", "topic": "documents", "title": "Navigate & highlight your document",
      "blurb": "I show your whole document and jump to any section (Experience, Education, Skills) or highlight any word or paragraph — just say 'go to Experience' or 'highlight leadership'. Works on cover letters too."},
     {"key": "bullet_workbench", "topic": "documents", "title": "Sharpen a bullet",

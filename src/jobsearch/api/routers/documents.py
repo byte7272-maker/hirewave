@@ -2037,6 +2037,41 @@ def document_summary_review(body: SummaryReviewRequest, user: CurrentUser, state
         strip_inline_html(body.text or ""), last_fingerprint=body.last_fingerprint or "", llm=llm)
 
 
+@router.get("/resumes/{resume_id}/full-review")
+def resume_full_review(resume_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """A whole-résumé review — every section walked (header, summary, each experience role
+    with its dates + bullets, education, skills), each with findings + a fix, an anchor to
+    focus/spotlight, and an ordered narration ``script`` that OFFERS to read the findings and
+    moves through the document section by section (not a summary-only result printed in place)."""
+    from jobsearch.engines.assistant import document_review
+
+    resume = get_resume(resume_id, user, state)
+    llm = getattr(state.resume_assistant, "premium", None)
+    return document_review.review_document(strip_inline_html(_resume_text(resume)), llm=llm)
+
+
+@router.get("/cover-letters/{cover_letter_id}/full-review")
+def cover_letter_full_review(cover_letter_id: str, user: CurrentUser, state: StateDep) -> dict:
+    """A whole-cover-letter review — greeting, opening, each body paragraph, and closing —
+    each with findings + a fix, an anchor, and the same offer-to-read narration ``script``."""
+    from jobsearch.engines.assistant import document_review
+
+    cl = get_cover_letter(cover_letter_id, user, state)
+    llm = getattr(state.resume_assistant, "premium", None)
+    return document_review.review_cover_letter(strip_inline_html(_cover_text(cl)), llm=llm)
+
+
+@router.post("/documents/full-review")
+def document_full_review(body: DocumentMapRequest, user: CurrentUser, state: StateDep) -> dict:
+    """Whole-document review for the live editor buffer. ``kind`` is "resume" (header /
+    summary / experience / education / skills) or "cover_letter" (greeting / opening / body /
+    closing)."""
+    from jobsearch.engines.assistant import document_review
+
+    llm = getattr(state.resume_assistant, "premium", None)
+    return document_review.review(strip_inline_html(body.text or ""), kind=body.kind or "resume", llm=llm)
+
+
 @router.get("/cover-letters/{cover_letter_id}/preview.html", response_class=HTMLResponse)
 def cover_letter_preview_html(
     cover_letter_id: str, user: CurrentUser, state: StateDep

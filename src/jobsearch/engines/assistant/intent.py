@@ -24,8 +24,8 @@ INTENTS = {
     "choose", "navigate", "start_playbook", "save", "search_jobs", "research_company",
     "web_search", "sync_documents", "archive", "edit_document",
     # within-document: jump to + highlight a section/keyword; refresh a stale metric from the
-    # web; understand + freshness-check the summary
-    "focus_document", "refresh_metric", "review_summary",
+    # web; understand + freshness-check the summary; walk the WHOLE résumé section by section
+    "focus_document", "refresh_metric", "review_summary", "review_document",
     "read_options", "what_can_i_do",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
@@ -328,6 +328,36 @@ def _review_summary(t: str, context: dict) -> Optional[IntentResult]:
     if not is_review:
         return None
     return IntentResult("review_summary", 0.88, {})
+
+
+# "review my résumé", "go through my whole résumé", "walk my résumé section by section",
+# "check my whole résumé" → a WHOLE-document review (header, summary, every role, education,
+# skills) that offers to read the findings and walks each section. Distinct from
+# review_summary (summary only) and from a bare edit.
+_RESUME_NOUN_RE = re.compile(r"\b(resume|résumé|resumé|cv|cover\s*-?\s*letter|document)\b")
+_WHOLE_RE = re.compile(r"\b(whole|entire|everything|all of it|section by section|top to bottom)\b")
+
+
+def _review_document(t: str, context: dict) -> Optional[IntentResult]:
+    """Walk the WHOLE résumé or cover letter → ``review_document``. Fires on a review/
+    go-through request aimed at the document (not just the summary); ``doc`` says which."""
+    if _SUMMARY_NOUN_RE.search(t):
+        return None  # a summary-specific request belongs to _review_summary
+    if not (_RESUME_NOUN_RE.search(t) or _WHOLE_RE.search(t)):
+        return None
+    is_review = bool(_REVIEW_VERB_RE.search(t)
+                     or re.search(r"\b(go through|walk|run through)\b", t)
+                     or _WHOLE_RE.search(t))
+    if not is_review:
+        return None
+    named = _match_section(t)
+    if named not in (None, "documents"):
+        return None  # "review my matches/jobs" isn't a document review
+    slots: dict[str, Any] = {}
+    dt = _doc_target(t)
+    if dt:
+        slots["doc"] = dt  # "review my cover letter" → doc=cover_letter
+    return IntentResult("review_document", 0.86, slots)
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -933,6 +963,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if rs is not None:
         return rs
 
+    # walk the WHOLE résumé ("review my résumé", "go through my whole résumé section by
+    # section") — the full document review. After the summary check so a summary-specific
+    # request stays summary-only.
+    rd = _review_document(t, context)
+    if rd is not None:
+        return rd
+
     # web-refresh a bullet's DATED figures ("are these numbers still current?", "refresh
     # the figures from the web", "find the latest metrics for this bullet") — the
     # metric-refresh flow (research → propose). Checked before _edit_document so a
@@ -1182,6 +1219,8 @@ _SUGGESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("Refresh the figures from the web", ("documents",)),
     ("Review my summary", ("documents",)),
     ("Is my summary up to date?", ("documents",)),
+    ("Review my whole résumé", ("documents",)),
+    ("Go through my résumé section by section", ("documents",)),
     # getting around
     ("Take me to my matches", ("documents", "dashboard", "interview", "inbox")),
     ("Set up auto apply", ("dashboard", "auto_apply")),

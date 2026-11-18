@@ -8833,3 +8833,32 @@ The review response now carries the locations — use them:
 - The assistant's expanded window is the **right-pane column** (a bottom sheet on mobile) — it never floats over the document or pops out centered.
 - Every finding/result/proposal appears **in the right pane** with a spoken announcement + a next-step question; **nothing** assistant-related renders at the top of the page.
 - Between turns the assistant is just the compact badge; results never force a content-blocking modal, and the user can read and act on everything in the right pane without digging.
+
+## P280 — Review the WHOLE document (résumé AND cover letter) — walk every section, offer to read the findings, don't stop at the summary
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Builds on P276–P279. Bug: "review" focuses on the summary and **prints** its results instead of **offering to read** them, and it **never goes to the rest of the document** — the header/title, the roles with their dates and bullets, education, skills (or, for a cover letter, the body and closing). Fix: a whole-document review that walks every section and offers to read what it found.
+
+### 0. Backend (ready — use it)
+- **Résumé:** `GET /api/v1/resumes/{id}/full-review`. **Cover letter:** `GET /api/v1/cover-letters/{id}/full-review`. **Live buffer:** `POST /api/v1/documents/full-review {text, kind}` (`kind` = `"resume"` or `"cover_letter"`).
+- Response: `{kind, sections[], findings[], script[], stats}`.
+  - `sections[]` — each `{canon, title, anchor{char_start,char_end}, announce, findings[]}`. For a résumé: `header, summary, experience, education, skills`. For a cover letter: `greeting, opening, body, closing`.
+  - `findings[]` — each `{id, section, title, detail, severity, fix, locate}` (the fix is included; `locate` is the exact offending text where one exists, e.g. a stale `38%` or `To Whom It May Concern`).
+  - `script[]` — the ordered narration (below).
+- Intent: `POST /assistant/interpret` now returns **`review_document`** (slot `doc:"cover_letter"` when the user says "review my cover letter") for "review my résumé", "go through my whole résumé", "walk it section by section". `review_summary` still exists for a summary-only review.
+
+### 1. Offer to read, then WALK — don't print a summary-only result
+- On `review_document` (or the "Review my whole résumé/cover letter" action), fetch full-review for the current doc (use `doc`/the open doc to pick résumé vs cover-letter endpoint; `stats.roles`/`paragraphs` are available).
+- **Play the `script`** (same contract as P278): step 0 is an **offer** (`ask:true`) — the assistant announces it read the whole document and asks to walk through the findings. On yes, auto-advance through the rest; the final `close` step is the only other `ask`.
+- Each `section` step points at that section's `anchor` (scroll + spotlight it) and speaks its `announce`. Each `finding` step points at its `locate` (or the section anchor) and speaks `"{title}. {detail} Here's the fix: {fix}"`. **Every section is visited even when clean** ("Your experience — 3 roles, all with dates and quantified bullets. Solid.") so the walk genuinely moves through the document, not just the summary.
+- Reuse P278's play mechanics exactly: speak each step once (key on step index), auto-advance on utterance end (or ~2.5s), stop at `ask` steps, never go silent, show each `say` as caption text if TTS is blocked.
+
+### 2. Right pane + focus (P279)
+- All of this renders in the **right pane** (the findings list, the per-section cards, the action buttons), with the compact badge narrating and pointing. The document stays centered in the main area; the spotlight moves to each section/finding via `anchor`/`locate`. Nothing prints at the top of the page or in a floating window.
+
+### 3. Both document types
+- The exact same UI drives a cover letter: the walk is greeting → opening → body → closing, with findings like a generic salutation, a paragraph with no concrete result, dated figures, or a missing call to action. Pick the endpoint by the open document's type (or the `doc` slot).
+
+### Acceptance
+- "Review my résumé" → the assistant says it read the **whole** résumé and **offers** to walk it; on yes it visits header, summary, each role (with dates/bullets), education, and skills — spotlighting each and speaking the finding + fix — then asks what to fix first.
+- "Review my cover letter" → the same, across greeting/opening/body/closing.
+- It never stops at the summary, never just prints results, and never goes silent; everything is in the right pane with the badge pointing.

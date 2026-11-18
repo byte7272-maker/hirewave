@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.engines.assistant import document_refresh as R
+from jobsearch.engines.assistant import document_review as DR
 from jobsearch.engines.assistant import summary_review as SR
 from jobsearch.engines.assistant.document_map import analyze_block, build_map, locate
 from jobsearch.engines.integration import MockTokenExchanger
@@ -255,6 +256,56 @@ def test_summary_review_empty_summary_flags_missing():
     assert out["weaknesses"] and out["weaknesses"][0]["id"] == "missing"
 
 
+_COVER_LETTER = """John Williams
+123 Main St | john@x.com
+November 18, 2026
+
+To Whom It May Concern,
+
+I am writing to apply. I have done many things over the years and would be a good fit
+for your team based on my broad background and work ethic.
+
+In my last role I supported delivery and helped the team hit goals in FY2024, improving
+things by 38% through better process and planning across the group.
+
+Sincerely,
+John Williams
+"""
+
+
+# --- document_review (whole résumé + cover letter) --------------------------
+def test_document_review_walks_every_resume_section_and_offers_to_read():
+    out = DR.review_document(_RESUME, year=2027)
+    assert out["kind"] == "resume"
+    # it VISITS every section, in reading order
+    assert [s["canon"] for s in out["sections"]] == [
+        "header", "summary", "experience", "education", "skills"]
+    # the script OFFERS to read first (an ask), then narrates, then a closing ask
+    assert out["script"][0]["state"] == "offer" and out["script"][0]["ask"] is True
+    assert out["script"][-1]["state"] == "close" and out["script"][-1]["ask"] is True
+    assert all(s["say"].strip() for s in out["script"])          # never a silent step
+    # experience is walked per role (the stale FY figure bullet is flagged)
+    exp = next(s for s in out["sections"] if s["canon"] == "experience")
+    assert any(f["section"] == "experience" for f in out["findings"])
+    assert exp["anchor"] and exp["anchor"]["char_start"] < exp["anchor"]["char_end"]
+
+
+def test_document_review_cover_letter_walks_greeting_to_closing():
+    out = DR.review(_COVER_LETTER, kind="cover_letter", year=2027)
+    assert out["kind"] == "cover_letter"
+    assert [s["canon"] for s in out["sections"]] == ["greeting", "opening", "body", "closing"]
+    ids = {f["id"] for f in out["findings"]}
+    assert "generic_greeting" in ids          # "To Whom It May Concern"
+    assert "no_cta" in ids                     # no call to action
+    assert any(f["id"] == "stale_metric" and f["locate"] == "38%" for f in out["findings"])
+    assert out["script"][0]["state"] == "offer" and out["script"][0]["ask"] is True
+
+
+def test_document_review_dispatch_by_kind():
+    assert DR.review(_RESUME, kind="resume")["kind"] == "resume"
+    assert DR.review(_COVER_LETTER, kind="cover_letter")["kind"] == "cover_letter"
+
+
 # --- endpoints --------------------------------------------------------------
 def _client():
     state = AppState(exchanger=MockTokenExchanger())
@@ -315,6 +366,23 @@ def test_refresh_metric_empty_bullet_400():
     c, _ = _client()
     h = _auth(c)
     assert c.post("/api/v1/documents/refresh-metric", headers=h, json={"bullet": "  "}).status_code == 400
+
+
+def test_full_review_endpoints():
+    c, _ = _client()
+    h = _auth(c)
+    rid = _upload_resume(c, h, _RESUME)
+    r = c.get(f"/api/v1/resumes/{rid}/full-review", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "resume"
+    assert [s["canon"] for s in body["sections"]] == [
+        "header", "summary", "experience", "education", "skills"]
+    assert body["script"][0]["state"] == "offer"
+    # live-buffer variant dispatches on kind
+    r2 = c.post("/api/v1/documents/full-review", headers=h,
+                json={"text": _COVER_LETTER, "kind": "cover_letter"})
+    assert r2.status_code == 200 and r2.json()["kind"] == "cover_letter"
 
 
 def test_summary_review_endpoints():

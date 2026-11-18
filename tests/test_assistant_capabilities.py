@@ -66,7 +66,7 @@ def test_every_offer_is_bound_to_a_real_action():
     valid = {"navigate", "start_playbook", "research_company", "search_jobs", "save",
              "status_report", "sync_documents", "web_search",
              # P275 within-document actions (jump/highlight a section/keyword; web-refresh a metric)
-             "focus_document", "refresh_metric", "review_summary"}
+             "focus_document", "refresh_metric", "review_summary", "review_document"}
     playbooks = set(caps.manifest()["playbooks"])
     for s in caps.manifest()["sections"]:
         for o in s.get("offers", []):
@@ -82,7 +82,7 @@ def test_manifest_actions_name_real_intents():
              "status_report", "sync_documents",
              # P275/P276: within-document focus/highlight, web-refresh a metric, read a bullet,
              # review the summary
-             "focus_document", "refresh_metric", "read_bullets", "review_summary"}
+             "focus_document", "refresh_metric", "read_bullets", "review_summary", "review_document"}
     for s in caps.manifest()["sections"]:
         for a in s["actions"]:
             assert a["intent"] in valid, (s["section"], a)

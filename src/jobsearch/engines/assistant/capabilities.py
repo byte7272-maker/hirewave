@@ -100,6 +100,12 @@ BEHAVIORS = [
     # understanding/weaknesses/suggestion/fresh/fingerprint; the summary_review flow walks
     # it in the right pane, badge pointing/narrating step by step).
     "understand_summary", "keep_summary_fresh",
+    # whole-document review (P280): the assistant walks the ENTIRE document — résumé
+    # (header, summary, each experience role with dates + bullets, education, skills) or
+    # cover letter (greeting, opening, body, closing) — OFFERS to read the findings, and
+    # moves section by section (GET /resumes|cover-letters/{id}/full-review → sections/
+    # findings/script), never a summary-only result printed in place.
+    "review_whole_document",
     # layout (P279): the assistant's HOME is the docked right pane — its expanded window
     # lives there (not a floating overlay), and every result/finding surfaces there, never
     # buried in a floating window, at the top of the page, or popped out at random. The only
@@ -242,6 +248,24 @@ FLOWS: dict[str, dict[str, Any]] = {
             "fresh": "Your summary is in good shape and still matches your résumé — nothing to change "
                      "right now. I'll flag it if a big change makes it drift.",
             "error": "That didn't go through. Want me to try again?",
+        },
+    },
+    # Walk the WHOLE document section by section, offering to read what was found (P280).
+    # Placeholders come from GET /resumes|cover-letters/{id}/full-review; the client plays
+    # the ordered `script` (offer → each section announce + findings → close), pointing at
+    # each section's anchor / each finding's locate.
+    "document_review": {
+        "label": "Review your whole document",
+        "focus": "each section in turn, with findings in the right pane",
+        "ask": "offer",
+        "speak": {
+            "offer": "I read through your whole {doc} — want me to walk you through what I found, "
+                     "section by section?",
+            "section": "{announce}",
+            "finding": "{title}. {detail} Here's the fix: {fix}",
+            "close": "That's the full pass. Want me to start fixing these, top to bottom?",
+            "clean": "That's the full pass — it's in good shape. Nothing needs changing right now.",
+            "error": "That didn't go through — want me to try again?",
         },
     },
     # My Work Highlights: turn a pasted data dump into résumé-ready evidence (P251 §3).
@@ -406,6 +430,8 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "locate": "/api/v1/documents/locate",
             "refresh_metric": "/api/v1/documents/refresh-metric",
             "summary_review": "/api/v1/resumes/{id}/summary-review",
+            "full_review_resume": "/api/v1/resumes/{id}/full-review",
+            "full_review_cover_letter": "/api/v1/cover-letters/{id}/full-review",
         },
         "actions": [
             _action("Show my résumé", "show", ["resume"], "navigate", {"section": "documents", "doc": "resume"}),
@@ -414,6 +440,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                     {"section": "documents", "mode": "section", "highlight": True}),
             _action("Find or highlight text", "search", ["text"], "focus_document",
                     {"section": "documents", "mode": "text", "highlight": True}),
+            _action("Review my whole résumé", "walk", ["document", "resume"], "review_document", {}),
             _action("Review my summary", "walk", ["summary"], "review_summary", {}),
             _action("Read a bullet to me", "walk", ["bullet"], "read_bullets", {}),
             _action("Sharpen a bullet", "change", ["bullet"], "start_playbook", {"playbook": "bullets"},
@@ -450,6 +477,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             {"label": "Versions", "does": "Switch, rename, or activate a saved version — every change saves one."},
         ],
         "offers": [
+            _offer("Want me to review your whole résumé, section by section?", "review_document", {}),
             _offer("Want me to review your summary and flag anything out of date?", "review_summary", {}),
             _offer("Want me to walk the document section by section?", "focus_document",
                    {"section": "documents", "mode": "section", "target": "summary", "highlight": True}),
