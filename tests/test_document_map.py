@@ -204,6 +204,31 @@ def test_summary_review_gives_anchor_and_per_weakness_locate():
         assert cliche["locate"] and cliche["locate"].lower() in _WEAK_SUMMARY_RESUME.lower()
 
 
+def test_summary_review_script_is_gapless_and_ends_with_one_ask():
+    # The ordered narration script so the client never has to assemble lines or go silent.
+    out = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)
+    script = out["script"]
+    assert script and all(s["say"].strip() for s in script)          # never a silent step
+    assert script[0]["state"] == "understanding"                      # opens with the real read
+    asks = [s for s in script if s["ask"]]
+    assert len(asks) == 1 and script[-1] is asks[0]                   # exactly one, at the end
+    # a text-specific finding carries its locate into the script
+    assert any(s["weakness_id"] == "cliche" and s["locate"] for s in script)
+
+
+def test_summary_review_script_fresh_and_missing_paths():
+    # fresh (in-sync, concise) summary → a single-ask fresh close, no weakness steps
+    strong = ("Name\nIT Director\n\n## Summary\nIT Director with 12+ years leading global "
+              "delivery in Python and AWS, cutting incident response time 38 percent.\n\n"
+              "## Experience\n**Acme** -- IT Director (2019 - Present)\n- Cut response 38%.\n\n"
+              "## Skills\nPython, AWS, Leadership\n")
+    fresh = SR.review_summary(strong, year=2027)
+    assert fresh["script"][-1]["state"] == "fresh" and fresh["script"][-1]["ask"] is True
+    # no summary → a single missing/offer-to-draft step
+    missing = SR.review_summary("Name\nIT Director\n\n## Experience\n- did things", year=2027)
+    assert len(missing["script"]) == 1 and missing["script"][0]["state"] == "missing"
+
+
 def test_summary_review_fingerprint_is_deterministic():
     a = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)["fingerprint"]
     b = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)["fingerprint"]

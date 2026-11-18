@@ -8778,3 +8778,29 @@ The review response now carries the locations — use them:
 - Starting a summary review calls summary-review **once**, speaks its opening line **once**, and does not loop or re-check the résumé in the background.
 - The summary is **scrolled into view and spotlighted**, with the badge beside it; walking the findings moves the spotlight to each `locate` span (or the whole summary for structural ones).
 - The flow reaches a resting state at the proposal (or "fresh") and stops talking until the user acts.
+
+## P278 — ⚠ FIX: the summary review goes SILENT after the first line — play the ordered narration script end to end
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). After P277 the loop is gone, but now the assistant "starts to read/analyze the résumé then goes silent — auto-focus still happens but it doesn't narrate through any of it." The speak-once guard over-corrected: it speaks the opening line, then never advances. Fix: play the backend's ready-made script in order, auto-advancing, never silent.
+
+### 1. Use the response's `script` — don't assemble lines yourself
+`GET /resumes/{id}/summary-review` now returns **`script`**: an ordered array of steps, each `{state, say, focus, locate, weakness_id, ask}`:
+- `say` — the exact line to speak (already assembled: the real read, then drift, then each weakness as "Title. Detail. Here's the fix: …", then the proposal or the "fresh" close). **Never empty.**
+- `focus` is `"summary"` (point at the whole summary via `anchor`); when `locate` is non-empty, highlight that exact text instead (`+4.9%`, `Results-driven`, `I have`).
+- Exactly **one** step has `ask:true` — the last one (the proposal, the "fresh" close, or the "draft one?" offer). Every earlier step is narrate-and-advance.
+
+### 2. Play it as a sequence that auto-advances (the actual silence fix)
+- Keep an index `i` into `script`. To play step `i`: move the spotlight/badge to its `locate` (or the `anchor`), **speak `say`**, and show `say` as the caption.
+- **Advance on utterance end:** when the TTS `onend` fires (or, if speech is unavailable/instant, after a short readable delay ~2.5s), increment `i` and play the next step — **until a step with `ask:true`, where you stop and wait** for the user's yes/no. This is what carries it through all the findings instead of stopping at the first.
+- The speak-once guard from P277 must key on **the step index `i`, not the state name** (many steps share `state:"weakness"`). Guard: "don't re-speak the same `i`." Re-render must never restart step `i`, and must never skip advancing.
+- Respect the pace control and a Pause/Next: Next jumps to `i+1` immediately; Pause stops auto-advance (but the user can resume). A manual advance and the `onend` advance must not double-fire (guard by `i`).
+- If TTS fails or is blocked, **do not go silent in the UI**: still advance through the steps on the timer and show each `say` as text (the app's never-silent rule). Offer the type/caption fallback.
+
+### 3. Never strand the user
+- There is always a terminal `ask` step, so the flow ends in a clear question (use it / draft one / nothing to change). After the user answers, stop — don't loop back (that was P277).
+- If `script` is somehow empty (shouldn't happen), speak `understanding.reads_as` once and stop; never sit silent with a spotlight up.
+
+### Acceptance
+- Starting a summary review **speaks every step in order** — the read, the drift, each weakness with its fix — moving the spotlight to each, then stops at the proposal/"fresh"/"draft one?" question. No silent gap after the first line.
+- Auto-advance works without a click (on utterance end / short delay); Next and Pause work; nothing double-speaks a step.
+- With speech blocked, the steps still advance and each line shows as text — the assistant is never silent *and* stuck.

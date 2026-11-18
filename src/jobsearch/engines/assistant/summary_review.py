@@ -39,8 +39,9 @@ _CLICHE_RE = re.compile(
 _FIRST_PERSON_RE = re.compile(r"\b(i am|i'?m|i have|i've|my )\b", re.I)
 _YEARS_RE = re.compile(r"\b(\d{1,2})\s*\+?\s*(?:years?|yrs?)\b", re.I)
 
-#: Summary length guidance (words).
-_MIN_WORDS = 18
+#: Summary length guidance (words). A tight one-liner (~12+ words) is fine; the floor only
+#: catches a genuinely too-thin summary, so a good concise summary isn't falsely flagged.
+_MIN_WORDS = 12
 _MAX_WORDS = 75
 
 
@@ -187,6 +188,54 @@ def _weaknesses(summary: str, signals: dict, und: dict, year: Optional[int]) -> 
     return out
 
 
+def _narration_script(summary: str, und: dict, stale_reasons: list, weaknesses: list,
+                      suggestion: str, fresh: bool, anchor) -> list[dict]:
+    """The ordered lines the assistant speaks for a summary review — assembled here so the
+    client just plays them in sequence (never assembling text itself, never going silent).
+    Each step: {state, say, focus, locate, weakness_id?, ask}. ``focus:"summary"`` means
+    point at the whole summary (``anchor``); a non-empty ``locate`` means highlight that
+    exact text. The last step is the only one with ``ask=True`` (waits for the user)."""
+    steps: list[dict] = []
+
+    def step(state, say, *, locate="", weakness_id="", ask=False):
+        steps.append({"state": state, "say": say, "focus": "summary",
+                      "locate": locate, "weakness_id": weakness_id, "ask": ask})
+
+    if not summary:
+        step("missing",
+             "Your résumé doesn't have a summary yet — the two or three lines at the top that "
+             "pitch who you are. Want me to draft one from your experience?", ask=True)
+        return steps
+
+    step("understanding", und.get("reads_as", "Here's your summary."))
+    if stale_reasons:
+        step("stale", "It's drifted from the rest of your résumé — " + _join(stale_reasons) + ".")
+    if weaknesses:
+        step("weaknesses",
+             f"I found {len(weaknesses)} thing{'s' if len(weaknesses) != 1 else ''} to tighten. "
+             "I'll take them one at a time.")
+        for w in weaknesses:
+            step("weakness", f"{w['title']}. {w['detail']} Here's the fix: {w['fix']}",
+                 locate=w.get("locate", ""), weakness_id=w["id"])
+        step("proposing",
+             f"Here's a rewrite that addresses those, using only what's already in your résumé: "
+             f"“{suggestion}”. Want me to use it?", ask=True)
+    else:
+        step("fresh",
+             "Your summary is in good shape and still matches your résumé — nothing to change "
+             "right now. I'll flag it if a big change makes it drift.", ask=True)
+    return steps
+
+
+def _join(parts: list) -> str:
+    parts = [p for p in parts if p]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
 def _summary_anchor(resume_text: str, summary: str, data) -> Optional[dict]:
     """Where the summary lives in the document, so the client can scroll to + highlight it.
     Prefers the Summary section's char range; falls back to locating the summary text."""
@@ -265,13 +314,20 @@ def review_summary(resume_text: str, *, data=None, year: Optional[int] = None,
         if polished:
             suggestion = polished
 
+    anchor = _summary_anchor(resume_text, summary, data)
+    script = _narration_script(summary, und, stale_reasons, weaknesses, suggestion, fresh, anchor)
+
     return {
         "present": bool(summary),
         "summary": summary,
         # Where the summary sits in the document, so the client can scroll to + spotlight it
         # (fixes the assistant not pointing at/focusing the summary). Each weakness also
         # carries a `locate` string to highlight the exact offending text where one exists.
-        "anchor": _summary_anchor(resume_text, summary, data),
+        "anchor": anchor,
+        # An ORDERED, ready-to-speak walkthrough so the client never has to assemble lines
+        # (and never stalls/goes silent): play each step's `say`, point at its `locate`/anchor,
+        # auto-advance when the utterance ends, stop at the `ask` step. See docs/P278.
+        "script": script,
         "understanding": und,
         "weaknesses": weaknesses,
         "suggestion": suggestion,
