@@ -102,6 +102,22 @@ def test_answer_howto_upload_and_sync_with_steps():
     assert al.answer("how do I update my résumé on Indeed?", [])["form"] == "how_to"
 
 
+def test_kb_knows_document_mastery_and_summary_features():
+    # The KB covers the P275/P276 capabilities so the assistant can answer "what can you do".
+    docs = al.functions_overview("documents")
+    titles = " | ".join(f["title"].lower() for f in docs["functions"])
+    for cue in ("navigate", "sharpen a bullet", "refresh dated numbers", "summary fresh"):
+        assert cue in titles, (cue, titles)
+
+
+def test_answer_howto_routes_refresh_summary_and_navigation():
+    assert al.answer("how do I refresh an old number?", [])["title"].lower().startswith("refresh a dated")
+    assert "summary" in al.answer("how do I check my summary?", [])["title"].lower()
+    assert "highlight" in al.answer("how do I highlight a word?", [])["title"].lower()
+    # a plain "update my résumé on Indeed" still routes to sync, not the figure-refresh how-to
+    assert al.answer("how do I update my résumé on Indeed?", [])["title"].lower().startswith("put your")
+
+
 def test_answer_sites_what_is_where_and_when():
     events = [
         _ev("synced", "resume", "Data Analyst", topic="sync", ago_min=120),

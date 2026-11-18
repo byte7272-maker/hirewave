@@ -95,6 +95,39 @@ TROUBLESHOOTING: dict[str, dict] = {
         "fix": "Use the Download button + the upload steps to add it by hand.",
         "retry": False, "ask_again": False,
     },
+    # --- document assistant: navigate / refresh figures / summary review -------------
+    "no_document_text": {
+        "ack": "I can't read this document yet.",
+        "cause": "There's no readable text — it may be an image-only PDF or still processing.",
+        "fix": "Re-upload it as a text PDF, DOCX, or TXT, and I'll map and work it.",
+        "retry": False, "ask_again": False,
+    },
+    "locate_no_match": {
+        "ack": "I couldn't find that in your document.",
+        "cause": "The word or phrase I searched for isn't in the current text.",
+        "fix": "Check the spelling, or tell me a different word or section to jump to.",
+        "retry": False, "ask_again": False,
+    },
+    "no_sources_fetched": {
+        "ack": "I didn't get any pages back to read.",
+        "cause": "The web search returned no page text — the research step didn't run or the "
+                 "browser extension isn't active.",
+        "fix": "Run the search first (and make sure Project Harbor Connect is enabled with Web "
+               "research on), then I'll propose an update from what the pages say.",
+        "retry": True, "ask_again": False,
+    },
+    "metric_not_found": {
+        "ack": "I couldn't find a clearer, newer figure for that.",
+        "cause": "The pages I read didn't state an updated number I can stand behind.",
+        "fix": "Point me at a specific page with the figure, or leave the bullet as it is.",
+        "retry": False, "ask_again": False,
+    },
+    "no_summary": {
+        "ack": "Your résumé doesn't have a summary yet.",
+        "cause": "There's no summary section at the top to review.",
+        "fix": "Add a 2–3 line summary — or say the word and I'll draft one from your experience.",
+        "retry": False, "ask_again": False,
+    },
     # --- network / server ----------------------------------------------------------
     "network": {
         "ack": "I lost the connection for a second.",
@@ -146,6 +179,16 @@ _SIGNATURES: list[tuple[str, str]] = [
     (r"site access|not inject|on all sites|enable .* site", "no_site_access"),
     (r"no (résumé|resume)|résumé to|upload (or|a) résumé", "no_resume_file"),
     (r"picker|wouldn'?t (take|accept)|attach.*fail", "attach_failed"),
+    # document assistant (check these before the generic not_found/network signatures)
+    (r"no (readable )?(document |résumé |resume )?text|unreadable (document|résumé|resume|pdf)|"
+     r"image-?only|can'?t read (the |this )?(document|résumé|resume|pdf)", "no_document_text"),
+    (r"no (sources?|pages?) (back|fetched|returned)|no page text|nothing fetched|"
+     r"search didn'?t run|research didn'?t run", "no_sources_fetched"),
+    (r"no (newer|updated|current) (figure|number|metric)|couldn'?t find .*(figure|number|metric)|"
+     r"metric.*not found|figure.*not found", "metric_not_found"),
+    (r"no summary|summary (is )?(missing|empty)|without a summary|doesn'?t have a summary", "no_summary"),
+    (r"(couldn'?t|could not|can'?t) (find|locate).*(word|phrase|section|in (the |your )?(document|résumé|resume))|"
+     r"not (in|found in) (the |your )?(document|résumé|resume)|no match (in|for).*(document|text)", "locate_no_match"),
     (r"not-?allowed|service-?not-?allowed|audio-?capture|notallowed|permission.*(mic|microphone)|"
      r"(mic|microphone).*(denied|blocked|not allowed)|block.*mic", "mic_blocked"),
     (r"not ?support|unsupported|no ?speechrecognition|no-?recognition|webkitspeech.*undefined", "mic_unsupported"),

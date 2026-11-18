@@ -99,3 +99,22 @@ def test_error_endpoints_require_auth():
     c, _ = _client()
     assert c.post("/api/v1/assistant/error", json={"message": "x"}).status_code == 401
     assert c.get("/api/v1/assistant/errors").status_code == 401
+
+
+def test_document_assistant_error_awareness():
+    # P275/P276 flows: each new failure mode classifies, acknowledges (never silent), and
+    # carries an actionable fix.
+    cases = {
+        "no readable text in this résumé": "no_document_text",
+        "no pages fetched from the search": "no_sources_fetched",
+        "couldn't find a newer figure": "metric_not_found",
+        "this résumé has no summary": "no_summary",
+        "couldn't find that word in the document": "locate_no_match",
+    }
+    for msg, kind in cases.items():
+        assert ts.classify("", msg) == kind, (msg, ts.classify("", msg))
+        h = ts.handle(kind)
+        assert h["ack"].strip() and h["fix"].strip()
+    # the refresh/research network issue is worth an auto-retry; the "not found" ones are not
+    assert ts.lookup("no_sources_fetched")["retry"] is True
+    assert ts.lookup("metric_not_found")["retry"] is False

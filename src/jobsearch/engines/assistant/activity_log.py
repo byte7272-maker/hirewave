@@ -36,6 +36,14 @@ FUNCTIONS: list[dict] = [
      "blurb": "I write and revise a cover letter for a role from your background."},
     {"key": "review", "topic": "documents", "title": "Review & grade documents",
      "blurb": "I review a résumé or cover letter and point out concrete improvements."},
+    {"key": "navigate_document", "topic": "documents", "title": "Navigate & highlight your document",
+     "blurb": "I show your whole document and jump to any section (Experience, Education, Skills) or highlight any word or paragraph — just say 'go to Experience' or 'highlight leadership'. Works on cover letters too."},
+    {"key": "bullet_workbench", "topic": "documents", "title": "Sharpen a bullet",
+     "blurb": "Point me at a single bullet and I read it, then suggest real improvements to that line — a stronger rewording, a cleaner rephrase, or a work highlight folded in — as an editable draft you approve before it changes."},
+    {"key": "refresh_metric", "topic": "documents", "title": "Refresh dated numbers from the web",
+     "blurb": "When a bullet's figures are tied to a past year (e.g. '+4.9% FY2024'), I look up the current numbers on the web, explain what I found and why, and propose an updated line for you to accept, edit, or reject. Needs the Project Harbor Connect extension for the web lookup."},
+    {"key": "summary_health", "topic": "documents", "title": "Keep your summary fresh",
+     "blurb": "I actually read your summary — tell you what it claims, list the weaknesses I find (no role, vague, no number, missing your top skills) each with a fix, and propose a rewrite from your own résumé. I flag it to refresh after a big change so it never goes stale."},
     {"key": "versions", "topic": "documents", "title": "Keep résumé versions",
      "blurb": "I save tailored variants you can switch between, so you reuse the right one per job."},
     {"key": "sync", "topic": "sync", "title": "Keep your résumé current across job sites",
@@ -93,6 +101,39 @@ HOW_TO: dict[str, dict] = {
             "Click the site's own Save. (If the site won't accept it directly, I download it with upload steps.)",
             "Your résumé's visibility on the site stays as you set it — this never makes it public or searchable.",
             "I record that the site now holds that version, so I can tell you what's where.",
+        ],
+    },
+    "refresh_metric": {
+        "title": "Refresh a dated number from the web",
+        "requirements": [
+            "Install the Project Harbor Connect browser extension and enable Web research.",
+        ],
+        "steps": [
+            "Open the bullet with the old figure (I flag ones tied to a past year, like 'FY2024').",
+            "Say 'refresh the figures from the web' or tap the dated-figures prompt.",
+            "I look up the current number, read you what I found and why, and show the sources.",
+            "Review the proposed line — edit it if you like — then accept or reject it.",
+            "On accept I update the bullet and save a version; nothing changes until you approve.",
+        ],
+    },
+    "review_summary": {
+        "title": "Review your summary",
+        "requirements": [],
+        "steps": [
+            "Say 'review my summary' (or 'is my summary up to date?').",
+            "I read back what it actually claims, then check it against the rest of your résumé.",
+            "I walk each weakness I find — one at a time — with a fix for each.",
+            "I propose a rewrite built only from your own résumé facts; edit, accept, or reject it.",
+            "After a big change to your résumé I flag the summary to refresh so it never goes stale.",
+        ],
+    },
+    "navigate_document": {
+        "title": "Jump to or highlight part of your document",
+        "requirements": [],
+        "steps": [
+            "Say 'go to Experience' (or Education, Skills, Summary) and I scroll to and highlight it.",
+            "Say 'highlight leadership' or 'where does it say Education' to spotlight a word or line.",
+            "On a cover letter the same thing highlights the word, sentence, or paragraph.",
         ],
     },
 }
@@ -252,6 +293,14 @@ _SITES_RE = re.compile(
     r"what('?s| is) on (my |the )?[a-z]+|synced where|been done on|on each site|per site)\b", re.I)
 _UPLOAD_RE = re.compile(r"\bupload|add (my |a )?(résumé|resume|cv)\b", re.I)
 _SYNC_RE = re.compile(r"\b(sync|on (a |the )?(job )?site|on (indeed|linkedin|a board)|keep.*current|update.*site)\b", re.I)
+# How-to routing for the document-mastery features (P275/P276).
+_REFRESHHOW_RE = re.compile(
+    r"\b(refresh|update|fix|current|latest|outdated|stale|old).{0,24}\b(number|figure|metric|stat|percentage|growth|revenue)s?\b"
+    r"|\b(number|figure|metric|stat)s?\b.{0,24}\b(current|up to date|out of date|from the web|outdated)\b", re.I)
+_SUMMARYHOW_RE = re.compile(r"\b(summary|profile|objective|headline)\b", re.I)
+_NAVHOW_RE = re.compile(
+    r"\b(go to|jump to|navigate|highlight|find|where .* say|spotlight)\b.{0,24}\b(section|experience|education|skills|summary|word|phrase|paragraph|line)\b"
+    r"|\bhighlight\b", re.I)
 
 
 def _match(text: str, table: dict) -> str:
@@ -278,6 +327,12 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
 
     # 2) How-to / "what do I need" / "set up" — recite requirements + steps.
     if form == "how_to" or (not form and _HOWTO_RE.search(q)):
+        if _REFRESHHOW_RE.search(q):
+            return how_to("refresh_metric")
+        if _SUMMARYHOW_RE.search(q):
+            return how_to("review_summary")
+        if _NAVHOW_RE.search(q):
+            return how_to("navigate_document")
         if _SYNC_RE.search(q) or topic == "sync" or _board_in(q):
             return how_to("sync_resume")
         if _UPLOAD_RE.search(q) or subject_type in ("resume", "cover_letter"):
