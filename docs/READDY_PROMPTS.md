@@ -8641,3 +8641,27 @@ function de(e){ ue('mic', tj(e).text, … ) }   // throws when tj(e) is undefine
 - Tapping the assistant opens the window with **no mic init and no error** — no "Something went wrong".
 - If a mic error does occur (any code, mapped or not), the user sees a **friendly message + a way to type**, never a thrown `tj(e).text`.
 - With SpeechRecognition unsupported (iOS), holding to talk falls back to typing with a clear note — no crash, no error boundary.
+
+## P274 — iOS: point mic/sound permission to the RIGHT place (Safari, not Privacy→Microphone), and make the badge less touch-sensitive
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`) on a real iPhone. Follows P272/P273 (no more crash). Two issues: (1) when the mic/sound is blocked the assistant correctly says so but sends the user to the **wrong place** — it says "Privacy Settings" generically, but **Safari's microphone permission is NOT under Settings → Privacy → Microphone** (that list is for installed apps and doesn't show Safari), so the user can't find a toggle; (2) the badge is **too touch-sensitive** — a light brush opens the full window.
+
+### 1. Correct, specific iOS permission guidance (mic vs. sound are different)
+The backend troubleshooting catalog now has the right text (`GET /assistant/troubleshooting`, keys `mic_blocked`, `mic_unsupported`, `mic_muted`) — mirror it in the client's mic-error catalog (the `tj` map from P273). Use these exact, actionable steps:
+- **Microphone blocked** (`not-allowed` / `service-not-allowed` / `audio-capture`): *"Safari blocks the mic for a site until you allow it — it's not under Settings → Privacy → Microphone (that's only for apps). Allow it: tap the **'aA'** button at the left of Safari's address bar → **Website Settings** → **Microphone → Allow**. Or: **Settings → Safari → Microphone → Ask**, then reload. You can also just **type** to me."* Offer a **"Type instead"** button right there.
+- **Sound/speaker** (can't hear the assistant) is a **different** thing — don't conflate it with mic: *"Flip the side **Silent switch** off (orange = silent), and tap the **unmute** control on the page."* (ties to P260).
+- **Voice unsupported** (iOS Safari lacks SpeechRecognition): *"Voice isn't available in this browser — type your request, everything works by typing."* Don't tell them to change a permission that won't help.
+- Never say a bare "check Privacy Settings." Always name the exact path, and always give the **type** fallback.
+
+### 2. Make the badge require a deliberate tap (less sensitive)
+- Opening the full window must take a **deliberate tap**, not a light brush or a touch that's part of a scroll:
+  - Use a real **click/tap** with a **movement threshold** — if the pointer/touch moves more than ~10px between down and up (a scroll/drag), **don't** open.
+  - Ignore touches shorter than a tiny debounce and touches that begin during a scroll; handle `touchcancel`/`pointercancel` as "not a tap."
+  - Add `touch-action: manipulation` and a small hit-slop so an accidental edge-brush doesn't count.
+- Keep **tap-to-open** and **hold-to-talk** clearly distinct: a quick tap opens the window (no mic); a deliberate press-and-hold (past a ~250ms threshold) arms the mic. A light touch should do **neither**.
+- Consider a small explicit **chevron/handle** on the badge as the open affordance, so opening is intentional rather than "anywhere on the badge."
+
+### Acceptance (real iPhone)
+- A blocked mic shows the **exact Safari path** (aA → Website Settings → Microphone, or Settings → Safari → Microphone) + a **Type instead** button — never a dead-end "Privacy Settings."
+- Sound-muted vs mic-blocked give **different** guidance.
+- A light brush or a scroll that grazes the badge does **not** open the full window; opening needs a deliberate tap; holding (clearly longer) arms the mic.

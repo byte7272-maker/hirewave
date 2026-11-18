@@ -37,9 +37,25 @@ TROUBLESHOOTING: dict[str, dict] = {
         "retry": False, "ask_again": True,
     },
     "mic_muted": {
-        "ack": "You might not be able to hear me — your browser muted this page.",
-        "cause": "The browser/phone muted the page's audio (common on iOS).",
-        "fix": "Tap the unmute prompt, or flip the device's silent switch.",
+        "ack": "You might not be able to hear me — the page is muted.",
+        "cause": "The device/browser muted this page's audio (common on iPhone).",
+        "fix": "On iPhone: flip the side Silent switch OFF (orange = silent), and tap the "
+               "speaker/unmute control on the page. On desktop: unmute the tab.",
+        "retry": False, "ask_again": False,
+    },
+    "mic_blocked": {
+        "ack": "I can't use the microphone — it's blocked for this site.",
+        "cause": "Safari blocks the mic for a website until you allow it (it is NOT under "
+                 "Settings → Privacy → Microphone, which only lists installed apps).",
+        "fix": "Allow it in Safari: tap the ‘aA’ button at the left of the address bar → "
+               "Website Settings → Microphone → Allow (and Camera if asked). Or globally: "
+               "Settings → Safari → Microphone → Ask. Then reload. You can also just type to me.",
+        "retry": False, "ask_again": False,
+    },
+    "mic_unsupported": {
+        "ack": "Voice isn't available in this browser — you can type instead.",
+        "cause": "This browser doesn't support in-page speech recognition (e.g. iOS Safari).",
+        "fix": "Type your request in the box; everything works by typing.",
         "retry": False, "ask_again": False,
     },
     "nonsense_input": {
@@ -130,9 +146,12 @@ _SIGNATURES: list[tuple[str, str]] = [
     (r"site access|not inject|on all sites|enable .* site", "no_site_access"),
     (r"no (résumé|resume)|résumé to|upload (or|a) résumé", "no_resume_file"),
     (r"picker|wouldn'?t (take|accept)|attach.*fail", "attach_failed"),
-    (r"didn'?t (hear|catch)|no (speech|audio) input|mic.*no", "mic_no_input"),
+    (r"not-?allowed|service-?not-?allowed|audio-?capture|notallowed|permission.*(mic|microphone)|"
+     r"(mic|microphone).*(denied|blocked|not allowed)|block.*mic", "mic_blocked"),
+    (r"not ?support|unsupported|no ?speechrecognition|no-?recognition|webkitspeech.*undefined", "mic_unsupported"),
+    (r"didn'?t (hear|catch)|no-?speech|no (speech|audio) input|mic.*no input", "mic_no_input"),
     (r"unintellig|couldn'?t make out|garbl", "mic_unintelligible"),
-    (r"muted|silent switch|can'?t hear", "mic_muted"),
+    (r"muted|silent switch|can'?t hear|no-?audio-?out|speaker", "mic_muted"),
     (r"\b(401|unauthor|expired|sign-?in expired)\b", "session_expired"),
     (r"\b(403|forbidden|permission|consent)\b", "permission_denied"),
     (r"\b(404|not found)\b", "not_found"),
