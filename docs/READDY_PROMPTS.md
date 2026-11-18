@@ -8944,3 +8944,25 @@ There is **no server speech-to-text**; voice relies on the browser's `webkitSpee
 - Pressing and holding the mic shows Safari's Allow prompt once; if voice still refuses after allowing, the assistant says voice is unreliable here and the user types — no settings dead-end, no "blocked" when it's allowed.
 - The mic/permission state does not reset on every refresh (or, if embedded and it can't persist, the app is cleanly type-first and never presents a failing mic).
 - The assistant is a bottom sheet; all messages/popups stay on-screen and wrap, scroll within the sheet, and need no dragging or resizing; the speaker still unlocks via its popup.
+
+## P284 — ⚠ FIX: the assistant's speech isn't smooth (clicks, talking over itself, unfinished sentences) + correct the iOS 26 Safari settings path
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`), iOS 26.5.2. Two fixes: the voice has **audible clicks, overlaps itself, and cuts sentences off**; and the mic-permission instructions point to the wrong place on iOS 26.
+
+### 1. Make speech smooth — one voice at a time, whole sentences (manifest behavior `speak_serialized`)
+The overlap/clicks come from firing utterances concurrently and/or cancelling mid-sentence. Serialize playback:
+- **One utterance at a time.** Keep a single speech queue. Start the next line **only after the current finishes** (`onend` for Web Speech, or the `<audio>` `ended` event for the `/interview/tts` neural voice). Never start line *i+1* while *i* is still playing.
+- **Advance the walkthrough on `ended` ONLY — not also on a timer.** The P276–P280 scripts said "advance on utterance end **or** a ~2.5s delay"; running both a timer **and** `onend` is what makes it talk over itself and skip. Use `onend` as the sole trigger when speech is available; use the timer **only** as a fallback when speech is unavailable/blocked. Guard against double-advance by the step index.
+- **Speak each `say` as one complete string.** Do not split a sentence into words/chunks and queue them — that causes the clicks and half-sentences. One `say` → one utterance. If you must break very long text, split on sentence boundaries only, and still play them strictly one-after-another via the same queue.
+- **Cancel cleanly before a new line.** When the user interrupts (new command, Next, Stop), call `speechSynthesis.cancel()` / pause+reset the audio element **once**, then start the new utterance — don't rapid-fire `cancel()`+`speak()` (that clicks). Debounce starts by ~50ms.
+- **Neural voice (`POST /api/v1/interview/tts`)**: request the **whole line** (it returns one audio clip), play it to completion, and only then advance. Don't request per-word/per-chunk clips and concatenate — that's the clicking. Preload the next line's audio while the current plays, but still play sequentially.
+- Don't restart the current utterance on re-render (P278's "speak once per step index" rule applies to the audio element too).
+
+### 2. Correct iOS 26 Safari permission path (the backend copy is already fixed)
+- On **iOS 26**, per-site permissions moved: tap the **⋯ ("More") button next to the address bar → Website Settings → Microphone**. The **aA** button no longer holds this (it changed functionality). The backend troubleshooting copy (`mic_blocked`) now says this; mirror it in any client-side mic-help text — show **"⋯ → Website Settings → Microphone"** on iOS 26, with "under 'aA' on older iOS" as the fallback.
+- Keep everything from P283 (press-and-hold triggers the prompt; `mic_ios_unreliable` → type-first when allowed-but-refusing; type input is first-class).
+
+### Acceptance
+- The assistant speaks each line to the end, one at a time, with no overlap, no clicks, and no cut-off sentences; the walkthrough advances exactly once per line on audio end.
+- Interrupting stops the current line cleanly and starts the new one without clicking.
+- The mic-permission help names the **⋯ → Website Settings → Microphone** path on iOS 26 (aA only as the older-iOS fallback).

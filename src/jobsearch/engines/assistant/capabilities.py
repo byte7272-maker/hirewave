@@ -58,6 +58,11 @@ BEHAVIORS = [
     # silent spinner) and has a spoken answer ready for the questions a user predictably
     # asks mid-flow — see FLOWS / FLOW_FAQ (P252).
     "narrate_flow_steps", "answer_anticipated",
+    # speech must be SMOOTH (P284): exactly one utterance plays at a time, each a complete
+    # sentence/`say` string (never split mid-sentence into chunks), the next starts only
+    # after the previous finishes (onend), and starting a new line cancels the old one
+    # cleanly — no overlapping voices, no audible clicks, no half-finished sentences.
+    "speak_serialized",
     # core spatial behaviors (P254): as the assistant talks about something it MOVES a
     # visible pointer to that element and keeps it spotlighted (point_to_focus); and it
     # is position-aware — its own dock/avatar/overlays/pointer never cover the focused

@@ -49,9 +49,10 @@ TROUBLESHOOTING: dict[str, dict] = {
                  "Settings → Privacy → Microphone, which only lists installed apps). The prompt "
                  "only appears when you START talking — press and hold the mic to trigger it.",
         "fix": "Press and hold the mic button — that's what triggers Safari's Allow prompt "
-               "(a settings toggle alone won't start it). If it still won't go, allow it in "
-               "Safari: tap ‘aA’ at the left of the address bar → Website Settings → Microphone "
-               "→ Allow. You can always just type to me instead.",
+               "(a settings toggle alone won't start it). If it still won't go, open Safari's "
+               "page menu: on iOS 26 tap the ⋯ ‘More’ button next to the address bar → Website "
+               "Settings → Microphone → Allow (on older iOS this lived under the ‘aA’ button). "
+               "You can always just type to me instead.",
         "retry": False, "ask_again": False,
     },
     # iOS Safari specifically: the mic is allowed, yet in-page voice still refuses — Apple's
