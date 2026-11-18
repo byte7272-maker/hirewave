@@ -206,6 +206,28 @@ def test_formatting_edit_on_header_is_a_doc_edit_not_email_connect():
     assert interpret("connect an email account").intent == "start_playbook"
     assert interpret("add an email source").intent == "start_playbook"
     assert interpret("remove my gmail account").slots.get("section") == "connect"
+
+
+def test_documents_safety_net_routes_unscripted_imperatives_to_an_edit():
+    # The user shouldn't have to script every phrase: on the document, an imperative we
+    # didn't match to a specific command becomes an AI edit (navigate + edit instruction),
+    # not a wrong guess or a dead-end.
+    ctx = {"section": "documents"}
+    for phrase in ("make the title bigger", "combine these two lines", "move my skills above education",
+                   "get rid of the second phone number", "capitalize my name", "take out the trailing period",
+                   "reorder my experience by date"):
+        r = interpret(phrase, context=ctx)
+        is_edit = (r.intent == "navigate" and r.slots.get("edit")) or r.intent == "edit_document"
+        assert is_edit, (phrase, r.intent, r.slots)
+    # "current/latest" imperatives still flag needs_web so it web-searches first
+    r = interpret("update my title to my current role", context=ctx)
+    assert r.intent in ("edit_document", "navigate") and r.slots.get("needs_web") is True
+    # OFF the document, an imperative is NOT swallowed into a doc edit
+    off = interpret("remove this job from my matches", context={"section": "matches"})
+    assert not (off.intent == "navigate" and off.slots.get("section") == "documents")
+    # clear navigation / review still win over the edit net
+    assert interpret("go to experience", context=ctx).intent == "focus_document"
+    assert interpret("review my summary", context=ctx).intent == "review_summary"
     # not a doc edit: "update my matches" is a refresh, not edit_document
     assert interpret("update my matches", context=ctx).intent == "navigate"
     assert interpret("update my matches", context={"section": "matches"}).slots.get("refresh") is True

@@ -9025,3 +9025,29 @@ The overlap/clicks come from firing utterances concurrently and/or cancelling mi
 - The summary panel is titled "Summary" (no "AI"); the summary text sits below the assistant's active window and each item is highlighted as it's narrated.
 - Reversible edits apply immediately with a one-tap Undo and no pre-prompt; only irreversible actions confirm — same pattern elsewhere on the site.
 - No pulsing arrows; the pane auto-sizes so content is fully visible without scrolling; the assistant uses a single right pane (no third panel).
+
+## P287 — Stop requiring scripted phrases: execute document edits via Ask-AI, and make sure the LLM is actually ON
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Report: clear-language requests typed into the box fail often; "remove the bullets from my résumé header" opened a *remove-a-résumé* flow. Two causes — the client wasn't executing edit intents, and (likely) no real LLM is configured so nothing actually "understands."
+
+### 1. The backend now routes any document imperative to an edit — the client must EXECUTE it
+`POST /assistant/interpret` now has a **documents safety net**: on the document, any imperative it didn't match to a specific nav/review command returns an **edit**, not a wrong guess:
+- either `intent:"edit_document"` (slots may include `needs_web`, `bullet`), **or**
+- `intent:"navigate"` with `slots:{section:"documents", doc, edit:"<the user's words>", needs_web?}`.
+**For BOTH shapes, run the Ask-AI edit** — do not just navigate, and never open a delete/remove-document menu:
+- Call `POST /api/v1/resumes/{id}/ai-edit` (or `/cover-letters/{id}/ai-edit`) with `instruction` = **the user's exact typed/spoken words** (`result.utterance`, or the `edit` slot), `job_posting_id` if tailoring, and `content` = the live editor text. If `needs_web` is set, do the web-research step first (P275 refresh path) then apply.
+- Apply + Undo (P286) — no "Apply this change?" prompt. The edit saves a version; show a one-tap Undo.
+- This is the whole point: the user types a change in plain words and it happens. Never require an exact keyword/phrase, and never route a document edit to the connect/remove flows.
+
+### 2. "remove the bullets from my header / the email line" specifically
+- Now returns the doc-edit shape above (fixed server-side). Honor it: run ai-edit with those words. It must edit the header, not open "remove a résumé."
+
+### 3. Make the LLM actually ON (the real reason unscripted phrasing fails)
+The app understands/edits with an LLM **only if one is configured**. By default it runs on a **mock** provider — pure pattern-matching, no real comprehension — which is why arbitrary phrasing fails. On the server (Railway env vars), set:
+- `LLM_PROVIDER=anthropic` (or `openai`) and the matching key `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`).
+- `JOBSEARCH_PREMIUM_LLM_PROVIDER=anthropic` (recommended) so the **assistant's interpret backstop and the Ask-AI edits/rewrites** use a strong model. Optionally `JOBSEARCH_PREMIUM_MODEL`.
+Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` falls back to deterministic/mock — so "clear language" keeps failing no matter the wording. With them, the deterministic layer handles the common cases instantly and the LLM covers everything else, so the user doesn't script phrases.
+
+### Acceptance
+- Typing or saying a plain-language change to the document ("make the title bigger", "combine these two lines", "remove the bullets from my header and the email line") **applies the edit** (with Undo), never opens a remove/connect menu, and doesn't require an exact phrase.
+- With an LLM provider configured, phrasings the deterministic layer doesn't know still work (the backstop + ai-edit handle them).

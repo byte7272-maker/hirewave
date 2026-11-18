@@ -236,10 +236,12 @@ def _focus_document(t: str, context: dict) -> Optional[IntentResult]:
     section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
     on_doc = any(w in section for w in ("document", "resume", "cover"))
     sub = _match_doc_subsection(t)
-    # A section jump, not an edit: "rewrite/improve the summary" is an edit → let
-    # _edit_document handle it (unless it's an explicit highlight/find of the section).
+    # A section jump, not an edit: "rewrite/improve the summary" or "move my skills above
+    # education" is an edit → let the edit path handle it (unless it's an explicit
+    # highlight/find of the section).
     if sub and (_FOCUS_VERB_RE.search(t) or on_doc) and (
-        _HIGHLIGHT_VERB_RE.search(t) or not _EDIT_VERB_RE.search(t)
+        _HIGHLIGHT_VERB_RE.search(t)
+        or not (_EDIT_VERB_RE.search(t) or _DOC_IMPERATIVE_RE.search(t))
     ):
         slots: dict[str, Any] = {"section": "documents", "mode": "section",
                                  "target": sub, "highlight": True}
@@ -696,6 +698,15 @@ _PURE_FORMAT_TARGET_RE = re.compile(
     r"\bformat(?:ting)?\b|\bindent\w*|\bspacing\b|\bfont\b|\bbold\b|\bitalic\b|\bunderline\b|"
     r"\balignment\b|\bmargins?\b")
 _PURE_FORMAT_VERB_RE = re.compile(r"\b(change|fix|set|make|adjust)\b")
+# Any imperative a user might aim at their document — the documents safety net routes these
+# to an AI edit rather than requiring an exact scripted phrase.
+_DOC_IMPERATIVE_RE = re.compile(
+    r"\b(remove|delete|strip|take\b.*\b(?:off|out|away)|get rid of|add|put|change|make|fix|"
+    r"update|rewrite|re-?word|"
+    r"rephrase|reorder|move|swap|replace|shorten|lengthen|expand|condense|combine|split|"
+    r"merge|bold|italic|italici[sz]e|underline|capitali[sz]e|lower-?case|upper-?case|indent|"
+    r"outdent|align|format|re-?format|clean up|tidy|correct|adjust|convert|drop|cut|trim|"
+    r"insert|append|prepend|emphasi[sz]e|rename|reposition|number|bulletize|un-?bullet)\b")
 
 
 def _doc_format_edit(t: str, context: dict) -> Optional[IntentResult]:
@@ -1202,6 +1213,22 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if oid is not None or idx is not None:
         slots = {k: v for k, v in (("option_id", oid), ("index", idx)) if v is not None}
         return IntentResult("choose", 0.8, slots)
+
+    # --- documents safety net ---------------------------------------------------
+    # Last resort BEFORE giving up: on the document, an imperative we didn't match to a
+    # specific nav/review/search command becomes an AI EDIT — the Ask-AI endpoint interprets
+    # arbitrary phrasing and applies it (reversible via versions). This is why the user
+    # shouldn't have to script every phrase: anything like "remove the bullets from my
+    # header", "make the title bigger", "combine these two lines" becomes a document edit
+    # instead of a wrong guess or a dead end.
+    section = str((context or {}).get("section") or (context or {}).get("page") or "").lower()
+    on_doc = any(w in section for w in ("document", "resume", "cover"))
+    if (on_doc or _DOC_CTX_RE.search(t)) and _DOC_IMPERATIVE_RE.search(t):
+        doc = _doc_target(t) or ("cover_letter" if "cover" in section else "resume")
+        slots: dict[str, Any] = {"section": "documents", "doc": doc, "edit": t}
+        if _FRESH_RE.search(t):
+            slots["needs_web"] = True  # "current/latest …" → web-search first, then apply
+        return IntentResult("navigate", 0.7, slots)
 
     return IntentResult("unknown", 0.0)
 
