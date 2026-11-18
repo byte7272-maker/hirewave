@@ -130,12 +130,13 @@ def _understanding(summary: str, signals: dict) -> dict[str, Any]:
 
 
 def _weaknesses(summary: str, signals: dict, und: dict, year: Optional[int]) -> list[dict]:
-    """Concrete, de-duplicated weaknesses — each with the fix that addresses it."""
+    """Concrete, de-duplicated weaknesses — each with the fix that addresses it, and a
+    ``locate`` string the client can highlight (empty = point at the whole summary)."""
     out: list[dict] = []
 
-    def add(wid, title, detail, severity, fix):
+    def add(wid, title, detail, severity, fix, locate=""):
         out.append({"id": wid, "title": title, "detail": detail,
-                    "severity": severity, "fix": fix})
+                    "severity": severity, "fix": fix, "locate": locate})
 
     wc = und["word_count"]
     if not summary.strip():
@@ -153,10 +154,10 @@ def _weaknesses(summary: str, signals: dict, und: dict, year: Optional[int]) -> 
         add("no_role", "Doesn't lead with your role",
             f"It doesn't surface your current role ({signals['role']}).",
             "high", f"Open with your title — e.g. '{signals['role']} with …'.")
-    if _CLICHE_RE.search(summary):
-        hit = _CLICHE_RE.search(summary).group(0)
-        add("cliche", "Opens with a cliché", f"'{hit}' is filler that says nothing specific.",
-            "medium", "Replace the cliché with a concrete role + a real result.")
+    cm = _CLICHE_RE.search(summary)
+    if cm:
+        add("cliche", "Opens with a cliché", f"'{cm.group(0)}' is filler that says nothing specific.",
+            "medium", "Replace the cliché with a concrete role + a real result.", locate=cm.group(0))
     if not und["quantifies"]:
         add("no_metric", "No quantified impact", "It makes no measurable claim.",
             "medium", "Fold in one number from your experience (a %, $, or scale).")
@@ -167,19 +168,43 @@ def _weaknesses(summary: str, signals: dict, und: dict, year: Optional[int]) -> 
             "Skills that run through your experience aren't in the summary: "
             + ", ".join(missing) + ".",
             "medium", "Work in " + ", ".join(missing[:2]) + " — they're your strongest signal.")
-    if _FIRST_PERSON_RE.search(summary):
+    fpm = _FIRST_PERSON_RE.search(summary)
+    if fpm:
         add("first_person", "Written in the first person",
             "Résumé summaries read as implied-first-person, without 'I'.",
-            "low", "Drop 'I/my' — start with the role or an action.")
+            "low", "Drop 'I/my' — start with the role or an action.", locate=fpm.group(0).strip())
     # dated figures inside the summary
     sa = analyze_block(summary, year=year)
-    if any(f["kind"] == "stale_metric" for f in sa.get("flags", [])):
+    stale = [f for f in sa.get("flags", []) if f["kind"] == "stale_metric"]
+    if stale:
+        vals = stale[0].get("values", [])
         add("stale_metric", "Contains dated figures",
             "A figure in the summary is tied to a past period.",
-            "medium", "Refresh the number to the current period (Refresh figures).")
+            "medium", "Refresh the number to the current period (Refresh figures).",
+            locate=(vals[0] if vals else ""))
     sev = {"high": 0, "medium": 1, "low": 2}
     out.sort(key=lambda w: sev.get(w["severity"], 3))
     return out
+
+
+def _summary_anchor(resume_text: str, summary: str, data) -> Optional[dict]:
+    """Where the summary lives in the document, so the client can scroll to + highlight it.
+    Prefers the Summary section's char range; falls back to locating the summary text."""
+    if not summary:
+        return None
+    try:
+        from jobsearch.engines.assistant.document_map import build_map
+        for sec in build_map(resume_text, kind="resume").get("sections", []):
+            if sec.get("canon") == "summary":
+                return {"section_id": sec["id"], "char_start": sec["char_start"],
+                        "char_end": sec["char_end"]}
+    except Exception:  # noqa: BLE001
+        pass
+    probe = summary[:40]
+    pos = resume_text.find(probe) if probe else -1
+    if pos >= 0:
+        return {"section_id": "summary", "char_start": pos, "char_end": pos + len(summary)}
+    return None
 
 
 def _suggestion(summary: str, signals: dict, und: dict) -> str:
@@ -243,6 +268,10 @@ def review_summary(resume_text: str, *, data=None, year: Optional[int] = None,
     return {
         "present": bool(summary),
         "summary": summary,
+        # Where the summary sits in the document, so the client can scroll to + spotlight it
+        # (fixes the assistant not pointing at/focusing the summary). Each weakness also
+        # carries a `locate` string to highlight the exact offending text where one exists.
+        "anchor": _summary_anchor(resume_text, summary, data),
         "understanding": und,
         "weaknesses": weaknesses,
         "suggestion": suggestion,

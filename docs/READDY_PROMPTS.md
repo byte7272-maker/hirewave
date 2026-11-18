@@ -8753,3 +8753,28 @@ Run the **`summary_review` flow** (scripted lines in `capabilities.flows.summary
 - "Review my summary" → the assistant first says **what the summary actually claims** (not a generic line), then walks each weakness **with its fix** one at a time in the right pane, the **badge moving/pointing/narrating** to each, and proposes an editable rewrite built from the résumé's own facts for accept/edit/reject.
 - A strong, current, role-led, quantified summary is reported **fresh** with nothing to change.
 - Accepting the rewrite updates the summary, saves a version, and marks it fresh (new fingerprint stored).
+
+## P277 — ⚠ FIX: the summary review gets stuck — repeats its opening, loops re-checking the résumé, and never points at the summary or sections
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Bug report: starting a summary update, the assistant "repeats itself after the first few words, then checks part of the résumé unceasingly, and never points to or focuses the summary or any section." That's a client-side loop plus missing focus — the backend is fine (it's deterministic and now returns the anchors to point at). Fix the orchestration.
+
+### 1. Stop the loop (the repeating + unceasing re-checks)
+- **Call `GET /resumes/{id}/summary-review` exactly once per run** — when the user starts the review (or when a save actually changed the doc). Put the result in state and **drive the whole walkthrough from that cached object**. Do **not** call it (or `/map`, or `/interpret`) on every render, tick, or animation frame.
+- **No polling.** There is nothing to poll here. If you re-check freshness, do it only **after a save**, debounced (~1s), and only re-run if the stored `fingerprint` differs from the new one. An empty/missing `last_fingerprint` must **not** be treated as "changed."
+- **Speak each flow state once.** The repetition is TTS being re-triggered on re-render. Guard it: track the `last_spoken_state` (and the current weakness index) and only call speak when that key changes — never re-speak the same line because the component re-rendered. Cancel any in-flight utterance before starting the next; don't start a new one if the same state is still active.
+- **Advance only on user action or a single scheduled step** — `weakness[i] → weakness[i+1]` happens on Next/▶ or one timer you set per step, never in a render effect without a stable dependency. Make sure the effect that starts narration has correct deps (state id + index), so React doesn't re-fire it every render (this is the classic "effect with no/[]-wrong deps" loop).
+- There must be a **terminal state**: after `proposing` (waiting on the user) or `fresh`, the flow is idle — it stops speaking and stops any stepping.
+
+### 2. Point at the summary and each finding (the missing focus)
+The review response now carries the locations — use them:
+- **`anchor`** `{section_id, char_start, char_end}` — the summary's place in the document. On `start`/`understanding`, **scroll the summary into view and spotlight that range**, and move the badge beside it (don't cover it — `avoid_occlusion`). This is what makes it "focus the summary" instead of floating.
+- Each **`weakness.locate`** — a string for the exact offending text (e.g. `"Results-driven"`, `"+4.9%"`, `"I have"`). When walking a weakness: if `locate` is non-empty, `POST /documents/locate {text, query: locate}` (or just highlight within the `anchor` range) and point the badge at that span; if `locate` is empty (a structural finding like "no role"/"too thin"), point at the **whole summary** via `anchor`. Never leave the badge un-anchored.
+- For "go to a section" during the review, reuse P275's `focus_document` + the section `char_start/char_end` from `/map` — the same spotlight mechanism, so Experience/Education/Skills focus the same way the summary does.
+
+### 3. Narration content (so the first line isn't a stub it repeats)
+- The first spoken line is `understanding.reads_as` from the response (a real read of the summary) — spoken **once**. Then `stale` (if `stale_reasons`), then each `weakness` as `"{title}. {detail} — here's the fix: {fix}"`. Pull these from the cached object; don't re-fetch to get them.
+
+### Acceptance
+- Starting a summary review calls summary-review **once**, speaks its opening line **once**, and does not loop or re-check the résumé in the background.
+- The summary is **scrolled into view and spotlighted**, with the badge beside it; walking the findings moves the spotlight to each `locate` span (or the whole summary for structural ones).
+- The flow reaches a resting state at the proposal (or "fresh") and stops talking until the user acts.

@@ -191,6 +191,25 @@ def test_summary_review_understands_and_lists_weaknesses_with_fixes():
     assert out["fingerprint"]
 
 
+def test_summary_review_gives_anchor_and_per_weakness_locate():
+    # So the assistant can POINT at the summary and each finding (fixes "not focusing").
+    out = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)
+    a = out["anchor"]
+    assert a and _WEAK_SUMMARY_RESUME[a["char_start"]:a["char_end"]].lower().lstrip("# ").startswith(
+        ("summary", "results"))
+    # every weakness carries a locate key; the text-specific ones point at real text
+    assert all("locate" in w for w in out["weaknesses"])
+    cliche = next((w for w in out["weaknesses"] if w["id"] == "cliche"), None)
+    if cliche:
+        assert cliche["locate"] and cliche["locate"].lower() in _WEAK_SUMMARY_RESUME.lower()
+
+
+def test_summary_review_fingerprint_is_deterministic():
+    a = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)["fingerprint"]
+    b = SR.review_summary(_WEAK_SUMMARY_RESUME, year=2027)["fingerprint"]
+    assert a == b and a  # stable → the client won't think the doc keeps changing
+
+
 def test_summary_review_fresh_when_in_sync():
     out = SR.review_summary(_STRONG_SUMMARY_RESUME, year=2027)
     # a role-led, quantified, skill-bearing, current summary is fresh with few/no weaknesses
