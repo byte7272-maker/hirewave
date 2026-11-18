@@ -2047,7 +2047,11 @@ def resume_full_review(resume_id: str, user: CurrentUser, state: StateDep) -> di
 
     resume = get_resume(resume_id, user, state)
     llm = getattr(state.resume_assistant, "premium", None)
-    return document_review.review_document(strip_inline_html(_resume_text(resume)), llm=llm)
+    out = document_review.review_document(strip_inline_html(_resume_text(resume)), llm=llm)
+    state.log_activity(user.id, "reviewed", "resume", subject_id=resume.id,
+                       subject_label=_resume_label(resume),
+                       detail=f"{out['stats']['findings']} findings")
+    return out
 
 
 @router.get("/cover-letters/{cover_letter_id}/full-review")
@@ -2058,7 +2062,11 @@ def cover_letter_full_review(cover_letter_id: str, user: CurrentUser, state: Sta
 
     cl = get_cover_letter(cover_letter_id, user, state)
     llm = getattr(state.resume_assistant, "premium", None)
-    return document_review.review_cover_letter(strip_inline_html(_cover_text(cl)), llm=llm)
+    out = document_review.review_cover_letter(strip_inline_html(_cover_text(cl)), llm=llm)
+    state.log_activity(user.id, "reviewed", "cover_letter", subject_id=cl.id,
+                       subject_label=(getattr(cl, "title", "") or getattr(cl, "role", "") or "cover letter"),
+                       detail=f"{out['stats']['findings']} findings")
+    return out
 
 
 @router.post("/documents/full-review")

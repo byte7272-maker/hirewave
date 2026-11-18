@@ -106,6 +106,12 @@ BEHAVIORS = [
     # moves section by section (GET /resumes|cover-letters/{id}/full-review → sections/
     # findings/script), never a summary-only result printed in place.
     "review_whole_document",
+    # proactive scan (P281): once per session, on landing, the assistant scans on its own
+    # for a severe UNRESOLVED error from before, reportable items (a stale summary, bullets
+    # with dated figures) and a recent-activity recap, and raises them highest-priority
+    # first with one spoken lead (GET /assistant/session-scan?session_id=… — a repeat in the
+    # same session returns repeat:true, so it fires exactly once).
+    "proactive_session_scan",
     # layout (P279): the assistant's HOME is the docked right pane — its expanded window
     # lives there (not a floating overlay), and every result/finding surfaces there, never
     # buried in a floating window, at the top of the page, or popped out at random. The only
@@ -670,6 +676,13 @@ def manifest() -> dict[str, Any]:
         # Where the assistant lives + renders (P279): the right pane is home; results never
         # surface in a floating window, at the top of the page, or as a random popout.
         "surface": dict(SURFACE),
+        # Proactive once-per-session scan (P281): call this on landing with a stable
+        # session_id; it returns a prioritized brief the assistant raises on its own.
+        "session_scan": {
+            "endpoint": "/api/v1/assistant/session-scan",
+            "cadence": "once_per_session",
+            "raises": ["severe_error", "reportable", "activity"],
+        },
         "verbs": {k: list(v) for k, v in VERBS.items()},
         "destructive_verbs": sorted(DESTRUCTIVE_VERBS),
         "playbooks": sorted(_PLAYBOOKS),

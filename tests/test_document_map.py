@@ -9,6 +9,7 @@ from jobsearch.api.app import create_app
 from jobsearch.api.state import AppState
 from jobsearch.engines.assistant import document_refresh as R
 from jobsearch.engines.assistant import document_review as DR
+from jobsearch.engines.assistant import session_scan as SS
 from jobsearch.engines.assistant import summary_review as SR
 from jobsearch.engines.assistant.document_map import analyze_block, build_map, locate
 from jobsearch.engines.integration import MockTokenExchanger
@@ -306,6 +307,33 @@ def test_document_review_dispatch_by_kind():
     assert DR.review(_COVER_LETTER, kind="cover_letter")["kind"] == "cover_letter"
 
 
+# --- session_scan (proactive once-per-session) ------------------------------
+def _ns(**kw):
+    from types import SimpleNamespace
+    return SimpleNamespace(**kw)
+
+
+def test_session_scan_prioritizes_error_then_reportable_then_activity():
+    from datetime import datetime, timezone
+    errs = [_ns(kind="network", resolved=False, at=datetime(2026, 11, 17, tzinfo=timezone.utc)),
+            _ns(kind="mic_no_input", resolved=False, at=datetime(2026, 11, 18, tzinfo=timezone.utc))]
+    acts = [_ns(verb="tailored", subject_type="resume", subject_id="r1", subject_label="IT Director",
+                topic="documents", detail="", at=datetime(2026, 11, 17, tzinfo=timezone.utc),
+                meta={}, phrase=lambda: 'tailored résumé "IT Director"')]
+    reps = [{"severity": "medium", "title": "Summary may be out of date",
+             "message": "your summary has drifted", "action": {"intent": "review_summary", "slots": {}}}]
+    b = SS.scan(errors=errs, activity_events=acts, reportables=reps)
+    assert [i["kind"] for i in b["items"]] == ["error", "reportable", "activity"]
+    assert b["has_error"] and b["has_reportable"] and b["speak"].startswith("Welcome back.")
+
+
+def test_session_scan_ignores_non_severe_errors_and_empty_is_caught_up():
+    # a bad mic read / nonsense is handled live, never surfaced proactively later
+    assert SS.is_severe("network") and not SS.is_severe("mic_no_input") and not SS.is_severe("nonsense_input")
+    b = SS.scan(errors=[], activity_events=[], reportables=[])
+    assert b["count"] == 0 and "caught up" in b["speak"]
+
+
 # --- endpoints --------------------------------------------------------------
 def _client():
     state = AppState(exchanger=MockTokenExchanger())
@@ -368,7 +396,7 @@ def test_refresh_metric_empty_bullet_400():
     assert c.post("/api/v1/documents/refresh-metric", headers=h, json={"bullet": "  "}).status_code == 400
 
 
-def test_full_review_endpoints():
+def test_full_review_endpoints_and_log_activity():
     c, _ = _client()
     h = _auth(c)
     rid = _upload_resume(c, h, _RESUME)
@@ -379,10 +407,27 @@ def test_full_review_endpoints():
     assert [s["canon"] for s in body["sections"]] == [
         "header", "summary", "experience", "education", "skills"]
     assert body["script"][0]["state"] == "offer"
+    # the review is recorded in activity (so the assistant can recite it later)
+    acts = c.get("/api/v1/assistant/activity", headers=h).json()
+    assert acts["by_verb"].get("reviewed", 0) >= 1
     # live-buffer variant dispatches on kind
     r2 = c.post("/api/v1/documents/full-review", headers=h,
                 json={"text": _COVER_LETTER, "kind": "cover_letter"})
     assert r2.status_code == 200 and r2.json()["kind"] == "cover_letter"
+
+
+def test_session_scan_endpoint_reports_and_runs_once_per_session():
+    c, _ = _client()
+    h = _auth(c)
+    _upload_resume(c, h, _WEAK_SUMMARY_RESUME)  # a drifted summary → a reportable
+    r = c.get("/api/v1/assistant/session-scan", headers=h, params={"session_id": "s1"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["repeat"] is False and body["speak"]
+    assert any(i["kind"] == "reportable" for i in body["items"])
+    # same session id again → runs only once
+    again = c.get("/api/v1/assistant/session-scan", headers=h, params={"session_id": "s1"}).json()
+    assert again["repeat"] is True and again["items"] == []
 
 
 def test_summary_review_endpoints():

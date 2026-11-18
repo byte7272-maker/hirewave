@@ -248,6 +248,66 @@ def errors(user: CurrentUser, state: StateDep, limit: int = Query(30, ge=1, le=2
             "errors": [ts.row(e) for e in s["recent"][:limit]]}
 
 
+#: (user_id, session_id) pairs already scanned this process — so the proactive scan runs
+#: once per session even if the client calls it more than once. Bounded; in-memory.
+_SCANNED_SESSIONS: set[tuple[str, str]] = set()
+
+
+@router.get("/session-scan")
+def session_scan(
+    user: CurrentUser, state: StateDep,
+    session_id: str = Query("", description="stable per-session id; a repeat returns repeat=true so the scan runs ONCE per session"),
+) -> dict:
+    """Proactive once-per-session scan: what the assistant should raise on its own on
+    landing — a severe unresolved error from before, reportable items (a stale summary,
+    bullets with dated figures), and a short recent-activity recap — highest-priority first,
+    with one spoken lead. Read-only. Pass a stable ``session_id`` and a second call in the
+    same session returns ``repeat: true`` with nothing, so it fires only once."""
+    from jobsearch.engines.assistant import session_scan as scan_engine
+    from jobsearch.engines.assistant import summary_review as _sr
+    from jobsearch.engines.assistant.document_map import build_map
+
+    key = (user.id, session_id)
+    if session_id and key in _SCANNED_SESSIONS:
+        return {"repeat": True, "count": 0, "items": [], "speak": "", "session_id": session_id}
+
+    # Reportables from the user's most-recent résumé (deterministic, cheap): a drifted
+    # summary and any bullets with dated figures — each with the action that resolves it.
+    reportables: list[dict] = []
+    primary = next((r for r in state.resumes.find(user_id=user.id)
+                    if (getattr(r, "rendered_text", "") or "").strip()), None)
+    if primary is not None:
+        text = primary.rendered_text or ""
+        try:
+            rev = _sr.review_summary(text)
+            if rev.get("present") and not rev.get("fresh"):
+                reportables.append({
+                    "severity": "medium", "title": "Summary may be out of date",
+                    "message": "your summary has drifted from the rest of your résumé",
+                    "action": {"intent": "review_summary", "slots": {}},
+                })
+            flagged = build_map(text, kind="resume").get("stats", {}).get("flagged", 0)
+            if flagged:
+                reportables.append({
+                    "severity": "medium", "title": "Dated figures to refresh",
+                    "message": f"{flagged} bullet{'s' if flagged != 1 else ''} have figures tied to a past period",
+                    "action": {"intent": "refresh_metric", "slots": {}},
+                })
+        except Exception:  # noqa: BLE001 — a scan must never fail the session
+            pass
+
+    brief = scan_engine.scan(
+        errors=list(state.assistant_errors.find(user_id=user.id)),
+        activity_events=list(state.activity.find(user_id=user.id)),
+        reportables=reportables[:2],
+    )
+    if session_id:
+        if len(_SCANNED_SESSIONS) > 2000:
+            _SCANNED_SESSIONS.clear()
+        _SCANNED_SESSIONS.add(key)
+    return {"repeat": False, "session_id": session_id, **brief}
+
+
 @router.get("/troubleshooting")
 def troubleshooting(user: CurrentUser, state: StateDep, q: str = Query("")) -> dict:
     """The troubleshooting database: common errors and their causes + fixes, searchable in

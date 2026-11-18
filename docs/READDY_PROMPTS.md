@@ -8862,3 +8862,30 @@ The review response now carries the locations — use them:
 - "Review my résumé" → the assistant says it read the **whole** résumé and **offers** to walk it; on yes it visits header, summary, each role (with dates/bullets), education, and skills — spotlighting each and speaking the finding + fix — then asks what to fix first.
 - "Review my cover letter" → the same, across greeting/opening/body/closing.
 - It never stops at the summary, never just prints results, and never goes silent; everything is in the right pane with the badge pointing.
+
+## P281 — Proactive once-per-session scan: the assistant raises what matters on its own (an error, a reportable item, or recent activity)
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). The assistant should **proactively** check, once per session, for anything worth the user's attention instead of waiting to be asked — a severe problem from before, something reportable (a drifted summary, bullets with dated figures), or a recap of recent activity.
+
+### 0. Backend (ready)
+- `GET /api/v1/assistant/session-scan?session_id=<stable-per-session-id>` → `{repeat, count, items[], speak, has_error, has_reportable, has_activity}`.
+  - `items[]` — ordered **error → reportable → activity**, each `{kind, severity, title, message, action?}`; a reportable's `action` is `{intent, slots}` (e.g. `review_summary`, `refresh_metric`) you run on tap.
+  - `speak` — one ready spoken lead ("Welcome back. heads up — … ; your summary has drifted; Since last time: …").
+  - Pass a **stable `session_id`** for the session; a second call with the same id returns `repeat:true` with no items, so the scan fires **exactly once per session**.
+- `GET /assistant/capabilities` declares it under `session_scan {endpoint, cadence:"once_per_session", raises:[...]}` + behavior `proactive_session_scan`.
+
+### 1. Run it once, on landing
+- When the app/session loads (and the user has data), call session-scan **once** with a `session_id` you keep for the session (reuse your existing session/run id; generate one per load if needed). Do **not** re-call it on navigation, re-render, or each page — the `repeat:true` guard backs you up, but don't rely on it.
+- If `count` is 0 (or `repeat:true`), do nothing loud — the assistant stays the compact badge. Don't announce "you're all caught up" unless the user opens the assistant.
+
+### 2. Surface it the right way (right pane + badge, P279)
+- If there are items, the **badge speaks `speak`** (one short line) and the **right pane** shows the brief as a short prioritized list — the severe error first (with its fix), then reportables (each with its action button), then the recent-activity recap. Nothing renders at the top of the page or in a floating window.
+- Keep it **dismissible and non-blocking**: it's a heads-up, not a modal. The user can tap an item's action (which runs its `intent` — e.g. "Review summary", "Refresh figures"), dismiss the brief, or ignore it and keep working.
+- Severe error item: show its `title` (the acknowledgment) + `message` (the fix); offer a retry where it makes sense.
+
+### 3. Ask for the next step
+- After the lead, the assistant **offers the top action** as a yes/no (e.g. "Want me to refresh your summary?") rather than just listing — honoring the always-offer-a-next-step behavior. The remaining items stay in the pane for the user to pick from.
+
+### Acceptance
+- On entering the app, if something's worth raising, the assistant proactively says one short line and shows a prioritized brief **in the right pane** — a prior error with its fix, a drifted summary / dated figures with a one-tap action, and a recent-activity recap — then offers the top next step.
+- It fires **once per session** (same `session_id` → no repeat), never blocks the page, and stays the compact badge when there's nothing to raise.

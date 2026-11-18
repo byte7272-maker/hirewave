@@ -60,6 +60,8 @@ FUNCTIONS: list[dict] = [
      "blurb": "I run mock interviews and keep answers you want to reuse."},
     {"key": "search", "topic": "search", "title": "Search & save jobs",
      "blurb": "I search boards, remember what you looked for, and let you save jobs to come back to."},
+    {"key": "session_scan", "topic": "documents", "title": "Catch you up each session",
+     "blurb": "When you arrive I check once for anything worth your attention — a problem from last time, a summary that's drifted, bullets with dated figures — and recap what you did recently, so you don't have to go looking."},
 ]
 
 
