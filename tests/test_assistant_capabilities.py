@@ -219,6 +219,19 @@ def test_flows_script_every_state_and_answer_anticipated_questions():
         assert f.get("focus"), name
 
 
+def test_surface_contract_puts_everything_in_the_right_pane():
+    # P279: the assistant's home + results live in the docked right pane; only the compact
+    # badge floats; results never surface at the top of the page or as a random popout.
+    m = caps.manifest()
+    s = m["surface"]
+    assert s["home"] == "right_pane" and s["expanded_window"] == "right_pane"
+    assert s["results"] == "right_pane" and s["floating"] == "badge_only"
+    assert s["collapse_main_on_result"] is True
+    assert {"top_of_page", "random_popout", "obstruct_content"} <= set(s["never"])
+    for b in ("dock_right_pane", "results_in_right_pane", "badge_only_floats"):
+        assert b in m["behaviors"]
+
+
 def test_summary_review_flow_understands_lists_weaknesses_and_keeps_fresh():
     # P276: the summary flow reads what it says, walks each weakness with its fix, proposes a
     # rewrite, and has a fresh branch — the right-pane, badge-narrated activity.

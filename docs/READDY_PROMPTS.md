@@ -8804,3 +8804,32 @@ The review response now carries the locations — use them:
 - Starting a summary review **speaks every step in order** — the read, the drift, each weakness with its fix — moving the spotlight to each, then stops at the proposal/"fresh"/"draft one?" question. No silent gap after the first line.
 - Auto-advance works without a click (on utterance end / short delay); Next and Pause work; nothing double-speaks a step.
 - With speech blocked, the steps still advance and each line shows as text — the assistant is never silent *and* stuck.
+
+## P279 — ⚠ LAYOUT: the assistant's home is the docked RIGHT PANE — results always surface there, the floating window stops blocking content, and nothing renders at the top of the page
+
+**Assumptions:** verify on PUBLISHED (`hlrtlg.readdy.co`). Bug report: when the assistant finds results (summary review, a tailored change, a refreshed metric), they're **hidden inside the assistant's floating main window** where the user has to dig for them — and some results render **at the top of the page, away from focus, where users don't notice**. The assistant should announce what it found and ask for next steps, with the results **always in the right pane**, and its big window should **collapse so it never blocks other content or pops out at random**. Make the right pane the assistant's permanent home.
+
+`GET /assistant/capabilities` now declares this contract under **`surface`**: `{home:"right_pane", expanded_window:"right_pane", results:"right_pane", floating:"badge_only", collapse_main_on_result:true, never:["top_of_page","random_popout","obstruct_content","bury_in_floating_window"]}` plus behaviors `dock_right_pane`, `results_in_right_pane`, `badge_only_floats`, `collapse_main_on_result`. Build the UI to honor it.
+
+### 1. The right pane is the assistant's home (not a floating overlay)
+- The assistant's **expanded/dedicated window lives docked in the right pane** — a persistent column on the right of the Documents page. It is **not** a floating center overlay anymore.
+- The **only** free-floating element is the **compact badge** (P258/P274). Everything else — narration card, findings, proposals, answers — renders **inside the right pane**.
+- The floating window must **never pop out on its own**, never cover the document, and never appear centered over content. If any legacy "big center window" opens on an action (tour, walkthrough, result), **retarget that content into the right pane** instead.
+
+### 2. Results ALWAYS surface in the right pane — announced, not buried
+- Every result the assistant produces — summary-review findings + proposal, a tailored-bullet draft, a refreshed metric, research, "what I found" — renders as a card **in the right pane**, where the user is looking, not inside a floating window they must open and dig through, and **never at the top of the page**.
+- Find and **remove/relocate any result that currently renders at the top of the page** (e.g. a banner/summary strip above the document). Those move into the right pane.
+- When a result arrives, the assistant **narrates it**: announce what was found (the `script`/`reads_as`/`reasoning` lines already provided by the endpoints), then **ask for the next step** with the yes/no it already carries (use it / apply / refresh / next). The result card and the spoken announcement point at the same thing in the document (the `anchor`/`locate`).
+
+### 3. Collapse the main window so it never blocks
+- When the assistant isn't mid-conversation, it rests as the **compact badge**; the right pane shows the current activity/result. The big floating window state is gone — `collapse_main_on_result:true` means any time a result is ready, the view is the right-pane card + the badge, never a content-blocking modal.
+- The right pane should be **scrollable and functional**: the current step/card at the top of the pane, prior findings below, and the action buttons (Use it / Apply / Next / Reject) in the pane — so the user acts without hunting.
+- On a phone, the right pane becomes a **bottom sheet** that holds the same content (still not a full-screen blocker): the badge sits above it; the sheet carries the results and actions.
+
+### 4. Make the right pane functional across flows
+- The right pane is the shared surface for **all** assistant activity on Documents: the section map / navigation (P275), the bullet workbench (P275), the metric-refresh proposal (P275), and the summary review walkthrough (P276–P278). Each renders its cards there; the badge narrates and points; the document stays centered and unobstructed in the main area.
+
+### Acceptance
+- The assistant's expanded window is the **right-pane column** (a bottom sheet on mobile) — it never floats over the document or pops out centered.
+- Every finding/result/proposal appears **in the right pane** with a spoken announcement + a next-step question; **nothing** assistant-related renders at the top of the page.
+- Between turns the assistant is just the compact badge; results never force a content-blocking modal, and the user can read and act on everything in the right pane without digging.

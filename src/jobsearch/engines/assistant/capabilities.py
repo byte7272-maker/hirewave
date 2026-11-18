@@ -100,7 +100,25 @@ BEHAVIORS = [
     # understanding/weaknesses/suggestion/fresh/fingerprint; the summary_review flow walks
     # it in the right pane, badge pointing/narrating step by step).
     "understand_summary", "keep_summary_fresh",
+    # layout (P279): the assistant's HOME is the docked right pane — its expanded window
+    # lives there (not a floating overlay), and every result/finding surfaces there, never
+    # buried in a floating window, at the top of the page, or popped out at random. The only
+    # free-floating element is the compact badge, which never obstructs content; when a
+    # result arrives the floating main window collapses so it can't block anything. See SURFACE.
+    "dock_right_pane", "results_in_right_pane", "badge_only_floats", "collapse_main_on_result",
 ]
+
+#: WHERE the assistant lives and renders — a declarative layout contract so the client
+#: never buries results in a floating window, puts them at the top of the page, or lets the
+#: main window pop out and obstruct content (P279). The right pane is the single home.
+SURFACE: dict[str, Any] = {
+    "home": "right_pane",            # the assistant's dedicated/expanded window docks here
+    "expanded_window": "right_pane",  # NOT a floating center overlay
+    "results": "right_pane",         # every finding/proposal/answer renders here
+    "floating": "badge_only",        # only the compact badge floats
+    "collapse_main_on_result": True,  # a result collapses the floating window so it never blocks
+    "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window"],
+}
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
 #: verb by its canonical key; the client/NLU expand synonyms from here (one vocabulary,
@@ -621,6 +639,9 @@ def manifest() -> dict[str, Any]:
     return {
         "version": VERSION,
         "behaviors": list(BEHAVIORS),
+        # Where the assistant lives + renders (P279): the right pane is home; results never
+        # surface in a floating window, at the top of the page, or as a random popout.
+        "surface": dict(SURFACE),
         "verbs": {k: list(v) for k, v in VERBS.items()},
         "destructive_verbs": sorted(DESTRUCTIVE_VERBS),
         "playbooks": sorted(_PLAYBOOKS),
