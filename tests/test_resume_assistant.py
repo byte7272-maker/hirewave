@@ -741,6 +741,46 @@ def test_api_ai_edit_applies_targeted_change_immediately():
     assert client.post(f"/api/v1/resumes/{rid}/ai-edit", headers=h, json={"instruction": "  "}).status_code == 400
 
 
+def test_api_stateless_document_ai_edit_edits_given_text_without_a_stored_doc():
+    # The stateless /documents/ai-edit edits text the caller passes and returns the
+    # edited text — no résumé is uploaded, nothing is looked up or saved. This is the
+    # endpoint a front end whose documents live elsewhere (a no-code host) calls.
+    class _EditLLM:
+        name = "edit"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return ('[{"action":"reword","section":"Experience","before":"Managed billing",'
+                    '"after":"Led the billing platform","rationale":"stronger verb"}]')
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _EditLLM()  # premium falls back to llm
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+
+    r = client.post("/api/v1/documents/ai-edit", headers=h, json={
+        "content": "## Experience\n- Managed billing", "instruction": "make it stronger",
+        "kind": "resume"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["changed"] is True and body["applied"] >= 1
+    assert "Led the billing platform" in body["content"] and "Managed billing" not in body["content"]
+
+    # Nothing matched -> changed=false, original echoed back (caller keeps its text).
+    class _NoopLLM:
+        name = "noop"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return "[]"  # no targeted edit; formatting-guard keeps the rewrite off for this phrasing
+    state.resume_assistant.llm = _NoopLLM()
+    state.resume_assistant._premium = _NoopLLM()
+    r2 = client.post("/api/v1/documents/ai-edit", headers=h, json={
+        "content": "## Experience\n- Managed billing", "instruction": "reformat the bullets"})
+    assert r2.status_code == 200 and r2.json()["changed"] is False
+    assert r2.json()["content"] == "## Experience\n- Managed billing"
+
+    # Empty instruction -> 400.
+    assert client.post("/api/v1/documents/ai-edit", headers=h,
+                       json={"content": "x", "instruction": "  "}).status_code == 400
+
+
 def test_api_ai_edit_falls_back_to_full_rewrite_when_no_edit_matches():
     # An instruction must never be silently ignored: when the targeted edits can't be
     # located in the résumé, ai-edit falls back to applying the instruction as a full

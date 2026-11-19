@@ -37,6 +37,8 @@ from jobsearch.api.schemas import (
     JobCard,
     AiEditRequest,
     ApplyEditsRequest,
+    DocumentEditRequest,
+    DocumentEditResult,
     ApplyEditsResult,
     CandidateMatch,
     EditSuggestion,
@@ -907,6 +909,48 @@ def ai_edit_cover_letter(
                      state=state, change_summary=fmt_summary)
         state.cover_letters.add(cl)
     return cl
+
+
+@router.post("/documents/ai-edit", response_model=DocumentEditResult)
+def ai_edit_document(
+    body: DocumentEditRequest, user: CurrentUser, state: StateDep
+) -> DocumentEditResult:
+    """STATELESS Ask-AI edit — edit the text we're given and return the edited text.
+
+    Same engine and premium tier as ``/resumes/{id}/ai-edit`` (targeted minimal edits
+    first, whole-document rewrite as a fallback), but it does NOT look up or save a
+    stored document: the caller passes the full ``content`` and owns its own version/
+    undo history. This is the endpoint for a front end whose documents live outside this
+    backend (e.g. a no-code host): it sends ``{content, instruction, kind}`` and renders
+    the returned ``content`` when ``changed`` is true. 400 on an empty instruction;
+    nothing matched -> ``changed=false`` and the original ``content`` echoed back."""
+    plan_limits.consume_ai_edit(state, user)
+    plan_limits.enforce_ai_input(state, user, body.content or "", body.instruction or "")
+    if not body.instruction.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    original = body.content or ""
+    edits = state.resume_assistant.targeted_edits_text(
+        original, body.instruction, job=job, kind=body.kind
+    )
+    text = original
+    applied = 0
+    for e in edits:
+        text, ok = _apply_edit(text, EditSuggestion(**e))
+        applied += 1 if ok else 0
+    # Never silently ignore an instruction: fall back to a whole-document rewrite when no
+    # targeted edit located (skip pure-formatting ops — those are deterministic).
+    if applied == 0 and not state.resume_assistant.is_formatting_instruction(body.instruction):
+        rewritten = state.resume_assistant.apply_instruction_text(
+            original, body.instruction, job=job, kind=body.kind
+        )
+        if rewritten.strip() and rewritten.strip() != original.strip():
+            text, applied = rewritten, 1
+    changed = bool(applied and text.strip() and text != original)
+    if changed:
+        state.log_activity(user.id, "edited", "document", detail=body.instruction.strip()[:80])
+    return DocumentEditResult(content=text if changed else original,
+                              changed=changed, applied=applied)
 
 
 _EVIDENCE_GUIDANCE = (

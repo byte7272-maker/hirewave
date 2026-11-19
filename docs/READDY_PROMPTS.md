@@ -9110,3 +9110,55 @@ Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` 
 - There is now exactly **one** render of a résumé/cover letter across the WHOLE app (Simple and Full) — the editor. `/simple/resume` no longer renders the document inline.
 - In Simple view, clicking "Open" on the résumé or cover letter opens the **editor** (with Undo/Redo, Add section, the assistant), not a preview with a "Read full size" link.
 - The rest of Simple view is unchanged.
+
+## P292 — ⚠ SINGLE PURPOSE: make Ask-AI edits REAL — POST the document text + instruction to the backend and render the result
+
+**Do only this. Change nothing else.** Today the assistant *simulates* edits: when the user types a change, nothing is sent anywhere and the document doesn't change. Wire the assistant's edit action to the real backend so plain-language edits actually apply. The backend endpoint is **stateless** — you send the text, it returns the edited text; the app keeps owning the document and its version history.
+
+**⚠ Precondition — this only works if Readdy can make an outbound API call to a custom URL.** If Readdy has no "Data source / API request / custom fetch / integration" feature, this prompt cannot take effect (and that's the answer: the no-code app can't reach an external backend). If it does, wire it as below.
+
+### The call
+When the user submits a change to a résumé or cover letter in the assistant (typed or spoken), instead of staging a canned reply, **POST** to:
+
+```
+POST  {API_BASE}/api/v1/documents/ai-edit
+Headers:  Content-Type: application/json
+          Authorization: Bearer {API_TOKEN}
+Body (JSON):
+{
+  "content": "<the FULL current document text from the editor>",
+  "instruction": "<the user's exact words, max 500 chars>",
+  "kind": "resume"            // or "cover letter"
+  // "job_posting_id": "<id>"  // optional, only when tailoring to a specific job
+}
+```
+
+- `{API_BASE}` = the deployed backend base URL (configure it as a project setting/secret — do not hardcode).
+- `{API_TOKEN}` = a bearer token the backend accepts (configure as a secret). This is required — the call is authenticated.
+
+### The response — apply it
+On HTTP 200 the body is:
+```
+{ "content": "<edited document text>", "changed": true, "applied": 2 }
+```
+- If `changed` is **true**: **replace the editor's document text with `content`** and save it as a new version in the app's own history, so the existing Undo one-taps back to the pre-edit text. Announce it briefly ("Done — updated your summary. Undo?").
+- If `changed` is **false**: tell the user nothing matched ("I couldn't find what to change — try naming the section or wording"). Do **not** wipe or alter the document.
+- On HTTP 400: the instruction was empty — ask what to change.
+- On a network/CORS error or non-200: say the assistant couldn't reach the editor service and let the user retry; never pretend the edit happened.
+
+### Rules
+- Send the **whole current document text** as `content` (the backend edits what you send, so unsaved changes are respected).
+- Never require an exact phrase — send the user's literal words as `instruction`.
+- This replaces the simulated "want me to read it?" path for edit requests. Reviews/reading can stay as they are; this is specifically the **apply-an-edit** action.
+- One request per submit; show a brief working state while it's in flight.
+
+### Acceptance
+- Typing "make my summary punchier" (or any plain-language change) **actually changes the document** and offers Undo — verified by the text visibly updating, not a canned dialog.
+- "change 'Dynamic IT leader' to 'Seasoned IT leader'" replaces that exact phrase.
+- An unmatched instruction leaves the document untouched and says so.
+- The call appears in the network log as a POST to `{API_BASE}/api/v1/documents/ai-edit` returning the edited text.
+
+### Backend readiness (already done on the server — for reference)
+- Endpoint `POST /api/v1/documents/ai-edit` exists, is **stateless** (no stored doc needed), runs the same premium LLM edit engine, and returns `{content, changed, applied}`.
+- CORS: set the Railway env var `JOBSEARCH_CORS_ORIGINS=https://hlrtlg.readdy.co` so the browser is allowed to call it.
+- LLM must be on: `JOBSEARCH_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`, and `JOBSEARCH_PREMIUM_LLM_PROVIDER=anthropic` (edits run on the premium tier). Without a real LLM the endpoint returns `changed:false`.

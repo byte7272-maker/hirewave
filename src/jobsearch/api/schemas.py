@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, Field
 
@@ -770,6 +770,31 @@ class AiEditRequest(BaseModel):
     #: The live editor text to edit (so unsaved edits are respected). Omit to use saved.
     content: Optional[str] = None
     job_posting_id: Optional[str] = None
+
+
+class DocumentEditRequest(BaseModel):
+    """STATELESS Ask-AI edit: edit text we're given and return edited text — no stored
+    document, no version saved. For a front end whose documents live elsewhere (e.g. a
+    no-code host): it owns the text and the undo history; this just runs the LLM edit.
+    Same edit engine and premium tier as ``/resumes/{id}/ai-edit``."""
+
+    #: The document text to edit (the whole résumé/cover letter, or a section).
+    content: str
+    #: The plain-language change, capped at 500 chars like the editor's Ask-AI box.
+    instruction: str = Field(max_length=500)
+    #: Which kind of document, so the edit engine uses the right conventions.
+    kind: Literal["resume", "cover letter"] = "resume"
+    #: Optional job to tailor toward (must exist for this user); omit for a plain edit.
+    job_posting_id: Optional[str] = None
+
+
+class DocumentEditResult(BaseModel):
+    """The edited text. ``changed`` is False when the instruction matched nothing (the
+    caller keeps its current text); ``applied`` counts the edits that landed."""
+
+    content: str
+    changed: bool = False
+    applied: int = 0
 
 
 class ApplyEditsRequest(BaseModel):
