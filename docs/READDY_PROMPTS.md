@@ -9162,3 +9162,35 @@ On HTTP 200 the body is:
 - Endpoint `POST /api/v1/documents/ai-edit` exists, is **stateless** (no stored doc needed), runs the same premium LLM edit engine, and returns `{content, changed, applied}`.
 - CORS: set the Railway env var `JOBSEARCH_CORS_ORIGINS=https://hlrtlg.readdy.co` so the browser is allowed to call it.
 - LLM must be on: `JOBSEARCH_LLM_PROVIDER=anthropic` + `ANTHROPIC_API_KEY`, and `JOBSEARCH_PREMIUM_LLM_PROVIDER=anthropic` (edits run on the premium tier). Without a real LLM the endpoint returns `changed:false`.
+
+## P293 — ⚠ SINGLE PURPOSE: authorize backend calls — trade the Firebase sign-in for a backend session token
+
+**Do only this. Change nothing else.** The edit call (P292) reaches the backend but comes back **401 "couldn't make the change"**: the backend only accepts a token **it** issued, and the app is only signed into Firebase, so it has no backend token. Fix it by exchanging the Firebase sign-in the app already has for a backend session. **No new login screen, no new credentials** — the user signs in with Google/Firebase exactly as today.
+
+### The exchange (do once, right after Firebase sign-in)
+The app already holds a **Firebase ID token** after the user signs in. POST it to the backend to get a backend session:
+```
+POST  {API_BASE}/api/v1/auth/firebase
+Body (JSON):  { "id_token": "<the Firebase ID token>", "invite_code": "<only if required>" }
+→ 200:        { "access_token": "...", "refresh_token": "...", "token_type": "bearer" }
+```
+Store **both** tokens (in memory / session storage). From now on, send `Authorization: Bearer {access_token}` on every backend call, including `POST /api/v1/documents/ai-edit`.
+
+### Keep it fresh (required — tokens expire)
+- `access_token` lasts **30 minutes**; `refresh_token` lasts **7 days**. Do not assume one token lasts the session.
+- **On any 401 from a backend call:** POST `{ "refresh_token": "<stored>" }` to `{API_BASE}/api/v1/auth/refresh` → store the new `access_token`+`refresh_token`, then **retry the original call once**.
+- **If refresh also returns 401** (refresh expired): silently re-run the Firebase exchange above with the current Firebase ID token, store the new tokens, retry once. Only if THAT fails do you show the user an error.
+
+### Rules
+- This is purely the auth layer for backend calls. Don't change the sign-in UI, the assistant, the editor, or anything else.
+- First-ever exchange creates the backend account automatically (matched by the Firebase email); returning users reuse it. If signup is invite-gated, pass `invite_code`.
+- Never show the user a backend-login prompt — the Firebase session is the only sign-in.
+
+### Acceptance
+- After signing in with Google, the network log shows one `POST /api/v1/auth/firebase` returning `access_token`/`refresh_token`.
+- An edit now returns **200** (not 401) and applies; "couldn't make the change" is gone (assuming the LLM env vars are set — otherwise it returns `changed:false`, "nothing matched").
+- After ~30 minutes, an edit that would have 401'd instead triggers a `/auth/refresh` and still succeeds, with no visible interruption.
+
+### Backend readiness (already on the server — for reference)
+- `POST /api/v1/auth/firebase` and `/api/v1/auth/refresh` exist and return `{access_token, refresh_token}`.
+- **Critical:** the backend's Firebase project must be the SAME one the app signs in with, or `verify()` fails with 401 "invalid Firebase token". Set `JOBSEARCH_FIREBASE_PROJECT_ID` (and `JOBSEARCH_FIREBASE_CREDENTIALS_JSON`/`_FILE`) on Railway to match the app's Firebase project.
