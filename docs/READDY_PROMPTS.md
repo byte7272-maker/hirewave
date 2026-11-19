@@ -9224,3 +9224,30 @@ Store **both** tokens (in memory / session storage). From now on, send `Authoriz
 - No activity-log or version screen appears unless the user explicitly opens it.
 - The assistant scrolls to / highlights the changed section; the badge is not frozen.
 - Undo returns to the previous version in place; no button triggers an unrelated jump.
+
+## P296 — ⚠ SINGLE PURPOSE: make the assistant text input OBVIOUS and always reachable
+
+**Do only this. Change nothing else.** Typing to the assistant is far too hard: the main window is hard to bring up, then it opens with a wall of content and bubbles, and the actual text field is **below the fold, has no border, and is almost invisible** — the user has to scroll to even find it. Fix the input so it's impossible to miss.
+
+1. **A clear, bordered text box, near the TOP of the right pane.** Whenever the right pane (the assistant) is active, show the "Type to the assistant…" input **near the top**, with a **visible border** and strong contrast — not borderless, not faint, not at the bottom under a scroll. It is pinned/persistent, not something that scrolls away.
+2. **Opening the assistant lands on the input.** When the window/large menu opens, the text box is immediately visible (ideally focused) — do not bury it under a stack of bubbles, offers, or content the user must scroll past to reach it.
+3. **Typing is always available next to any Yes/No.** For any yes/no question or dialog shown **away from the main right pane**, clicking the badge to open the larger menu must reveal a **text input directly below the badge**, so the user can always type instead of only tapping the Yes/No chips. Chips and a text field coexist.
+4. **No scrolling to reach it.** The input stays on screen; the user never has to hunt or scroll to type.
+
+### Acceptance
+- The moment the right pane is active, a clearly **bordered**, labeled "Type to the assistant…" box is visible **near the top**, with no scrolling.
+- Opening the assistant shows (and focuses) that box immediately — not buried under bubbles.
+- When a Yes/No card is showing, clicking the badge reveals a text input right below the badge; the user can type instead of only tapping chips.
+- The input is never faint, borderless, or below the fold.
+
+## P297 — ⚠ SINGLE PURPOSE: remove the editor's top "Bullets" tool strip (clutter)
+
+**Do only this. Change nothing else.** At the **top of the editor page** there's a **Bullets tool section — a row of buttons plus one elongated single-line of text**. It's clutter and unnecessary. Remove it.
+
+1. **Remove that top Bullets strip** — its buttons and the long one-line text. (This is the UI tool strip/header at the top of the editor — **not** the résumé's actual bullet points in the document, which stay exactly as they are.)
+2. **Leave everything else untouched** — the document body, the assistant right pane, the section map, versions, and all other editor controls are unchanged.
+
+### Acceptance
+- The top-of-editor Bullets button/text strip is gone.
+- The résumé's own bullet points and all other editor content are unchanged.
+- Nothing else moved or changed.
