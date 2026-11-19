@@ -9097,3 +9097,16 @@ Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` 
 - Clicking a version in the marquee opens that document **in the editor**, not an intermediate preview.
 - Saying or typing "show me my résumé" / "open my cover letter" opens the **editor** with the assistant's full function set in the right pane.
 - The marquee and any version/document info on other screens are unchanged.
+
+## P291 — ⚠ SINGLE PURPOSE: Simple view must use the editor too — remove the `/simple/resume` (and cover-letter) inline preview
+
+**Do only this. Change nothing else.** P290 made the editor the single render surface in Full view, but **Simple view still renders the document a second time**: `/simple/resume` shows an inline résumé preview (section map, dated-figures callout, the actual bullet text, a "Read full size" link) instead of the editor. Collapse this too.
+
+1. **Remove the Simple-view inline document render** at `/simple/resume` (and the equivalent Simple-view cover-letter preview). Simple view no longer renders the résumé/cover-letter body or carries its own preview, section map, dated-figures panel, or "Read full size" hand-off. Delete that inline render path.
+2. **In Simple view, "Open" (or "show / see my résumé/cover letter") opens the EDITOR** — the same single editor surface Full view uses — not a Simple-only preview. The backend already returns `{section:"documents", doc, view:"editor"}`; honor it from Simple view too.
+3. **Keep Simple view simple everywhere else.** This prompt touches only the résumé/cover-letter render path. The Simple-view home, its "My résumé / Cover letter" cards, counts, and the assistant are unchanged — only the act of opening a document now lands in the editor instead of an inline preview.
+
+### Acceptance
+- There is now exactly **one** render of a résumé/cover letter across the WHOLE app (Simple and Full) — the editor. `/simple/resume` no longer renders the document inline.
+- In Simple view, clicking "Open" on the résumé or cover letter opens the **editor** (with Undo/Redo, Add section, the assistant), not a preview with a "Read full size" link.
+- The rest of Simple view is unchanged.
