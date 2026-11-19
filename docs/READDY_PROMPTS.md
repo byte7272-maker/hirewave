@@ -9194,3 +9194,18 @@ Store **both** tokens (in memory / session storage). From now on, send `Authoriz
 ### Backend readiness (already on the server — for reference)
 - `POST /api/v1/auth/firebase` and `/api/v1/auth/refresh` exist and return `{access_token, refresh_token}`.
 - **Critical:** the backend's Firebase project must be the SAME one the app signs in with, or `verify()` fails with 401 "invalid Firebase token". Set `JOBSEARCH_FIREBASE_PROJECT_ID` (and `JOBSEARCH_FIREBASE_CREDENTIALS_JSON`/`_FILE`) on Railway to match the app's Firebase project.
+
+## P294 — ⚠ SINGLE PURPOSE: stop the assistant interrupting — no unsolicited yes/no prompts, nothing pops over its own window
+
+**Do only this. Change nothing else about the assistant's wording, routing, or abilities.** The assistant is too disruptive: it keeps asking yes/no questions the user didn't ask for, and these cards/modals pop up **on top of the assistant's own large window**, making it hard to read, navigate, or interact. Make the assistant **responsive, not proactive**.
+
+1. **Stop all unsolicited questions and offers.** Remove or hard-suppress every prompt that appears without the user initiating it, including: "Would you like me to read the summary?", "Your résumé changed since your summary was last refreshed — Update it / No", "Want a quick walkthrough?", the once-per-session proactive scan, and any "The assistant is asking… Yes / No" the user didn't trigger. The assistant speaks and asks **only** in response to something the user just did.
+2. **Never render a popup, modal, offer, toast, or question card OVER the assistant's own expanded window.** The assistant window must always stay fully visible and interactive — nothing overlaps or covers it. Walkthrough, summary-refresh, and onboarding prompts in particular must never sit on top of it.
+3. **One thing at a time, and never a blocking chain.** No auto-advancing question sequences. If completing an action the user explicitly asked for genuinely needs a choice, ask **once**, inline, non-blocking, with a sensible default, and don't re-ask or stack another on top.
+4. **A typed/spoken edit just runs** (the existing edit path) — it does not spawn a confirmation question first. Reading/review features stay available **on request**, but never auto-offer themselves.
+
+### Acceptance
+- Opening the editor and the assistant shows **no** unsolicited yes/no prompts and **no** walkthrough/refresh modals.
+- No popup, card, or modal ever covers the assistant's own window — it stays readable and clickable at all times.
+- Asking the assistant to do something works exactly as before; it just no longer interrupts on its own.
+- The user can read and navigate without first dismissing questions.
