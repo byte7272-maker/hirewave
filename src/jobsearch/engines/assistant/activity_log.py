@@ -40,6 +40,8 @@ FUNCTIONS: list[dict] = [
      "blurb": "I read through the entire résumé (header, summary, every role with its dates and bullets, education, skills) — or cover letter (greeting, opening, body, closing) — announce what I found in each part, and offer to walk you through fixing it, section by section."},
     {"key": "navigate_document", "topic": "documents", "title": "Navigate & highlight your document",
      "blurb": "I show your whole document and jump to any section (Experience, Education, Skills) or highlight any word or paragraph — just say 'go to Experience' or 'highlight leadership'. Works on cover letters too."},
+    {"key": "ask_ai_edit", "topic": "documents", "title": "Edit your document in plain words",
+     "blurb": "Tell me the change in your own words — 'make my summary punchier', 'tighten this bullet', 'change my title to Senior Engineer' — and I make it right there in the editor and save it as a new version, so one tap undoes it. No exact phrasing needed; works on résumés and cover letters."},
     {"key": "bullet_workbench", "topic": "documents", "title": "Sharpen a bullet",
      "blurb": "Point me at a single bullet and I read it, then suggest real improvements to that line — a stronger rewording, a cleaner rephrase, or a work highlight folded in — as an editable draft you approve before it changes."},
     {"key": "refresh_metric", "topic": "documents", "title": "Refresh dated numbers from the web",
@@ -83,6 +85,17 @@ def functions_overview(topic: str = "") -> dict:
 # --- how-to steps the assistant can recite (requirements + the actual steps) --------
 #: What the user must do to make a function work — the setup/requirements and the steps.
 HOW_TO: dict[str, dict] = {
+    "ask_ai_edit": {
+        "title": "Change your document by asking",
+        "requirements": [],
+        "steps": [
+            "Open your résumé or cover letter in the editor.",
+            "Tell me the change in plain words — e.g. 'make my summary punchier', "
+            "'tighten this bullet', or 'change my title to Senior Engineer'. No exact phrasing needed.",
+            "I apply it in place and save it as a new version.",
+            "Not what you wanted? Tap Undo to go back to the previous version.",
+        ],
+    },
     "upload_resume": {
         "title": "Upload your résumé",
         "requirements": [],
@@ -302,6 +315,11 @@ _REFRESHHOW_RE = re.compile(
     r"\b(refresh|update|fix|current|latest|outdated|stale|old).{0,24}\b(number|figure|metric|stat|percentage|growth|revenue)s?\b"
     r"|\b(number|figure|metric|stat)s?\b.{0,24}\b(current|up to date|out of date|from the web|outdated)\b", re.I)
 _SUMMARYHOW_RE = re.compile(r"\b(summary|profile|objective|headline)\b", re.I)
+# "how do I edit/change/reword my résumé/cover letter/a line" → the plain-words Ask-AI edit.
+_EDITHOW_RE = re.compile(
+    r"\b(edit|change|reword|rewrite|tweak|revise|fix|adjust|shorten|tighten|punch\w*|strengthen)\b"
+    r".{0,30}\b(résumé|resume|cv|cover letter|document|bullet|line|wording|title|header)\b"
+    r"|\bask (you|the assistant).{0,20}\b(edit|change|reword|rewrite)\b", re.I)
 _NAVHOW_RE = re.compile(
     r"\b(go to|jump to|navigate|highlight|find|where .* say|spotlight)\b.{0,24}\b(section|experience|education|skills|summary|word|phrase|paragraph|line)\b"
     r"|\bhighlight\b", re.I)
@@ -337,6 +355,8 @@ def answer(query: str, events: list, *, form: str = "") -> dict:
             return how_to("review_summary")
         if _NAVHOW_RE.search(q):
             return how_to("navigate_document")
+        if _EDITHOW_RE.search(q):
+            return how_to("ask_ai_edit")
         if _SYNC_RE.search(q) or topic == "sync" or _board_in(q):
             return how_to("sync_resume")
         if _UPLOAD_RE.search(q) or subject_type in ("resume", "cover_letter"):

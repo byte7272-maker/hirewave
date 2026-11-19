@@ -948,7 +948,10 @@ def ai_edit_document(
             text, applied = rewritten, 1
     changed = bool(applied and text.strip() and text != original)
     if changed:
-        state.log_activity(user.id, "edited", "document", detail=body.instruction.strip()[:80])
+        # Log under a real subject kind (resume/cover_letter) so activity recall buckets
+        # it with the rest of the document history — "document" is not a valid subject.
+        subj = "cover_letter" if body.kind == "cover letter" else "resume"
+        state.log_activity(user.id, "edited", subj, detail=body.instruction.strip()[:80])
     return DocumentEditResult(content=text if changed else original,
                               changed=changed, applied=applied)
 

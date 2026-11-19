@@ -142,6 +142,23 @@ TROUBLESHOOTING: dict[str, dict] = {
         "fix": "Add a 2–3 line summary — or say the word and I'll draft one from your experience.",
         "retry": False, "ask_again": False,
     },
+    # Ask-AI edit (POST /documents/ai-edit): the request didn't complete, so nothing changed.
+    "edit_failed": {
+        "ack": "I couldn't reach the editor service — your document is unchanged.",
+        "cause": "The edit request didn't complete (a network/service error), so nothing was applied.",
+        "fix": "Try again in a moment. If it keeps failing, your sign-in may have ended — re-open the app.",
+        "retry": True, "ask_again": False,
+    },
+    # The edit completed but matched nothing to change (e.g. the instruction didn't locate
+    # anything, or the editing model isn't configured on the server).
+    "edit_no_change": {
+        "ack": "I couldn't find what to change — nothing was altered.",
+        "cause": "The instruction didn't match a part of the document I could edit "
+                 "(or the editing model isn't available), so no version was saved.",
+        "fix": "Name the section or quote the exact wording (e.g. 'in my summary, change X to Y'), "
+               "and I'll try again.",
+        "retry": False, "ask_again": False,
+    },
     # --- network / server ----------------------------------------------------------
     "network": {
         "ack": "I lost the connection for a second.",
@@ -175,9 +192,10 @@ TROUBLESHOOTING: dict[str, dict] = {
     },
     "session_expired": {
         "ack": "Your sign-in expired.",
-        "cause": "The session token is no longer valid.",
-        "fix": "Sign in again (or re-open the app) and I'll pick up where we were.",
-        "retry": False, "ask_again": False,
+        "cause": "The session token is no longer valid. The app renews it automatically from "
+                 "your Firebase sign-in; this only surfaces if that renewal also failed.",
+        "fix": "Re-open the app (or sign in again) and I'll pick up where we were — your work is saved.",
+        "retry": True, "ask_again": False,
     },
     "unknown": {
         "ack": "Something went wrong on my end.",
@@ -201,6 +219,11 @@ _SIGNATURES: list[tuple[str, str]] = [
     (r"no (newer|updated|current) (figure|number|metric)|couldn'?t find .*(figure|number|metric)|"
      r"metric.*not found|figure.*not found", "metric_not_found"),
     (r"no summary|summary (is )?(missing|empty)|without a summary|doesn'?t have a summary", "no_summary"),
+    # Ask-AI edit outcomes (before the generic network/not-found signatures).
+    (r"nothing (matched|changed|to change)|couldn'?t find (what|anything) to (change|edit)|"
+     r"no (edit|change) (applied|matched)|changed\s*[:=]\s*false", "edit_no_change"),
+    (r"(couldn'?t|could not|can'?t|unable to) (reach|contact|complete).{0,24}(edit|editor)|"
+     r"edit (service|request).{0,16}(fail|didn'?t|error)|ai-?edit.{0,16}(fail|error)", "edit_failed"),
     (r"(couldn'?t|could not|can'?t) (find|locate).*(word|phrase|section|in (the |your )?(document|résumé|resume))|"
      r"not (in|found in) (the |your )?(document|résumé|resume)|no match (in|for).*(document|text)", "locate_no_match"),
     # "allowed in settings but still blocked/refusing" on iOS → the Apple limitation, not a

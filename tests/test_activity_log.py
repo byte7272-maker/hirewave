@@ -220,3 +220,32 @@ def test_activity_endpoints_require_auth():
     c, _ = _client()
     assert c.get("/api/v1/assistant/activity").status_code == 401
     assert c.post("/api/v1/assistant/ask", json={"query": "hi"}).status_code == 401
+
+
+def test_kb_knows_the_ask_ai_edit_capability():
+    # The assistant's knowledge base lists plain-language editing and can recite its steps.
+    titles = [f["title"] for f in al.functions_overview("documents")["functions"]]
+    assert any("plain words" in t for t in titles), titles
+    howto = al.answer("how do I change my résumé?", [])
+    assert howto["form"] == "how_to"
+    assert any("plain words" in s for s in howto["steps"]) and any("Undo" in s for s in howto["steps"])
+
+
+def test_stateless_ai_edit_logs_activity_under_the_document_subject():
+    # A stateless /documents/ai-edit that changes text is recorded as an "edited résumé"
+    # (a valid subject), so activity recall counts it with the rest of the doc history.
+    class _EditLLM:
+        name = "edit"
+        def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+            return ('[{"action":"reword","before":"Managed billing",'
+                    '"after":"Led the billing platform","rationale":"stronger"}]')
+
+    c, state = _client()
+    state.resume_assistant.llm = _EditLLM()
+    h = _auth(c)
+    r = c.post("/api/v1/documents/ai-edit", headers=h,
+               json={"content": "## Experience\n- Managed billing", "instruction": "make it stronger"})
+    assert r.status_code == 200 and r.json()["changed"] is True
+    acts = c.get("/api/v1/assistant/activity", headers=h).json()
+    edited = [e for e in acts["events"] if e["verb"] == "edited"]
+    assert edited and edited[0]["subject_type"] == "resume"

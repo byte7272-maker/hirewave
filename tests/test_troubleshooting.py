@@ -131,3 +131,18 @@ def test_document_assistant_error_awareness():
     # the refresh/research network issue is worth an auto-retry; the "not found" ones are not
     assert ts.lookup("no_sources_fetched")["retry"] is True
     assert ts.lookup("metric_not_found")["retry"] is False
+
+
+def test_ask_ai_edit_error_states():
+    # A failed edit call is an actionable, retryable error; a matched-nothing edit is not.
+    assert ts.classify("", "couldn't reach the editor service") == "edit_failed"
+    assert ts.classify("", "nothing matched, nothing to change") == "edit_no_change"
+    assert ts.classify("", "changed:false") == "edit_no_change"
+    assert ts.lookup("edit_failed")["retry"] is True
+    assert ts.lookup("edit_no_change")["retry"] is False
+    for kind in ("edit_failed", "edit_no_change"):
+        h = ts.handle(kind)
+        assert h["ack"].strip() and h["fix"].strip()
+    # session recovery is now auto (P293): worth a retry, and the cause says so.
+    assert ts.lookup("session_expired")["retry"] is True
+    assert "automatically" in ts.lookup("session_expired")["cause"]
