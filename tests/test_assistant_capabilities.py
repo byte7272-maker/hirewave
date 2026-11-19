@@ -157,8 +157,11 @@ def test_capabilities_requires_auth():
 def test_documents_arrival_centers_whole_document_and_maps_sections():
     # P275: on arrival the assistant centers the WHOLE document and reads its section map —
     # it does not drop into a bullet pane or ask "what would you like to do here?".
+    # P290: the editor is the SINGLE render surface — no separate Documents-section preview.
     docs = caps.for_section("documents")
-    assert docs["arrival"] == {"center": "document", "map": True, "announce": "whole_document"}
+    assert docs["arrival"] == {
+        "surface": "editor", "single_render": True,
+        "center": "document", "map": True, "announce": "whole_document"}
     data = docs["data"]
     assert data["map_resume"].endswith("/map") and data["locate"].endswith("/locate")
     assert data["refresh_metric"].endswith("/refresh-metric")

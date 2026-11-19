@@ -441,7 +441,13 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         # centers the whole document and gives a one-line map of its sections (from
         # GET /resumes|cover-letters/{id}/map), then offers the first useful move.
         "arrival": {
-            "center": "document",  # center the full document, not the bullet pane
+            # The document renders in ONE place: the editor. There is no separate
+            # Documents-section preview with its own controls — "show my résumé" opens
+            # the editor, and the assistant's full function set lives there. The marquee
+            # (and any version info elsewhere) just points into the editor.
+            "surface": "editor",
+            "single_render": True,
+            "center": "document",  # center the full document in the editor, not the bullet pane
             "map": True,           # read the section outline so the assistant knows the whole doc
             "announce": "whole_document",
         },
@@ -456,8 +462,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "full_review_cover_letter": "/api/v1/cover-letters/{id}/full-review",
         },
         "actions": [
-            _action("Show my résumé", "show", ["resume"], "navigate", {"section": "documents", "doc": "resume"}),
-            _action("Show my cover letter", "show", ["cover_letter"], "navigate", {"section": "documents", "doc": "cover_letter"}),
+            _action("Show my résumé", "show", ["resume"], "navigate",
+                    {"section": "documents", "doc": "resume", "view": "editor"}),
+            _action("Show my cover letter", "show", ["cover_letter"], "navigate",
+                    {"section": "documents", "doc": "cover_letter", "view": "editor"}),
             _action("Go to a section", "show", ["section"], "focus_document",
                     {"section": "documents", "mode": "section", "highlight": True}),
             _action("Find or highlight text", "search", ["text"], "focus_document",

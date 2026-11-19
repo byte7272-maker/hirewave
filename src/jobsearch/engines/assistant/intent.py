@@ -1100,6 +1100,11 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         if sec:
             slots: dict[str, Any] = {"section": sec}
             if sec == "documents":
+                # The document renders ONLY in the editor — there is no separate
+                # Documents-section preview. "show/open my résumé" lands in the editor,
+                # the single surface where the document renders with the assistant's
+                # full function set. Carry WHICH document the user named.
+                slots["view"] = "editor"
                 dt = _doc_target(t)
                 if dt:
                     slots["doc"] = dt

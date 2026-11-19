@@ -9082,3 +9082,18 @@ Without these, `/assistant/interpret`'s AI backstop gets no model and `ai-edit` 
 - The default Documents right pane shows **neither** "Ask AI to improve it" **nor** "My Work Highlights".
 - Saying/clicking "open work highlights" still opens Work Highlights as its own view.
 - No other pane content, layout, or behavior changed.
+
+## P290 — ⚠ SINGLE PURPOSE: ONE place a document renders — the editor. Drop the Documents-section render entirely; the marquee just opens the editor
+
+**Do only this. Change nothing else.** Right now a résumé can be seen two ways, and it's confusing: (1) a **preview inside the Documents section** with some controls, and (2) clicking a version in the **marquee** opens a fuller view that then has an "edit" button taking you to a **full editor**. Collapse this to one surface:
+
+1. **Remove the Documents-section render and all its supporting material.** The Documents section no longer renders the résumé/cover-letter body or carries its own document controls, preview, "edit" hand-off, or supporting panels. Delete that in-section render path; don't leave a second copy of the document anywhere.
+2. **The editor is the ONE place a résumé or cover letter renders**, and it hosts **all** of the assistant's functions (the right-pane assistant, section map, bullet workbench, summary review, refresh-figures, versions, Undo). There is no "preview, then click to edit" two-step — opening a document means opening the editor.
+3. **The marquee stays, and so does any document/version info on other screens** (dashboard, matches, etc.) — don't remove those. But a version/document in the marquee now **opens the editor directly** (the single render surface). No intermediate full-view-with-an-edit-button step.
+4. **"Show / open / see my résumé (or cover letter)" opens the editor as the first stop.** The backend `navigate` intent now returns `{section:"documents", doc, view:"editor"}` and the documents manifest's `arrival` declares `surface:"editor"`, `single_render:true` — honor it: route any "see my resume" request (typed, spoken, clicked, or from the marquee) straight into the editor. Never open the old in-section preview.
+
+### Acceptance
+- There is exactly **one** render of a résumé/cover letter in the app — the editor. The Documents section no longer shows its own document render or document controls.
+- Clicking a version in the marquee opens that document **in the editor**, not an intermediate preview.
+- Saying or typing "show me my résumé" / "open my cover letter" opens the **editor** with the assistant's full function set in the right pane.
+- The marquee and any version/document info on other screens are unchanged.

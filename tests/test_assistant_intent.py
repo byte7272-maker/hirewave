@@ -66,6 +66,16 @@ def test_resume_the_document_still_navigates_not_resume_task():
     assert interpret("open my resume").slots["section"] == "documents"
 
 
+def test_show_resume_opens_the_editor_surface():
+    # P290: the editor is the one place a document renders — "show/open my résumé"
+    # navigates there with view=editor, carrying which document was named.
+    r = interpret("show me my resume")
+    assert r.intent == "navigate" and r.slots["section"] == "documents"
+    assert r.slots.get("view") == "editor"
+    assert interpret("open my cover letter").slots.get("doc") == "cover_letter"
+    assert interpret("open my cover letter").slots.get("view") == "editor"
+
+
 def test_navigate_sections():
     assert interpret("take me to my matches").intent == "navigate"
     assert interpret("take me to my matches").slots["section"] == "matches"
