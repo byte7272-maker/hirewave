@@ -9209,3 +9209,18 @@ Store **both** tokens (in memory / session storage). From now on, send `Authoriz
 - No popup, card, or modal ever covers the assistant's own window — it stays readable and clickable at all times.
 - Asking the assistant to do something works exactly as before; it just no longer interrupts on its own.
 - The user can read and navigate without first dismissing questions.
+
+## P295 — ⚠ SINGLE PURPOSE: after an Ask-AI edit, confirm in place and STAY in the editor — no jump to other screens
+
+**Do only this. Change nothing else.** Edits now apply correctly, but the aftermath is confusing: the app shows unfamiliar screens and **jumps away from the editor** (e.g. to the activity log / a version screen) with no clear confirmation, and the assistant badge sits frozen — it doesn't point at or show what changed. Fix the post-edit experience so it's obvious and stays put.
+
+1. **Stay in the editor.** When an edit applies (`changed:true`), remain on the same document in the editor. **Never navigate to the activity log, a version-history page, or any other screen** as a result of an edit. The edited document stays on screen.
+2. **One clear in-place confirmation.** Show a single, plain confirmation in the editor/assistant — e.g. **"Applied ✓ — saved as version N"** with a one-tap **Undo**. No intermediate/unfamiliar screens, no multi-step chain, no mystery buttons that navigate elsewhere.
+3. **Point at the change.** As it confirms, the assistant scrolls to and highlights the **changed section** (the summary, the edited bullet) so the user sees exactly what changed, then rests. If highlighting isn't available, at minimum scroll the changed text into view. (This is a direct response to the user's own request — it is NOT the proactive behavior P294 removed; keep it.)
+4. **Buttons do the obvious thing.** The confirmation's **Undo** reverts in place (back to the prior version) without leaving the editor; dismiss just closes the toast. Pressing either must not jump to an unrelated page.
+
+### Acceptance
+- After "make my summary punchier", the rewritten summary is **visible in the editor**, with "Applied ✓ — version N" and Undo, and the view has **not** navigated away.
+- No activity-log or version screen appears unless the user explicitly opens it.
+- The assistant scrolls to / highlights the changed section; the badge is not frozen.
+- Undo returns to the previous version in place; no button triggers an unrelated jump.
