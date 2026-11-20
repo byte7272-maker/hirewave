@@ -390,6 +390,39 @@ def test_refresh_metric_endpoint_plan_then_proposal():
     assert r2.status_code == 200 and r2.json()["stage"] == "proposal"
 
 
+def test_refresh_metric_runs_server_side_search_when_cse_configured(monkeypatch):
+    # With Google Programmable Search configured, the plan runs the search server-side
+    # (no client CAPTCHA) and returns safety-filtered result URLs for the client to fetch.
+    import json as _json
+
+    from jobsearch.engines.assistant import web_search
+
+    c, state = _client()
+    state.settings.google_cse_key = "k"
+    state.settings.google_cse_cx = "cx"
+    assert state.settings.research_search_provider() == "google"
+
+    def _fake(url, timeout):
+        return 200, _json.dumps({"items": [
+            {"title": "Publicis 2026 results", "link": "https://investor.publicisgroupe.com/2026",
+             "snippet": "organic growth"},
+            {"title": "insecure", "link": "http://insecure.example.com/x", "snippet": "no"},
+            {"title": "torrent", "link": "https://1337x.to/t/1", "snippet": "no"},
+        ]})
+    monkeypatch.setattr(web_search, "_default_fetch", _fake)
+
+    h = _auth(c)
+    r = c.post("/api/v1/documents/refresh-metric", headers=h, json={"bullet": _STALE_BULLET})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stage"] == "plan" and body["search_done"] is True
+    urls = [s["url"] for s in body["search_results"]]
+    assert "https://investor.publicisgroupe.com/2026" in urls
+    # insecure + torrent results were safety-filtered out
+    assert all(u.startswith("https://") for u in urls)
+    assert not any("1337x" in u for u in urls)
+
+
 def test_saving_a_body_only_version_keeps_name_and_summary():
     # Regression: an editor that saves only the body (text starts at a section heading,
     # no name line) must NOT drop the candidate's name or summary.

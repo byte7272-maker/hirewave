@@ -9322,3 +9322,17 @@ Hold the user's hand through it, in plain, friendly language — spoken and show
 - With the extension present + Web research on, a figure refresh runs search→fetch→propose end to end and shows a real proposal with sources on the user's connection.
 - The flow shows `harbor-research-search` / `harbor-research-fetch` window messages and the app POSTing `sources` to `/documents/refresh-metric`.
 - Every step is narrated warmly; a missing extension, a missing permission, or no result each produce a friendly, specific guide — never silence or a bare error.
+
+## P302 — ⚠ SINGLE PURPOSE: use the server's search results (official API) — don't scrape DuckDuckGo (it CAPTCHAs)
+
+**Do only this. Change nothing else.** The extension's own web search scrapes DuckDuckGo, which now returns a bot CAPTCHA ("select all squares containing a duck") instead of results — so research comes back empty. The backend now runs the search through an official API (Google Programmable Search) and hands back result URLs. Use those; only fall back to the extension's own search when the server didn't search.
+
+1. **Read the plan's search results.** The plan response from `POST /api/v1/documents/refresh-metric` (no sources) now includes `search_done` (boolean) and `search_results` (`[{url, title, snippet}]`).
+2. **When `search_done` is true:** skip `harbor-research-search` entirely. Take the `search_results` URLs and go straight to `harbor-research-fetch` for the top ~3, collect the `{url,title,text}`, and POST them back as `sources` (P301 step 3). The extension is used **only to fetch pages on the user's connection**, never to search.
+3. **When `search_done` is false** (no search API configured server-side): fall back to `harbor-research-search` as before — but if it returns empty or a CAPTCHA page, don't claim a network failure; say honestly that web search needs to be configured (P300's honest-failure path).
+4. Everything else from P301 (the fetch→propose→review flow, the warm narration) is unchanged.
+
+### Acceptance
+- A figure refresh uses `search_results` from the plan and fetches those URLs — no `harbor-research-search` call when `search_done` is true.
+- Results actually come back (no empty CAPTCHA dead-end), and the proposal shows real sources.
+- When the server has no search API configured, the assistant says so honestly instead of a generic "couldn't reach the web."

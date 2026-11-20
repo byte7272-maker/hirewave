@@ -2136,7 +2136,26 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "provide the bullet text to refresh")
     sources = [s.model_dump() for s in (body.sources or [])]
     if not sources:
-        return {"stage": "plan", **document_refresh.plan(bullet, analysis=None)}
+        plan = document_refresh.plan(bullet, analysis=None)
+        # When a real search API (Google Programmable Search) is configured, run the
+        # search HERE and hand the client result URLs to fetch directly. The extension's
+        # own DuckDuckGo scrape is blocked by anti-bot CAPTCHAs, so client-side search
+        # returns nothing; the official API does not. Results are safety-filtered.
+        from jobsearch.engines.assistant import web_safety, web_search
+
+        search_results: list[dict] = []
+        if state.settings.research_search_provider() == "google":
+            seen: set[str] = set()
+            for q in (plan.get("queries") or [])[:3]:
+                resp = web_search.search(q, settings=state.settings, limit=5)
+                for r in resp.results:
+                    if r.url and r.url not in seen and web_safety.is_safe_research_url(r.url)[0]:
+                        seen.add(r.url)
+                        search_results.append({"url": r.url, "title": r.title, "snippet": r.snippet})
+        plan["search_results"] = search_results
+        # True => the client should fetch these URLs directly and skip its own search.
+        plan["search_done"] = bool(search_results)
+        return {"stage": "plan", **plan}
     llm = getattr(state.resume_assistant, "premium", None)
     proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)
     return {"stage": "proposal", **proposal}
