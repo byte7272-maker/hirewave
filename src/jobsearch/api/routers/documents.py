@@ -2155,6 +2155,13 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
         plan["search_results"] = search_results
         # True => the client should fetch these URLs directly and skip its own search.
         plan["search_done"] = bool(search_results)
+        # Diagnostic (booleans only, no secret values): which provider is active and
+        # whether each Google CSE credential is seen by the running instance.
+        plan["search_provider"] = state.settings.research_search_provider()
+        plan["cse_config"] = {
+            "key_set": bool(state.settings.google_cse_key),
+            "cx_set": bool(state.settings.google_cse_cx),
+        }
         return {"stage": "plan", **plan}
     llm = getattr(state.resume_assistant, "premium", None)
     proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)
