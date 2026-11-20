@@ -9336,3 +9336,21 @@ Hold the user's hand through it, in plain, friendly language — spoken and show
 - A figure refresh uses `search_results` from the plan and fetches those URLs — no `harbor-research-search` call when `search_done` is true.
 - Results actually come back (no empty CAPTCHA dead-end), and the proposal shows real sources.
 - When the server has no search API configured, the assistant says so honestly instead of a generic "couldn't reach the web."
+
+## P303 — ⚠ SINGLE PURPOSE: finish the figure-refresh loop — POST the fetched pages back for a proposal
+
+**Do only this. Change nothing else.** The refresh flow now works up to a point: it searches (server returns `search_results`) and the extension fetches those pages on the user's connection — but then it **stops and says "nothing was changed."** It never sends the fetched pages back to generate the proposal. Complete the loop.
+
+Verified live: the app makes exactly **one** call to `/documents/refresh-metric` with body `{bullet}` (the plan), fetches the result pages via `harbor-research-fetch` (real page text comes back), and then discards them. The second call is missing.
+
+1. **After the extension returns the fetched pages** (`{url, title, text}` for each), make a **SECOND** POST to `{API_BASE}/api/v1/documents/refresh-metric` with:
+   ```
+   { "bullet": "<the same bullet text>", "sources": [ {url,title,text}, … ] }
+   ```
+2. **The response is `{ stage:"proposal", … }`** — the current figure found, a plain-language explanation, the specific old→new change, and citations. **Render it:** show the proposed updated bullet with its sources, and let the user **accept** (apply + save a version), **edit**, or **reject**. Nothing changes until they accept.
+3. **Only say "nothing was changed / I couldn't find a newer figure" when that SECOND call returns no usable figure** — never before the pages are sent. Don't discard fetched pages without proposing.
+
+### Acceptance
+- A figure refresh makes **two** `/documents/refresh-metric` calls: first `{bullet}` (plan), then `{bullet, sources:[…]}` (proposal).
+- The proposal (figure, explanation, old→new, sources) renders for the user to accept/edit/reject.
+- "Nothing was changed" only appears when the proposal call genuinely finds no newer figure — not while pages are still in hand.
