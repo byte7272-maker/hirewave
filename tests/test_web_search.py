@@ -71,6 +71,22 @@ def test_search_routes_to_brave_when_key_set():
     assert r.provider == "brave" and r.results
 
 
+def test_fetch_page_extracts_text_strips_scripts_and_safety_gates():
+    html = ("<html><head><style>x{color:red}</style></head><body><script>bad()</script>"
+            "<p>Publicis grew +6.1% in 2026, up from prior years — a strong acceleration.</p>"
+            "</body></html>")
+    pg = web_search.fetch_page("https://acme.co/p", title="T", fetch=lambda u, t: (200, html))
+    assert pg and pg["url"] == "https://acme.co/p" and pg["title"] == "T"
+    assert "Publicis grew +6.1% in 2026" in pg["text"]
+    assert "bad()" not in pg["text"] and "color:red" not in pg["text"]  # script/style removed
+    # safety: insecure / IP hosts refused BEFORE fetching
+    assert web_search.fetch_page("http://acme.co/p", fetch=lambda u, t: (200, html)) is None
+    assert web_search.fetch_page("https://127.0.0.1/p", fetch=lambda u, t: (200, html)) is None
+    # transport failure or too-short text -> None
+    assert web_search.fetch_page("https://acme.co/p", fetch=lambda u, t: (404, "")) is None
+    assert web_search.fetch_page("https://acme.co/p", fetch=lambda u, t: (200, "<p>hi</p>")) is None
+
+
 def test_google_cse_parses_results_offline():
     r = web_search.google_cse_search("Acme", key="K", cx="CX", limit=6, fetch=_fetch_ok)
     assert r.provider == "google"

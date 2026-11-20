@@ -403,12 +403,14 @@ def test_refresh_metric_runs_server_side_search_when_cse_configured(monkeypatch)
     assert state.settings.research_search_provider() == "google"
 
     def _fake(url, timeout):
-        return 200, _json.dumps({"items": [
-            {"title": "Publicis 2026 results", "link": "https://investor.publicisgroupe.com/2026",
-             "snippet": "organic growth"},
-            {"title": "insecure", "link": "http://insecure.example.com/x", "snippet": "no"},
-            {"title": "torrent", "link": "https://1337x.to/t/1", "snippet": "no"},
-        ]})
+        if "customsearch/v1" in url:
+            return 200, _json.dumps({"items": [
+                {"title": "Publicis 2026 results", "link": "https://investor.publicisgroupe.com/2026",
+                 "snippet": "organic growth"},
+                {"title": "insecure", "link": "http://insecure.example.com/x", "snippet": "no"},
+                {"title": "torrent", "link": "https://1337x.to/t/1", "snippet": "no"},
+            ]})
+        return 404, ""  # page fetches fail -> no server-side proposal -> plan with results
     monkeypatch.setattr(web_search, "_default_fetch", _fake)
 
     h = _auth(c)
@@ -421,6 +423,46 @@ def test_refresh_metric_runs_server_side_search_when_cse_configured(monkeypatch)
     # insecure + torrent results were safety-filtered out
     assert all(u.startswith("https://") for u in urls)
     assert not any("1337x" in u for u in urls)
+
+
+def test_refresh_metric_server_side_fetch_returns_a_proposal(monkeypatch):
+    # With a search provider set, a single {bullet} call searches, fetches the public
+    # result pages SERVER-SIDE, and passes their text to propose — returning a finished
+    # proposal with no client round-trip. (propose itself is tested separately; mock it
+    # so this verifies the endpoint wiring: search -> fetch_page -> propose.)
+    import json as _json
+
+    from jobsearch.engines.assistant import document_refresh, web_search
+    from jobsearch.engines.assistant.web_search import SearchResponse, SearchResult
+
+    c, state = _client()
+    state.settings.brave_search_key = "B"  # provider = brave -> server-side search path
+
+    # The search returns one public result URL (brave uses its own fetcher, so patch search).
+    monkeypatch.setattr(web_search, "search", lambda q, **kw: SearchResponse(
+        provider="brave",
+        results=[SearchResult(title="Publicis H1 2026",
+                              url="https://www.publicisgroupe.com/h1-2026", snippet="results")]))
+    # fetch_page uses _default_fetch to pull the public page server-side.
+    monkeypatch.setattr(web_search, "_default_fetch", lambda u, t: (
+        200, "<html><body><p>Publicis Groupe U.S. organic growth was +6.1% in 2026, "
+             "accelerating from prior periods with strong momentum.</p></body></html>"))
+
+    captured: dict = {}
+
+    def _fake_propose(bullet, sources, **kw):
+        captured["sources"] = sources
+        return {"found": True, "draft": "updated bullet with +6.1% in 2026",
+                "reasoning": "newer figure found", "changes": [], "sources": sources}
+    monkeypatch.setattr(document_refresh, "propose", _fake_propose)
+
+    h = _auth(c)
+    r = c.post("/api/v1/documents/refresh-metric", headers=h, json={"bullet": _STALE_BULLET})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stage"] == "proposal" and body["found"] is True
+    # the endpoint fetched the public page server-side and handed its text to propose
+    assert captured["sources"] and "6.1%" in captured["sources"][0]["text"]
 
 
 def test_saving_a_body_only_version_keeps_name_and_summary():

@@ -2163,6 +2163,24 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
         # outcome, so a misconfig is visible without exposing keys.
         plan["search_provider"] = provider
         plan["search_debug"] = search_debug
+        # Server-side fetch + propose: fetch the top PUBLIC result pages here and return a
+        # finished proposal in this one call, so a client that can't fetch-and-post-back
+        # (e.g. a no-code host) still gets a result. Public pages only, safety-gated,
+        # best-effort — any failure falls through to returning the plan.
+        if search_results:
+            try:
+                pages = []
+                for sr in search_results[:3]:
+                    pg = web_search.fetch_page(sr["url"], title=sr.get("title", ""))
+                    if pg:
+                        pages.append(pg)
+                if pages:
+                    llm = getattr(state.resume_assistant, "premium", None)
+                    proposal = document_refresh.propose(bullet, pages, llm=llm)
+                    if proposal.get("found"):
+                        return {"stage": "proposal", "search_provider": provider, **proposal}
+            except Exception:  # noqa: BLE001 - never break the plan on a fetch error
+                pass
         return {"stage": "plan", **plan}
     llm = getattr(state.resume_assistant, "premium", None)
     proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)

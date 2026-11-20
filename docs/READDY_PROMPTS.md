@@ -9378,3 +9378,15 @@ Fix the handler to do this, precisely:
 - A figure refresh produces **two** POSTs to `/documents/refresh-metric`: the first with `sources` absent/empty (plan), the **second with `sources` containing the fetched pages** (proposal).
 - The proposal renders with a real figure and sources.
 - "Nothing was changed" never appears while fetched pages are still in hand unsent.
+
+## P305 — ⚠ SINGLE PURPOSE: render the proposal the FIRST refresh-metric call now returns
+
+**Do only this. Change nothing else.** The backend now does the research server-side: a single `POST /documents/refresh-metric` with `{bullet}` may come back **already finished** as `{ stage: "proposal", … }` (the current figure, old→new change, citations) — no client fetching needed. The app currently ignores this and shows "nothing was changed." Render it.
+
+1. **Check the stage of the FIRST refresh-metric response.** If `response.stage === "proposal"`, **render that proposal immediately** — show the proposed updated bullet with its sources, and let the user accept (apply + save a version) / edit / reject. Do **not** run the extension-fetch flow, and do **not** show "nothing was changed."
+2. **Only when `response.stage === "plan"`** (no server-side proposal) do the existing fallback: use `search_results` + the extension to fetch, then post back (P303/P304). If that also yields nothing, then show the honest "couldn't find a newer figure."
+3. Nothing else changes — the proposal UI, accept/undo, and narration stay as they are.
+
+### Acceptance
+- A figure refresh where the server returns `stage:"proposal"` shows the real proposed figure with sources on the first call — no "nothing was changed."
+- The extension-fetch path only runs when the first response is `stage:"plan"`.

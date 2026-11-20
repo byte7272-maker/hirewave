@@ -14,6 +14,7 @@ extension (on the user's connection, with the user's approval) and summarizing s
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -24,6 +25,41 @@ _CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
 _BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _MAX_RESULTS = 10
 _TIMEOUT = 12.0
+_PAGE_TIMEOUT = 7.0
+_MAX_PAGE_TEXT = 30000
+
+_SCRIPT_STYLE_RE = re.compile(r"<(script|style|noscript)\b[^>]*>.*?</\1>", re.I | re.S)
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def _readable_text(html: str) -> str:
+    """Strip HTML to readable text (drop scripts/styles/tags, collapse whitespace).
+    Good enough for figure extraction, which scans sentences for numbers + periods."""
+    s = _SCRIPT_STYLE_RE.sub(" ", html or "")
+    s = _TAG_RE.sub(" ", s)
+    s = re.sub(r"&(?:[a-z]+|#\d+);", " ", s)
+    return _WS_RE.sub(" ", s).strip()
+
+
+def fetch_page(url: str, *, title: str = "", fetch: Optional[Fetcher] = None) -> Optional[dict]:
+    """Fetch ONE public research page server-side and return {url,title,text}, or None.
+    Safety-gated (https/named-host only, no IP/adult/torrent/download) and never raises.
+    Only for public pages surfaced by a search provider — not the user's private views."""
+    from jobsearch.engines.assistant import web_safety
+
+    if not web_safety.is_safe_research_url(url)[0]:
+        return None
+    try:
+        status, body = (fetch or _default_fetch)(url, _PAGE_TIMEOUT)
+    except Exception:  # noqa: BLE001
+        return None
+    if status != 200 or not body:
+        return None
+    text = _readable_text(body)[:_MAX_PAGE_TEXT]
+    if len(text) < 40:
+        return None
+    return {"url": url, "title": title, "text": text}
 
 #: A fetch callable: url -> (status, body_text). Injected in tests; defaults to urllib.
 Fetcher = Callable[[str, float], "tuple[int, str]"]
