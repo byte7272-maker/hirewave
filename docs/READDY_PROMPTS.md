@@ -9251,3 +9251,42 @@ Store **both** tokens (in memory / session storage). From now on, send `Authoriz
 - The top-of-editor Bullets button/text strip is gone.
 - The résumé's own bullet points and all other editor content are unchanged.
 - Nothing else moved or changed.
+
+## P298 — ⚠ SINGLE PURPOSE: when a bullet is selected, the assistant SAYS what's highlighted and reads the options
+
+**Do only this. Change nothing else.** Selecting a bullet in the right pane correctly focuses and highlights the matching line in the résumé — but the assistant is **silent** about it: it doesn't say which line is now highlighted or what the user can do. Give it a voice for that moment.
+
+1. **Announce the selection out loud.** When a bullet is selected/highlighted, the assistant speaks (and shows) a short line naming what's highlighted — e.g. *"Highlighted your bullet about Publicis Groupe organic growth. Here's what I can do with it:"* — so the user hears which line is in focus.
+2. **Read the options aloud.** Immediately follow with the available actions for that bullet — **the same options already listed on the chip cards** (reword stronger, rephrase, fold in a work highlight, refresh its figures). Speak them, don't just show chips silently.
+3. **Keep the chips.** The chip cards stay; this only adds the spoken/announced narration so the moment isn't silent.
+
+### Acceptance
+- Selecting a bullet produces a spoken + shown line that names the highlighted bullet and lists the options.
+- The spoken options match the chip cards exactly.
+- The highlight/focus behavior itself is unchanged.
+
+## P299 — ⚠ SINGLE PURPOSE: don't repeat the same bullets in multiple right-pane sections
+
+**Do only this. Change nothing else.** The right pane lists the same bullets **several times across different sections** — redundant clutter. Show each bullet once.
+
+1. **De-duplicate the bullet lists.** A given bullet appears in **one** place in the right pane (the bullet picker/workbench). Remove the repeated copies of the same bullets shown in other sections of the pane.
+2. **Keep one clear home for bullets.** The single remaining list is the one the user selects from; the section map and other controls stay, but they don't re-list every bullet.
+
+### Acceptance
+- Each résumé bullet appears only once in the right pane.
+- No section repeats the same bullets that another section already shows.
+- Selecting a bullet still works as before.
+
+## P300 — ⚠ SINGLE PURPOSE: never go silent mid-action — narrate every step of web/figure research and surface the result
+
+**Do only this. Change nothing else.** The assistant said it would search for updated figures for a bullet, then **went silent** — no status, no result, no indication of what happened. Any multi-step action (web research / refresh figures especially) must narrate its progress and end with a clearly visible outcome, never silence.
+
+1. **Narrate each step, visibly and audibly.** For a figure refresh: *"Searching the web for current figures on …"* → *"Reading what I found …"* → then the outcome. Each step is spoken and shown as a status the user can see without hunting.
+2. **Surface the result where the user is looking.** The proposed update (the figure found, the explanation, the old→new change, the sources) appears **called out** in the pane — not buried under other content. If the expanded window holds it, bring it to the top / announce it so the user knows it's there.
+3. **Never end in silence.** Every action resolves with a spoken + shown result: a proposal, "I couldn't find a newer figure," or an honest error. A status that stalls must time out into a message, not nothing.
+4. **Be honest when it can't fetch.** If the web pages can't be fetched (the research needs the Project Harbor Connect extension with Web research enabled, which may not be available here), say so plainly — *"I can line up the searches, but I can't fetch the pages here without the Project Harbor Connect extension, so I don't have results to show."* — instead of going quiet. Offer the next step (install/enable the extension, or try later).
+
+### Acceptance
+- Starting a figure refresh shows/says a running status for each step, start to finish.
+- It always ends with a visible+spoken outcome: a proposal, a "couldn't find it," or an honest "can't fetch here" — never silence.
+- When results exist, the proposal is called out in the pane, not buried.
