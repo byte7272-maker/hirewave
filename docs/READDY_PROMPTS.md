@@ -9354,3 +9354,27 @@ Verified live: the app makes exactly **one** call to `/documents/refresh-metric`
 - A figure refresh makes **two** `/documents/refresh-metric` calls: first `{bullet}` (plan), then `{bullet, sources:[…]}` (proposal).
 - The proposal (figure, explanation, old→new, sources) renders for the user to accept/edit/reject.
 - "Nothing was changed" only appears when the proposal call genuinely finds no newer figure — not while pages are still in hand.
+
+## P304 — ⚠ SINGLE PURPOSE: the fetched pages are being DISCARDED — collect them and POST them (exact steps)
+
+**Do only this. Change nothing else.** Verified live with instrumentation: in the figure-refresh handler you already call `harbor-research-fetch` for each result URL and **successfully receive `{url, title, text}` with real page text** (4 pages, thousands of characters each). But then you make **zero** follow-up calls — the fetched text is thrown away, and you show "nothing was changed." You are missing exactly one step: sending what you fetched back.
+
+Fix the handler to do this, precisely:
+
+1. **Collect every successful fetch** into one array. For each `harbor-research-fetch` whose response has `response.data` (or `{url,title,text}`), push `{ url, title, text }` into a `sources` array. (You are already getting these back — just keep them.)
+2. **After the last fetch resolves, immediately POST** — this is the missing call:
+   ```js
+   await fetch(`${API_BASE}/api/v1/documents/refresh-metric`, {
+     method: "POST",
+     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+     body: JSON.stringify({ bullet: theBulletText, sources })   // sources = the array from step 1
+   })
+   ```
+   This is a **second** call to the same endpoint you already call for the plan — same URL, same auth — but now with `sources` populated.
+3. **Render the response.** It comes back `{ stage: "proposal", ... }` with the current figure, the old→new change, and citations. Show it for the user to accept / edit / reject.
+4. **Do NOT show "nothing was changed" until AFTER step 2's response comes back** and only if it has no figure. Right now you show it before sending anything — that's the bug.
+
+### Acceptance (instrumented)
+- A figure refresh produces **two** POSTs to `/documents/refresh-metric`: the first with `sources` absent/empty (plan), the **second with `sources` containing the fetched pages** (proposal).
+- The proposal renders with a real figure and sources.
+- "Nothing was changed" never appears while fetched pages are still in hand unsent.
