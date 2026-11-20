@@ -174,11 +174,19 @@ class Settings(BaseSettings):
     # back to its DuckDuckGo search on the user's connection. The key stays server-side.
     google_cse_key: str = Field(default="", validation_alias="GOOGLE_CSE_KEY")
     google_cse_cx: str = Field(default="", validation_alias="GOOGLE_CSE_CX")
+    # Brave Search API — a real open-web search (Google Programmable Search deprecated
+    # "search the entire web"). When this key is set it takes priority. Server-side only.
+    brave_search_key: str = Field(default="", validation_alias="BRAVE_SEARCH_KEY")
 
     def research_search_provider(self) -> str:
-        """'google' when the Custom Search credentials are configured, else 'duckduckgo'
-        (the client-side fallback)."""
-        return "google" if (self.google_cse_key and self.google_cse_cx) else "duckduckgo"
+        """Which server-side search runs the assistant's research: 'brave' when a Brave
+        Search key is set (open web, preferred), else 'google' when Custom Search creds
+        are set, else 'duckduckgo' (the client-side fallback)."""
+        if self.brave_search_key:
+            return "brave"
+        if self.google_cse_key and self.google_cse_cx:
+            return "google"
+        return "duckduckgo"
 
     # --- Interview media + content (all user-directed, offline by default) ---
     # Everything below is a *pluggable source you point at your own service or

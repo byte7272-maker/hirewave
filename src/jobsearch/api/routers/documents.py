@@ -2137,17 +2137,21 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
     sources = [s.model_dump() for s in (body.sources or [])]
     if not sources:
         plan = document_refresh.plan(bullet, analysis=None)
-        # When a real search API (Google Programmable Search) is configured, run the
-        # search HERE and hand the client result URLs to fetch directly. The extension's
-        # own DuckDuckGo scrape is blocked by anti-bot CAPTCHAs, so client-side search
-        # returns nothing; the official API does not. Results are safety-filtered.
+        # When a real search API (Brave, or Google Programmable Search) is configured,
+        # run the search HERE and hand the client result URLs to fetch directly. The
+        # extension's own DuckDuckGo scrape is blocked by anti-bot CAPTCHAs, so client-side
+        # search returns nothing; a real API does not. Results are safety-filtered.
         from jobsearch.engines.assistant import web_safety, web_search
 
+        provider = state.settings.research_search_provider()
         search_results: list[dict] = []
-        if state.settings.research_search_provider() == "google":
+        search_debug: dict = {}
+        if provider in ("brave", "google"):
             seen: set[str] = set()
             for q in (plan.get("queries") or [])[:3]:
                 resp = web_search.search(q, settings=state.settings, limit=5)
+                if not search_debug:  # record the first search's raw outcome
+                    search_debug = {"error": resp.error, "raw_count": len(resp.results)}
                 for r in resp.results:
                     if r.url and r.url not in seen and web_safety.is_safe_research_url(r.url)[0]:
                         seen.add(r.url)
@@ -2155,13 +2159,10 @@ def document_refresh_metric(body: MetricRefreshRequest, user: CurrentUser, state
         plan["search_results"] = search_results
         # True => the client should fetch these URLs directly and skip its own search.
         plan["search_done"] = bool(search_results)
-        # Diagnostic (booleans only, no secret values): which provider is active and
-        # whether each Google CSE credential is seen by the running instance.
-        plan["search_provider"] = state.settings.research_search_provider()
-        plan["cse_config"] = {
-            "key_set": bool(state.settings.google_cse_key),
-            "cx_set": bool(state.settings.google_cse_cx),
-        }
+        # Diagnostic (no secret values): which provider is active + the first search's
+        # outcome, so a misconfig is visible without exposing keys.
+        plan["search_provider"] = provider
+        plan["search_debug"] = search_debug
         return {"stage": "plan", **plan}
     llm = getattr(state.resume_assistant, "premium", None)
     proposal = document_refresh.propose(bullet, sources, research=body.research, llm=llm)

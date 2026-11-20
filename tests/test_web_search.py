@@ -21,16 +21,54 @@ _CSE_BODY = json.dumps({
     ]
 })
 
+_BRAVE_BODY = json.dumps({
+    "web": {"results": [
+        {"title": "Acme Robotics — About", "url": "https://acme.co/about", "description": "Acme builds robots."},
+        {"title": "Acme leadership", "url": "https://acme.co/team", "description": "Our team."},
+        {"title": "insecure dropped", "url": "http://acme.co/x", "description": "no"},
+        {"title": "torrent dropped", "url": "https://1337x.to/t/1", "description": "no"},
+    ]}
+})
+
 
 def _fetch_ok(url, timeout):
     assert "customsearch/v1" in url and "key=K" in url and "cx=CX" in url
     return 200, _CSE_BODY
 
 
+def _brave_fetch_ok(url, timeout):
+    assert "api.search.brave.com" in url and "q=" in url
+    return 200, _BRAVE_BODY
+
+
 # --- provider (pure) --------------------------------------------------------
 def test_provider_selection():
     assert Settings().research_search_provider() == "duckduckgo"               # no key
     assert Settings(google_cse_key="K", google_cse_cx="CX").research_search_provider() == "google"
+    assert Settings(brave_search_key="B").research_search_provider() == "brave"
+    # Brave takes priority over Google when both are set.
+    assert Settings(brave_search_key="B", google_cse_key="K",
+                    google_cse_cx="CX").research_search_provider() == "brave"
+
+
+def test_brave_parses_results_and_safety_filters_offline():
+    r = web_search.brave_search("Acme", key="B", limit=6, fetch=_brave_fetch_ok)
+    assert r.provider == "brave"
+    urls = [x.url for x in r.results]
+    # insecure (http) and torrent results are safety-filtered out
+    assert urls == ["https://acme.co/about", "https://acme.co/team"]
+    assert r.results[0].snippet == "Acme builds robots."
+
+
+def test_brave_transport_failure_is_safe():
+    r = web_search.brave_search("Acme", key="B", fetch=lambda u, t: (403, ""))
+    assert r.provider == "brave" and r.results == [] and r.error
+
+
+def test_search_routes_to_brave_when_key_set():
+    s = Settings(brave_search_key="B", google_cse_key="K", google_cse_cx="CX")
+    r = web_search.search("Acme", settings=s, fetch=_brave_fetch_ok)
+    assert r.provider == "brave" and r.results
 
 
 def test_google_cse_parses_results_offline():

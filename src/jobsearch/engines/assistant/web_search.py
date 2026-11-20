@@ -14,12 +14,14 @@ extension (on the user's connection, with the user's approval) and summarizing s
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 _CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
+_BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 _MAX_RESULTS = 10
 _TIMEOUT = 12.0
 
@@ -32,6 +34,11 @@ def _default_fetch(url: str, timeout: float) -> "tuple[int, str]":  # pragma: no
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.getcode(), resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:  # keep the real status (403/400/429) for diagnosis
+        try:
+            return e.code, e.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            return e.code, ""
     except Exception:  # noqa: BLE001 - never raise to the caller; treat as empty
         return 0, ""
 
@@ -104,10 +111,67 @@ def google_cse_search(
     return SearchResponse(provider="google", results=out)
 
 
+def _brave_default_fetch(key: str) -> Fetcher:
+    """A Fetcher that calls the Brave Search API with the subscription-token header. The
+    key stays server-side. Never raises; a transport error maps to (0, "")."""
+    def _f(url: str, timeout: float) -> "tuple[int, str]":  # pragma: no cover - network
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "X-Subscription-Token": key,
+            "User-Agent": "ProjectHarborResearch/1.0",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.getcode(), resp.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:  # surface the real status for diagnosis
+            try:
+                return e.code, e.read().decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001
+                return e.code, ""
+        except Exception:  # noqa: BLE001
+            return 0, ""
+    return _f
+
+
+def brave_search(
+    query: str, *, key: str, limit: int = 6, fetch: Optional[Fetcher] = None
+) -> SearchResponse:
+    """Query the Brave Search API and return result URLs. Never raises — a transport/parse
+    failure returns an empty brave response with an error note. Results are safety-filtered
+    (https/named-host only, no adult/torrent/downloads)."""
+    from jobsearch.engines.assistant import web_safety
+
+    q = (query or "").strip()
+    if not q:
+        return SearchResponse(provider="brave", results=[])
+    params = urllib.parse.urlencode({"q": q, "count": _clamp(limit)})
+    status, body = (fetch or _brave_default_fetch(key))(f"{_BRAVE_ENDPOINT}?{params}", _TIMEOUT)
+    if status != 200 or not body:
+        return SearchResponse(provider="brave", results=[], error=f"search failed ({status or 'no response'})")
+    try:
+        data = json.loads(body)
+    except Exception:  # noqa: BLE001
+        return SearchResponse(provider="brave", results=[], error="bad response")
+    out: list[SearchResult] = []
+    for item in ((data.get("web") or {}).get("results") or [])[:_clamp(limit)]:
+        link = str(item.get("url") or "").strip()
+        if web_safety.is_safe_research_url(link)[0]:
+            out.append(SearchResult(
+                title=str(item.get("title") or "").strip(),
+                url=link,
+                snippet=str(item.get("description") or "").strip(),
+            ))
+    return SearchResponse(provider="brave", results=out)
+
+
 def search(query: str, *, settings, limit: int = 6, fetch: Optional[Fetcher] = None) -> SearchResponse:
-    """Search with the configured provider. Google CSE when its credentials are set;
-    otherwise signal the client to run its own DuckDuckGo search (``use_client``)."""
-    if settings is not None and settings.research_search_provider() == "google":
+    """Search with the configured provider: Brave when its key is set (open web), else
+    Google CSE when its credentials are set; otherwise signal the client to run its own
+    DuckDuckGo search (``use_client``)."""
+    provider = settings.research_search_provider() if settings is not None else "duckduckgo"
+    if provider == "brave":
+        return brave_search(query, key=settings.brave_search_key, limit=limit, fetch=fetch)
+    if provider == "google":
         return google_cse_search(
             query, key=settings.google_cse_key, cx=settings.google_cse_cx, limit=limit, fetch=fetch
         )
