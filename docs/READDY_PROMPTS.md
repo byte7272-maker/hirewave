@@ -9290,3 +9290,35 @@ Store **both** tokens (in memory / session storage). From now on, send `Authoriz
 - Starting a figure refresh shows/says a running status for each step, start to finish.
 - It always ends with a visible+spoken outcome: a proposal, a "couldn't find it," or an honest "can't fetch here" — never silence.
 - When results exist, the proposal is called out in the pane, not buried.
+
+## P301 — ⚠ SINGLE PURPOSE: let the app USE Project Harbor Connect for real web research — fetch from the user's connection, with warm step-by-step guidance
+
+**Do only this. Change nothing else.** The user has Project Harbor Connect installed and Web research enabled, but the app never talks to it, so research goes nowhere. Wire the app to the extension's message bridge and run the full search→fetch→propose flow on the user's own connection — and guide the user warmly through every step.
+
+### Detect the extension (it already runs on this site)
+- Harbor Connect's content script runs on this origin. Detect it by reading `document.documentElement.dataset.harborConnect` (its version string) or by listening once for the `harbor-connect-ready` window event. If present, real web research is available; if absent, fall back to P300's honest "can't fetch here" message.
+
+### The message bridge (exact protocol)
+The app talks to the extension with `window.postMessage`, correlating replies by a `reqId`:
+- **Send:** `window.postMessage({ source: "harbor-app", type: <t>, reqId: <unique>, query, url, max }, window.location.origin)`
+- **Receive:** listen for `message` events where `event.data.source === "harbor-ext"` and `event.data.reqId === <yours>`; the payload is `event.data.response`.
+- Types: `"harbor-research-search"` (with `query`, `max`) → `response = {ok, results:[{title,url,snippet}], needsPermission?, error?}`; `"harbor-research-fetch"` (with `url`) → `response = {ok, url, title, text, needsPermission?, error?}`.
+
+### The research flow (figure refresh / any web research)
+1. **Plan:** `POST {API_BASE}/api/v1/documents/refresh-metric` with `{ "bullet": "<the bullet text>" }` and **no** `sources` → returns `{stage:"plan", queries:[...]}`.
+2. **Search + fetch on the user's connection:** for each query, send `harbor-research-search`; take the top ~3 result URLs and send `harbor-research-fetch` for each; collect the returned `{url, title, text}`.
+3. **Propose:** `POST …/documents/refresh-metric` again with `{ "bullet": "...", "sources": [{url,title,text}, …] }` → returns `{stage:"proposal", …}` (the current figure found, a plain-language explanation, the old→new change, and citations).
+4. **Review:** show the proposal called out in the pane. The user accepts (apply via the normal edit/version save), edits, or rejects. Nothing changes until they accept.
+
+### Warm, step-by-step assistance (the key requirement)
+Hold the user's hand through it, in plain, friendly language — spoken and shown (this is P300's narration made concrete):
+- As it runs: *"Let me look up the current figure for this bullet… Found a few good sources — reading them now… Here's what I found and what I'd change."* One clear status at a time.
+- **Extension not detected:** *"I use the Project Harbor Connect extension to read live pages for you, and I'm not hearing from it on this page. Quick check: is it pinned and turned on for this site?"* — a short, friendly checklist, not a dead end.
+- **`needsPermission: true`** returned by a call (web research not switched on): *"One quick thing — I need permission to read open web pages. Open the Harbor extension and turn on 'Web research,' then I'll pick right back up."* Offer a single button to retry once they confirm; resume automatically.
+- **No usable figure found:** *"I read the sources but couldn't find a newer figure I'd stand behind — want to leave the bullet as is, or point me at a page?"*
+- Never silent, never a raw error code — always a kind sentence and a clear next step.
+
+### Acceptance
+- With the extension present + Web research on, a figure refresh runs search→fetch→propose end to end and shows a real proposal with sources on the user's connection.
+- The flow shows `harbor-research-search` / `harbor-research-fetch` window messages and the app POSTing `sources` to `/documents/refresh-metric`.
+- Every step is narrated warmly; a missing extension, a missing permission, or no result each produce a friendly, specific guide — never silence or a bare error.
