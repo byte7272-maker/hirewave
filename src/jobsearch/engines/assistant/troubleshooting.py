@@ -149,6 +149,17 @@ TROUBLESHOOTING: dict[str, dict] = {
         "fix": "Try again in a moment. If it keeps failing, your sign-in may have ended — re-open the app.",
         "retry": True, "ask_again": False,
     },
+    # Web research refused a destination/query for safety (insecure/IP host, adult,
+    # torrent/piracy, or a file download) — the assistant declines and says why.
+    "blocked_unsafe": {
+        "ack": "I won't open that — it isn't a safe source for research.",
+        "cause": "The destination or search was blocked by the safety rules: only secure "
+                 "(https) named websites are allowed — never IP addresses, insecure links, "
+                 "file downloads, or adult/torrent/piracy content.",
+        "fix": "Point me at a normal secure web page (an https site, not an IP address or a "
+               "download), and I'll read it.",
+        "retry": False, "ask_again": False,
+    },
     # The edit completed but matched nothing to change (e.g. the instruction didn't locate
     # anything, or the editing model isn't configured on the server).
     "edit_no_change": {
@@ -219,6 +230,9 @@ _SIGNATURES: list[tuple[str, str]] = [
     (r"no (newer|updated|current) (figure|number|metric)|couldn'?t find .*(figure|number|metric)|"
      r"metric.*not found|figure.*not found", "metric_not_found"),
     (r"no summary|summary (is )?(missing|empty)|without a summary|doesn'?t have a summary", "no_summary"),
+    # Safety refusal for web research (before the generic signatures).
+    (r"blocked (destination|search|source|url|term)|not a safe source|unsafe (url|source|site)|"
+     r"insecure or unsupported scheme|ip-?address host|adult or torrent|file download not allowed", "blocked_unsafe"),
     # Ask-AI edit outcomes (before the generic network/not-found signatures).
     (r"nothing (matched|changed|to change)|couldn'?t find (what|anything) to (change|edit)|"
      r"no (edit|change) (applied|matched)|changed\s*[:=]\s*false", "edit_no_change"),

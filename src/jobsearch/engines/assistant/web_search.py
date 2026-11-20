@@ -88,10 +88,14 @@ def google_cse_search(
         data = json.loads(body)
     except Exception:  # noqa: BLE001
         return SearchResponse(provider="google", results=[], error="bad response")
+    from jobsearch.engines.assistant import web_safety
+
     out: list[SearchResult] = []
     for item in (data.get("items") or [])[:_clamp(limit)]:
         link = str(item.get("link") or "").strip()
-        if link.startswith("http"):
+        # Only surface safe result URLs — drop insecure/IP/adult/torrent/download links
+        # so the client never even fetches them.
+        if web_safety.is_safe_research_url(link)[0]:
             out.append(SearchResult(
                 title=str(item.get("title") or "").strip(),
                 url=link,

@@ -38,13 +38,44 @@ async function hasWebPermission() {
   try { return await chrome.permissions.contains(WEB_ORIGIN); } catch (_) { return false; }
 }
 
+// Download extensions we never fetch as research (not readable pages).
+var BLOCKED_EXT = /\.(exe|msi|apk|dmg|pkg|bin|scr|bat|cmd|com|jar|app|deb|rpm|appimage|zip|rar|7z|gz|tar|tgz|bz2|xz|iso|img|torrent|pdf|docx?|xlsx?|pptx?|rtf|epub|csv)$/i;
+// Hostname labels that mark an adult or torrent/piracy destination (label-exact, so
+// "sex" blocks sex.example.com but not essex.com).
+var BLOCKED_LABELS = {
+  porn: 1, porno: 1, xxx: 1, sex: 1, nsfw: 1, camgirl: 1, camgirls: 1, escort: 1,
+  escorts: 1, hentai: 1, nude: 1, nudes: 1, fetish: 1, onlyfans: 1, brazzers: 1,
+  xvideos: 1, pornhub: 1, xhamster: 1, redtube: 1, youporn: 1, chaturbate: 1,
+  stripchat: 1, torrent: 1, torrents: 1, piratebay: 1, thepiratebay: 1, "1337x": 1,
+  rarbg: 1, yts: 1, nyaa: 1, kickass: 1, kickasstorrents: 1, limetorrents: 1,
+  torrentz: 1, warez: 1, crack: 1, cracked: 1, keygen: 1, nulled: 1
+};
+// Adult/torrent/piracy search terms — reject the query outright.
+var BLOCKED_QUERY = /\b(porn\w*|pornography|xxx|nsfw|hentai|nudes?|camgirls?|escort\w*|fetish|onlyfans|torrent\w*|magnet\s*link|piratebay|the\s*pirate\s*bay|1337x|rarbg|yts|kickass|limetorrent\w*|warez|keygen|nulled)\b/i;
+
+function hostBlocked(host) {
+  host = String(host || "").toLowerCase();
+  var labels = host.split(".");
+  for (var i = 0; i < labels.length; i++) if (BLOCKED_LABELS[labels[i]]) return true;
+  return false;
+}
+
 function safeUrl(raw) {
-  let u;
+  var u;
   try { u = new URL(raw); } catch (_) { return null; }
-  if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-  const h = u.hostname;
-  if (/^(localhost|0\.0\.0\.0|10\.|192\.168\.|169\.254\.|127\.)/i.test(h)) return null;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h) || h === "[::1]" || h === "::1") return null;
+  // HTTPS only — no insecure http:// or any other scheme.
+  if (u.protocol !== "https:") return null;
+  // Only the default HTTPS port.
+  if (u.port && u.port !== "443") return null;
+  // No credentials in the URL.
+  if (u.username || u.password) return null;
+  var h = (u.hostname || "").replace(/^\[|\]$/g, "");
+  if (!h) return null;
+  // Reject any raw IP-literal host (v4 or v6), public or private.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h)) return null;        // IPv4
+  if (/:/.test(h) || /^[0-9a-f]*::/i.test(h)) return null;    // IPv6
+  if (hostBlocked(h)) return null;
+  if (BLOCKED_EXT.test(u.pathname || "")) return null;        // file download
   return u.toString();
 }
 
@@ -116,9 +147,14 @@ async function researchSearch(query, max) {
   if (!(await hasWebPermission())) return { ok: false, needsPermission: true, error: "web research not enabled" };
   const q = String(query || "").trim().slice(0, 200);
   if (!q) return { ok: false, error: "empty query" };
+  // Safety: never run an adult/torrent/piracy search.
+  if (BLOCKED_QUERY.test(q)) return { ok: false, error: "blocked search term" };
   const r = await fetchText("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q), 12000);
   if (!r.ok || !r.body) return { ok: false, error: "search failed (" + (r.status || "no response") + ")" };
-  return { ok: true, results: parseSearchResults(r.body, Math.min(Math.max(max || 6, 1), 10)) };
+  // Drop any unsafe result URLs so the app never offers them to fetch.
+  const results = parseSearchResults(r.body, Math.min(Math.max(max || 6, 1), 10))
+    .filter(function (res) { return res && res.url && safeUrl(res.url); });
+  return { ok: true, results: results };
 }
 
 async function researchFetch(rawUrl) {

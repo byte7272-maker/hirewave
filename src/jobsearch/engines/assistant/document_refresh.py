@@ -55,6 +55,10 @@ def plan(block_text: str, *, analysis: Optional[dict] = None, year: Optional[int
         queries.append((_subject(block_text) + " latest figures").strip())
     seen: set[str] = set()
     uniq = [q for q in queries if q and not (q.lower() in seen or seen.add(q.lower()))]
+    # Safety: never plan a search for adult/torrent/piracy content (a bullet could
+    # contain injected text); only safe queries reach the fetcher.
+    from jobsearch.engines.assistant import web_safety
+    uniq = web_safety.safe_queries(uniq)
     return {
         "needs_sources": bool(uniq),
         "queries": uniq,
@@ -67,9 +71,15 @@ def plan(block_text: str, *, analysis: Optional[dict] = None, year: Optional[int
 
 
 def _prep_sources(sources: list[dict]) -> tuple[str, list[dict]]:
+    from jobsearch.engines.assistant import web_safety
+
     combined, cites = [], []
     for src in (sources or [])[:_MAX_SOURCES]:
         if not isinstance(src, dict):
+            continue
+        # Safety: only use text from a safe research URL — drop insecure/IP/adult/
+        # torrent/download sources even if the fetcher returned them.
+        if not web_safety.is_safe_research_url(str(src.get("url", "")))[0]:
             continue
         txt = _clean(str(src.get("text", "")))[:_MAX_TEXT_PER_SOURCE]
         url, title = str(src.get("url", ""))[:400], _clean(str(src.get("title", "")))[:200]

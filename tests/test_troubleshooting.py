@@ -146,3 +146,12 @@ def test_ask_ai_edit_error_states():
     # session recovery is now auto (P293): worth a retry, and the cause says so.
     assert ts.lookup("session_expired")["retry"] is True
     assert "automatically" in ts.lookup("session_expired")["cause"]
+
+
+def test_unsafe_research_refusal_is_explained():
+    # The assistant declines a risky research target and says why (not silent, not retried).
+    for msg in ("IP-address host not allowed", "blocked destination (adult or torrent/piracy host)",
+                "insecure or unsupported scheme", "file download not allowed"):
+        assert ts.classify("", msg) == "blocked_unsafe", msg
+    h = ts.handle("blocked_unsafe")
+    assert h["ack"].strip() and h["fix"].strip() and h["retry"] is False
