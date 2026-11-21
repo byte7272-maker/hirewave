@@ -240,7 +240,11 @@ def test_surface_contract_puts_everything_in_the_right_pane():
     assert s["home"] == "right_pane" and s["expanded_window"] == "right_pane"
     assert s["results"] == "right_pane" and s["floating"] == "badge_only"
     assert s["collapse_main_on_result"] is True
-    assert {"top_of_page", "random_popout", "obstruct_content"} <= set(s["never"])
+    # The text input is pinned to the top of the pane, always visible, no duplicate functions.
+    assert s["input"] == "pinned_top" and s["input_always_visible"] is True
+    assert s["no_duplicate_functions"] is True
+    assert {"top_of_page", "random_popout", "obstruct_content", "hidden_input",
+            "click_to_summon_input", "duplicate_functions"} <= set(s["never"])
     for b in ("dock_right_pane", "results_in_right_pane", "badge_only_floats"):
         assert b in m["behaviors"]
 

@@ -9406,3 +9406,20 @@ Keep the display card above the badge exactly as it is (that part is good).
 - As the assistant narrates/works a section, the render scrolls to and highlights that section.
 - When a worked paragraph runs past the card, the document scrolls to reveal the remainder — nothing the assistant is working on stays off-screen.
 - The card above the badge is unchanged.
+
+## P307 — ⚠ SINGLE PURPOSE: PIN the text input to the top of the right pane; declutter it; no duplicate functions
+
+**Do only this. Change nothing else about the assistant's abilities.** Typing to the assistant is still too hard — the user has to click around to summon the input and struggle to interact. Fix the right pane so typing is instant and the pane is simple.
+
+1. **Pin the text input to the TOP of the right pane, always visible.** The "Type to the assistant…" box lives **permanently at the top of the right pane**, above every other element in the pane. It is **never** summoned by a click, never hidden below a scroll, never collapsed. The moment the right pane is open, the user can type — no steps. (Backend contract now declares `surface.input:"pinned_top"`, `input_always_visible:true`.)
+2. **Declutter and simplify the pane.** Remove visual clutter and redundant controls. The pane shows, in order: the **input (pinned top)**, then the current result/answer/proposal, then the essential actions — nothing else competing for space.
+3. **No duplicated functions.** A given function/action appears **once** in the pane. Remove every repeated button, repeated list, or control that does the same thing as another already in the pane (`surface.no_duplicate_functions:true`).
+4. **The user must never struggle to interact.** Typing and sending a message is always one obvious step: the box is there, visible, focusable, with a clear send affordance. Voice stays available but is never required to reach the input.
+
+Keep the assistant's capabilities, the result rendering, and the badge as they are — this is purely the pane's layout and the input's placement.
+
+### Acceptance
+- The text input is visible and pinned at the **top** of the right pane the instant the pane is open — no clicking to summon it, no scrolling to find it.
+- The input sits **above** the pane's functions/results at all times.
+- No function or control appears more than once in the pane.
+- A user can type and send without any extra steps or hunting.

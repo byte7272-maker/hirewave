@@ -145,7 +145,14 @@ SURFACE: dict[str, Any] = {
     "results": "right_pane",         # every finding/proposal/answer renders here
     "floating": "badge_only",        # only the compact badge floats
     "collapse_main_on_result": True,  # a result collapses the floating window so it never blocks
-    "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window"],
+    # The text input is PINNED to the TOP of the right pane: always visible, always above the
+    # pane's functions, never summoned by a click or hidden below a scroll. The pane is kept
+    # decluttered with NO duplicated functions, so the user can always type without hunting.
+    "input": "pinned_top",
+    "input_always_visible": True,
+    "no_duplicate_functions": True,
+    "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
+              "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
