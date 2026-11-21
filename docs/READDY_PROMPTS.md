@@ -9423,3 +9423,17 @@ Keep the assistant's capabilities, the result rendering, and the badge as they a
 - The input sits **above** the pane's functions/results at all times.
 - No function or control appears more than once in the pane.
 - A user can type and send without any extra steps or hunting.
+
+## P308 — ⚠ SINGLE PURPOSE: stop the mic self-test from falsely disabling voice (the recurring "Microphone off" regression)
+
+**Do only this. Change nothing else.** Verified live in desktop Chrome: `navigator.permissions.query({name:'microphone'})` is **granted**, `getUserMedia({audio:true})` opens a **live** mic track, and `SpeechRecognition` **starts and returns results** — the mic fully works. Yet the app shows **"Microphone off"** and won't take voice, because a cached audio self-test stored `mic:"fail"` (`hw-audio-check-result` in localStorage) and the app gates voice on it. The check is a **false negative** — it fails a silent-but-working mic and caches it — so voice dies every session. Fix the gating:
+
+1. **Do NOT gate voice on an audio-level / activity self-test.** The only authoritative signals that voice is available are: (a) `permissions.query({name:'microphone'})` is `"granted"` (or `"prompt"`), and (b) `getUserMedia({audio:true})` returns a live track. If those hold, voice is **available** — show the mic as ready, never "Microphone off."
+2. **Never cache a mic "fail" that disables voice.** If you keep an audio check, it must not mark the mic failed merely because it heard no sound in a short window — a silent user is normal. At most show a soft, non-blocking hint; never store a failure that turns voice off. On load, **ignore/clear any stale `mic:"fail"`** when permission is granted.
+3. **Hold-to-talk actually opens the mic and runs recognition.** Report a problem only on a **real** error from `getUserMedia`/`SpeechRecognition` (e.g. `NotAllowedError`), with the specific guidance — not from a self-test. "Microphone off" must reflect the **live** device/permission state, not a cached test result.
+4. **Heal the poisoned cache:** on load, if `hw-audio-check-result.mic === "fail"` but permission is granted and `getUserMedia` succeeds, discard that cached result and treat the mic as working.
+
+### Acceptance
+- On desktop Chrome with mic permission granted, the assistant shows the mic **ready** (not "Microphone off") and takes voice when held.
+- No audio self-test can disable voice while the browser permission is granted and `getUserMedia` works.
+- The failure path fires only on a **real** device/permission error, with the matching message — never from a silent self-test.
