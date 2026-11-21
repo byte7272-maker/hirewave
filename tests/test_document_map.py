@@ -135,6 +135,16 @@ def test_refresh_propose_deterministic_swaps_figure_with_reasoning():
     assert out["caution"]
 
 
+def test_llm_proposal_prompt_replaces_old_periods_not_keeps_them():
+    # The rewrite must make the bullet CURRENT — replace the stale periods (FY2024/FY2025),
+    # not append the new figure while leaving the old dates in.
+    s = R._LLM_SYSTEM.lower()
+    assert "replace the stale" in s
+    assert "do not leave the old years" in s
+    assert "collapse them to the single most-current" in s
+    assert "found=false" in s  # still refuses honestly when no newer figure
+
+
 def test_refresh_propose_no_sources_reports_not_found():
     out = R.propose(_STALE_BULLET, [], research=None)
     assert out["found"] is False and out["draft"] == _STALE_BULLET

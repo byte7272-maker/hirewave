@@ -9390,3 +9390,19 @@ Fix the handler to do this, precisely:
 ### Acceptance
 - A figure refresh where the server returns `stage:"proposal"` shows the real proposed figure with sources on the first call — no "nothing was changed."
 - The extension-fetch path only runs when the first response is `stage:"plan"`.
+
+## P306 — ⚠ SINGLE PURPOSE: document render starts at the TOP and follows the work; keep the worked paragraph in view
+
+**Do only this. Change nothing else.** Two render-focus fixes in the editor (the assistant is otherwise working well now):
+
+1. **Open at the TOP, not centered.** When a document opens in the editor, the render starts scrolled to the **top** of the document (header/summary first), not centered on the middle. The backend `arrival` now declares `start:"top"`.
+2. **Focus follows the work.** As the assistant works a specific section or bullet, scroll the document to that section and **highlight it** (`focus_follows_work:true`). The render should move to whatever the assistant is currently talking about — don't leave it parked on the whole document.
+3. **Keep the worked paragraph in view.** When the assistant is working a bullet/paragraph that's shown in the card above the assistant badge, and that paragraph extends **below the fold of the card**, scroll the document so the **rest of that paragraph stays visible** (`keep_focus_in_view:true`). Right now the remainder falls out of view — don't let it.
+
+Keep the display card above the badge exactly as it is (that part is good).
+
+### Acceptance
+- Opening a document shows the **top** of the document first.
+- As the assistant narrates/works a section, the render scrolls to and highlights that section.
+- When a worked paragraph runs past the card, the document scrolls to reveal the remainder — nothing the assistant is working on stays off-screen.
+- The card above the badge is unchanged.

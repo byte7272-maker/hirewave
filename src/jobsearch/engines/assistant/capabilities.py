@@ -438,8 +438,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "current": "the open document, centered — résumé unless a cover letter is shown",
         "walkthrough": None,
         # On arrival the assistant does NOT ask "what would you like to do here?" — it
-        # centers the whole document and gives a one-line map of its sections (from
-        # GET /resumes|cover-letters/{id}/map), then offers the first useful move.
+        # opens the document at the TOP and gives a one-line map of its sections (from
+        # GET /resumes|cover-letters/{id}/map), then offers the first useful move; as it
+        # works a section it scrolls to and highlights it (focus follows the work).
         "arrival": {
             # The document renders in ONE place: the editor. There is no separate
             # Documents-section preview with its own controls — "show my résumé" opens
@@ -447,8 +448,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             # (and any version info elsewhere) just points into the editor.
             "surface": "editor",
             "single_render": True,
-            "center": "document",  # center the full document in the editor, not the bullet pane
-            "map": True,           # read the section outline so the assistant knows the whole doc
+            "start": "top",            # open scrolled to the TOP of the document, not centered
+            "focus_follows_work": True,  # then scroll to + highlight the section being worked on
+            "keep_focus_in_view": True,  # if the worked paragraph runs past the card, scroll to reveal the rest
+            "map": True,               # read the section outline so the assistant knows the whole doc
             "announce": "whole_document",
         },
         # Where the live structure + analysis come from (the client fetches these).
@@ -695,8 +698,8 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         # Optional, fetched-on-demand signals (not marquee readouts); [] when none.
         "signals": cap.get("signals", []),
         "offers": cap.get("offers", []),
-        # P275: how to behave on arrival (center the whole document, read its map) and
-        # where the live structure/analysis lives, so the client never defaults to the
+        # P275: how to behave on arrival (open at the top, read its map, let focus follow
+        # the work) and where the live structure/analysis lives, so the client never defaults to the
         # bullet pane or "what would you like to do here?".
         "arrival": cap.get("arrival"),
         "data": cap.get("data"),

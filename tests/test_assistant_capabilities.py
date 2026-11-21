@@ -159,9 +159,11 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
     # it does not drop into a bullet pane or ask "what would you like to do here?".
     # P290: the editor is the SINGLE render surface — no separate Documents-section preview.
     docs = caps.for_section("documents")
+    # Opens at the TOP, then focus follows the work (and keeps the worked paragraph in view).
     assert docs["arrival"] == {
         "surface": "editor", "single_render": True,
-        "center": "document", "map": True, "announce": "whole_document"}
+        "start": "top", "focus_follows_work": True, "keep_focus_in_view": True,
+        "map": True, "announce": "whole_document"}
     data = docs["data"]
     assert data["map_resume"].endswith("/map") and data["locate"].endswith("/locate")
     assert data["refresh_metric"].endswith("/refresh-metric")
