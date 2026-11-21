@@ -9437,3 +9437,17 @@ Keep the assistant's capabilities, the result rendering, and the badge as they a
 - On desktop Chrome with mic permission granted, the assistant shows the mic **ready** (not "Microphone off") and takes voice when held.
 - No audio self-test can disable voice while the browser permission is granted and `getUserMedia` works.
 - The failure path fires only on a **real** device/permission error, with the matching message — never from a silent self-test.
+
+## P309 — ⚠ SINGLE PURPOSE: use the SAME assistant right pane on every page (not a confined box next to the badge)
+
+**Do only this. Change nothing else.** The good right-pane assistant (pinned-top input, decluttered, P307) exists on Documents, but on the other pages — **Matches, Applications, Auto-apply, Inbox, Interviews, Dashboard, and all others** — the assistant shows only a **confined text box crammed next to the badge**. Make the assistant surface identical everywhere.
+
+1. **One assistant surface, every page.** On every page, the assistant uses the **same docked right pane** it uses on Documents — with the **text input pinned to the top**, decluttered, no duplicated functions (`surface.consistent_across_pages:true`, `surface.input:"pinned_top"`). No page gets a different, smaller, or inline assistant.
+2. **Clicking the badge opens the full right pane.** Tapping/clicking the assistant badge **anywhere** — for any reason, on any page — surfaces that full right pane (`surface.badge_opens:"right_pane"`). It must **never** open a cramped box next to the badge or a per-page variant.
+3. **Remove the confined inline box.** Delete the small text box shown next to the badge on the non-Documents pages; the input lives at the top of the right pane, same as Documents.
+4. Each page's own assistant *content* (its results/actions for Matches, Applications, etc.) still renders inside that shared pane — only the **surface/layout** is unified, not the per-page capabilities.
+
+### Acceptance
+- On Matches, Applications, Auto-apply, Inbox, Interviews, Dashboard — and every other page — the assistant opens as the **same right pane** as on Documents, with the input pinned at the top.
+- Clicking the badge on any page opens that full right pane, never a confined box next to it.
+- No page shows a cramped inline text box next to the badge anymore.

@@ -151,8 +151,15 @@ SURFACE: dict[str, Any] = {
     "input": "pinned_top",
     "input_always_visible": True,
     "no_duplicate_functions": True,
+    # The SAME right-pane surface (docked pane, pinned-top input, decluttered) applies on
+    # EVERY page — Matches, Applications, Auto-apply, Inbox, Interviews, Documents, all of
+    # them — not only Documents. Clicking the badge anywhere opens that full right pane, not
+    # a cramped inline box next to the badge.
+    "consistent_across_pages": True,
+    "badge_opens": "right_pane",
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
-              "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions"],
+              "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",
+              "confined_inline_box", "box_next_to_badge", "different_surface_per_page"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

@@ -243,8 +243,11 @@ def test_surface_contract_puts_everything_in_the_right_pane():
     # The text input is pinned to the top of the pane, always visible, no duplicate functions.
     assert s["input"] == "pinned_top" and s["input_always_visible"] is True
     assert s["no_duplicate_functions"] is True
+    # The same right-pane surface applies on every page; the badge opens that pane.
+    assert s["consistent_across_pages"] is True and s["badge_opens"] == "right_pane"
     assert {"top_of_page", "random_popout", "obstruct_content", "hidden_input",
-            "click_to_summon_input", "duplicate_functions"} <= set(s["never"])
+            "click_to_summon_input", "duplicate_functions", "confined_inline_box",
+            "box_next_to_badge", "different_surface_per_page"} <= set(s["never"])
     for b in ("dock_right_pane", "results_in_right_pane", "badge_only_floats"):
         assert b in m["behaviors"]
 
