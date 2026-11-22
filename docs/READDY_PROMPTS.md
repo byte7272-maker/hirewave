@@ -9483,3 +9483,27 @@ Keep the assistant's capabilities, the result rendering, and the badge as they a
 - Accepting the refreshed Publicis bullet changes the document to `(+4.7% in 2025)` (old `FY2024/FY2025` gone) and the saved version reflects it after reload.
 - The accept calls `/documents/replace-line` with full `old_line`/`new_line`; nothing is truncated at 500 chars.
 - A proposal whose old line no longer exists reports a clear error instead of a silent no-op that still says "Applied."
+
+## P312 — ⚠ SINGLE PURPOSE: fix the intermittent mic by using ONE recognizer and a single start trigger (stop the double-start/abort race)
+
+**Do only this. Change nothing else about the assistant.** Diagnosed live in the user's own Chrome: the microphone hardware, permission, and speech recognition **all work** — `getUserMedia` opens a live track, `SpeechRecognition` starts, `audiostart`/`speechstart`/`result` fire, and real speech transcribes. The status is correctly "Microphone ready" (the old "Microphone off" false-negative is gone). The remaining failure is a **double-start race**: on one press the recognizer is started **twice**, and the lifecycle shows the first session dying with `error: "aborted"` right as a second session starts:
+
+```
+start → speechend → start → audioend → error: aborted → end        (session 1 killed)
+audiostart → speechstart → result "…" → result "…final…" → end     (session 2)
+```
+
+When the race lands the other way, the user's words are captured by the session that gets **aborted**, so nothing comes back and the mic looks dead. Root cause: start is wired to **both** `pointerdown` and `mousedown` (a real mouse press fires both), and a new `SpeechRecognition` is created/started even when one is already running. Fix the voice input to be single-session and idempotent:
+
+1. **One recognizer instance, reused.** Create a **single** `SpeechRecognition` once (module/singleton) and reuse it. Never construct or `start()` a second one while a session is active — track an `isListening` flag and **ignore** any start request while `isListening` is true.
+2. **One start trigger.** Bind press-to-talk to **`pointerdown` only** (and `pointercancel`/`pointerup`/`pointerleave` to stop). Remove the parallel `mousedown`/`click` start handler so a single physical press can't fire start twice. Debounce so rapid repeats can't stack sessions.
+3. **Start/stop the SAME instance.** On press: if not already listening, `recognition.start()` inside try/catch; on `InvalidStateError` (already started), do nothing (don't abort+restart). On release: `recognition.stop()` once — do **not** `abort()` then `start()` a fresh one.
+4. **`aborted` and `no-speech` are not real errors.** On `onerror` with `error==="aborted"` or `"no-speech"`, silently reset to "Microphone ready" — never show a failure or tear down the mic. Surface a real problem only for `not-allowed`, `service-not-allowed`, or `network`, with the matching guidance.
+5. **Never lose the transcript.** On `onresult`, read the latest/`isFinal` alternative and put it into the assistant input (keep interim results for live feedback). Because there's only one session now, the final transcript can't land on an aborted recognizer.
+6. Keep everything else (the "Microphone ready" gating from P308, consent, the pinned-top input) exactly as is.
+
+### Acceptance
+- Holding the mic and speaking transcribes reliably on every attempt — no run where the words are dropped by an aborted session.
+- A single press starts exactly **one** recognition session (no `error: "aborted"` from a second start in the lifecycle).
+- Releasing stops that same session; no second recognizer is created mid-press.
+- `no-speech`/`aborted` quietly return to "Microphone ready"; only a genuine permission/network error shows a message.
