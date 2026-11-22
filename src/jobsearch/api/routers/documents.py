@@ -742,6 +742,38 @@ def _locate_before(text: str, before: str) -> Optional[str]:
     return best if best_ratio >= 0.8 else None
 
 
+#: The accept ("Use this line") sends an instruction that spells out BOTH lines verbatim:
+#: Replace ONLY this résumé bullet … Old line: "<X>" New line: "<Y>". When it does, we swap
+#: X→Y deterministically instead of asking the LLM to locate and apply it — the LLM path
+#: mis-targets (it reported a change while leaving the figure untouched), and it also fails
+#: closed when the model is slow/degraded. This makes the accept exact and instant.
+_OLDNEW_RE = re.compile(
+    r'old\s+line\s*:\s*["“](?P<old>.+?)["”].*?new\s+line\s*:\s*["“](?P<new>.+?)["”]',
+    re.I | re.S)
+_BULLET_PREFIX_RE = re.compile(r"^(\s*(?:[-*•‣●▪·]\s+|\d+[.)]\s+))")
+
+
+def _explicit_replacement(content: str, instruction: str) -> tuple[str, int]:
+    """If ``instruction`` spells out an exact Old line / New line swap, perform it on
+    ``content`` deterministically. Returns (text, applied). Locates the old line even when
+    it carries a bullet marker the quoted text omits, and keeps that marker on the new line."""
+    m = _OLDNEW_RE.search(instruction or "")
+    if not m:
+        return content, 0
+    old = (m.group("old") or "").strip()
+    new = (m.group("new") or "").strip()
+    if not old or not new or old == new:
+        return content, 0
+    loc = _locate_before(content, old)
+    if loc is None or loc not in content:
+        return content, 0
+    pm = _BULLET_PREFIX_RE.match(loc)
+    if pm and not _BULLET_PREFIX_RE.match(new):  # keep the located line's "- " / "1." marker
+        new = pm.group(1) + new
+    out = content.replace(loc, new, 1)
+    return (out, 1) if out != content else (content, 0)
+
+
 def _apply_edit(text: str, s: EditSuggestion) -> tuple[str, bool]:
     """Apply one approved edit to the résumé text. Returns (new_text, applied)."""
     action = (s.action or "").lower()
@@ -930,14 +962,16 @@ def ai_edit_document(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "describe the change you want")
     job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
     original = body.content or ""
-    edits = state.resume_assistant.targeted_edits_text(
-        original, body.instruction, job=job, kind=body.kind
-    )
-    text = original
-    applied = 0
-    for e in edits:
-        text, ok = _apply_edit(text, EditSuggestion(**e))
-        applied += 1 if ok else 0
+    # Deterministic first: an explicit "Old line … New line …" instruction (the figure-refresh
+    # accept) is an exact swap — do it here, correctly and instantly, before any LLM.
+    text, applied = _explicit_replacement(original, body.instruction)
+    if applied == 0:
+        edits = state.resume_assistant.targeted_edits_text(
+            original, body.instruction, job=job, kind=body.kind
+        )
+        for e in edits:
+            text, ok = _apply_edit(text, EditSuggestion(**e))
+            applied += 1 if ok else 0
     # Never silently ignore an instruction: fall back to a whole-document rewrite when no
     # targeted edit located (skip pure-formatting ops — those are deterministic).
     if applied == 0 and not state.resume_assistant.is_formatting_instruction(body.instruction):

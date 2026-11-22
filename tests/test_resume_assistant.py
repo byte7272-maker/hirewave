@@ -781,6 +781,40 @@ def test_api_stateless_document_ai_edit_edits_given_text_without_a_stored_doc():
                        json={"content": "x", "instruction": "  "}).status_code == 400
 
 
+def test_api_document_ai_edit_explicit_old_new_swap_is_deterministic_no_llm():
+    # The figure-refresh accept ("Use this line") sends an exact Old line / New line swap.
+    # It must apply deterministically even with NO working LLM — an LLM that mis-targets or
+    # is degraded must not cause the accept to silently keep the stale figure.
+    class _BrokenLLM:
+        name = "broken"
+        def complete(self, *a, **k):
+            raise RuntimeError("LLM unavailable")  # simulate the degraded backend
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _BrokenLLM()
+    state.resume_assistant._premium = _BrokenLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+
+    content = ("## Experience\n"
+               "- Contributed to Publicis Groupe's organic growth (+4.9% FY2024, +5.2% FY2025) by leading.\n"
+               "- Led the 2019 migration.")
+    instruction = (
+        'Replace ONLY this résumé bullet with exactly the following text, and keep every '
+        'other line unchanged. Old line: "Contributed to Publicis Groupe\'s organic growth '
+        '(+4.9% FY2024, +5.2% FY2025) by leading." New line: "Contributed to Publicis '
+        'Groupe\'s organic growth (+4.7% in 2025) by leading."')
+    r = client.post("/api/v1/documents/ai-edit", headers=h,
+                    json={"content": content, "instruction": instruction, "kind": "resume"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["changed"] is True and body["applied"] == 1
+    assert "(+4.7% in 2025)" in body["content"]
+    assert "FY2024" not in body["content"] and "FY2025" not in body["content"]
+    assert "- Contributed to Publicis" in body["content"]      # bullet marker kept
+    assert "Led the 2019 migration." in body["content"]        # other lines untouched
+
+
 def test_api_ai_edit_falls_back_to_full_rewrite_when_no_edit_matches():
     # An instruction must never be silently ignored: when the targeted edits can't be
     # located in the résumé, ai-edit falls back to applying the instruction as a full
