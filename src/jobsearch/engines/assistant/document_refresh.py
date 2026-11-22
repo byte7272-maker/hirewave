@@ -185,9 +185,11 @@ def _deterministic(block_text: str, research: dict, text: str, cites: list[dict]
             "caution": "Compiled from public web pages — verify before relying on them.",
         }
     sent, new_fig, yr = ev[0]
-    old_periods = _stale_periods(block_text, before_year=yr or (latest or _today_year()))
+    # Collapse the WHOLE dated series — every period token in the bullet, not only years
+    # older than the found one — so a sibling like FY2025 can't survive next to the new figure.
+    old_periods = [t for t, _ in _periods(block_text)]
     draft, changes = _make_current(block_text, old_vals, old_periods, new_fig, yr)
-    dated = ", ".join(old_periods) or (old_vals[0] if old_vals else "figure")
+    dated = ", ".join(dict.fromkeys(old_periods)) or (old_vals[0] if old_vals else "figure")
     reasoning = (
         f"The sources report {(entity + ' ') if entity else ''}{subject or 'a figure'} of "
         f"{new_fig}{f' for {yr}' if yr else ''} — I updated the bullet to that figure and "
@@ -247,14 +249,23 @@ def _llm(block_text: str, text: str, cites: list[dict], llm) -> Optional[dict[st
                for c in (data.get("changes") or []) if isinstance(c, dict)]
     new_fig = str(data.get("new_value", "")).strip()
     period = str(data.get("period", "")).strip()
-    # Guard against the model keeping an old date next to the new figure: if any stale period
-    # token from the original bullet is still in the draft, re-date it to the new period.
+    # The model's own draft often leaves a stray old period (e.g. "+4.7% in 2025 FY2025").
+    # Rebuild the draft deterministically from the ORIGINAL bullet with the model's new figure
+    # + period so the whole dated series collapses cleanly and no old year survives.
     yr_m = re.search(r"(?:19|20)\d{2}", period)
-    target = int(yr_m.group(0)) if yr_m else _today_year()
-    leftover = [t for t in _stale_periods(block_text, before_year=target) if t in draft]
-    if leftover and new_fig:
-        draft, forced = _make_current(draft, [], leftover, new_fig, target)
-        changes.extend(forced)
+    target = int(yr_m.group(0)) if yr_m else None
+    orig_periods = [t for t, y in _periods(block_text) if y < _today_year()]
+    if new_fig and target:
+        rebuilt, rebuilt_changes = _make_current(
+            block_text, _metric_values(block_text), [t for t, _ in _periods(block_text)],
+            new_fig, target)
+        if rebuilt != block_text and not any(p in rebuilt for p in orig_periods):
+            draft, changes = rebuilt, (rebuilt_changes or changes)
+        else:  # couldn't cleanly rebuild — at least re-date any old period left in the draft
+            leftover = [p for p in orig_periods if p in draft]
+            if leftover:
+                draft, forced = _make_current(draft, [], leftover, new_fig, target)
+                changes.extend(forced)
     return {
         "found": True, "draft": draft,
         "reasoning": str(data.get("reasoning", "")).strip(),

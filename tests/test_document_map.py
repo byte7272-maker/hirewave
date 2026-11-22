@@ -210,6 +210,18 @@ def test_refresh_collapses_dated_series_and_drops_old_periods():
     assert "pitch support" in out["draft"]
 
 
+def test_refresh_collapses_sibling_period_equal_to_found_year():
+    # Regression: the found figure is for 2025 and the bullet also has FY2025 — the sibling
+    # period must still be collapsed (not left as "+4.7% in 2025 FY2025").
+    research = analyze_block(_STALE_BULLET, year=2026)["research"]
+    sources = [{"url": "https://publicisgroupe.com/q1", "title": "Publicis Q1 2026",
+                "text": "Publicis Groupe reported U.S. organic growth of +4.7% for 2025."}]
+    out = R.propose(_STALE_BULLET, sources, research=research)
+    assert out["found"] is True
+    assert "FY2024" not in out["draft"] and "FY2025" not in out["draft"]
+    assert out["draft"].count("2025") == 1  # the period appears once, not duplicated
+
+
 def test_refresh_llm_draft_that_keeps_old_year_is_forced_current():
     import json
 
