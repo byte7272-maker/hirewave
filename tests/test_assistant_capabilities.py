@@ -167,7 +167,14 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
         "read_along": True, "point_at_active_line": True, "highlight_spoken_words": True,
         "word_sync": "audio_currenttime", "word_sync_no_timer": True,
         "word_weight": "length_plus_pause",
+        "narration": {
+            "whole_line_one_call": True, "schedule_from_spoken_text": True,
+            "no_split_inside_number": True, "never_silent": True, "guard_nan_duration": True},
         "announce": "whole_document"}
+    # a single line is ONE TTS call, scheduled from the spoken text, and never goes silent
+    narr = docs["arrival"]["narration"]
+    assert narr["whole_line_one_call"] and narr["schedule_from_spoken_text"]
+    assert narr["never_silent"] and narr["no_split_inside_number"]
     # the section map drives the assistant's focus but is NOT rendered as a clutter list
     assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
     # follow-along is mandatory: read-along + pointer + spoken-word highlight

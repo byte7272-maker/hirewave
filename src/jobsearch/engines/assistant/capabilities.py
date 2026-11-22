@@ -496,6 +496,21 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "word_sync": "audio_currenttime",
             "word_sync_no_timer": True,
             "word_weight": "length_plus_pause",
+            # How a line is narrated (read-along), hardened against the "went silent on a
+            # number" failure: a single line is ONE /narration/speak call (never split into
+            # per-sentence clips that must chain — a chain can leave the next clip silent),
+            # the word schedule is built from the EXACT text sent to the voice (so a number
+            # like "23.5%" stays aligned instead of the audio saying "23 point 5 percent"
+            # while the highlight expects one token), splitting (only for text near the
+            # 8000-char cap) never falls inside a number/decimal, and a TTS hiccup retries
+            # once then continues — the read never goes silent mid-line.
+            "narration": {
+                "whole_line_one_call": True,
+                "schedule_from_spoken_text": True,
+                "no_split_inside_number": True,
+                "never_silent": True,
+                "guard_nan_duration": True,
+            },
             "announce": "whole_document",
         },
         # The chips shown for the CURRENTLY SELECTED line — the genuinely useful moves, in

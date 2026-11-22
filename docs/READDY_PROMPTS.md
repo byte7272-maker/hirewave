@@ -9563,3 +9563,17 @@ When the race lands the other way, the user's words are captured by the session 
 - The highlighted word stays locked to the spoken word for the whole clip — no speeding ahead, no drift — at the start, middle, and end.
 - Pausing the audio freezes the highlight; resuming continues from the same word.
 - The word under the voice is the one highlighted and pointed at in the document.
+
+## P317 — ⚠ SINGLE PURPOSE: read a line in ONE clip from the exact text — stop going silent on a number (e.g. 23.5%)
+
+**Do only this. Change nothing else.** Diagnosed live reading the summary: the line is split into **two** `/narration/speak` clips (sentence 1, then the "Delivered a 23.5% increase…" sentence) that must chain, and the number is **pre-converted** before TTS ("23.5%" → "23 point 5 percent") — so the spoken tokens no longer match the displayed "23.5%". That combination makes the read **stop at the number and go silent** (the second clip or the number step fails and nothing recovers). Make the read one clip, from the exact text, that never goes silent.
+
+1. **One clip per line.** Send the **whole line** (summary/bullet/paragraph) as a **single** `POST /narration/speak` call and play one audio element. A line is far under the 8000-char narration cap, so do **not** split it into per-sentence clips that have to chain (`narration.whole_line_one_call:true`).
+2. **Send the line's text verbatim.** Do **not** rewrite numbers/percents before TTS — the neural voice already says "23.5%" correctly. Send the same text that's on screen, so the word-highlight schedule (P316) is built from the **exact spoken text** and stays aligned at the number (`schedule_from_spoken_text:true`). If you ever must normalize a token for the voice, tokenize the highlight the same way so display and audio match 1:1.
+3. **Never split inside a number.** On the rare long text that exceeds the cap, split only on **sentence** boundaries and **never** inside a decimal/number/percent (`no_split_inside_number:true`); preload the next clip so there's no silent gap.
+4. **Guard the duration and never go silent.** Don't compute `currentTime/duration` until `loadedmetadata` gives a finite `duration` (it's `NaN` at first). If a `/narration/speak` call fails or returns empty audio, **retry once**, then continue reading the rest — never halt mid-line (`never_silent:true`, `guard_nan_duration:true`). If TTS truly can't produce a clip, fall back to the browser voice for that line rather than silence.
+
+### Acceptance
+- Reading the summary speaks it **through the 23.5%** to the end, in one continuous clip — no stop, no silence at the number.
+- The word highlight stays locked to the voice across the number (display "23.5%" highlighted while the voice says it).
+- A transient TTS failure retries/continues or falls back to the browser voice — the read never just stops.
