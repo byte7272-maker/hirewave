@@ -176,7 +176,8 @@ def test_refresh_propose_deterministic_swaps_figure_with_reasoning():
     }]
     out = R.propose(_STALE_BULLET, sources, research=research)
     assert out["found"] is True
-    assert "+6.1%" in out["draft"] and out["changes"][0]["new"] == "+6.1%"
+    assert "+6.1%" in out["draft"] and out["new_value"] == "+6.1%"
+    assert out["changes"][0]["new"].startswith("+6.1%")  # may carry the new period too
     assert out["reasoning"] and out["sources"][0]["url"].startswith("https://")
     assert out["caution"]
 
@@ -189,6 +190,44 @@ def test_llm_proposal_prompt_replaces_old_periods_not_keeps_them():
     assert "do not leave the old years" in s
     assert "collapse them to the single most-current" in s
     assert "found=false" in s  # still refuses honestly when no newer figure
+
+
+def test_refresh_collapses_dated_series_and_drops_old_periods():
+    # The refreshed bullet must not leave FY2024/FY2025 next to the new figure — the dated
+    # series collapses to one current figure with the new period.
+    research = analyze_block(_STALE_BULLET, year=2027)["research"]
+    sources = [{
+        "url": "https://publicisgroupe.com/ir", "title": "Publicis 2026 results",
+        "text": "Publicis Groupe reported U.S. organic growth of +6.1% in 2026.",
+    }]
+    out = R.propose(_STALE_BULLET, sources, research=research)
+    assert out["found"] is True
+    assert "+6.1%" in out["draft"] and "2026" in out["draft"]
+    assert "FY2024" not in out["draft"] and "FY2025" not in out["draft"]
+    assert "+4.9%" not in out["draft"] and "+5.2%" not in out["draft"]
+    # the surrounding prose is preserved
+    assert out["draft"].startswith("Contributed to Publicis Groupe")
+    assert "pitch support" in out["draft"]
+
+
+def test_refresh_llm_draft_that_keeps_old_year_is_forced_current():
+    import json
+
+    class _StubLLM:  # updates the figure but lazily keeps the old FY dates
+        def complete(self, prompt, system=""):
+            return json.dumps({
+                "found": True, "new_value": "+6.1%", "period": "2026",
+                "changes": [{"old": "+4.9%", "new": "+6.1%"}],
+                "draft": ("Contributed to Publicis Groupe's sustained U.S. organic growth "
+                          "(+6.1% FY2024, +5.2% FY2025) by pioneering VIP and pitch support."),
+            })
+
+    research = analyze_block(_STALE_BULLET, year=2027)["research"]
+    out = R.propose(_STALE_BULLET, [{"url": "https://x.com/ir", "title": "t",
+                                     "text": "organic growth of +6.1% in 2026."}],
+                    research=research, llm=_StubLLM())
+    assert out["found"] is True
+    assert "FY2024" not in out["draft"] and "FY2025" not in out["draft"]
 
 
 def test_refresh_propose_no_sources_reports_not_found():

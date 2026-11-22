@@ -24,7 +24,8 @@ import re
 from typing import Any, Optional
 
 from jobsearch.engines.assistant.document_map import (
-    _METRIC_RE, _entity, _is_year, _metric_values, _norm_year, _subject, analyze_block,
+    _METRIC_RE, _entity, _is_year, _metric_values, _norm_year, _periods, _subject,
+    _today_year, analyze_block,
 )
 
 _MAX_SOURCES = 8
@@ -115,6 +116,59 @@ def _evidence(text: str, subject: str, entity: str, min_year: int) -> list[tuple
     return out
 
 
+#: A run that, once its known figures/periods are removed, is only separators — safe to
+#: collapse a dated metric series ("+4.9% FY2024, +5.2% FY2025") down to one current figure.
+_SEP_ONLY_RE = re.compile(
+    r"^[\s,;:/&()%+\-]*(?:and|to|through|vs\.?|versus|up\s+from|from|&)?[\s,;:/&()%+\-]*$", re.I)
+
+
+def _stale_periods(block_text: str, before_year: int) -> list[str]:
+    """The period tokens in the bullet older than ``before_year`` (FY2024, Q3 2025, 2024…)
+    — the dates a refresh must replace, not leave sitting next to a new figure."""
+    toks: list[str] = []
+    for tok, yr in _periods(block_text):
+        if yr < before_year and tok not in toks:
+            toks.append(tok)
+    return toks
+
+
+def _make_current(text: str, old_vals: list[str], old_periods: list[str],
+                  new_fig: str, yr: Optional[int]) -> tuple[str, list[dict[str, str]]]:
+    """Rewrite ``text`` so its dated figures reflect the CURRENT period: collapse a tight
+    "figure + old-period" series to a single ``new_fig in yr`` and drop the stale dates. The
+    whole point is that no old year is left behind next to the refreshed number."""
+    period_label = f"in {yr}" if yr else ""
+    toks = [t for t in (old_vals + old_periods) if t]
+    positions = [(text.find(t), text.find(t) + len(t)) for t in toks if text.find(t) >= 0]
+    if positions:
+        start = min(p[0] for p in positions)
+        end = max(p[1] for p in positions)
+        segment = text[start:end]
+        residue = segment
+        for t in sorted(toks, key=len, reverse=True):
+            residue = residue.replace(t, " ")
+        if _SEP_ONLY_RE.match(residue):  # a tight metric run -> one current figure
+            new_seg = (f"{new_fig} {period_label}".strip()) or new_fig
+            return text[:start] + new_seg + text[end:], [{"old": segment, "new": new_seg}]
+    # Not a tight run: swap the first figure and re-date each stale period in place, so the
+    # old year never survives even when the figures aren't contiguous.
+    out, changes = text, []
+    if old_vals and old_vals[0] in out:
+        out = out.replace(old_vals[0], new_fig, 1)
+        changes.append({"old": old_vals[0], "new": new_fig})
+    repl = str(yr) if yr else ""
+    for p in old_periods:
+        if repl and p in out:
+            out = out.replace(p, repl)
+            changes.append({"old": p, "new": repl})
+    # tidy any "2026 ... 2026" / stray doubled separators the swaps may leave
+    if repl:
+        out = re.sub(rf"\b{re.escape(repl)}\b(\s*[,/&-]?\s*(?:and\s+)?)\b{re.escape(repl)}\b",
+                     repl, out)
+    out = re.sub(r"\(\s*[,;]\s*", "(", re.sub(r"\s{2,}", " ", out)).strip()
+    return out, changes
+
+
 def _deterministic(block_text: str, research: dict, text: str, cites: list[dict]) -> dict[str, Any]:
     entity = research.get("entity") or _entity(block_text)
     subject = research.get("subject") or _subject(block_text)
@@ -131,15 +185,14 @@ def _deterministic(block_text: str, research: dict, text: str, cites: list[dict]
             "caution": "Compiled from public web pages — verify before relying on them.",
         }
     sent, new_fig, yr = ev[0]
-    draft = block_text
-    changes: list[dict[str, str]] = []
-    if old_vals:
-        draft = draft.replace(old_vals[0], new_fig, 1)
-        changes.append({"old": old_vals[0], "new": new_fig})
+    old_periods = _stale_periods(block_text, before_year=yr or (latest or _today_year()))
+    draft, changes = _make_current(block_text, old_vals, old_periods, new_fig, yr)
+    dated = ", ".join(old_periods) or (old_vals[0] if old_vals else "figure")
     reasoning = (
         f"The sources report {(entity + ' ') if entity else ''}{subject or 'a figure'} of "
-        f"{new_fig}{f' for {yr}' if yr else ''} — I'd swap the dated "
-        f"{old_vals[0] if old_vals else 'figure'} for it. Source line: “{sent[:160]}”. "
+        f"{new_fig}{f' for {yr}' if yr else ''} — I updated the bullet to that figure and "
+        f"{'period' if old_periods else 'number'}, replacing the dated {dated} so nothing "
+        f"older is left in the wording. Source line: “{sent[:160]}”. "
         "Review the number and period before you accept."
     )
     return {
@@ -192,11 +245,21 @@ def _llm(block_text: str, text: str, cites: list[dict], llm) -> Optional[dict[st
         return None
     changes = [{"old": str(c.get("old", "")), "new": str(c.get("new", ""))}
                for c in (data.get("changes") or []) if isinstance(c, dict)]
+    new_fig = str(data.get("new_value", "")).strip()
+    period = str(data.get("period", "")).strip()
+    # Guard against the model keeping an old date next to the new figure: if any stale period
+    # token from the original bullet is still in the draft, re-date it to the new period.
+    yr_m = re.search(r"(?:19|20)\d{2}", period)
+    target = int(yr_m.group(0)) if yr_m else _today_year()
+    leftover = [t for t in _stale_periods(block_text, before_year=target) if t in draft]
+    if leftover and new_fig:
+        draft, forced = _make_current(draft, [], leftover, new_fig, target)
+        changes.extend(forced)
     return {
         "found": True, "draft": draft,
         "reasoning": str(data.get("reasoning", "")).strip(),
-        "changes": changes, "new_value": str(data.get("new_value", "")).strip(),
-        "period": str(data.get("period", "")).strip(), "sources": cites,
+        "changes": changes, "new_value": new_fig,
+        "period": period, "sources": cites,
         "caution": "Drafted by AI from public web pages your browser fetched — verify the "
                    "figure and period against the source before you accept.",
     }
