@@ -165,11 +165,16 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
         "start": "top", "focus_follows_work": True, "keep_focus_in_view": True,
         "map": True, "show_section_list": False,
         "read_along": True, "point_at_active_line": True, "highlight_spoken_words": True,
+        "word_sync": "audio_currenttime", "word_sync_no_timer": True,
+        "word_weight": "length_plus_pause",
         "announce": "whole_document"}
     # the section map drives the assistant's focus but is NOT rendered as a clutter list
     assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
     # follow-along is mandatory: read-along + pointer + spoken-word highlight
     assert docs["arrival"]["read_along"] and docs["arrival"]["point_at_active_line"]
+    # word highlight follows the AUDIO clock, never a free-running timer (fixes the drift)
+    assert docs["arrival"]["word_sync"] == "audio_currenttime"
+    assert docs["arrival"]["word_sync_no_timer"] is True
     data = docs["data"]
     assert data["map_resume"].endswith("/map") and data["locate"].endswith("/locate")
     assert data["refresh_metric"].endswith("/refresh-metric")

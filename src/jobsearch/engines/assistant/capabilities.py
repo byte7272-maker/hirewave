@@ -488,6 +488,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "read_along": True,
             "point_at_active_line": True,
             "highlight_spoken_words": True,
+            # Word-highlight sync is driven by the narration AUDIO element's real playback
+            # position (its currentTime / duration), NOT a free-running timer — a timer races
+            # ahead of server-TTS audio (which has load/latency and uneven cadence). Words are
+            # scheduled across the measured audio duration weighted by length + punctuation
+            # pauses, so the highlight tracks the voice and can never run ahead of it.
+            "word_sync": "audio_currenttime",
+            "word_sync_no_timer": True,
+            "word_weight": "length_plus_pause",
             "announce": "whole_document",
         },
         # The chips shown for the CURRENTLY SELECTED line — the genuinely useful moves, in

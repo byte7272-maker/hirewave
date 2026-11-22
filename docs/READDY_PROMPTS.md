@@ -9548,3 +9548,18 @@ When the race lands the other way, the user's words are captured by the session 
 - No "Sections of your résumé" list appears in the pane; jumping to a section still works via the assistant.
 - Selecting a line shows the strong chip set in priority order; "Refresh the figures" appears only on lines with dated metrics; every chip's result is editable before applying.
 - As the assistant narrates/works, the document scrolls to, highlights, and points at the active line, and reading aloud highlights the spoken words.
+
+## P316 — ⚠ SINGLE PURPOSE: sync the read-along word highlight to the AUDIO clock (stop it racing ahead)
+
+**Do only this. Change nothing else.** Diagnosed live: "Read it with me" plays **server-TTS audio** (an `<audio>` blob from the neural "shimmer" voice), and the word highlight is advanced by a **free-running timer**, so it speeds up and drifts out of sync with the actual voice — it points at words before they're spoken. Server audio has load latency and uneven cadence; a timer can't match it. Drive the highlight from the audio's **real playback position** instead (backend contract: `arrival.word_sync:"audio_currenttime"`, `word_sync_no_timer:true`, `word_weight:"length_plus_pause"`).
+
+1. **Never advance the highlight on a `setInterval`/`setTimeout` estimate.** Remove the timer that steps through words. The audio element is the single clock.
+2. **Build a weighted word schedule once per utterance.** Split the spoken text into words. Give each word a weight = `max(1, characters)` plus an extra pause weight after sentence/clause punctuation (`. ! ? :` large, `, ; —` small). Cumulative weights ÷ total = each word's **start fraction** in `[0,1)`.
+3. **Highlight by the audio's own progress.** On `loadedmetadata` read `audio.duration`; in a `requestAnimationFrame` loop while playing, compute `f = audio.currentTime / audio.duration` and highlight the word whose `[startFraction, nextStartFraction)` contains `f`. Because the clock IS the audio, the highlight can never run ahead; if the audio buffers/stalls, `currentTime` stalls and the highlight waits.
+4. **Point in the document, in sync.** As each word becomes active, keep the pointer/active-line marker on the line being read and ensure that line stays in view — the topic-specific word under the voice is the one highlighted (P315's follow-along).
+5. **Start/stop cleanly.** Begin highlighting on the audio `playing` event (not before it loads), clear the highlight on `pause`/`ended`, and resume from `currentTime` if the user scrubs or re-plays.
+
+### Acceptance
+- The highlighted word stays locked to the spoken word for the whole clip — no speeding ahead, no drift — at the start, middle, and end.
+- Pausing the audio freezes the highlight; resuming continues from the same word.
+- The word under the voice is the one highlighted and pointed at in the document.
