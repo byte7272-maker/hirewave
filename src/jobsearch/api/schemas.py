@@ -778,9 +778,13 @@ class DocumentEditRequest(BaseModel):
     no-code host): it owns the text and the undo history; this just runs the LLM edit.
     Same edit engine and premium tier as ``/resumes/{id}/ai-edit``."""
 
-    #: The document text to edit (the whole résumé/cover letter, or a section).
-    content: str
-    #: The plain-language change, capped at 500 chars like the editor's Ask-AI box.
+    #: The document text to edit (the whole résumé/cover letter, or a section). Capped at
+    #: 60k chars — a generous ceiling (a long résumé is a few KB) that still bounds payload
+    #: size for cost/abuse control.
+    content: str = Field(max_length=60000)
+    #: The plain-language change, capped at 500 chars like the editor's Ask-AI box. This is a
+    #: short human-typed command; accepting a reviewed LINE goes through /documents/replace-line
+    #: (full-length fields), not this instruction.
     instruction: str = Field(max_length=500)
     #: Which kind of document, so the edit engine uses the right conventions.
     kind: Literal["resume", "cover letter"] = "resume"
@@ -795,6 +799,26 @@ class DocumentEditResult(BaseModel):
     content: str
     changed: bool = False
     applied: int = 0
+
+
+class DocumentReplaceLineRequest(BaseModel):
+    """STATELESS exact line swap — replace ``old_line`` with ``new_line`` in ``content`` and
+    return the updated text. This is the accept path for a reviewed proposal (e.g. the
+    figure-refresh "Use this line"): both lines are carried in full as separate fields, so
+    nothing is truncated the way a single 500-char ``instruction`` would be, and the swap is
+    deterministic (no LLM) — it always lands, even when the model is slow or degraded."""
+
+    #: The whole document text to edit. Capped at 60k chars (generous for a résumé/cover
+    #: letter; bounds payload size for cost/abuse control).
+    content: str = Field(max_length=60000)
+    #: The exact existing line to replace (as shown to the user). A leading bullet marker is
+    #: optional — it's located and preserved either way. 4k chars is ~600 words: ample for one
+    #: bullet/paragraph, with no realistic way to truncate a real line.
+    old_line: str = Field(max_length=4000)
+    #: The reviewed replacement line (same 4k ceiling).
+    new_line: str = Field(max_length=4000)
+    #: Which kind of document (for activity bucketing).
+    kind: Literal["resume", "cover letter"] = "resume"
 
 
 class ApplyEditsRequest(BaseModel):

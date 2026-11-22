@@ -815,6 +815,49 @@ def test_api_document_ai_edit_explicit_old_new_swap_is_deterministic_no_llm():
     assert "Led the 2019 migration." in body["content"]        # other lines untouched
 
 
+def test_api_document_replace_line_swaps_full_lines_without_truncation_or_llm():
+    # The accept path for a long reviewed bullet: a single `instruction` is capped at 500
+    # chars (it would truncate the new line), so the structured replace-line endpoint carries
+    # both lines in full as separate fields and swaps deterministically — no LLM needed.
+    class _BrokenLLM:
+        name = "broken"
+        def complete(self, *a, **k):
+            raise RuntimeError("LLM unavailable")
+
+    state = AppState(exchanger=MockTokenExchanger())
+    state.resume_assistant.llm = _BrokenLLM()
+    state.resume_assistant._premium = _BrokenLLM()
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+
+    old_line = ("Contributed to Publicis Groupe's sustained U.S. organic growth (+4.9% FY2024, "
+                "+5.2% FY2025) by pioneering and developing VIP support, pitch support, and "
+                "regional, U.S., and global IT project delivery that advanced core goals.")
+    new_line = ("Contributed to Publicis Groupe's sustained U.S. organic growth (+4.7% in 2025) "
+                "by pioneering and developing VIP support, pitch support, and regional, U.S., "
+                "and global IT project delivery that advanced core goals.")
+    content = f"## Experience\n- {old_line}\n- Led the 2019 migration."
+    # a single "Old line … New line …" instruction (preamble + both lines) overflows the
+    # 500-char instruction cap; separate fields don't, which is the point of this endpoint.
+    assert 90 + len(old_line) + len(new_line) > 500
+
+    r = client.post("/api/v1/documents/replace-line", headers=h, json={
+        "content": content, "old_line": old_line, "new_line": new_line, "kind": "resume"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["changed"] is True and body["applied"] == 1
+    assert "(+4.7% in 2025)" in body["content"]
+    assert "FY2024" not in body["content"] and "FY2025" not in body["content"]
+    assert "- Contributed to Publicis" in body["content"]      # marker preserved
+    assert "Led the 2019 migration." in body["content"]        # other line untouched
+
+    # old line absent -> changed False, original echoed back
+    r2 = client.post("/api/v1/documents/replace-line", headers=h, json={
+        "content": content, "old_line": "a line that isn't there", "new_line": "x"})
+    assert r2.status_code == 200 and r2.json()["changed"] is False
+    assert r2.json()["content"] == content
+
+
 def test_api_ai_edit_falls_back_to_full_rewrite_when_no_edit_matches():
     # An instruction must never be silently ignored: when the targeted edits can't be
     # located in the résumé, ai-edit falls back to applying the instruction as a full

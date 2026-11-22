@@ -9465,3 +9465,21 @@ Keep the assistant's capabilities, the result rendering, and the badge as they a
 - A résumé whose **current** role has FY2024/FY2025 figures shows them as **out of date / refresh**, never "everything is up to date."
 - The same figures under a **past** (ended) role are **not** flagged as stale and get no refresh nag — recognized as historical.
 - The freshness verdict comes from the backend `full-review` / map response; the client doesn't second-guess it.
+
+## P311 — ⚠ SINGLE PURPOSE: APPLY the accepted line via /documents/replace-line (stop silently dropping the change)
+
+**Do only this. Change nothing else.** When the user clicks **"Use this line"** / **Approve** on a reviewed bullet (e.g. the figure refresh), the proposal is correct on screen but the **document never actually changes** — accept bumps the version but the bullet stays stale. Verified live: the accept builds a natural-language instruction `Replace ONLY this résumé bullet … Old line: "<OLD>" New line: "<NEW>"` and POSTs it to `/documents/ai-edit`. That `instruction` field is **capped at 500 characters**, so for any normal-length bullet the **New line is truncated away**, the backend can't apply the swap, and the LLM fallback mis-targets — the stale figure survives. Fix the accept to use the new deterministic endpoint instead.
+
+1. **On accept, call `POST /documents/replace-line`** with JSON:
+   - `content`: the **full** current document text (same text you already send to `/documents/ai-edit`),
+   - `old_line`: the exact line being replaced — the "THE LINE ON YOUR PAGE" text (a leading bullet marker is fine; it's located and preserved either way),
+   - `new_line`: the reviewed replacement — the "THE LINE AS IT WOULD READ" / edited proposal text, **in full** (both fields allow up to 4000 chars — never truncate them),
+   - `kind`: `"resume"` or `"cover letter"`.
+2. **Use the returned `content` when `changed` is true.** Replace the document with `response.content` and save that as the new version (your existing versions/undo flow). This is a **deterministic** swap — no LLM — so it lands every time, including when the model is slow or the backend is degraded.
+3. **Stop using `/documents/ai-edit` for accepting a reviewed line.** Do not build the `Old line … New line …` instruction anymore. (`/documents/ai-edit` stays for the free-text Ask-AI box only.)
+4. **If `changed` is false** (the old line wasn't found — e.g. the user edited the page since), show a clear "couldn't apply — the line changed, refresh and try again," and do **not** save a no-op version or claim "Applied."
+
+### Acceptance
+- Accepting the refreshed Publicis bullet changes the document to `(+4.7% in 2025)` (old `FY2024/FY2025` gone) and the saved version reflects it after reload.
+- The accept calls `/documents/replace-line` with full `old_line`/`new_line`; nothing is truncated at 500 chars.
+- A proposal whose old line no longer exists reports a clear error instead of a silent no-op that still says "Applied."

@@ -39,6 +39,7 @@ from jobsearch.api.schemas import (
     ApplyEditsRequest,
     DocumentEditRequest,
     DocumentEditResult,
+    DocumentReplaceLineRequest,
     ApplyEditsResult,
     CandidateMatch,
     EditSuggestion,
@@ -753,15 +754,12 @@ _OLDNEW_RE = re.compile(
 _BULLET_PREFIX_RE = re.compile(r"^(\s*(?:[-*•‣●▪·]\s+|\d+[.)]\s+))")
 
 
-def _explicit_replacement(content: str, instruction: str) -> tuple[str, int]:
-    """If ``instruction`` spells out an exact Old line / New line swap, perform it on
-    ``content`` deterministically. Returns (text, applied). Locates the old line even when
-    it carries a bullet marker the quoted text omits, and keeps that marker on the new line."""
-    m = _OLDNEW_RE.search(instruction or "")
-    if not m:
-        return content, 0
-    old = (m.group("old") or "").strip()
-    new = (m.group("new") or "").strip()
+def _swap_line(content: str, old: str, new: str) -> tuple[str, int]:
+    """Replace the line ``old`` with ``new`` in ``content`` deterministically. Locates the
+    old line even when it carries a bullet marker the given text omits, and keeps that marker
+    on the new line. Returns (text, applied: 0|1)."""
+    old = (old or "").strip()
+    new = (new or "").strip()
     if not old or not new or old == new:
         return content, 0
     loc = _locate_before(content, old)
@@ -772,6 +770,17 @@ def _explicit_replacement(content: str, instruction: str) -> tuple[str, int]:
         new = pm.group(1) + new
     out = content.replace(loc, new, 1)
     return (out, 1) if out != content else (content, 0)
+
+
+def _explicit_replacement(content: str, instruction: str) -> tuple[str, int]:
+    """If ``instruction`` spells out an exact Old line / New line swap, perform it on
+    ``content`` deterministically. (NOTE: a no-code front end may truncate the instruction,
+    cutting off the new line — prefer the structured ``/documents/replace-line`` endpoint,
+    which carries both lines in full.)"""
+    m = _OLDNEW_RE.search(instruction or "")
+    if not m:
+        return content, 0
+    return _swap_line(content, m.group("old") or "", m.group("new") or "")
 
 
 def _apply_edit(text: str, s: EditSuggestion) -> tuple[str, bool]:
@@ -986,6 +995,30 @@ def ai_edit_document(
         # it with the rest of the document history — "document" is not a valid subject.
         subj = "cover_letter" if body.kind == "cover letter" else "resume"
         state.log_activity(user.id, "edited", subj, detail=body.instruction.strip()[:80])
+    return DocumentEditResult(content=text if changed else original,
+                              changed=changed, applied=applied)
+
+
+@router.post("/documents/replace-line", response_model=DocumentEditResult)
+def document_replace_line(
+    body: DocumentReplaceLineRequest, user: CurrentUser, state: StateDep
+) -> DocumentEditResult:
+    """STATELESS exact line swap: replace ``old_line`` with ``new_line`` in ``content`` and
+    return the updated text. This is the accept path for a reviewed proposal (the
+    figure-refresh "Use this line", a one-line rewrite the user approved): both lines come in
+    full as separate fields, so nothing is truncated the way a single 500-char ``instruction``
+    would be, and the swap is **deterministic** — no LLM, so it lands every time, including
+    when the model is slow or degraded. The old line is located even if the quoted text omits
+    its bullet marker, and the marker is preserved. ``changed=false`` (original echoed back)
+    when the old line can't be found."""
+    plan_limits.consume_ai_edit(state, user)
+    original = body.content or ""
+    text, applied = _swap_line(original, body.old_line or "", body.new_line or "")
+    changed = bool(applied and text.strip() and text != original)
+    if changed:
+        subj = "cover_letter" if body.kind == "cover letter" else "resume"
+        state.log_activity(user.id, "edited", subj,
+                           detail=("updated a line: " + (body.new_line or "").strip())[:80])
     return DocumentEditResult(content=text if changed else original,
                               changed=changed, applied=applied)
 
