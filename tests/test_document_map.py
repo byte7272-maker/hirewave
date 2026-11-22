@@ -67,6 +67,52 @@ def test_current_claim_pinned_to_old_year_is_low_sev_date_flag():
     assert a["flags"][0]["severity"] == "low"
 
 
+def test_current_role_dated_metric_is_stale_and_refreshable():
+    # A role the person STILL holds: its dated figures should be the latest period.
+    a = analyze_block("Grew ARR 20% in FY2024.", year=2026, current_role=True)
+    assert a["flags"] and a["flags"][0]["kind"] == "stale_metric"
+    assert a["flags"][0]["current_role"] is True
+    assert a["research"] and a["research"]["old_values"] == ["20%"]
+
+
+def test_past_role_dated_metric_is_historical_not_stale():
+    # A role already left: the figures are frozen history — recognized, not nagged to refresh.
+    a = analyze_block("Boosted retention 30% in FY2016.", year=2026, current_role=False)
+    kinds = [f["kind"] for f in a["flags"]]
+    assert kinds == ["historical_metric"]
+    assert a["flags"][0]["severity"] == "low"
+    assert a["research"] is None  # nothing to search — a past job's numbers don't update
+
+
+def test_unknown_role_defaults_to_refreshable():
+    # No role context (summary line / standalone): treat a dated figure as a live claim.
+    a = analyze_block("Grew ARR 20% in FY2024.", year=2026, current_role=None)
+    assert a["flags"][0]["kind"] == "stale_metric"
+
+
+def test_leading_action_verb_not_mistaken_for_entity():
+    # "Drove"/"Led" open a bullet as verbs, not organizations, and must not poison the query.
+    r = analyze_block("Grew ARR 20% in FY2024.", year=2026)["research"]
+    assert r["entity"] == "" and "Grew" not in r["subject"]
+    r2 = analyze_block("Led Acme Corp revenue to +15% in FY2023.", year=2026)["research"]
+    assert r2["entity"] == "Acme Corp" and "FY2023" != r2["entity"]
+
+
+def test_build_map_distinguishes_current_and_past_roles():
+    resume = (
+        "Jane Doe\nEngineer\n\n## Experience\n"
+        "**Acme Corp** -- Senior Manager (2023 - Present)\n"
+        "- Grew ARR 20% in FY2024.\n"
+        "**OldCo** -- Analyst (2015 - 2018)\n"
+        "- Boosted retention 30% in FY2016.\n\n## Skills\nPython\n"
+    )
+    m = build_map(resume, kind="resume", year=2026)
+    current = next(b for b in m["blocks"] if "ARR" in b["text"])
+    past = next(b for b in m["blocks"] if "retention" in b["text"])
+    assert [f["kind"] for f in current["analysis"]["flags"]] == ["stale_metric"]
+    assert [f["kind"] for f in past["analysis"]["flags"]] == ["historical_metric"]
+
+
 # --- build_map (résumé) -----------------------------------------------------
 def test_resume_map_sections_bullets_and_anchors():
     m = build_map(_RESUME, kind="resume", year=2027)
@@ -315,6 +361,21 @@ def test_document_review_cover_letter_walks_greeting_to_closing():
 def test_document_review_dispatch_by_kind():
     assert DR.review(_RESUME, kind="resume")["kind"] == "resume"
     assert DR.review(_COVER_LETTER, kind="cover_letter")["kind"] == "cover_letter"
+
+
+def test_document_review_refreshes_current_role_not_a_past_one():
+    resume = (
+        "Jane Doe\nEngineer | NYC\n\n## Summary\nEngineering leader.\n\n## Experience\n"
+        "**Acme Corp** -- Senior Manager (2023 - Present)\n"
+        "- Grew ARR 20% in FY2024.\n\n"
+        "**OldCo** -- Analyst (2015 - 2018)\n"
+        "- Boosted retention 30% in FY2016.\n\n## Skills\nPython, AWS, Leadership, Delivery\n"
+    )
+    out = DR.review_document(resume, year=2026)
+    stale = [f for f in out["findings"] if f["id"] == "role_stale"]
+    # only the current role (Acme) is flagged to refresh; the past role (OldCo) is not
+    assert len(stale) == 1
+    assert "still hold" in stale[0]["detail"].lower()
 
 
 # --- session_scan (proactive once-per-session) ------------------------------

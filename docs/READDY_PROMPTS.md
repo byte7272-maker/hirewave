@@ -9451,3 +9451,17 @@ Keep the assistant's capabilities, the result rendering, and the badge as they a
 - On Matches, Applications, Auto-apply, Inbox, Interviews, Dashboard — and every other page — the assistant opens as the **same right pane** as on Documents, with the input pinned at the top.
 - Clicking the badge on any page opens that full right pane, never a confined box next to it.
 - No page shows a cramped inline text box next to the badge anymore.
+
+## P310 — ⚠ SINGLE PURPOSE: trust the backend's freshness verdict — flag dated figures in a CURRENT role, leave a PAST role's as history
+
+**Do only this. Change nothing else.** The assistant keeps saying the résumé is "up to date" when figures like **+4.9% FY2024 / +5.2% FY2025** are plainly stale in 2026. The backend now decides this correctly and the app must use its verdict instead of its own client-side guess. The backend distinguishes a **current** role (still held — figures should be the latest period) from a **past** role (already left — figures are frozen history):
+
+1. **Get freshness from the backend, not a local heuristic.** For the whole-document assessment call `GET /resumes/{id}/full-review` (or `POST /documents/full-review` with `{text, kind}` for the live editor buffer). Drive the "what's out of date" narration from its `findings` and per-section `announce`/`script`. Do **not** compute "up to date" in the client — if the backend returns a `role_stale` finding, the app must surface it, never say "everything is up to date."
+2. **A `role_stale` finding = dated figures in a CURRENT role.** Its `detail` reads "…a role you still hold…"; present it as "these numbers should show the latest period" and offer **Refresh** (which calls `POST /documents/refresh-metric` with the bullet). The backend only emits `role_stale` for roles whose dates run to **Present/ongoing** — so a figure under your current job is always flagged, regardless of how recent (FY2024 and FY2025 both qualify in 2026).
+3. **A past role's figures are NOT stale — don't nag them.** For a role with a past end year, the per-bullet analysis returns `kind:"historical_metric"` (severity low), not `stale_metric`, and the review does **not** raise `role_stale`. Treat these as correct-as-they-stand history: no "refresh" prompt, no "out of date" language. If you show anything at all, it's a neutral "historical result from a previous role."
+4. **Per-bullet, honor the flag `kind`.** When you render a bullet's analysis (map / refresh), branch on `analysis.flags[].kind`: `stale_metric` → offer refresh; `historical_metric` → leave it, it's history; `stale_date` → gentle "confirm this is still accurate." A bullet's flag also carries `current_role` — use it, don't re-derive currency in the client.
+
+### Acceptance
+- A résumé whose **current** role has FY2024/FY2025 figures shows them as **out of date / refresh**, never "everything is up to date."
+- The same figures under a **past** (ended) role are **not** flagged as stale and get no refresh nag — recognized as historical.
+- The freshness verdict comes from the backend `full-review` / map response; the client doesn't second-guess it.

@@ -18,7 +18,28 @@ import re
 from typing import Any, Optional
 
 from jobsearch.engines.assistant import summary_review as _sr
-from jobsearch.engines.assistant.document_map import _entity, _metric_values, analyze_block, build_map
+from jobsearch.engines.assistant.document_map import (
+    _entity, _metric_values, _PRESENT_RE, analyze_block, build_map,
+)
+
+
+def _role_is_current(w) -> Optional[bool]:
+    """Whether a parsed role is one the person STILL holds — from its dates. An empty or
+    "Present"/"Current" end date (with a start) is current; an end date in a past year is
+    past; otherwise unknown. Drives whether its dated figures are refreshable (current job →
+    latest numbers) or frozen history (a job already left)."""
+    from jobsearch.engines.assistant.document_map import _today_year
+
+    end = (getattr(w, "endDate", "") or "").strip()
+    start = (getattr(w, "startDate", "") or "").strip()
+    if not end:
+        return True if start else None
+    if _PRESENT_RE.search(end):
+        return True
+    yrs = re.findall(r"(?:19|20)\d{2}", end)
+    if yrs:
+        return int(yrs[-1]) >= _today_year()
+    return None
 
 
 def _clean_role(position: str) -> tuple[str, str]:
@@ -104,12 +125,18 @@ def _experience(data, resume_text: str, exp_sec, year) -> dict:
                                      f"Add 2–3 bullets with results to {where}.", locate=label))
             continue
         no_metric = [h for h in highlights if not _metric_values(h)]
+        current = _role_is_current(w)
+        # Only a role you still hold should be nagged to refresh its figures; a past role's
+        # numbers are historical facts (analyze_block records them, but doesn't flag stale).
         stale = [h for h in highlights if any(f["kind"] == "stale_metric"
-                                              for f in analyze_block(h, year=year).get("flags", []))]
+                 for f in analyze_block(h, year=year, current_role=current).get("flags", []))]
         if stale:
+            detail = (f"A bullet under {where} — a role you still hold — has figures tied to a "
+                      "past period; they should show the latest numbers."
+                      if current else
+                      f"A bullet under {where} has figures tied to a past period.")
             findings.append(_finding("role_stale", "experience", f"{label}: dated figures",
-                                     f"A bullet under {where} has figures tied to a past period.",
-                                     "medium", "Refresh those numbers to the current period.",
+                                     detail, "medium", "Refresh those numbers to the current period.",
                                      locate=(_metric_values(stale[0])[0] if _metric_values(stale[0]) else label)))
         if len(no_metric) == len(highlights):
             findings.append(_finding("role_no_metric", "experience", f"{label}: no numbers",

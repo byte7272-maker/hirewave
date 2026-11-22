@@ -83,6 +83,47 @@ _MONTHS = {"January", "February", "March", "April", "May", "June", "July", "Augu
            "September", "October", "November", "December", "Monday", "Tuesday",
            "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"}
 _ORG_STOP = {"I", "The", "A", "An", "US", "U.S", "U.S.", "UK", "EU", "AI", "IT", "VIP"}
+#: Résumé bullets almost always open with a past-tense action verb ("Drove revenue…",
+#: "Grew ARR…"). Capitalized at the sentence start, it otherwise looks like a proper noun
+#: and poisons both the entity ("Drove") and the subject ("Drove organic revenue") — and
+#: so the web-research query — so we never treat a bullet-leading action verb as the org.
+_ACTION_VERBS = frozenset(w.lower() for w in (
+    "Led", "Managed", "Drove", "Grew", "Increased", "Decreased", "Reduced", "Cut", "Built",
+    "Created", "Developed", "Designed", "Launched", "Delivered", "Improved", "Achieved",
+    "Directed", "Oversaw", "Spearheaded", "Established", "Implemented", "Generated",
+    "Expanded", "Scaled", "Boosted", "Saved", "Won", "Closed", "Negotiated", "Streamlined",
+    "Optimized", "Transformed", "Owned", "Ran", "Headed", "Coordinated", "Executed",
+    "Produced", "Raised", "Secured", "Maintained", "Sustained", "Accelerated", "Pioneered",
+    "Founded", "Revamped", "Overhauled", "Consolidated", "Automated", "Migrated",
+    "Architected", "Shipped", "Supported", "Enabled", "Mentored", "Trained", "Hired",
+    "Recruited", "Supervised", "Championed", "Drove", "Guided", "Initiated", "Introduced",
+    "Orchestrated", "Partnered", "Positioned", "Refactored", "Rolled", "Standardized",
+    "Unified", "Upgraded", "Contributed", "Drafted", "Analyzed", "Assembled", "Authored",
+))
+
+#: A role's tenure is "current" if its date range runs to the present rather than a past
+#: end year — the signal for whether its figures should be the LATEST (current job) or are
+#: frozen history (a job already left).
+_PRESENT_RE = re.compile(r"\b(present|current(?:ly)?|now|ongoing|to date|date)\b", re.I)
+_DATE_RANGE_RE = re.compile(
+    r"((?:19|20)\d{2})\s*(?:[-–—]|to|through|\bto\b|→)+\s*"
+    r"(present|current|now|ongoing|(?:19|20)\d{2})", re.I)
+
+
+def _tenure_current(line: str) -> Optional[bool]:
+    """Read a role/date chrome line and decide if the role is CURRENT (ongoing), PAST
+    (ended in a prior year), or unknown (no date range on this line → ``None``)."""
+    m = _DATE_RANGE_RE.search(line or "")
+    if m:
+        end = m.group(2)
+        if _PRESENT_RE.search(end):
+            return True
+        if re.fullmatch(r"(?:19|20)\d{2}", end.strip()):
+            return int(end) >= _today_year()
+    # a lone "Present"/"ongoing" alongside a start year, no explicit range glyph
+    if _PRESENT_RE.search(line or "") and _BARE_YEAR_RE.search(line or ""):
+        return True
+    return None
 
 
 def _today_year() -> int:
@@ -138,7 +179,15 @@ def _entity(text: str) -> str:
     for m in _ORG_RE.finditer(text):
         phrase = m.group(1).strip()
         head = phrase.split()[0]
-        if head in _MONTHS or head in _ORG_STOP:
+        # a period token ("FY2024", "Q3", a bare year) is capitalized but is not an org
+        if _FY_RE.match(head) or _QTR_RE.match(head) or re.match(r"(?:19|20)\d{2}\b", head):
+            continue
+        if head in _MONTHS or head in _ORG_STOP or head.lower() in _ACTION_VERBS:
+            # a capitalized bullet-leading verb ("Drove", "Grew") is not an organization;
+            # if it's a one-word candidate, drop it, and for a phrase drop the verb head.
+            rest = phrase.split()[1:]
+            if head.lower() in _ACTION_VERBS and len(rest) >= 2 and rest[0][:1].isupper():
+                return " ".join(rest)  # "Drove Acme Corp" -> "Acme Corp"
             continue
         if " " in phrase:  # prefer a real multi-word org name
             return phrase
@@ -151,12 +200,17 @@ def _subject(text: str) -> str:
     if not m:
         return ""
     subj = re.sub(r"\s+", " ", m.group(1)).strip()
-    # keep it tight — at most the last 3 words of the matched phrase
     words = subj.split()
+    # drop a leading action verb the phrase picked up ("Drove organic revenue" ->
+    # "organic revenue") so the metric subject — and the search query — reads cleanly.
+    while words and words[0].lower() in _ACTION_VERBS:
+        words = words[1:]
+    # keep it tight — at most the last 3 words of the matched phrase
     return " ".join(words[-3:])
 
 
-def analyze_block(text: str, *, year: Optional[int] = None) -> dict[str, Any]:
+def analyze_block(text: str, *, year: Optional[int] = None,
+                  current_role: Optional[bool] = None) -> dict[str, Any]:
     """Deterministic analysis of one bullet / paragraph. Surfaces issues worth acting on
     — principally a **stale period-bound metric**: a figure attached to a fiscal year /
     quarter that is now past. Returns::
@@ -165,7 +219,19 @@ def analyze_block(text: str, *, year: Optional[int] = None) -> dict[str, Any]:
          "research": {"query", "entity", "subject", "old_values", "latest_year"} | None,
          "metrics": [...], "has_metric": bool}
 
-    ``year`` overrides "today" (testability)."""
+    ``year`` overrides "today" (testability).
+
+    ``current_role`` says whether the bullet belongs to a role the person STILL holds:
+
+    * ``True`` — a current job. A dated figure here is a claim about ongoing performance
+      and should be the latest period, so an old one is flagged **stale_metric** (refresh).
+    * ``False`` — a role already left. Its figures are *historical facts* that can't be
+      "updated" to a current period — the job is over — so an old figure is recorded as a
+      low-severity **historical_metric** (recognized as past experience, no refresh), never
+      nagged as stale.
+    * ``None`` — unknown (a summary line, a cover-letter paragraph, a standalone bullet):
+      treat as refreshable (the prior behavior), since a figure presented without a past
+      employer is usually a live claim."""
     now = year or _today_year()
     text = (text or "").strip()
     metrics = _metric_values(text)
@@ -181,10 +247,23 @@ def analyze_block(text: str, *, year: Optional[int] = None) -> dict[str, Any]:
         toks = sorted({tok for tok, _ in past}, key=lambda t: t.lower())
         entity = _entity(text)
         subject = _subject(text)
-        if metrics:
+        if metrics and current_role is False:
+            # A past role's numbers are frozen history — recognize them as old experience,
+            # don't push to "refresh" a job that's already ended.
+            flags.append({
+                "kind": "historical_metric", "severity": "low",
+                "reason": (f"These figures are tied to {', '.join(toks)}, under a role you've "
+                           "since moved on from — they're historical results, correct as they "
+                           "stand. No update needed; refreshing only applies to a current role."),
+                "values": metrics, "period": toks, "year": newest_past, "gap": gap,
+            })
+        elif metrics:
+            where = ("your current role" if current_role else "this period")
             reason = (
                 f"These figures are tied to {', '.join(toks)} — now {gap} year"
-                f"{'s' if gap != 1 else ''} out of date. "
+                f"{'s' if gap != 1 else ''} out of date"
+                + (" for a role you still hold, so they should show the latest period. "
+                   if current_role else ". ")
                 + (f"{entity}'s " if entity else "")
                 + (f"{subject} " if subject else "the latest numbers ")
                 + "can likely be refreshed to the current period."
@@ -192,7 +271,7 @@ def analyze_block(text: str, *, year: Optional[int] = None) -> dict[str, Any]:
             flags.append({
                 "kind": "stale_metric", "severity": "high" if gap >= 2 else "medium",
                 "reason": reason, "values": metrics, "period": toks,
-                "year": newest_past, "gap": gap,
+                "year": newest_past, "gap": gap, "current_role": bool(current_role),
             })
             query = " ".join(p for p in [entity, subject, str(now)] if p).strip() \
                 or f"{entity} latest results".strip()
@@ -293,12 +372,18 @@ def build_map(text: str, *, kind: str = "resume", year: Optional[int] = None) ->
                       char_start=cstart, char_end=len(text))
         cur_is_default = False
 
+    # Role tenure within Experience: a date-bearing chrome line sets whether the role that
+    # follows is current or past; its bullets inherit that so a current role's dated figures
+    # are flagged for refresh while a past role's are recognized as frozen history.
+    role_current: Optional[bool] = None
+    seen_bullet_in_role = False
     for i, ln in enumerate(lines):
         cstart = offs[i]
         canon, _rest = _section_of(ln)
         if canon is not None:
             title = _HEADING_HASH_RE.sub("", ln).split(":")[0].strip() or canon.title()
             _open(canon, title, i, cstart)
+            role_current, seen_bullet_in_role = None, False  # new section: role context resets
             continue
         bm = _BULLET_RE.match(ln)
         plain = _strip_markers(ln)
@@ -306,13 +391,24 @@ def build_map(text: str, *, kind: str = "resume", year: Optional[int] = None) ->
             continue
         bkind = "bullet" if bm else "line"
         if bkind == "line":
-            continue  # non-bullet prose in a résumé is section chrome (role/company/date), not analyzed
+            # non-bullet prose in a résumé is section chrome (role/company/date). In
+            # Experience it carries the role's tenure; elsewhere it's just skipped.
+            if cur.canon == "experience":
+                tenure = _tenure_current(ln)
+                if tenure is not None:
+                    role_current, seen_bullet_in_role = tenure, False  # a new dated role
+                elif seen_bullet_in_role:
+                    role_current, seen_bullet_in_role = None, False  # new role header, date TBD
+            continue
+        cr = role_current if cur.canon == "experience" else None
         bid = f"{cur.id}-b{len([b for b in cur.blocks if b.kind == 'bullet']) + 1}"
         cur.blocks.append(Block(
             id=bid, kind="bullet", text=plain, raw=ln.rstrip(), line=i,
             char_start=cstart, char_end=cstart + len(ln),
-            section=cur.id, analysis=analyze_block(plain, year=year),
+            section=cur.id, analysis=analyze_block(plain, year=year, current_role=cr),
         ))
+        if cur.canon == "experience":
+            seen_bullet_in_role = True
     if not cur_is_default or cur.blocks:
         sections.append(cur)
 
