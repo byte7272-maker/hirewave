@@ -11,7 +11,9 @@ from jobsearch.engines.assistant import document_refresh as R
 from jobsearch.engines.assistant import document_review as DR
 from jobsearch.engines.assistant import session_scan as SS
 from jobsearch.engines.assistant import summary_review as SR
-from jobsearch.engines.assistant.document_map import analyze_block, build_map, locate
+from jobsearch.engines.assistant.document_map import (
+    analyze_block, build_map, locate, normalize_document,
+)
 from jobsearch.engines.integration import MockTokenExchanger
 
 _RESUME = """John Williams
@@ -142,6 +144,54 @@ def test_cover_letter_map_paragraphs():
     assert any(f["kind"] == "stale_metric" for f in m["flags"])
     ids = [b["id"] for b in m["blocks"]]
     assert ids == [f"p{i+1}" for i in range(len(ids))]
+
+
+# --- normalize_document (structure repair) ----------------------------------
+def test_normalize_debullets_header_and_summary_and_collapses_markers():
+    doc = (
+        "Bayete Williams\n"
+        "- - - - - - - - **IT Leader**\n"            # title piled up markers
+        "bayete.williamsit@gmail.com\n\n"
+        "## Summary\n"
+        "- IT leader who drives operational efficiency.\n\n"  # summary wrongly bulleted
+        "## Experience\n"
+        "**Acme** -- Manager\n"
+        "- - - Grew ARR 20% in 2025.\n"              # real bullet, markers piled up
+        "- Led the migration.\n\n"
+        "## Skills\n- Python, AWS\n"
+    )
+    out = normalize_document(doc, kind="resume")
+    lines = out.split("\n")
+    assert "**IT Leader**" in lines and "- - -" not in out            # title de-bulleted, no pileup
+    assert "IT leader who drives operational efficiency." in lines    # summary de-bulleted
+    assert "- Grew ARR 20% in 2025." in lines                         # experience bullet -> single marker
+    assert "- Led the migration." in lines                            # untouched
+    assert "- Python, AWS" in lines                                   # skills bullet kept
+    # idempotent
+    assert normalize_document(out, kind="resume") == out
+    # a clean doc is unchanged
+    assert normalize_document("## Summary\nClean prose.\n", kind="resume") == "## Summary\nClean prose.\n"
+
+
+def test_normalize_cover_letter_strips_all_bullets():
+    letter = "Dear Hiring Manager,\n\n- I grew the pipeline 30%.\n\nSincerely,\nJohn"
+    out = normalize_document(letter, kind="cover_letter")
+    assert "- I grew" not in out and "I grew the pipeline 30%." in out
+
+
+def test_api_documents_normalize_endpoint_repairs_structure():
+    c, _ = _client()
+    h = _auth(c)
+    r = c.post("/api/v1/documents/normalize", headers=h, json={
+        "text": "Name\n- - - **Title**\n\n## Summary\n- Prose summary.\n", "kind": "resume"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["changed"] is True
+    assert "**Title**" in body["content"] and "- - -" not in body["content"]
+    assert "Prose summary." in body["content"] and "- Prose summary." not in body["content"]
+    # idempotent via the endpoint: a second pass reports no change
+    r2 = c.post("/api/v1/documents/normalize", headers=h, json={"text": body["content"], "kind": "resume"})
+    assert r2.status_code == 200 and r2.json()["changed"] is False
 
 
 # --- locate -----------------------------------------------------------------

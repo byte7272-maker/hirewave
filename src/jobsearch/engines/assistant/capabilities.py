@@ -157,9 +157,21 @@ SURFACE: dict[str, Any] = {
     # a cramped inline box next to the badge.
     "consistent_across_pages": True,
     "badge_opens": "right_pane",
+    # EVERY place the assistant presents something for the user to respond to — a question, a
+    # finding, an option, or a pending action — carries an inline, editable input right there,
+    # so the user can answer AND modify what's shown before anything is accepted. A finding or
+    # a proposed/pending action is never read-only: the user can edit its text in place and
+    # accept the edited version. Nothing the assistant proposes is applied without the user
+    # having an editable field to change it first.
+    "input_at_every_prompt": True,
+    "findings_editable": True,
+    "pending_actions_editable": True,
+    "edit_before_accept": True,
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",
-              "confined_inline_box", "box_next_to_badge", "different_surface_per_page"],
+              "confined_inline_box", "box_next_to_badge", "different_surface_per_page",
+              "readonly_finding", "uneditable_pending_action", "prompt_without_input",
+              "apply_without_edit_option"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

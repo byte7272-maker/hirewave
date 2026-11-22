@@ -471,6 +471,51 @@ _LOCATE_STOP = {"the", "a", "an", "of", "and", "to", "in", "on", "for", "with", 
                 "highlight", "word", "section", "go"}
 
 
+#: A run of one or more leading bullet markers (so "- - - - **IT Leader**" is caught whole).
+_LEADING_MARKERS_RE = re.compile(r"^(\s*)(?:[-*•‣●▪·]\s+)+(.*)$")
+
+
+def normalize_document(text: str, *, kind: str = "resume") -> str:
+    """Repair document structure that drifted from a clean résumé/cover letter:
+
+    * **Collapse accumulated markers** — a line that picked up repeated bullet markers
+      ("- - - - - - - - **IT Leader**", from a render↔markdown round-trip) is reduced to a
+      single marker (or none, below).
+    * **De-bullet the header and summary** — the name/title/contact lines and the Summary
+      are prose, never list items, so any leading bullet marker there is stripped. Bullets
+      stay only where they belong (Experience, Projects, Skills, …).
+
+    Deterministic and idempotent: running it again changes nothing."""
+    text = text or ""
+    if (kind or "").lower().startswith("cover"):
+        # A cover letter is prose end to end — no line should be a bullet.
+        out = []
+        for ln in text.split("\n"):
+            m = _LEADING_MARKERS_RE.match(ln)
+            out.append((m.group(1) + m.group(2)) if m else ln)
+        return "\n".join(out)
+
+    lines = text.split("\n")
+    section = "header"  # everything before the first heading
+    out: list[str] = []
+    for ln in lines:
+        canon, _rest = _section_of(ln)
+        if canon is not None:
+            section = canon
+            out.append(ln)  # a heading line is left exactly as-is
+            continue
+        m = _LEADING_MARKERS_RE.match(ln)
+        if not m:
+            out.append(ln)
+            continue
+        indent, body = m.group(1), m.group(2)
+        if section in ("header", "other", "summary"):
+            out.append(indent + body)           # title/name/contact/summary: not a bullet
+        else:
+            out.append(indent + "- " + body)    # a real bullet: exactly one marker
+    return "\n".join(out)
+
+
 def locate(text: str, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
     """Every place ``query`` appears in ``text`` (case-insensitive), as highlightable
     spans ``{line, char_start, char_end, match, snippet}``. Tries the whole phrase first;

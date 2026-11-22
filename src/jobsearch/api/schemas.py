@@ -1435,7 +1435,7 @@ class DocumentMapRequest(BaseModel):
     """Compartmentalize arbitrary document text (e.g. the live editor buffer) into its
     sections + analyzed bullets/paragraphs."""
 
-    text: str = ""
+    text: str = Field(default="", max_length=60000)  # bounded for cost/abuse (generous)
     kind: str = "resume"  # "resume" | "cover_letter"
 
 

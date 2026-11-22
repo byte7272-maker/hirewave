@@ -2175,6 +2175,23 @@ def document_map(body: DocumentMapRequest, user: CurrentUser, state: StateDep) -
     return build_map(strip_inline_html(body.text or ""), kind=kind)
 
 
+@router.post("/documents/normalize", response_model=DocumentEditResult)
+def document_normalize(body: DocumentMapRequest, user: CurrentUser, state: StateDep) -> DocumentEditResult:
+    """STATELESS structure repair: de-bullet the header/title and summary (prose, never list
+    items) and collapse a line's accumulated bullet markers ("- - - - **IT Leader**", from a
+    render↔markdown round-trip) down to one — or none where a bullet doesn't belong. Returns
+    the cleaned text; ``changed`` is False (original echoed back) when nothing needed fixing.
+    Deterministic and idempotent — safe to call on every load/save to keep the document from
+    drifting into stray bullets."""
+    from jobsearch.engines.assistant.document_map import normalize_document
+
+    kind = "cover_letter" if (body.kind or "").lower().startswith("cover") else "resume"
+    original = body.text or ""
+    text = normalize_document(original, kind=kind)
+    changed = text != original
+    return DocumentEditResult(content=text, changed=changed, applied=1 if changed else 0)
+
+
 @router.post("/documents/locate")
 def document_locate(body: DocumentLocateRequest, user: CurrentUser, state: StateDep) -> dict:
     """Find every place a word/phrase appears in document text, as highlightable spans

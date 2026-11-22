@@ -9507,3 +9507,31 @@ When the race lands the other way, the user's words are captured by the session 
 - A single press starts exactly **one** recognition session (no `error: "aborted"` from a second start in the lifecycle).
 - Releasing stops that same session; no second recognizer is created mid-press.
 - `no-speech`/`aborted` quietly return to "Microphone ready"; only a genuine permission/network error shows a message.
+
+## P313 — ⚠ SINGLE PURPOSE: the title/headline and summary are PROSE, not bullets — stop the marker pile-up
+
+**Do only this. Change nothing else.** Verified live in the editor DOM: the headline under the name renders as a **list item** and has accumulated eight markers — `- - - - - - - - **IT Leader**` — and the **Summary** paragraph is also wrapped in `<li>`/`<ul>`. Each save prepends another `- ` (the first is the list marker; the rest become literal text), so the document keeps drifting from a clean résumé. Bullets belong only in Experience/Projects/Skills — never the header/title or the summary. Fix both the existing damage and the recurrence:
+
+1. **Repair on load via the backend.** When a document loads (and after any AI edit/accept, before saving), call `POST /documents/normalize` with `{text: <full document>, kind: "resume"|"cover_letter"}` and use the returned `content`. It **deterministically** de-bullets the header/title and summary and collapses any accumulated `- - - - ` run to a single marker (or none where a bullet doesn't belong). It's idempotent — safe to call every time.
+2. **Render the headline and summary as plain blocks, not list items.** The line under the name (the title/headline) and the Summary section are a heading/paragraph — **never** `<li>`/`<ul>`. Only Experience/Projects/Skills bullets are list items.
+3. **Idempotent serialize.** When serializing the editor back to markdown, do **not** prepend `- ` to the title or summary, and never emit more than one marker for a real bullet. Saving a clean document twice must not add a single dash.
+
+### Acceptance
+- The headline reads **`IT Leader`** (no leading `- - - -`), as a heading/plain line — not a bullet.
+- The Summary is a paragraph, not a bulleted item.
+- Re-saving the document (even several times) adds **no** new bullet markers anywhere.
+- Existing stray markers are gone after the next load (the normalize call cleans them).
+
+## P314 — ⚠ SINGLE PURPOSE: an editable input at EVERY finding, question, and pending action
+
+**Do only this. Change nothing else about the assistant's abilities.** Wherever the assistant presents something for the user to respond to — a **question**, a **finding**, an **option**, or a **pending/proposed action** — there must be an inline **editable input** right there, so the user can both answer and **modify what's shown before anything is applied**. The figure-refresh proposal already has an "edit before approving" box; extend that pattern to everything (`surface.input_at_every_prompt`, `surface.findings_editable`, `surface.pending_actions_editable`, `surface.edit_before_accept`).
+
+1. **Every prompt carries an input.** Any assistant message that asks the user something, or offers options, renders with a text input (and, where it's a choice, still a field to type a different answer) — not a dead-end yes/no the user can't amend.
+2. **Every finding is editable.** A review finding (summary weakness, dated figure, missing section, etc.) shows its text in an **editable field**; the user can rewrite it and accept the edited version. A finding is never read-only.
+3. **Every pending action is editable before accept.** Before a proposed change is applied (a reworded bullet, a refreshed figure, a tailored line), the user can edit the exact text in place and accept **that** — the app applies the user's edited text (via `/documents/replace-line` with the edited `new_line`), never a version the user couldn't change.
+4. **Never apply without an edit option.** Nothing the assistant proposes is committed without the user having had an editable field to change it first.
+
+### Acceptance
+- Every assistant question/option shows a usable input for the user's own response, not just fixed buttons.
+- Every finding and every proposed/pending action is presented in an editable field the user can modify.
+- Accepting an edited proposal applies the **user's edited text**, not the original suggestion.
