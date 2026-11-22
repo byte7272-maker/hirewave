@@ -9508,7 +9508,7 @@ When the race lands the other way, the user's words are captured by the session 
 - Releasing stops that same session; no second recognizer is created mid-press.
 - `no-speech`/`aborted` quietly return to "Microphone ready"; only a genuine permission/network error shows a message.
 
-## P313 — ⚠ SINGLE PURPOSE: the title/headline and summary are PROSE, not bullets — stop the marker pile-up
+## P314 — ⚠ SINGLE PURPOSE: the title/headline and summary are PROSE, not bullets — stop the marker pile-up
 
 **Do only this. Change nothing else.** Verified live in the editor DOM: the headline under the name renders as a **list item** and has accumulated eight markers — `- - - - - - - - **IT Leader**` — and the **Summary** paragraph is also wrapped in `<li>`/`<ul>`. Each save prepends another `- ` (the first is the list marker; the rest become literal text), so the document keeps drifting from a clean résumé. Bullets belong only in Experience/Projects/Skills — never the header/title or the summary. Fix both the existing damage and the recurrence:
 
@@ -9522,7 +9522,7 @@ When the race lands the other way, the user's words are captured by the session 
 - Re-saving the document (even several times) adds **no** new bullet markers anywhere.
 - Existing stray markers are gone after the next load (the normalize call cleans them).
 
-## P314 — ⚠ SINGLE PURPOSE: an editable input at EVERY finding, question, and pending action
+## P315 — ⚠ SINGLE PURPOSE: an editable input at EVERY finding, question, and pending action
 
 **Do only this. Change nothing else about the assistant's abilities.** Wherever the assistant presents something for the user to respond to — a **question**, a **finding**, an **option**, or a **pending/proposed action** — there must be an inline **editable input** right there, so the user can both answer and **modify what's shown before anything is applied**. The figure-refresh proposal already has an "edit before approving" box; extend that pattern to everything (`surface.input_at_every_prompt`, `surface.findings_editable`, `surface.pending_actions_editable`, `surface.edit_before_accept`).
 
