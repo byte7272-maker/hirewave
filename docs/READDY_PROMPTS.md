@@ -9535,3 +9535,16 @@ When the race lands the other way, the user's words are captured by the session 
 - Every assistant question/option shows a usable input for the user's own response, not just fixed buttons.
 - Every finding and every proposed/pending action is presented in an editable field the user can modify.
 - Accepting an edited proposal applies the **user's edited text**, not the original suggestion.
+
+## P315 — ⚠ SINGLE PURPOSE: drop the "Sections of your résumé" clutter, give the selected line strong chips, and make follow-along real
+
+**Do only this. Change nothing else.** Three fixes to the right pane, from the backend capabilities contract (`GET /assistant/capabilities` → the `documents` section):
+
+1. **Remove the "Sections of your résumé" list.** It's clutter. The section map still exists for the assistant's own navigation (`arrival.map:true`) but is **not** rendered as a user-facing "7 sections — open the list to jump to one" block (`arrival.show_section_list:false`). Delete that block from the pane.
+2. **Give the selected line genuinely useful chips.** Replace the current weak chips ("Read it to me", "Fold in a work highlight", bare "Clear this line") with the backend's `documents.line_actions`, in that priority order: **Make it stronger · Add a number · Make it concise · Refresh the figures · Tailor it to the job · Edit it myself · Read it with me**. Show **Refresh the figures** only when the line has a dated metric (`slots.when === "has_dated_metric"`) and **Tailor it to the job** only when a target job is set (`"job_targeted"`). Each chip's result appears in an **editable field before it's applied** (per P314). "Edit it myself" opens the line in an editable input immediately.
+3. **Make follow-along real — focus, read-along, and point.** Whenever the assistant narrates or works a line/section (`arrival.read_along:true`, `point_at_active_line:true`, `highlight_spoken_words:true`): (a) **scroll** that exact line into view, (b) **highlight** the line in the document, (c) show a **visible pointer/active marker** on it, and (d) when reading aloud, **highlight the words as they're spoken**. The user must always be able to see exactly what's being narrated or worked on — never a narration with nothing moving/highlighted in the document.
+
+### Acceptance
+- No "Sections of your résumé" list appears in the pane; jumping to a section still works via the assistant.
+- Selecting a line shows the strong chip set in priority order; "Refresh the figures" appears only on lines with dated metrics; every chip's result is editable before applying.
+- As the assistant narrates/works, the document scrolls to, highlights, and points at the active line, and reading aloud highlights the spoken words.

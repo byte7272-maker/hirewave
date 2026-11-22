@@ -163,7 +163,13 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
     assert docs["arrival"] == {
         "surface": "editor", "single_render": True,
         "start": "top", "focus_follows_work": True, "keep_focus_in_view": True,
-        "map": True, "announce": "whole_document"}
+        "map": True, "show_section_list": False,
+        "read_along": True, "point_at_active_line": True, "highlight_spoken_words": True,
+        "announce": "whole_document"}
+    # the section map drives the assistant's focus but is NOT rendered as a clutter list
+    assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
+    # follow-along is mandatory: read-along + pointer + spoken-word highlight
+    assert docs["arrival"]["read_along"] and docs["arrival"]["point_at_active_line"]
     data = docs["data"]
     assert data["map_resume"].endswith("/map") and data["locate"].endswith("/locate")
     assert data["refresh_metric"].endswith("/refresh-metric")
@@ -186,6 +192,25 @@ def test_documents_bullet_workbench_makes_real_improvements():
     assert "centered" in controls["Document"] and "edit" in controls["Document"]
     assert "Section map" in controls
     assert any(st["highlight"] == "Bullet workbench" for st in docs["steps"])
+
+
+def test_documents_selected_line_offers_strong_chips_not_clutter():
+    # The chips for the currently selected line are the genuinely useful moves, in priority
+    # order — make it stronger, add a number, make it concise, refresh figures, tailor, edit
+    # it myself, read along — not weak clutter like "fold in a work highlight" as a headline.
+    docs = caps.for_section("documents")
+    labels = [a["label"] for a in docs["line_actions"]]
+    assert labels[:3] == ["Make it stronger", "Add a number", "Make it concise"]
+    assert "Edit it myself" in labels and "Read it with me" in labels
+    assert "Fold in a work highlight" not in labels
+    # the editable chip ties to the edit-before-accept contract
+    edit = next(a for a in docs["line_actions"] if a["label"] == "Edit it myself")
+    assert edit["slots"].get("editable") is True
+    # figure/tailor chips are conditional (only when relevant)
+    refresh = next(a for a in docs["line_actions"] if a["label"] == "Refresh the figures")
+    assert refresh["slots"].get("when") == "has_dated_metric"
+    # exposed through arrival_brief for the client
+    assert caps.arrival_brief("documents")["line_actions"] == docs["line_actions"]
 
 
 def test_documents_refresh_figures_control_and_work_highlights_is_a_separate_page():

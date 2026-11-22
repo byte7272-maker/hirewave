@@ -478,8 +478,39 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "focus_follows_work": True,  # then scroll to + highlight the section being worked on
             "keep_focus_in_view": True,  # if the worked paragraph runs past the card, scroll to reveal the rest
             "map": True,               # read the section outline so the assistant knows the whole doc
+            # The map is for the assistant's OWN navigation/focus — it is NOT rendered as a
+            # user-facing "Sections of your résumé" list. That list is clutter: drop it.
+            "show_section_list": False,
+            # Follow-along is mandatory, not optional: whenever the assistant narrates or works
+            # a line/section it must (a) scroll it into view, (b) highlight that exact line, and
+            # (c) show a visible pointer/active marker on it, and when reading aloud, highlight
+            # the words as they are spoken — so the user can always see what is being worked on.
+            "read_along": True,
+            "point_at_active_line": True,
+            "highlight_spoken_words": True,
             "announce": "whole_document",
         },
+        # The chips shown for the CURRENTLY SELECTED line — the genuinely useful moves, in
+        # priority order. Weak/clutter chips ("fold in a work highlight", bare "clear this
+        # line") are not the headline options. "Refresh the figures" shows only when the line
+        # has dated metrics; "Tailor to the job" only when a target job is set. Every one of
+        # these presents its result in an EDITABLE field before it is applied (see SURFACE).
+        "line_actions": [
+            _action("Make it stronger", "change", ["bullet", "line"], "start_playbook",
+                    {"playbook": "bullets", "mode": "stronger"}, destructive=False),
+            _action("Add a number", "change", ["bullet", "line"], "start_playbook",
+                    {"playbook": "bullets", "mode": "quantify"}, destructive=False),
+            _action("Make it concise", "change", ["bullet", "line"], "start_playbook",
+                    {"playbook": "bullets", "mode": "tighten"}, destructive=False),
+            _action("Refresh the figures", "research", ["bullet", "metrics"], "refresh_metric",
+                    {"when": "has_dated_metric"}),
+            _action("Tailor it to the job", "tailor", ["bullet", "line"], "start_playbook",
+                    {"playbook": "tailor", "when": "job_targeted"}),
+            _action("Edit it myself", "change", ["bullet", "line"], "edit_inline",
+                    {"editable": True}, destructive=False),
+            _action("Read it with me", "walk", ["bullet", "line"], "read_bullets",
+                    {"read_along": True}),
+        ],
         # Where the live structure + analysis come from (the client fetches these).
         "data": {
             "map_resume": "/api/v1/resumes/{id}/map",
@@ -728,6 +759,9 @@ def arrival_brief(section: str) -> Optional[dict[str, Any]]:
         # the work) and where the live structure/analysis lives, so the client never defaults to the
         # bullet pane or "what would you like to do here?".
         "arrival": cap.get("arrival"),
+        # The chip set for the currently selected line (documents): the genuinely useful
+        # moves in priority order; [] where a section has none.
+        "line_actions": cap.get("line_actions", []),
         "data": cap.get("data"),
     }
 
