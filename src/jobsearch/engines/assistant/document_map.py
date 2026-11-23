@@ -305,6 +305,22 @@ _SECTION_INTRO = {
 }
 
 
+#: A standalone ALL-CAPS acronym (2–5 letters, optional plural s) — "IT", "HR", "API",
+#: "APIs". Long all-caps words (section headings like SUMMARY/EXPERIENCE) are 6+ letters and
+#: are left alone; a single capital (sentence-start "It") has only one uppercase and is left
+#: alone; an already-dotted "U.S." has no 2+ consecutive capitals and is left alone.
+_ACRONYM_RE = re.compile(r"\b([A-Z]{2,5})(s?)\b")
+
+
+def speak_acronyms(text: str) -> str:
+    """Make a neural voice say an acronym by its letters, not as a word — "IT" is read as
+    "I T", not "it". Dots each standalone ALL-CAPS acronym ("IT" -> "I.T.", "API" -> "A.P.I.")
+    WITHOUT adding spaces, so the token count is unchanged and a read-along word highlight on
+    the original "IT" stays aligned. Numbers/percents are left verbatim (the voice says those
+    correctly on its own)."""
+    return _ACRONYM_RE.sub(lambda m: ".".join(m.group(1)) + "." + m.group(2), text or "")
+
+
 def intro_for_line(canon: str, kind: str = "resume") -> str:
     """The read-aloud lead-in for a line in section ``canon`` — "This bullet reads:" for an
     Experience/Projects bullet, "Your summary reads:" for the summary, "This paragraph reads:"
@@ -326,12 +342,14 @@ class Block:
     section: str        # canonical section id it belongs to
     analysis: dict = field(default_factory=dict)
     intro: str = ""     # read-aloud lead-in resolved from the section ("This bullet reads:")
+    speak_text: str = ""  # the line normalized for TTS (acronyms as letters); display = text
 
     def as_dict(self) -> dict:
         return {
             "id": self.id, "kind": self.kind, "text": self.text, "raw": self.raw,
             "line": self.line, "char_start": self.char_start, "char_end": self.char_end,
-            "section": self.section, "intro": self.intro, "analysis": self.analysis,
+            "section": self.section, "intro": self.intro, "speak_text": self.speak_text,
+            "analysis": self.analysis,
         }
 
 
@@ -430,6 +448,7 @@ def build_map(text: str, *, kind: str = "resume", year: Optional[int] = None) ->
             id=bid, kind="bullet", text=plain, raw=ln.rstrip(), line=i,
             char_start=cstart, char_end=cstart + len(ln),
             section=cur.id, intro=intro_for_line(cur.canon, "resume"),
+            speak_text=speak_acronyms(plain),
             analysis=analyze_block(plain, year=year, current_role=cr),
         ))
         if cur.canon == "experience":
@@ -462,6 +481,7 @@ def _build_letter_map(text: str, lines: list[str], offs: list[int], *,
                 id=f"p{pno}", kind="paragraph", text=plain, raw=chunk, line=start,
                 char_start=offs[start], char_end=offs[start] + len(chunk),
                 section="body", intro=intro_for_line("body", "cover_letter"),
+                speak_text=speak_acronyms(plain),
                 analysis=analyze_block(plain, year=year),
             ))
     return _finalize(text, "cover_letter", [body])

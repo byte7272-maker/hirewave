@@ -515,6 +515,22 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                 "no_split_inside_number": True,
                 "never_silent": True,
                 "guard_nan_duration": True,
+                # Multi-clip reads (a line, then each option; or a walk across sections) play
+                # as a QUEUE that must not drop a clip. The first read after a page reload
+                # cold-FETCHES each clip; the queue prefetches the next while the current plays
+                # and advances on `ended`, and a slow/cold fetch makes it WAIT, never end the
+                # queue — so it doesn't go silent after the first clip/section.
+                "queue": {
+                    "prefetch_next": True,
+                    "advance_on_ended": True,
+                    "wait_for_cold_fetch": True,
+                    "never_drop_queue": True,
+                },
+                # A neural voice reads an ALL-CAPS acronym as a word ("IT" -> "it"). Speak it by
+                # its letters instead — use the map's per-line `speak_text` (acronyms dotted:
+                # "I.T."), which keeps the token count so the word highlight stays aligned.
+                "acronyms_as_letters": True,
+                "use_speak_text": True,
                 # When a change offers REPLACEMENT OPTIONS/alternatives, read each option
                 # aloud in turn with the same read-along word-highlighting + pointer: announce
                 # the count, number each ("Option 1:"), mark/point at the option being read,

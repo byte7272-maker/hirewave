@@ -170,6 +170,10 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
         "narration": {
             "whole_line_one_call": True, "schedule_from_spoken_text": True,
             "no_split_inside_number": True, "never_silent": True, "guard_nan_duration": True,
+            "queue": {
+                "prefetch_next": True, "advance_on_ended": True,
+                "wait_for_cold_fetch": True, "never_drop_queue": True},
+            "acronyms_as_letters": True, "use_speak_text": True,
             "options": {
                 "narrate_each": True, "highlight_each": True, "point_at_current": True,
                 "announce_count": True, "number_options": True, "pause_between": True,
@@ -196,6 +200,10 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
     assert opts["number_options"] and opts["pick_or_edit_each"]
     # declared as a first-class behavior too
     assert "narrate_options" in caps.manifest()["behaviors"]
+    # the multi-clip queue is robust to a cold fetch (no silence after the first clip), and
+    # acronyms are spoken by their letters
+    assert narr["queue"]["prefetch_next"] and narr["queue"]["never_drop_queue"]
+    assert narr["queue"]["wait_for_cold_fetch"] and narr["acronyms_as_letters"]
     # the section map drives the assistant's focus but is NOT rendered as a clutter list
     assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
     # follow-along is mandatory: read-along + pointer + spoken-word highlight

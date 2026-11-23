@@ -9626,3 +9626,30 @@ When the race lands the other way, the user's words are captured by the session 
 - Reading any Experience/Projects bullet says **"This bullet reads: …"** (not "This line reads: …").
 - Summary still says "Your summary reads: …"; a cover-letter paragraph says "This paragraph reads: …".
 - The lead-in comes from the map's `block.intro`, not from the role name shown in the workbench.
+
+## P321 — ⚠ SINGLE PURPOSE: the read-along queue must not go silent after the first clip (cold-fetch after reload)
+
+**Do only this. Change nothing else.** Diagnosed live: a multi-clip read — a line **then** its options ("Option 1…", "Option 2…"), or a walk across sections — goes **silent after the first clip the FIRST time it runs after a page reload**. On that first run every clip is **cold-fetched** from `/narration/speak`; on a later run the clips are cached and the whole sequence plays. So the queue is dropping the next clip during a cold fetch (a race between `onended` and the not-yet-ready next clip). Make the queue robust (backend contract `arrival.narration.queue`).
+
+1. **Build the full queue up front.** When a read has several utterances (line + each option, or section after section), enqueue them all, then play in order — don't generate the next only after the current ends.
+2. **Prefetch the next clip while the current plays.** Kick off the next clip's `/narration/speak` (and audio load) as soon as the current clip starts, so it's ready by the time the current ends (`prefetch_next`).
+3. **Advance on `ended`; if the next isn't ready, WAIT for it.** On the current clip's `ended`, play the next; if its audio is still cold-fetching, wait for its `canplay`/load and then play it — **never** treat a not-yet-ready next clip as the end of the queue (`advance_on_ended`, `wait_for_cold_fetch`, `never_drop_queue`).
+4. **Only stop at the real end.** The queue ends only after the **last** item's `ended` — not when a fetch is briefly pending. Keep the existing serialization (one clip at a time, no overlap).
+
+### Acceptance
+- Immediately after a page reload, reading a line speaks the line **and** all of its options in turn with no silence after the first clip.
+- Walking across sections reads every section, not just the first, on the first run after reload.
+- No overlapping voices; the queue ends only after the last clip.
+
+## P322 — ⚠ SINGLE PURPOSE: say acronyms by their letters — "IT", not "it"
+
+**Do only this. Change nothing else.** The neural voice reads an ALL-CAPS acronym as a word — "IT" comes out as "it", "HR" as "her", etc. The backend now provides a letter-spoken form (backend contract `arrival.narration.acronyms_as_letters`, and `block.speak_text` on every map line).
+
+1. **Speak `block.speak_text`, highlight `block.text`.** For a line that's in the document map, send its **`speak_text`** (acronyms dotted, e.g. "Direct **I.T.** service…") to `/narration/speak` and build the word-sync schedule from it, while the on-screen highlight stays on the **display** text ("IT"). The dotting adds no spaces, so the token count matches and the highlight stays aligned.
+2. **For a line not in the map** (or any narration text you build yourself), apply the same rule: a standalone run of **2–5 uppercase letters** (optional trailing "s") is spoken letter-by-letter — insert a period after each letter ("IT" → "I.T.", "APIs" → "A.P.I.s"). Leave 6+-letter all-caps headings, a single leading capital ("It"), numbers, and already-dotted "U.S." alone.
+3. **Nothing else changes.** Same one-clip, verbatim-number, never-silent narration (P317); only acronyms are dotted for the voice.
+
+### Acceptance
+- Reading "Direct IT service delivery…" the voice says **"I​-T"**, not "it"; "HR", "CEO", "API" are spoken as letters.
+- Sentence-start "It", section headings (SUMMARY), and numbers (23.5%) are read normally.
+- The word highlight still lands on the displayed "IT" in sync with the voice.

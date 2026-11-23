@@ -164,6 +164,20 @@ def test_map_blocks_carry_the_read_along_intro_by_section():
         assert intro_for_line(canon) == contract[canon]
 
 
+def test_speak_acronyms_and_block_speak_text():
+    from jobsearch.engines.assistant.document_map import speak_acronyms
+    # an ALL-CAPS acronym is dotted so the voice says letters; token count unchanged
+    assert speak_acronyms("Direct IT service across 200+ units.") == \
+        "Direct I.T. service across 200+ units."
+    assert speak_acronyms("23.5% growth") == "23.5% growth"       # numbers untouched
+    assert speak_acronyms("It was the CEO here") == "It was the C.E.O. here"  # pronoun kept, acronym dotted
+    assert speak_acronyms("EXPERIENCE") == "EXPERIENCE"           # long heading untouched
+    # each map line carries its TTS-normalized speak_text
+    m = build_map(_RESUME, kind="resume", year=2027)
+    for b in m["blocks"]:
+        assert b["speak_text"] == speak_acronyms(b["text"])
+
+
 # --- normalize_document (structure repair) ----------------------------------
 def test_normalize_debullets_header_and_summary_and_collapses_markers():
     doc = (
