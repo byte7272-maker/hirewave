@@ -316,6 +316,12 @@ def test_surface_contract_puts_everything_in_the_right_pane():
             "box_next_to_badge", "different_surface_per_page"} <= set(s["never"])
     for b in ("dock_right_pane", "results_in_right_pane", "badge_only_floats"):
         assert b in m["behaviors"]
+    # Voice input shows a LIVE audio meter driven by the mic analyser, and the status tracks
+    # the live track (never "mic off" while a track is live) — not a static/unconsumed meter.
+    mic = s["mic"]
+    assert mic["audio_meter"] and mic["meter_from_analyser"] and mic["meter_live_while_listening"]
+    assert mic["status_reflects_live_track"] is True
+    assert {"static_meter", "unconsumed_analyser", "off_while_track_live"} <= set(mic["never"])
 
 
 def test_summary_review_flow_understands_lists_weaknesses_and_keeps_fresh():

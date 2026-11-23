@@ -172,6 +172,20 @@ SURFACE: dict[str, Any] = {
     "findings_editable": True,
     "pending_actions_editable": True,
     "edit_before_accept": True,
+    # Voice input shows a LIVE audio-stream meter while listening, driven by the real mic
+    # analyser (the app already builds a MediaStreamSource -> AnalyserNode on each hold) —
+    # a requestAnimationFrame loop reads the analyser and animates the level, so the user
+    # SEES the mic is hearing them. The meter is never a static/placeholder row of bars, and
+    # the mic status reflects the LIVE track (listening while a track is live) — it never
+    # reports "mic off" while a live getUserMedia track and granted permission exist.
+    "mic": {
+        "audio_meter": True,
+        "meter_from_analyser": True,
+        "meter_live_while_listening": True,
+        "status_reflects_live_track": True,
+        "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
+                  "gate_on_self_test"],
+    },
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",
               "confined_inline_box", "box_next_to_badge", "different_surface_per_page",

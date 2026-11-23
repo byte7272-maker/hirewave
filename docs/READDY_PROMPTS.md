@@ -9653,3 +9653,17 @@ When the race lands the other way, the user's words are captured by the session 
 - Reading "Direct IT service delivery…" the voice says **"I​-T"**, not "it"; "HR", "CEO", "API" are spoken as letters.
 - Sentence-start "It", section headings (SUMMARY), and numbers (23.5%) are read normally.
 - The word highlight still lands on the displayed "IT" in sync with the voice.
+
+## P323 — ⚠ SINGLE PURPOSE: show the LIVE audio-stream meter (and keep mic status honest)
+
+**Do only this. Change nothing else.** Diagnosed live: the mic actually works — on hold the app opens `getUserMedia` (live track), builds `createMediaStreamSource → createAnalyser`, and `SpeechRecognition` starts and **transcribes** (it turned ambient audio into a command). But there is **no visible audio-stream meter** — the analyser is created and fed live data (AudioContext `running`, samples flowing) yet **nothing renders a meter from it**, so the user gets no feedback that the mic is hearing them and concludes "it can't hear." Also the status flips to "Microphone off" even while a live track exists. Fix the meter and the status (backend contract `surface.mic`).
+
+1. **Render a LIVE meter from the analyser you already create.** You build `MediaStreamSource → AnalyserNode` on each hold — drive a visible meter from it: a `requestAnimationFrame` loop that reads `analyser.getByteFrequencyData` (or `getByteTimeDomainData`), computes a level, and animates the bars/needle while listening (`mic.audio_meter`, `mic.meter_from_analyser`, `mic.meter_live_while_listening`). The bars must **react to the user's voice** — never a static/placeholder row.
+2. **Resume the AudioContext on the gesture.** On the press that starts listening, call `audioContext.resume()` so the analyser gets samples (a suspended context = a dead meter).
+3. **Keep the mic status honest.** While a `getUserMedia` track is **live** and permission is **granted**, show "listening" with the meter — do **not** show "Microphone off" (`mic.status_reflects_live_track`; reserve "off" for a real permission/track loss, per P312). Don't gate the mic or meter on a cached self-test result (which can be null/absent).
+4. **Tear down cleanly.** On release/stop, stop the RAF loop and the track, and reset the meter to idle — without reporting the mic as "off/broken."
+
+### Acceptance
+- Holding the mic shows a meter whose level **moves with your voice** (louder = taller bars), the whole time you hold.
+- While a live mic track exists, the status says "listening," not "Microphone off."
+- Releasing resets the meter to idle; the mic stays "ready" for the next hold.
