@@ -25,6 +25,12 @@ from jobsearch.models import JobPosting, UserProfile
 #: being hidden outright. Tunable; 1.0 disables the penalty.
 _MISSING_COMPANY_FACTOR = 0.6
 
+#: Semantic score used when the embedding provider is unavailable (slow / down / over
+#: quota). A flat neutral value drops semantic OUT of differentiation so ranking falls back
+#: to the deterministic signals (skills, location, salary, seniority, recency) instead of
+#: the whole endpoint failing. 0.5 is the midpoint of the [0,1] semantic range.
+_NEUTRAL_SEMANTIC = 0.5
+
 
 class MatchingEngine:
     def __init__(
@@ -45,20 +51,25 @@ class MatchingEngine:
         *,
         profile_vec: Optional[list[float]] = None,
         job_vec: Optional[list[float]] = None,
+        semantic_override: Optional[float] = None,
     ) -> MatchResult:
         """Score a single job for the profile, returning a full breakdown.
 
         ``profile_vec`` / ``job_vec`` let callers pass pre-computed embeddings so
         ranking a batch doesn't re-embed the profile or issue one API call per
-        job (see :meth:`rank`).
+        job (see :meth:`rank`). ``semantic_override`` supplies the semantic score
+        directly (used when embeddings are unavailable) so no embedding call is made.
         """
-        pv = profile_vec if profile_vec is not None else self.embedder.embed_one(
-            profile.to_context_text()
-        )
-        jv = job_vec if job_vec is not None else self.embedder.embed_one(
-            job.to_matching_text()
-        )
-        semantic = (cosine_similarity(pv, jv) + 1.0) / 2.0  # map [-1,1] -> [0,1]
+        if semantic_override is not None:
+            semantic = semantic_override  # degraded mode: no embedding call at all
+        else:
+            pv = profile_vec if profile_vec is not None else self.embedder.embed_one(
+                profile.to_context_text()
+            )
+            jv = job_vec if job_vec is not None else self.embedder.embed_one(
+                job.to_matching_text()
+            )
+            semantic = (cosine_similarity(pv, jv) + 1.0) / 2.0  # map [-1,1] -> [0,1]
 
         skills, matching, gaps = skills_fit(profile, job)
         breakdown = MatchBreakdown(
@@ -103,12 +114,23 @@ class MatchingEngine:
         """
         if not jobs:
             return []
-        # One batched embedding call: profile first, then every job.
+        # One batched embedding call: profile first, then every job. If the embedding
+        # provider is slow/down/over-quota, DEGRADE instead of failing the whole request:
+        # rank on the deterministic signals with a flat neutral semantic. Never raise, and
+        # never fall through to per-job embed_one calls (which would hit the same dead API).
         texts = [profile.to_context_text()] + [j.to_matching_text() for j in jobs]
-        vectors = self.embedder.embed(texts)
-        profile_vec, job_vecs = vectors[0], vectors[1:]
+        profile_vec: Optional[list[float]] = None
+        job_vecs: Sequence[Optional[list[float]]] = [None] * len(jobs)
+        try:
+            vectors = self.embedder.embed(texts)
+            if vectors and len(vectors) == len(texts):
+                profile_vec, job_vecs = vectors[0], vectors[1:]
+        except Exception:  # noqa: BLE001 - embeddings are best-effort; degrade, don't 503
+            profile_vec = None
+        degraded = profile_vec is None
         results = [
-            self.score(profile, job, profile_vec=profile_vec, job_vec=jv)
+            self.score(profile, job, profile_vec=profile_vec, job_vec=jv,
+                       semantic_override=_NEUTRAL_SEMANTIC if degraded else None)
             for job, jv in zip(jobs, job_vecs)
         ]
         results.sort(key=lambda r: r.score, reverse=True)

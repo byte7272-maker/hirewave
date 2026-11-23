@@ -33,6 +33,11 @@ from jobsearch.models import JobPosting, SavedJob, UserProfile, VerificationResu
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
+#: Max jobs re-classified (and written back) on a single matches read. Bounds a read's
+#: synchronous classify+DB-write work so a large stale pool can't blow the request timeout;
+#: the pool fully heals over a few loads.
+_RECLASSIFY_PER_REQUEST = 40
+
 
 def _match_pool(state: StateDep, user_id: str) -> list[JobPosting]:
     """A user's own private pool of postings — only the jobs they ingested/pulled/
@@ -158,14 +163,21 @@ def matches(
         selected = set(profile.preferences.job_categories)
     # Fresh accounts see only their sample matches; others see the real pool.
     visible = [j for j in _match_pool(state, user.id) if _visible(state, j)]
-    # Lazily (re)classify jobs whose category predates the current classifier, so
-    # the category focus works on the whole pool (self-heals on read, once).
-    for j in visible:
-        if not j.category or getattr(j, "category_version", 0) < CATEGORY_VERSION:
-            j.category = detect_category(f"{j.title} {j.title} {j.description}")
-            j.category_version = CATEGORY_VERSION
-            state.jobs.add(j)
+    # Lazily (re)classify jobs whose category predates the current classifier — but ONLY
+    # when a category focus is active (otherwise the category is irrelevant to the result),
+    # and BOUNDED per request so a large pool can't turn a read into unbounded classify+DB
+    # writes that blow the request timeout (the pool heals over a few loads). When no focus
+    # is set, skip this entirely and rank the whole visible pool.
     if selected:
+        reclassified = 0
+        for j in visible:
+            if reclassified >= _RECLASSIFY_PER_REQUEST:
+                break
+            if not j.category or getattr(j, "category_version", 0) < CATEGORY_VERSION:
+                j.category = detect_category(f"{j.title} {j.title} {j.description}")
+                j.category_version = CATEGORY_VERSION
+                state.jobs.add(j)
+                reclassified += 1
         visible = [j for j in visible if (j.category or "Other") in selected]
     # Free plan: show at most the daily matches cap.
     cap = plan_limits.matches_cap(state, user)

@@ -83,3 +83,27 @@ def test_rank_with_cache_avoids_recompute_on_rerank(profile, matching_job, unrel
     engine.rank(profile, [matching_job, unrelated_job])  # same texts
     # Second rank hits the cache entirely — inner embedder still saw only 3 texts.
     assert embedder.embedded == 3
+
+
+# --- resilience: embeddings down -------------------------------------------
+class _BoomEmbedder(EmbeddingProvider):
+    """Simulates the embedding API being slow/down/over-quota."""
+
+    name = "boom"
+
+    def embed(self, texts):
+        raise RuntimeError("embedding provider unavailable")
+
+    def embed_one(self, text):  # must NOT be reached in degraded mode
+        raise AssertionError("embed_one must not be called when embeddings are down")
+
+
+def test_rank_degrades_gracefully_when_embeddings_fail(profile, matching_job, unrelated_job):
+    # When the embedding provider raises, rank() must NOT propagate — it returns results
+    # ranked on the deterministic signals with a flat neutral semantic (so matches can't 503).
+    engine = MatchingEngine(embedder=_BoomEmbedder())
+    results = engine.rank(profile, [matching_job, unrelated_job])
+    assert len(results) == 2                                   # still returns every job
+    assert all(r.breakdown.semantic == 0.5 for r in results)   # neutral semantic, no embed call
+    assert all(r.score >= 0 for r in results)
+    # and it never fell through to a per-job embed_one (that would hit the same dead API)

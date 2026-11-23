@@ -87,3 +87,27 @@ def test_matches_unknown_resume_404():
     client = _client()
     h = _auth(client)
     assert client.get("/api/v1/jobs/matches?resume_id=nope", headers=h).status_code == 404
+
+
+def test_matches_resilient_when_embeddings_are_down():
+    # If the embedding provider is slow/down/over-quota, /jobs/matches must still return the
+    # ranked pool (deterministic signals, neutral semantic) — never fail the whole request
+    # (which surfaced as a 503 and read to the user as "no matches").
+    state = AppState(exchanger=MockTokenExchanger())
+    client = TestClient(create_app(state=state))
+    h = _auth(client)
+    client.post("/api/v1/job-search/run", headers=h,
+                json={"role": "data engineer", "location": "NYC", "remote": True})
+
+    class _BoomEmbedder:
+        def embed(self, texts):
+            raise RuntimeError("embedding provider unavailable")
+        def embed_one(self, text):
+            raise AssertionError("must not embed per-job when the provider is down")
+
+    state.matching.embedder = _BoomEmbedder()
+    r = client.get("/api/v1/jobs/matches", headers=h)
+    assert r.status_code == 200                      # degrades, not 500/503
+    data = r.json()
+    assert isinstance(data, list) and len(data) >= 1  # still returns matches
+    assert all(m["breakdown"]["semantic"] == 50 for m in data)  # neutral semantic (0.5*100)
