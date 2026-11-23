@@ -291,6 +291,29 @@ def analyze_block(text: str, *, year: Optional[int] = None,
 
 
 # --- the document outline ----------------------------------------------------
+#: The read-along lead-in for a line, resolved from its section so the client never has to
+#: guess from a role name (an Experience bullet under "IT Regional Manager — …" is still a
+#: "bullet"). Kept in sync with capabilities.SURFACE.documents.arrival.narration.intro_by_line_type.
+_SECTION_INTRO = {
+    "summary": "Your summary reads:",
+    "experience": "This bullet reads:",
+    "projects": "This bullet reads:",
+    "skills": "This line reads:",
+    "education": "This line reads:",
+    "certifications": "This line reads:",
+    "other": "Your headline reads:",   # the header block (name/title line)
+}
+
+
+def intro_for_line(canon: str, kind: str = "resume") -> str:
+    """The read-aloud lead-in for a line in section ``canon`` — "This bullet reads:" for an
+    Experience/Projects bullet, "Your summary reads:" for the summary, "This paragraph reads:"
+    for a cover-letter paragraph, else "This line reads:"."""
+    if (kind or "").lower().startswith("cover"):
+        return "This paragraph reads:"
+    return _SECTION_INTRO.get(canon, "This line reads:")
+
+
 @dataclass
 class Block:
     id: str
@@ -302,12 +325,13 @@ class Block:
     char_end: int
     section: str        # canonical section id it belongs to
     analysis: dict = field(default_factory=dict)
+    intro: str = ""     # read-aloud lead-in resolved from the section ("This bullet reads:")
 
     def as_dict(self) -> dict:
         return {
             "id": self.id, "kind": self.kind, "text": self.text, "raw": self.raw,
             "line": self.line, "char_start": self.char_start, "char_end": self.char_end,
-            "section": self.section, "analysis": self.analysis,
+            "section": self.section, "intro": self.intro, "analysis": self.analysis,
         }
 
 
@@ -405,7 +429,8 @@ def build_map(text: str, *, kind: str = "resume", year: Optional[int] = None) ->
         cur.blocks.append(Block(
             id=bid, kind="bullet", text=plain, raw=ln.rstrip(), line=i,
             char_start=cstart, char_end=cstart + len(ln),
-            section=cur.id, analysis=analyze_block(plain, year=year, current_role=cr),
+            section=cur.id, intro=intro_for_line(cur.canon, "resume"),
+            analysis=analyze_block(plain, year=year, current_role=cr),
         ))
         if cur.canon == "experience":
             seen_bullet_in_role = True
@@ -436,7 +461,8 @@ def _build_letter_map(text: str, lines: list[str], offs: list[int], *,
             body.blocks.append(Block(
                 id=f"p{pno}", kind="paragraph", text=plain, raw=chunk, line=start,
                 char_start=offs[start], char_end=offs[start] + len(chunk),
-                section="body", analysis=analyze_block(plain, year=year),
+                section="body", intro=intro_for_line("body", "cover_letter"),
+                analysis=analyze_block(plain, year=year),
             ))
     return _finalize(text, "cover_letter", [body])
 

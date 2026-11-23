@@ -9613,3 +9613,16 @@ When the race lands the other way, the user's words are captured by the session 
 - Offering replacement options speaks "Option 1: …", "Option 2: …" in turn, each highlighted and pointed at as it's read — never a silent list.
 - Only one option is spoken at a time; a pause lets the user pick or edit before the next.
 - Picking or editing an option applies the user's choice; nothing is applied without an editable field.
+
+## P320 — ⚠ SINGLE PURPOSE: tighten the read-along lead-in — use the line's own intro from the map (an Experience bullet is a "bullet")
+
+**Do only this. Change nothing else.** P318 made the lead-in type-aware, but an **Experience bullet** (shown as "In IT Regional Manager — Publicis Groupe") falls through to the generic **"This line reads:"** instead of **"This bullet reads:"** — the client is classifying from the role name, not the section. The backend now resolves it for you: every line in the document map carries an **`intro`** field.
+
+1. **Use `block.intro` from the map.** When reading a line aloud, find that line's block in the document map (`GET /resumes/{id}/map` or `POST /documents/map`) and use its **`intro`** as the lead-in verbatim. The backend resolves it from the section: Experience/Projects bullet → **"This bullet reads:"**, Summary → **"Your summary reads:"**, Skills/Education → "This line reads:", cover-letter paragraph → **"This paragraph reads:"**, header/title → "Your headline reads:".
+2. **Don't classify from the role name.** Stop inferring the line type from the displayed role/section label; the role "IT Regional Manager — Publicis Groupe" is still an **Experience bullet**. `block.intro` already accounts for this.
+3. **Fallback only if a block has no intro.** If a read line isn't in the map (rare), keep the P318 `intro_by_line_type` lookup by the line's section canon, defaulting to "This line reads:".
+
+### Acceptance
+- Reading any Experience/Projects bullet says **"This bullet reads: …"** (not "This line reads: …").
+- Summary still says "Your summary reads: …"; a cover-letter paragraph says "This paragraph reads: …".
+- The lead-in comes from the map's `block.intro`, not from the role name shown in the workbench.

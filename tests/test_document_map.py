@@ -146,6 +146,24 @@ def test_cover_letter_map_paragraphs():
     assert ids == [f"p{i+1}" for i in range(len(ids))]
 
 
+# --- per-line read-aloud intro ----------------------------------------------
+def test_map_blocks_carry_the_read_along_intro_by_section():
+    # Each line carries its read-aloud lead-in resolved from its section, so the client
+    # never mislabels an Experience bullet (under a role name) as a generic "line".
+    m = build_map(_RESUME, kind="resume", year=2027)
+    exp = next(b for b in m["blocks"] if b["section"] == "experience")
+    assert exp["intro"] == "This bullet reads:"
+    # cover-letter paragraphs read as paragraphs
+    cl = build_map("Dear Team,\n\nI grew pipeline 30%.\n\nSincerely,\nJohn", kind="cover_letter")
+    assert cl["blocks"][1]["intro"] == "This paragraph reads:"
+    # the map's resolution matches the declarative capabilities contract
+    from jobsearch.engines.assistant.capabilities import for_section
+    from jobsearch.engines.assistant.document_map import intro_for_line
+    contract = for_section("documents")["arrival"]["narration"]["intro_by_line_type"]
+    for canon in ("summary", "experience", "projects", "skills", "education"):
+        assert intro_for_line(canon) == contract[canon]
+
+
 # --- normalize_document (structure repair) ----------------------------------
 def test_normalize_debullets_header_and_summary_and_collapses_markers():
     doc = (
