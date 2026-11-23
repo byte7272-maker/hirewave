@@ -9695,3 +9695,17 @@ When the race lands the other way, the user's words are captured by the session 
 - With background noise playing and nobody holding the mic, the assistant stays quiet — no "couldn't make sense of it" prompts fire on their own.
 - A transcript is only acted on when the user actually held the mic and spoke; releasing stops capture immediately.
 - Empty/garbled recognitions are dropped silently, not turned into commands or web-search offers.
+
+## P326 — ⚠ SINGLE PURPOSE: "read my bullets" from anywhere opens the résumé and reads it — never route to Auto-apply
+
+**Do only this. Change nothing else.** Confirmed live: asking the assistant to **"read my bullets"** navigated to `/dashboard/autoapply` instead of reading the résumé. The backend already classifies this correctly — `POST /assistant/interpret` returns intent **`read_bullets`** (confidence 0.9) for "read my bullets", "read my bullet points", "read my resume bullets", "read the lines", etc. The bug is in the **frontend dispatch**: `read_bullets` only has a handler **inside** the Documents bullet-workbench (P275 §3), so when it fires from any other page (Matches, Home, Auto-apply) it falls through to a default route and lands on Auto-apply. Wire `read_bullets` to work from anywhere.
+
+1. **`read_bullets` is self-contained — it brings its own context.** On intent `read_bullets`, regardless of the current page: (a) if not already on Documents, **navigate to Documents** and load the user's résumé (the same target "show my résumé" uses); (b) fetch the map (`GET /api/v1/resumes/{id}/map`); (c) enter the read-along of the résumé's bullets. It must **never** navigate to `/dashboard/autoapply` or any auto-apply surface for this intent.
+2. **No document context is not an error.** If no résumé is focused yet, `read_bullets` **opens** one (default/most-recent résumé) rather than giving up or routing elsewhere. If the user truly has no résumé, say so plainly and offer to create/upload one — do not silently navigate away.
+3. **Honor the real read-along.** Once the résumé is open, use the existing read-along path (P315/P316/P318/P320/P321): focus + point at the active line, highlight spoken words synced to the audio clock, one verbatim clip per line, acronyms as letters — reading the bullets in order.
+4. **Auto-apply stays reachable only by its own intents.** Only an explicit navigate intent for Auto-apply ("go to auto apply", "open auto-apply") routes there. No document/read intent should ever land on it.
+
+### Acceptance
+- From Matches (or Home, or anywhere), "read my bullets" / "read my bullet points" / "read my resume bullets" opens the résumé and starts reading the bullets — the URL does **not** become `/dashboard/autoapply`.
+- Already on the résumé, the same command reads the bullets in place without navigating away.
+- "Go to auto apply" still goes to Auto-apply; "read my bullets" never does.
