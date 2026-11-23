@@ -968,7 +968,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         return IntentResult("change_voice", 0.85, slots)
 
     # bullet actions
-    if has("read them", "read these", "read the bullets", "read my bullets", "read the suggestions"):
+    # "read ..." that references bullets/lines in any natural phrasing — "read my bullets",
+    # "read my bullet points", "read my résumé bullets", "read out my bullets", "read the
+    # lines", "read them/these", "read the suggestions". Narrow exact-phrase matching sent
+    # variations ("read my bullet points") to the low-confidence fallback, where they could
+    # be mis-routed (e.g. navigate elsewhere) instead of reading the bullets.
+    if (has("read them", "read these", "read the suggestions")
+            or re.search(r"\bread\b(?:\s+\w+){0,4}?\s+(?:bullets?|bullet\s*points?|lines?)\b", t)):
         return IntentResult("read_bullets", 0.9)
     if has("which should", "which one should", "which bullet", "recommend a bullet", "suggest a bullet",
            "which do you") or re.fullmatch(r"(suggest|recommend|which one)", t):

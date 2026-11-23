@@ -59,6 +59,26 @@ def test_new_capability_intents(utterance, intent):
     assert interpret(utterance).intent == intent
 
 
+@pytest.mark.parametrize("utterance", [
+    "read my bullets", "read the bullets", "read my bullet points", "read my resume bullets",
+    "read out my bullets", "read my bullets aloud", "read the lines", "read my lines",
+    "read them", "read these",
+])
+def test_read_bullets_natural_phrasings_all_map_to_read_bullets(utterance):
+    # Variations used to fall through to a low-confidence fallback and get mis-routed
+    # (e.g. navigating to Auto-apply); every natural "read my bullets" phrasing now resolves.
+    r = interpret(utterance, context={"page": "documents"})
+    assert r.intent == "read_bullets" and r.confidence >= 0.9
+
+
+@pytest.mark.parametrize("utterance", [
+    "read my resume", "read my summary", "read my cover letter", "go to auto apply",
+])
+def test_read_bullets_does_not_over_match(utterance):
+    # The broadened matcher must not swallow non-bullet "read"/navigation commands.
+    assert interpret(utterance, context={"page": "documents"}).intent != "read_bullets"
+
+
 def test_resume_the_document_still_navigates_not_resume_task():
     # "my resume" is the document; only verb phrases map to resume_task.
     assert interpret("take me to my resume").intent == "navigate"
