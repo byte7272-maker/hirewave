@@ -188,8 +188,19 @@ SURFACE: dict[str, Any] = {
         "meter_from_analyser": True,
         "meter_live_while_listening": True,
         "status_reflects_live_track": True,
+        # Press-to-talk ONLY: recognition runs while the mic is HELD and stops on release —
+        # it never keeps listening between holds and scooping up background sound/music. A
+        # transcript is submitted as a command ONLY if it was captured during a deliberate
+        # hold; results that arrive when nothing is held (ambient) are discarded, as are
+        # empty/very-low-confidence results — they are NOT turned into a command or a
+        # "couldn't make sense of it … search the web?" offer.
+        "press_to_talk_only": True,
+        "stop_on_release": True,
+        "discard_unheld_results": True,
+        "discard_low_confidence": True,
         "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
-                  "gate_on_self_test"],
+                  "gate_on_self_test", "continuous_ambient_capture",
+                  "submit_unheld_transcript", "command_from_noise"],
     },
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",

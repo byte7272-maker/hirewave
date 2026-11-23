@@ -9681,3 +9681,17 @@ When the race lands the other way, the user's words are captured by the session 
 - Answering "yes" (typed or by voice) to "search the web for …?" **runs the search and shows results** — no second "Yes, search" prompt.
 - Tapping the offer's primary button does the same in one step.
 - "No"/"Not now" still dismisses without searching.
+
+## P325 — ⚠ SINGLE PURPOSE: press-to-talk only — stop background noise becoming "couldn't make sense of it" commands
+
+**Do only this. Change nothing else.** Confirmed live: the assistant keeps "couldn't make sense of it — want me to search the web?" erroring because the **mic is capturing ambient audio** (background sound/music) and submitting it as a command — e.g. it tried to handle "You want to be next, you want to be next, you!", which no one typed or deliberately said. The recognizer is running **continuously** and scooping up noise between holds. Make it strictly press-to-talk (backend contract `surface.mic`).
+
+1. **Recognition runs ONLY while the mic is held.** Start recognition on press, `recognition.stop()` on release. Do **not** keep it listening between holds, and do **not** use a continuous session that stays open and transcribes ambient sound (`press_to_talk_only`, `stop_on_release`; the recognizer is `continuous:false` for press-to-talk).
+2. **Only submit a transcript from a deliberate hold.** A result is sent to `/assistant/interpret` **only** if it was produced while the user was actively holding the mic. Any result that arrives when nothing is held is **discarded** — never submitted (`discard_unheld_results`).
+3. **Discard empty / very-low-confidence results.** If the final transcript is empty, or its recognition confidence is very low (garbled noise), **drop it silently** — do **not** turn it into a command and do **not** show "couldn't make sense of it … search the web?" for it (`discard_low_confidence`; `never: command_from_noise`).
+4. **"Couldn't make sense / search the web?" is for a REAL request only.** Keep that offer for a genuine typed/spoken request the app can't do — never for ambient noise the recognizer happened to transcribe.
+
+### Acceptance
+- With background noise playing and nobody holding the mic, the assistant stays quiet — no "couldn't make sense of it" prompts fire on their own.
+- A transcript is only acted on when the user actually held the mic and spoke; releasing stops capture immediately.
+- Empty/garbled recognitions are dropped silently, not turned into commands or web-search offers.
