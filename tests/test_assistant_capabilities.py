@@ -322,6 +322,9 @@ def test_surface_contract_puts_everything_in_the_right_pane():
     assert mic["audio_meter"] and mic["meter_from_analyser"] and mic["meter_live_while_listening"]
     assert mic["status_reflects_live_track"] is True
     assert {"static_meter", "unconsumed_analyser", "off_while_track_live"} <= set(mic["never"])
+    # affirming a yes/no offer runs the action directly — no second "Yes, search" consent
+    assert s["offer_yes_executes"] is True
+    assert {"double_confirm_offer", "second_consent_after_yes"} <= set(s["never"])
 
 
 def test_summary_review_flow_understands_lists_weaknesses_and_keeps_fresh():

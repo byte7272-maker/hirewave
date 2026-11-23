@@ -172,6 +172,11 @@ SURFACE: dict[str, Any] = {
     "findings_editable": True,
     "pending_actions_editable": True,
     "edit_before_accept": True,
+    # A pending yes/no OFFER already states the action and asks permission ("nothing is read
+    # until you say yes"), so affirming it ("yes") EXECUTES the offered action directly — it
+    # does NOT pop a second per-action consent ("Yes, search") that makes the user answer
+    # twice. One yes runs it (for a non-destructive action like a web search). "No" declines.
+    "offer_yes_executes": True,
     # Voice input shows a LIVE audio-stream meter while listening, driven by the real mic
     # analyser (the app already builds a MediaStreamSource -> AnalyserNode on each hold) —
     # a requestAnimationFrame loop reads the analyser and animates the level, so the user
@@ -190,7 +195,7 @@ SURFACE: dict[str, Any] = {
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",
               "confined_inline_box", "box_next_to_badge", "different_surface_per_page",
               "readonly_finding", "uneditable_pending_action", "prompt_without_input",
-              "apply_without_edit_option"],
+              "apply_without_edit_option", "double_confirm_offer", "second_consent_after_yes"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

@@ -9667,3 +9667,17 @@ When the race lands the other way, the user's words are captured by the session 
 - Holding the mic shows a meter whose level **moves with your voice** (louder = taller bars), the whole time you hold.
 - While a live mic track exists, the status says "listening," not "Microphone off."
 - Releasing resets the meter to idle; the mic stays "ready" for the next hold.
+
+## P324 — ⚠ SINGLE PURPOSE: a "yes" to an offer RUNS it — stop the double-confirmation
+
+**Do only this. Change nothing else.** Diagnosed live: when the assistant offers a yes/no ("want me to search the web for '…'? — nothing is read until you say yes"), answering **"yes" (typed or spoken) does NOT run it** — it pops a **second** prompt ("Search the web? → Yes, search / Not now"), and only a **second** "yes" actually searches. So the user answers yes, sees another yes button, and thinks nothing happened. The backend already resolves it correctly on the first yes (`/assistant/interpret` → `intent: "web_search"`, reply "Searching the web…"); the UI then re-asks instead of executing. One "yes" must run it (backend contract `surface.offer_yes_executes`).
+
+1. **Affirming the offer executes the offered action.** When a pending yes/no **offer** is affirmed — "yes", "yeah", "do it", "search", tapping the offer's primary button, or interpret returning the offered intent (e.g. `web_search`) — **run that action immediately** (call `/assistant/research/search` for a web-search offer) and show its result. Do **not** render a second consent step ("Yes, search").
+2. **The offer IS the consent.** The offer already states what it will do and that nothing happens until the user says yes, so a single yes is sufficient permission for a non-destructive action (a web search). Record consent in the same step if you must, but **don't make the user answer twice** (`never: double_confirm_offer`, `second_consent_after_yes`).
+3. **"No"/"Not now" dismisses.** A decline closes the offer without running it, as today.
+4. This is scoped to **offer resolution** — genuinely destructive/irreversible actions keep their single confirmation; this just removes the **redundant second** yes after an offer the user already affirmed.
+
+### Acceptance
+- Answering "yes" (typed or by voice) to "search the web for …?" **runs the search and shows results** — no second "Yes, search" prompt.
+- Tapping the offer's primary button does the same in one step.
+- "No"/"Not now" still dismisses without searching.
