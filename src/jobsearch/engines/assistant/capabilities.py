@@ -510,6 +510,22 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                 "no_split_inside_number": True,
                 "never_silent": True,
                 "guard_nan_duration": True,
+                # The read-along lead-in matches the line TYPE — the Summary is not "a
+                # bullet". Pick the intro from the selected line's section/kind; the intro
+                # itself is NOT highlighted (only the line's own words are).
+                "intro_by_line_type": {
+                    "summary": "Your summary reads:",
+                    "headline": "Your headline reads:",
+                    "header": "Your headline reads:",
+                    "experience": "This bullet reads:",
+                    "skills": "This line reads:",
+                    "education": "This line reads:",
+                    "projects": "This bullet reads:",
+                    "bullet": "This bullet reads:",
+                    "paragraph": "This paragraph reads:",
+                    "cover_letter": "This paragraph reads:",
+                    "default": "This line reads:",
+                },
             },
             "announce": "whole_document",
         },

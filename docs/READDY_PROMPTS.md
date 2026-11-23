@@ -9577,3 +9577,24 @@ When the race lands the other way, the user's words are captured by the session 
 - Reading the summary speaks it **through the 23.5%** to the end, in one continuous clip — no stop, no silence at the number.
 - The word highlight stays locked to the voice across the number (display "23.5%" highlighted while the voice says it).
 - A transient TTS failure retries/continues or falls back to the browser voice — the read never just stops.
+
+## P318 — ⚠ SINGLE PURPOSE: the read-along lead-in matches the line TYPE (the summary is not "a bullet")
+
+**Do only this. Change nothing else.** When reading a line aloud, the intro is hard-coded to **"This bullet reads:"** — but the **Summary** isn't a bullet, and neither is the headline. Pick the lead-in from the selected line's section/type, from the backend contract `documents.arrival.narration.intro_by_line_type`:
+
+| Selected line | Lead-in |
+|---|---|
+| Summary | **Your summary reads:** |
+| Headline / title (under the name) | **Your headline reads:** |
+| Experience / Projects bullet | **This bullet reads:** |
+| Skills / Education line | **This line reads:** |
+| Cover-letter paragraph | **This paragraph reads:** |
+| anything else | **This line reads:** (`default`) |
+
+1. **Choose the intro by line type.** Use the section the line belongs to (you already show it — "Workbench for this line in **Summary**") to look up the lead-in in `intro_by_line_type`; fall back to `default`.
+2. **Keep the rest exactly as P317.** The intro is prepended to the same one-clip, verbatim line text; only the lead-in words change. The intro words are **not** highlighted (only the line's own words are marked as spoken).
+
+### Acceptance
+- Reading the Summary says **"Your summary reads: …"**, not "This bullet reads: …".
+- Reading an Experience bullet still says "This bullet reads: …"; the headline says "Your headline reads: …".
+- Everything else about the read (one clip, verbatim, word-sync, never-silent) is unchanged.

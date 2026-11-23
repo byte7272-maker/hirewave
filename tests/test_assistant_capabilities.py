@@ -169,12 +169,23 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
         "word_weight": "length_plus_pause",
         "narration": {
             "whole_line_one_call": True, "schedule_from_spoken_text": True,
-            "no_split_inside_number": True, "never_silent": True, "guard_nan_duration": True},
+            "no_split_inside_number": True, "never_silent": True, "guard_nan_duration": True,
+            "intro_by_line_type": {
+                "summary": "Your summary reads:", "headline": "Your headline reads:",
+                "header": "Your headline reads:", "experience": "This bullet reads:",
+                "skills": "This line reads:", "education": "This line reads:",
+                "projects": "This bullet reads:", "bullet": "This bullet reads:",
+                "paragraph": "This paragraph reads:", "cover_letter": "This paragraph reads:",
+                "default": "This line reads:"}},
         "announce": "whole_document"}
     # a single line is ONE TTS call, scheduled from the spoken text, and never goes silent
     narr = docs["arrival"]["narration"]
     assert narr["whole_line_one_call"] and narr["schedule_from_spoken_text"]
     assert narr["never_silent"] and narr["no_split_inside_number"]
+    # the lead-in matches the line type — the summary is not "a bullet"
+    intro = narr["intro_by_line_type"]
+    assert intro["summary"] == "Your summary reads:" and intro["experience"] == "This bullet reads:"
+    assert intro["headline"] == "Your headline reads:" and intro["default"] == "This line reads:"
     # the section map drives the assistant's focus but is NOT rendered as a clutter list
     assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
     # follow-along is mandatory: read-along + pointer + spoken-word highlight
