@@ -134,6 +134,11 @@ BEHAVIORS = [
     # free-floating element is the compact badge, which never obstructs content; when a
     # result arrives the floating main window collapses so it can't block anything. See SURFACE.
     "dock_right_pane", "results_in_right_pane", "badge_only_floats", "collapse_main_on_result",
+    # narrate the choices (P319): when a change to a bullet/section offers replacement options
+    # or alternatives, the assistant READS each option aloud in turn with the same read-along
+    # word-highlighting + pointer, marks the option it's on, pauses between them, and lets the
+    # user pick or edit each — it never drops a silent list of options the user has to read.
+    "narrate_options",
 ]
 
 #: WHERE the assistant lives and renders — a declarative layout contract so the client
@@ -510,6 +515,20 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                 "no_split_inside_number": True,
                 "never_silent": True,
                 "guard_nan_duration": True,
+                # When a change offers REPLACEMENT OPTIONS/alternatives, read each option
+                # aloud in turn with the same read-along word-highlighting + pointer: announce
+                # the count, number each ("Option 1:"), mark/point at the option being read,
+                # pause between them, and let the user pick or edit (P314) any one. Never drop
+                # a silent list of options for the user to read on their own.
+                "options": {
+                    "narrate_each": True,
+                    "highlight_each": True,
+                    "point_at_current": True,
+                    "announce_count": True,
+                    "number_options": True,
+                    "pause_between": True,
+                    "pick_or_edit_each": True,
+                },
                 # The read-along lead-in matches the line TYPE — the Summary is not "a
                 # bullet". Pick the intro from the selected line's section/kind; the intro
                 # itself is NOT highlighted (only the line's own words are).

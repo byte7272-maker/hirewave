@@ -9598,3 +9598,18 @@ When the race lands the other way, the user's words are captured by the session 
 - Reading the Summary says **"Your summary reads: …"**, not "This bullet reads: …".
 - Reading an Experience bullet still says "This bullet reads: …"; the headline says "Your headline reads: …".
 - Everything else about the read (one clip, verbatim, word-sync, never-silent) is unchanged.
+
+## P319 — ⚠ SINGLE PURPOSE: narrate through replacement options with highlights (don't drop a silent list)
+
+**Do only this. Change nothing else.** When a change to a bullet or section produces **replacement options / alternatives** (e.g. "Make it stronger", "Add a number", "Make it concise", or a refresh that offers variants), the assistant must **read each option aloud in turn**, with the same read-along word-highlighting and pointer — not just drop a list for the user to read silently (backend: behavior `narrate_options`, `documents.arrival.narration.options`).
+
+1. **Announce, then read each option.** Say how many there are ("I've got 3 ways to put this"), then read **Option 1**, **Option 2**, … aloud one at a time (`announce_count`, `number_options`, `narrate_each`).
+2. **Highlight + point at the option being read.** As each option is spoken, highlight that option card and keep the pointer/active marker on it — the same word-sync as P316/P317 (`highlight_each`, `point_at_current`). Only one option is "active"/spoken at a time (serialized — no overlapping voices).
+3. **Pause between options** so the user can jump in ("use option 2", "edit that one") (`pause_between`).
+4. **Pick or edit any one.** Each option is selectable AND editable in place before applying (per P314) — accepting applies the user's chosen/edited text via `/documents/replace-line` (`pick_or_edit_each`).
+5. **Never a silent options dump.** Options are always narrated; if the user mutes voice, still move the highlight/pointer through them as they're presented and keep each pickable/editable.
+
+### Acceptance
+- Offering replacement options speaks "Option 1: …", "Option 2: …" in turn, each highlighted and pointed at as it's read — never a silent list.
+- Only one option is spoken at a time; a pause lets the user pick or edit before the next.
+- Picking or editing an option applies the user's choice; nothing is applied without an editable field.

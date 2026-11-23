@@ -170,6 +170,10 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
         "narration": {
             "whole_line_one_call": True, "schedule_from_spoken_text": True,
             "no_split_inside_number": True, "never_silent": True, "guard_nan_duration": True,
+            "options": {
+                "narrate_each": True, "highlight_each": True, "point_at_current": True,
+                "announce_count": True, "number_options": True, "pause_between": True,
+                "pick_or_edit_each": True},
             "intro_by_line_type": {
                 "summary": "Your summary reads:", "headline": "Your headline reads:",
                 "header": "Your headline reads:", "experience": "This bullet reads:",
@@ -186,6 +190,12 @@ def test_documents_arrival_centers_whole_document_and_maps_sections():
     intro = narr["intro_by_line_type"]
     assert intro["summary"] == "Your summary reads:" and intro["experience"] == "This bullet reads:"
     assert intro["headline"] == "Your headline reads:" and intro["default"] == "This line reads:"
+    # replacement options are READ aloud in turn, each highlighted and pointed at
+    opts = narr["options"]
+    assert opts["narrate_each"] and opts["highlight_each"] and opts["point_at_current"]
+    assert opts["number_options"] and opts["pick_or_edit_each"]
+    # declared as a first-class behavior too
+    assert "narrate_options" in caps.manifest()["behaviors"]
     # the section map drives the assistant's focus but is NOT rendered as a clutter list
     assert docs["arrival"]["show_section_list"] is False and docs["arrival"]["map"] is True
     # follow-along is mandatory: read-along + pointer + spoken-word highlight
