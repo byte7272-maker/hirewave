@@ -73,6 +73,11 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert pol["interrupt_supersedes_immediately"]
     assert {"confirm_before_switching_task", "announce_saving_place", "pause_prompt_on_interrupt"} \
         <= set(m["surface"]["never"])
+    # the badge mic and console hold-to-talk share one path; all input routes through the
+    # single LLM-backed interpreter (smart core, no per-branch staging)
+    assert "one_interpreter_for_all_input" in m["behaviors"]
+    assert m["surface"]["mic"]["badge_and_console_same_path"]
+    assert "badge_mic_hears_but_cant_act" in m["surface"]["mic"]["never"]
     # enabling web research + its permissions/checkboxes is a walkable setup-wizard step
     assert "guided_permission_setup" in m["behaviors"]
     er = m["flows"]["enable_research"]

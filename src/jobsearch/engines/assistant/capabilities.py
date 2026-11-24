@@ -167,6 +167,14 @@ BEHAVIORS = [
     # overlap, and a running (spoken) command is never interrupted mid-flow by a routine
     # confirm. Exiting one prompt must not reveal a queue of more.
     "no_stacked_prompts",
+    # one smart interpreter for ALL input (P340): every user input — voice or typed, from the
+    # badge or the console, mid-flow or not — resolves through the SINGLE LLM-backed interpreter
+    # (POST /assistant/interpret) with full context (pending offer, on-screen options, focused
+    # item, active flow). The client does NOT hand-stage per-branch responses; it passes the
+    # context and runs whatever the interpreter returns. This is the smart core minimum that
+    # makes flows reliable without staging every reply. An invalid LLM key silently disables
+    # it (see ASSISTANT_INTENT.md) — keep the premium provider healthy.
+    "one_interpreter_for_all_input",
     # guided permission setup (P337): the permissions and steps to enable WEB RESEARCH (and
     # any consent checkboxes/toggles it needs) are part of the SETUP WIZARD, and the assistant
     # FULLY walks them — narrating each step, focusing/animating the exact control, and
@@ -288,9 +296,17 @@ SURFACE: dict[str, Any] = {
         "stop_on_release": True,
         "discard_unheld_results": True,
         "discard_low_confidence": True,
+        # The BADGE press-and-hold mic and the right-pane hold-to-talk are the SAME mic path:
+        # both run recognition, animate the live meter, and submit the transcript through the
+        # one interpreter (with context: pending offer, on-screen options, active flow). A
+        # held badge answer of "yes"/"no"/anything resolves exactly like the console's — the
+        # badge mic is never a dead listener that hears but can't act (P340).
+        "badge_and_console_same_path": True,
+        "badge_hold_submits": True,
         "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
                   "gate_on_self_test", "continuous_ambient_capture",
-                  "submit_unheld_transcript", "command_from_noise"],
+                  "submit_unheld_transcript", "command_from_noise",
+                  "badge_mic_hears_but_cant_act", "badge_mic_different_path"],
     },
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",

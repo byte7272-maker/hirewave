@@ -9898,3 +9898,21 @@ The backend already supports this: while an offer is pending, send the utterance
 - With "Want me to talk you through your matches?" showing, typing **"yes"** (or saying it, or "sure"/"do it"/"go for it") runs the matches walkthrough.
 - "No" (or "not now") dismisses the offer.
 - The badge Yes/No buttons still work; answering by voice, type, or button all do the same thing.
+
+## P340 — ⚠ SINGLE PURPOSE: the badge mic hears AND acts (same path as the console), via the one interpreter
+
+**Do only this. Change nothing else.** **Confirmed bug:** the right-pane **hold-to-talk** button hears, animates its meter, and responds to commands (incl. "yes"/"no") — but **holding the mic on the badge** does not: it may listen but it never acts on "yes"/"no" or any other input. The badge mic is a dead listener. Make it use the **same path** as the console mic.
+
+Contract: `GET /assistant/capabilities` → `behaviors` `one_interpreter_for_all_input`, `surface.mic.badge_and_console_same_path`.
+
+1. **One mic path.** The badge press-and-hold must run the **same** recognition → transcript → `POST /assistant/interpret` flow as the console hold-to-talk — same live meter animation, same submission. Whatever the console mic does on release, the badge mic does identically. No separate, half-wired badge recognizer.
+2. **Always pass context.** Submit the transcript to `/interpret` with full `context`: the `pending` offer (so "yes"/"no" resolve the offer — see P339), the on-screen `options`, the `focused_index`, and the current page/flow. The badge mic answering "yes" to a pending offer runs it exactly like the console or the Yes button.
+3. **Run whatever comes back** — navigate, start a playbook, resolve the offer, etc. Same handler as the console. The badge mic is never input-only.
+
+### Smart core (the point)
+Every user input — **voice or typed, badge or console, mid-flow or not** — resolves through the **single** LLM-backed interpreter with context, and the client runs whatever it returns. Don't hand-stage per-branch responses in the client (that's what made "yes" and the badge mic brittle). Pass the context, call `/interpret`, act on the result. This is the baseline intelligence that lets flows work reliably without scripting every reply. (The interpreter's LLM core must stay healthy — an invalid premium key silently disables it.)
+
+### Acceptance
+- Holding the mic on the badge and saying "yes" to "Want me to walk your matches?" starts the walkthrough — identical to the console hold-to-talk and the Yes button.
+- The badge mic animates its meter while held and submits on release, exactly like the console.
+- Saying a command (e.g. "go to my applications") into the badge mic runs it.

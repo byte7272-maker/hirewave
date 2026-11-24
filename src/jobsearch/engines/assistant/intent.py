@@ -1969,6 +1969,16 @@ def interpret(
                 if want_debug:
                     dbg["source"] = "fallback_ask"
 
+    # Resolve against a pending offer again AFTER the LLM pass, so an affirmation/decline the
+    # deterministic matcher missed but the LLM (or the ask-fallback on a bare "ok sure") still
+    # reads as yes/no runs the offer — a flow stays reliable without the client staging every
+    # phrasing. A substantive NEW command (navigate/search/…) preempts the offer instead.
+    if isinstance(pending, dict) and pending.get("intent"):
+        if result.intent == "confirm":
+            result = IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {}))
+        elif result.intent == "decline":
+            result = IntentResult("decline", 0.95, {})
+
     # A more_matches result (e.g. from the LLM backstop) carries the standard "connect more
     # sources" offer even if the matcher that produced it didn't set one.
     if result.intent == "more_matches" and not result.offer:
