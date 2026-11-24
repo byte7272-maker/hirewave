@@ -27,6 +27,9 @@ INTENTS = {
     # web; understand + freshness-check the summary; walk the WHOLE résumé section by section
     "focus_document", "refresh_metric", "review_summary", "review_document",
     "read_options", "what_can_i_do",
+    # reaching a human expert (recruiter / hiring manager / HR pro) for advice or content —
+    # a FUTURE feature; for now the assistant acknowledges it's coming soon.
+    "connect_expert",
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
     "check_mic", "check_audio", "status_report", "whats_new", "resume_task",
@@ -321,7 +324,11 @@ def _refresh_metric(t: str, context: dict) -> Optional[IntentResult]:
 _SUMMARY_NOUN_RE = re.compile(r"\b(summary|profile|objective|headline|opening line|intro)\b")
 _REVIEW_VERB_RE = re.compile(
     r"\b(review|check|audit|critique|assess|evaluate|grade|look at|go over|whats? wrong with|"
-    r"how(?:'?s| is| good is)|rate)\b")
+    r"how(?:'?s| is| good is)|rate"
+    # improvement questions are a review request too ("what should I fix", "what needs work")
+    r"|what (?:should|do|can) i (?:fix|improve|change|work on|do better)"
+    r"|what needs (?:work|fixing|improv\w*)|how (?:can|should|do) i improve"
+    r"|what to (?:fix|improve)|needs? (?:work|fixing|improvement))\b")
 
 
 def _review_summary(t: str, context: dict) -> Optional[IntentResult]:
@@ -364,6 +371,30 @@ def _review_document(t: str, context: dict) -> Optional[IntentResult]:
     if dt:
         slots["doc"] = dt  # "review my cover letter" → doc=cover_letter
     return IntentResult("review_document", 0.86, slots)
+
+
+# A human expert the user might want to reach — recruiter, hiring manager, HR pro, coach.
+_EXPERT_RE = re.compile(
+    r"\b(recruiters?|hiring managers?|headhunters?|hr (?:pro|professional|rep|person|expert|team)|"
+    r"human resources|career coach(?:es)?|resume (?:expert|pro|professional|reviewer)|industry expert|"
+    r"an? expert|professional (?:advice|feedback|opinion|review)|talent (?:acquisition|advisor)|"
+    r"hiring (?:expert|professional))\b")
+# A cue that the user wants to be CONNECTED to / get advice from that expert.
+_EXPERT_CONTACT_RE = re.compile(
+    r"\b(talk to|speak (?:to|with)|chat with|connect (?:me )?with|put me in (?:front|touch)|"
+    r"get (?:in touch|advice|feedback|help|a (?:human|professional|second) opinion)|contact|"
+    r"reach out to|introduce me|have .*(?:review|look at)|run .* by|ask)\b")
+
+
+def _connect_expert(t: str) -> Optional[IntentResult]:
+    """Reach a human expert — recruiter, hiring manager, HR pro — for advice or content.
+    A FUTURE feature (external partners); for now the assistant says it's coming soon."""
+    if not _EXPERT_RE.search(t):
+        return None
+    if not (_EXPERT_CONTACT_RE.search(t)
+            or re.search(r"\b(advice|feedback|opinion|review|guidance|insight|perspective)\b", t)):
+        return None
+    return IntentResult("connect_expert", 0.85)
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -1077,6 +1108,14 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ma is not None:
         return ma
 
+    # reach a human expert — recruiter / hiring manager / HR pro — for advice or content
+    # ("put me in front of a recruiter", "have an expert review my résumé"). A FUTURE
+    # feature; checked before document-review/playbooks so "have an expert review …" routes
+    # to the coming-soon acknowledgement, not an in-app review.
+    ce = _connect_expert(t)
+    if ce is not None:
+        return ce
+
     # understand + freshness-check the SUMMARY ("review my summary", "is my summary up to
     # date?", "what's wrong with my summary") — the summary-review flow. Before focus/edit
     # so it isn't read as "go to the summary" or a bare rewrite.
@@ -1333,7 +1372,9 @@ _INTENT_HELP: dict[str, str] = {
     "refresh_metric": "check whether the résumé's figures/stats/numbers are still current, "
                       "or update them from the web (e.g. 'these numbers look old', 'are these still accurate').",
     "review_summary": "review or freshness-check the résumé SUMMARY specifically.",
-    "review_document": "review or walk the WHOLE résumé section by section.",
+    "review_document": "review the WHOLE résumé / what should I fix / what needs work on it.",
+    "connect_expert": "reach a HUMAN expert — recruiter, hiring manager, HR pro, career coach — "
+                      "for advice, feedback, or content (a future 'coming soon' feature).",
     "read_bullets": "read the résumé's bullets/lines aloud (read-along), e.g. 'read the top of my résumé'.",
     "edit_document": "improve / reword / rewrite / fix the résumé or one line in it (e.g. 'I don't like this bullet').",
     "suggest_bullets": "turn work/experience/achievements into résumé bullet points.",
@@ -1368,6 +1409,9 @@ _LLM_FEWSHOT: list[tuple[str, str, dict]] = [
     ("what did you find for me today", "whats_new", {}),
     ("how do i come across in interviews", "navigate", {"section": "interview"}),
     ("is this company for real", "research_company", {}),
+    ("put me in front of a recruiter", "connect_expert", {}),
+    ("can i talk to a hiring manager for advice", "connect_expert", {}),
+    ("what should i fix on my resume", "review_document", {}),
     ("what's the weather tomorrow", "ask", {}),
     ("what's the capital of Mongolia", "ask", {}),
     ("who won the game last night", "ask", {}),
@@ -1639,6 +1683,10 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
         return f"Okay — {pb}."
     if intent == "report_state":
         return _FIELD_LEAD.get(str(slots.get("field", "")), "Let me check that for you.")
+    if intent == "connect_expert":
+        return ("Getting you expert help is coming soon — I'll be able to connect you with "
+                "recruiters, HR pros, and hiring managers for advice and content. It's not "
+                "live yet, but it's on the way; I'll let you know when it's ready.")
     if intent == "web_search":
         q = str(slots.get("query", "")).strip()
         return f"Searching the web for {q}." if q else "Let me search that for you."

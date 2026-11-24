@@ -379,6 +379,26 @@ def test_llm_backstop_abstains_to_web_search_offer():
     assert r.offer, "expected a web-search offer for a coherent out-of-app request"
 
 
+def test_improvement_questions_are_a_document_review():
+    for p in ["what should I fix on my resume", "what needs work on my résumé",
+              "how can I improve my resume", "what do I fix on my cv"]:
+        assert interpret(p).intent == "review_document", p
+    # summary-scoped improvement stays a summary review
+    assert interpret("what should I fix in my summary").intent == "review_summary"
+
+
+def test_reach_an_expert_is_coming_soon():
+    for p in ["put me in front of a recruiter", "talk to a recruiter",
+              "connect me with a hiring manager", "can I get advice from an HR pro",
+              "have an expert review my resume"]:
+        r = interpret(p)
+        assert r.intent == "connect_expert", (p, r.intent)
+        assert "coming soon" in r.reply.lower(), r.reply
+    # not every "recruiter"/"review" mention triggers it
+    assert interpret("review my resume").intent == "review_document"
+    assert interpret("is Acme a real company").intent == "research_company"
+
+
 def test_help_prefix_does_not_hijack_a_concrete_request():
     # Bare help asks are read_options...
     for p in ["help", "what can I do", "what are my options", "read my options"]:
