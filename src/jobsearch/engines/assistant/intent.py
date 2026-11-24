@@ -1308,9 +1308,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
 _LLM_SYSTEM = (
     "You are the intent router for a job-search web app's voice/text assistant. "
     "Map the user's utterance to EXACTLY ONE intent id from the menu and extract slots. "
-    "Pick the closest ACTIONABLE intent even when the wording is casual, indirect, or "
-    "paraphrased — users rarely say the 'official' phrasing. Only output 'ask' when the "
-    "request is genuinely something this app can't do (it may then become a web search). "
+    "When the request IS about this user's job search, résumé, applications, or using this "
+    "app, pick the closest ACTIONABLE intent even if the wording is casual, indirect, or "
+    "paraphrased — users rarely say the 'official' phrasing. "
+    "But output 'ask' (do NOT force an app action) when the utterance is general knowledge, "
+    "trivia, world facts, math, news, or anything NOT about this user's job search / résumé "
+    "/ this app — it will be offered as a web search instead. A wrong app action is worse "
+    "than abstaining. "
     "Reply with ONLY one compact JSON object — no prose, no markdown, no code fence."
 )
 
@@ -1359,6 +1363,9 @@ _LLM_FEWSHOT: list[tuple[str, str, dict]] = [
     ("how do i come across in interviews", "navigate", {"section": "interview"}),
     ("is this company for real", "research_company", {}),
     ("what's the weather tomorrow", "ask", {}),
+    ("what's the capital of Mongolia", "ask", {}),
+    ("who won the game last night", "ask", {}),
+    ("what's 15% of 200", "ask", {}),
 ]
 
 #: Slot keys we accept back from the model (anything else is dropped).
