@@ -190,6 +190,15 @@ SURFACE: dict[str, Any] = {
     # a cramped inline box next to the badge.
     "consistent_across_pages": True,
     "badge_opens": "right_pane",
+    # A single tap/press on the badge WAKES the assistant: it opens the right pane AND the
+    # assistant responds, asking what the user would like to do (ready to listen/type) — a
+    # tap is not a silent open. Press-and-hold still arms the mic (press-to-talk). (P331)
+    "badge": {
+        "tap_wakes": True,
+        "tap_asks_what_to_do": True,
+        "wake_prompt": "What would you like to do?",
+        "hold_arms_mic": True,
+    },
     # EVERY place the assistant presents something for the user to respond to — a question, a
     # finding, an option, or a pending action — carries an inline, editable input right there,
     # so the user can answer AND modify what's shown before anything is accepted. A finding or

@@ -69,6 +69,9 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert pol["interrupt_supersedes_immediately"]
     assert {"confirm_before_switching_task", "announce_saving_place", "pause_prompt_on_interrupt"} \
         <= set(m["surface"]["never"])
+    # a single badge tap wakes the assistant and it asks what to do
+    badge = m["surface"]["badge"]
+    assert badge["tap_wakes"] and badge["tap_asks_what_to_do"] and badge["wake_prompt"]
     # a reversible résumé edit action does not carry a confirm
     docs = caps.for_section("documents")
     edits = [a for a in docs["actions"] if a["verb"] == "change"]
