@@ -1254,9 +1254,11 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         if "match" in section:
             return IntentResult("start_playbook", 0.8, {"playbook": "walk_matches"})
 
-    # options / help
-    if has("what can i do", "read my options", "what are my options", "my options", "what now",
-           "help me", "options") or re.fullmatch(r"(help|options|menu)", t):
+    # options / help — only when the request IS "what can I do / help", NOT when "help me"
+    # merely prefixes a concrete request ("help me tighten my experience" → edit, not help).
+    if (has("what can i do", "what can you do", "read my options", "what are my options",
+            "show me my options", "what else can i do")
+            or re.fullmatch(r"(help|help me|please help|i need help|options|the menu|menu|what now)", t)):
         return IntentResult("read_options", 0.85)
 
     # yes / no — last among short commands so specific verbs win first
@@ -1345,7 +1347,7 @@ _INTENT_HELP: dict[str, str] = {
     "check_mic": "microphone isn't working / can't hear me.",
     "check_audio": "no sound / audio output troubleshooting.",
     "change_voice": "change the assistant's voice. slot: voice.",
-    "set_rate": "change speaking speed. slot: rate (slower|faster|a number).",
+    "set_rate": "change how FAST the assistant SPEAKS (talk slower/faster). NOT about editing text. slot: rate.",
     "what_can_i_do": "list what the assistant can do / help / options.",
 }
 
@@ -1356,6 +1358,10 @@ _LLM_FEWSHOT: list[tuple[str, str, dict]] = [
     ("read the top of my resume to me", "read_bullets", {}),
     ("i don't like this bullet", "edit_document", {}),
     ("my experience section feels weak, help", "focus_document", {"section": "experience"}),
+    ("help me tighten my work experience", "focus_document", {"section": "experience"}),
+    ("can you spruce up my summary", "review_summary", {}),
+    ("polish my resume", "edit_document", {}),
+    ("talk slower", "set_rate", {"rate": "slower"}),
     ("take me somewhere i can apply automatically", "navigate", {"section": "auto_apply"}),
     ("pull up roles near Charlotte", "search_jobs", {"query": "roles", "location": "Charlotte"}),
     ("find me something in product management", "search_jobs", {"query": "product management"}),

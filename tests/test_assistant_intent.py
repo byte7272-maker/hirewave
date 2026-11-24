@@ -379,6 +379,17 @@ def test_llm_backstop_abstains_to_web_search_offer():
     assert r.offer, "expected a web-search offer for a coherent out-of-app request"
 
 
+def test_help_prefix_does_not_hijack_a_concrete_request():
+    # Bare help asks are read_options...
+    for p in ["help", "what can I do", "what are my options", "read my options"]:
+        assert interpret(p).intent == "read_options", p
+    # ...but "help me <do something concrete>" is NOT a generic help request; it must not
+    # fall into read_options just because it starts with "help me" (it routes to the
+    # concrete action / the LLM backstop instead).
+    assert interpret("help me tighten my work experience").intent != "read_options"
+    assert interpret("help me improve my summary").intent != "read_options"
+
+
 def test_debug_trail_shows_the_comprehension_path():
     llm = _StubLLM('{"intent":"refresh_metric","confidence":0.9,"slots":{}}')
     r = interpret("my numbers look old, can you check them", context={"debug": True}, llm=llm)
