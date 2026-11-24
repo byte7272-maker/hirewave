@@ -248,18 +248,37 @@ def _skill_present(skill: str, job_text: str) -> bool:
 #: neutrals. A real 0-overlap when data DOES exist on both sides is still scored as computed.
 _SKILLS_UNKNOWN = 0.6
 
+#: A body that is just the title plus an import note, not a real job description. Most
+#: inbox/alert-sourced postings arrive title-only with one of these placeholder lines; matching
+#: skills against them yields keyword NOISE (a coincidental hit scores 100, a real fit scores 0).
+_PLACEHOLDER_DESC = re.compile(
+    r"imported from|surfaced from|from a[n]?\b.*\balert|job alert|alert email|only a title",
+    re.I,
+)
+
+
+def _has_real_jd(desc: str, reqs: list[str]) -> bool:
+    """True only when the posting has enough body to judge skills: real requirements, or a
+    description that isn't a short title-plus-import-note placeholder."""
+    real_reqs = len(reqs) >= 2  # a lone "requirement" is usually a category/noise tag
+    if _PLACEHOLDER_DESC.search(desc):
+        return real_reqs           # an import-note body isn't a real JD
+    if not reqs and len(desc) < 40:
+        return False               # near-empty stub
+    return bool(reqs or desc)
+
 
 def skills_fit(profile: UserProfile, job: JobPosting) -> tuple[float, list[str], list[str]]:
     """Return (score 0-1, matching_skills, gap_skills) via requirement overlap.
 
-    When skills can't be judged (no job description/requirements, or no profile skills) the
-    score is ``_SKILLS_UNKNOWN`` with no matching/gaps — so an uncomputable signal doesn't
-    masquerade as a zero and drag down a strong semantic match."""
+    When skills can't be judged — no profile skills, or no real job description/requirements
+    (a title-only / placeholder posting) — the score is ``_SKILLS_UNKNOWN`` with no
+    matching/gaps, so keyword NOISE on a stub posting can't invert the ranking."""
     reqs = [r.strip() for r in job.requirements if r.strip()]
     desc = (job.description or "").strip()
     profile_skills = profile.skills or []
-    # Nothing to match on at least one side -> unknown, not zero.
-    if not profile_skills or not (reqs or desc):
+    # Nothing real to judge on at least one side -> unknown, not a noisy 0 or 100.
+    if not profile_skills or not _has_real_jd(desc, reqs):
         return _SKILLS_UNKNOWN, [], []
 
     job_text = (desc + " " + " ".join(reqs)).lower()
