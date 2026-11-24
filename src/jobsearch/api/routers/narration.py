@@ -98,7 +98,12 @@ def speak(body: TtsRequest, user: CurrentUser, state: StateDep) -> Response:
 
     501 when no server neural-voice source is configured -- the client then
     speaks with the browser voice. Audio is transient and marked no-store."""
-    text = body.text.strip()
+    from jobsearch.engines.assistant.document_map import speak_geo
+
+    # Expand geographic codes to full names for the voice ("New York, NY" -> "New York"),
+    # so every spoken line — not just the document read-along — says the full state/country
+    # name. Idempotent on text that was already expanded upstream (e.g. a map `speak_text`).
+    text = speak_geo(body.text.strip())
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "text is empty")
     if len(text) > _MAX_NARRATION_CHARS:

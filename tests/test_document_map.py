@@ -12,9 +12,37 @@ from jobsearch.engines.assistant import document_review as DR
 from jobsearch.engines.assistant import session_scan as SS
 from jobsearch.engines.assistant import summary_review as SR
 from jobsearch.engines.assistant.document_map import (
-    analyze_block, build_map, locate, normalize_document,
+    analyze_block, build_map, locate, normalize_document, speak_geo, speakify,
 )
 from jobsearch.engines.integration import MockTokenExchanger
+
+
+def test_speak_geo_expands_state_and_country_codes():
+    # NY/ny both -> New York; redundant "City, ST" collapses to one.
+    assert speak_geo("New York, NY") == "New York"
+    assert speak_geo("roles near ny") == "roles near New York"
+    assert speak_geo("Austin, TX") == "Austin, Texas"
+    # "City, ST" disambiguates an otherwise-ambiguous state code.
+    assert speak_geo("Baltimore, MD") == "Baltimore, Maryland"
+    # country codes (uppercase only).
+    assert speak_geo("based in the US") == "based in the United States"
+    assert "United Kingdom" in speak_geo("offices in the UK")
+
+
+def test_speak_geo_protects_ordinary_words_and_credentials():
+    # ambiguous codes that are common words are NOT expanded standalone.
+    assert speak_geo("experience in operations or sales") == "experience in operations or sales"
+    # a credential like MD/MS (not in the standalone safe set) is left alone outside "City, ST".
+    assert speak_geo("Jane Smith MD") == "Jane Smith MD"
+    # lowercase pronoun "us" is never a country.
+    assert speak_geo("let us know") == "let us know"
+
+
+def test_speakify_runs_geo_before_acronyms():
+    # "New York, NY" -> "New York" (not spelled out); IT still spelled as letters.
+    out = speakify("IT Director — New York, NY")
+    assert "New York" in out and "I.T." in out and "N.Y." not in out
+
 
 _RESUME = """John Williams
 IT Director | New York, NY

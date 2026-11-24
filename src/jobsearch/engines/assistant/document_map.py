@@ -321,6 +321,66 @@ def speak_acronyms(text: str) -> str:
     return _ACRONYM_RE.sub(lambda m: ".".join(m.group(1)) + "." + m.group(2), text or "")
 
 
+#: US state/territory codes -> full name, so the voice says "New York", not "N.Y." / "en why".
+_US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+    "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York", "NC": "North Carolina",
+    "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee",
+    "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "DC": "Washington, D.C.",
+    "PR": "Puerto Rico",
+}
+#: Common country codes -> full name (expanded only in UPPERCASE so the pronoun "us" / the
+#: word "in" are never touched).
+_COUNTRIES = {
+    "US": "United States", "USA": "United States", "UK": "United Kingdom",
+    "UAE": "United Arab Emirates", "EU": "European Union",
+}
+#: Standalone 2-letter STATE codes safe to expand in ANY case — ones that aren't a common
+#: English word ("in"/"or"/"me"/…) or a résumé credential ("MD"/"MS"/"PA"/"BA"). "NY"/"ny"
+#: both expand. The ambiguous rest (MD, PA, IN, …) are expanded ONLY in a "City, ST" position.
+_GEO_SAFE_STANDALONE = {
+    "NY", "TX", "CA", "FL", "NJ", "NV", "NM", "NH", "NC", "SC", "WV", "WY", "VT", "WI", "AZ",
+    "AK", "CT", "KY", "KS", "MN", "MO", "MI", "MT", "NE", "RI", "IL", "IA", "TN", "UT", "GA",
+    "WA", "ND", "SD",
+}
+_GEO_CITY_RE = re.compile(r",\s*([A-Z]{2})\b(?![\w.])")      # "Austin, TX" / "Baltimore, MD"
+_GEO_SAFE_RE = re.compile(r"\b(" + "|".join(sorted(_GEO_SAFE_STANDALONE)) + r")\b", re.I)
+_GEO_COUNTRY_RE = re.compile(r"\b(USA|US|UK|UAE|EU)\b")       # uppercase only
+#: Collapse a redundant "X, X" the expansion can create ("New York, New York" -> "New York").
+_GEO_DUP_RE = re.compile(r"\b([A-Z][A-Za-z]+(?: [A-Z][A-Za-z]+)*),\s*\1\b")
+
+
+def speak_geo(text: str) -> str:
+    """Expand US state and country CODES to their full names for the voice, so "New York, NY"
+    is read "New York", not "N.Y." Run BEFORE :func:`speak_acronyms` (an expanded name is no
+    longer an all-caps code, so it isn't spelled out). Conservative to protect ordinary prose
+    and résumé credentials: a "City, ST" position expands any state (the comma + uppercase
+    disambiguates "Baltimore, MD" the place from "Jane Smith, MD" the degree — only the former
+    has a city before the comma... both match, so credentials after a name are a known edge);
+    standalone codes expand only for an unambiguous safe set (incl. NY, any case) and for
+    uppercase country codes."""
+    if not text:
+        return text or ""
+    text = _GEO_CITY_RE.sub(
+        lambda m: ", " + _US_STATES[m.group(1)] if m.group(1) in _US_STATES else m.group(0), text)
+    text = _GEO_SAFE_RE.sub(lambda m: _US_STATES[m.group(1).upper()], text)
+    text = _GEO_COUNTRY_RE.sub(lambda m: _COUNTRIES[m.group(1)], text)
+    return _GEO_DUP_RE.sub(r"\1", text)
+
+
+def speakify(text: str) -> str:
+    """The full spoken-form transform for a neural voice: expand geographic codes to full
+    names, then spell out remaining acronyms. Order matters (geo before acronyms)."""
+    return speak_acronyms(speak_geo(text))
+
+
 def intro_for_line(canon: str, kind: str = "resume") -> str:
     """The read-aloud lead-in for a line in section ``canon`` — "This bullet reads:" for an
     Experience/Projects bullet, "Your summary reads:" for the summary, "This paragraph reads:"
@@ -448,7 +508,7 @@ def build_map(text: str, *, kind: str = "resume", year: Optional[int] = None) ->
             id=bid, kind="bullet", text=plain, raw=ln.rstrip(), line=i,
             char_start=cstart, char_end=cstart + len(ln),
             section=cur.id, intro=intro_for_line(cur.canon, "resume"),
-            speak_text=speak_acronyms(plain),
+            speak_text=speakify(plain),
             analysis=analyze_block(plain, year=year, current_role=cr),
         ))
         if cur.canon == "experience":
@@ -481,7 +541,7 @@ def _build_letter_map(text: str, lines: list[str], offs: list[int], *,
                 id=f"p{pno}", kind="paragraph", text=plain, raw=chunk, line=start,
                 char_start=offs[start], char_end=offs[start] + len(chunk),
                 section="body", intro=intro_for_line("body", "cover_letter"),
-                speak_text=speak_acronyms(plain),
+                speak_text=speakify(plain),
                 analysis=analyze_block(plain, year=year),
             ))
     return _finalize(text, "cover_letter", [body])
