@@ -286,6 +286,14 @@ SURFACE: dict[str, Any] = {
         "meter_from_analyser": True,
         "meter_live_while_listening": True,
         "status_reflects_live_track": True,
+        # The meter is driven ONLY by a LIVE getUserMedia stream's analyser — never a
+        # decorative/placeholder animation. If the badge shows a moving meter it MUST have
+        # actually acquired a mic stream and started recognition on it; a meter with no live
+        # track behind it is a bug (P342). On HOLD, acquire the stream, wire
+        # MediaStreamSource -> AnalyserNode -> meter, AND start SpeechRecognition on that same
+        # stream; the badge and console share one acquisition so only one holds the mic at a time.
+        "meter_requires_live_stream": True,
+        "hold_acquires_stream_and_recognizer": True,
         # Press-to-talk ONLY: recognition runs while the mic is HELD and stops on release —
         # it never keeps listening between holds and scooping up background sound/music. A
         # transcript is submitted as a command ONLY if it was captured during a deliberate
@@ -306,7 +314,10 @@ SURFACE: dict[str, Any] = {
         "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
                   "gate_on_self_test", "continuous_ambient_capture",
                   "submit_unheld_transcript", "command_from_noise",
-                  "badge_mic_hears_but_cant_act", "badge_mic_different_path"],
+                  "badge_mic_hears_but_cant_act", "badge_mic_different_path",
+                  # P342: a meter that animates without a live getUserMedia stream behind it.
+                  "meter_without_stream", "placeholder_meter_animation",
+                  "badge_meter_but_no_recognizer"],
     },
     "never": ["top_of_page", "random_popout", "obstruct_content", "bury_in_floating_window",
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",

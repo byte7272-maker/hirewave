@@ -9930,3 +9930,18 @@ Every user input — **voice or typed, badge or console, mid-flow or not** — r
 - "Show my résumé" (badge mic, console, or typed) opens the full résumé centered in the main editor and gives the section orientation — it does **not** read bullets squeezed into the right pane.
 - "Read my résumé" opens it in the editor and reads it aloud there.
 - "Open my cover letter" opens the cover letter in the editor. The bullet workbench only appears when a single bullet is pinpointed.
+
+## P342 — ⚠ SINGLE PURPOSE: the badge meter must come from a REAL mic stream (no stream = no fake meter, and recognition must run)
+
+**Do only this. Change nothing else.** **Confirmed bug:** after wiring the badge meter (P340), holding the badge now **shows a moving meter but receives no mic stream** — the meter animates while nothing is actually captured or recognized. The badge got the meter *visual* but not the real audio pipeline. A meter without a live stream is forbidden. Contract: `surface.mic.meter_requires_live_stream`, `hold_acquires_stream_and_recognizer`; `never: meter_without_stream`, `placeholder_meter_animation`, `badge_meter_but_no_recognizer`.
+
+1. **On badge HOLD, acquire a LIVE stream.** Call `navigator.mediaDevices.getUserMedia({audio:true})` (or reuse the console's already-acquired stream/track) — the exact same acquisition the right-pane hold-to-talk uses. Don't render the meter until a live `MediaStreamTrack` exists.
+2. **Drive the meter from THAT stream only.** Build `AudioContext → MediaStreamSource(stream) → AnalyserNode`, and the requestAnimationFrame loop reads **that** analyser. The meter must reflect real input — flat on silence, moving on speech. **No** decorative/placeholder animation that runs without a stream (`never: meter_without_stream` / `placeholder_meter_animation`).
+3. **Start recognition on the same hold.** Start `SpeechRecognition` (the same instance/config as the console) on the hold and submit the transcript on release through `/assistant/interpret` with context (P340). A meter with no recognizer behind it is the bug (`never: badge_meter_but_no_recognizer`).
+4. **One acquisition, shared.** The badge and console share a single getUserMedia acquisition so only one holds the mic at a time; releasing one frees it. Don't open a second dead stream for the badge.
+5. **If the stream fails** (permission denied / no device), show the existing mic-blocked guidance — don't show a meter pretending to listen.
+
+### Acceptance
+- Holding the badge mic produces a meter that moves **with your voice** and stays flat in silence — because it's reading a live stream.
+- Speaking into the badge mic yields a transcript that runs through the interpreter (e.g. "yes" resolves the offer, "go to applications" navigates).
+- The badge never shows a moving meter when no mic stream is active; a denied mic shows the blocked-mic help, not a fake meter.

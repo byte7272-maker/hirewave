@@ -78,6 +78,10 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert "one_interpreter_for_all_input" in m["behaviors"]
     assert m["surface"]["mic"]["badge_and_console_same_path"]
     assert "badge_mic_hears_but_cant_act" in m["surface"]["mic"]["never"]
+    # the badge meter must be backed by a real live stream + recognizer, not a placeholder
+    assert m["surface"]["mic"]["meter_requires_live_stream"]
+    assert m["surface"]["mic"]["hold_acquires_stream_and_recognizer"]
+    assert "meter_without_stream" in m["surface"]["mic"]["never"]
     # enabling web research + its permissions/checkboxes is a walkable setup-wizard step
     assert "guided_permission_setup" in m["behaviors"]
     er = m["flows"]["enable_research"]
