@@ -420,6 +420,23 @@ def test_more_matches_guidance_points_to_search_and_sources():
     assert interpret("find me more VP jobs in Dallas").intent == "search_jobs"
 
 
+def test_show_document_opens_the_editor_not_upload():
+    # "show/open/display/view/read my (or the) résumé" opens the document in the editor —
+    # it must NOT fall to the upload playbook or ask. Regression for a résumé request that
+    # read bullets in the right pane instead of opening the main editor.
+    for p in ["show my resume", "show the resume", "display my resume", "view my résumé",
+              "pull up my resume", "read my resume", "open my cover letter"]:
+        r = interpret(p)
+        assert r.intent == "navigate" and r.slots.get("section") == "documents", (p, r.intent)
+        assert r.slots.get("view") == "editor", (p, r.slots)
+    assert interpret("read my resume").slots.get("read") is True
+    assert interpret("open my cover letter").slots.get("doc") == "cover_letter"
+    # genuine upload / tailor / bullets are not hijacked
+    assert interpret("upload my resume").intent == "start_playbook"
+    assert interpret("tailor my resume").slots.get("playbook") == "tailor"
+    assert interpret("read my bullets").intent == "read_bullets"
+
+
 def test_strengthen_resume_growth_advice():
     for p in ["what certifications should I get", "how can I make my skillset stronger",
               "what skills do I need to become a data scientist",

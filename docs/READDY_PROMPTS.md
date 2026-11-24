@@ -9916,3 +9916,17 @@ Every user input — **voice or typed, badge or console, mid-flow or not** — r
 - Holding the mic on the badge and saying "yes" to "Want me to walk your matches?" starts the walkthrough — identical to the console hold-to-talk and the Yes button.
 - The badge mic animates its meter while held and submits on release, exactly like the console.
 - Saying a command (e.g. "go to my applications") into the badge mic runs it.
+
+## P341 — ⚠ SINGLE PURPOSE: "show my résumé" opens the FULL document in the editor and guides it — not bullets squeezed in the right pane
+
+**Do only this. Change nothing else.** **Confirmed bug:** asking (from the badge) to "show my résumé" displayed and read the **bullets squeezed into the right pane** instead of opening the main document in the editor and guiding through it. The backend routes this correctly — `POST /assistant/interpret` returns **`navigate`** with `slots {section:"documents", view:"editor", doc:"resume"|"cover_letter", read?:true}` for "show/open/display/view/read/pull up my (or the) résumé / cover letter". Render it right.
+
+1. **Open the document CENTERED in the editor (the main view).** On this `navigate` + `view:"editor"`, go to Documents and show the WHOLE document, fit/centered in the main editor pane (as P275 §1) — load the named `doc` (résumé vs cover letter). Do **NOT** open the bullet workbench / the right-pane numbered-bullets surface, and do **NOT** cram the document into the right pane.
+2. **Then guide through it, over the real document.** Give the one-line orientation from the map (Summary · Experience · Education · Skills) and make the assistant point at / highlight sections IN the main editor as it talks (P275 §2) — the right pane is the assistant's console, not where the document lives.
+3. **`read:true` means read it aloud after opening.** When the slot `read` is true ("read my résumé"), start the read-along over the opened document (highlight + pointer, P315/P316) — still in the main editor, not a bullets-in-right-pane view.
+4. **The bullet workbench is only for pinpointing ONE bullet.** Entering it is a deliberate "work on this bullet" action (click a bullet / "work on the third bullet"), never the response to "show my résumé".
+
+### Acceptance
+- "Show my résumé" (badge mic, console, or typed) opens the full résumé centered in the main editor and gives the section orientation — it does **not** read bullets squeezed into the right pane.
+- "Read my résumé" opens it in the editor and reads it aloud there.
+- "Open my cover letter" opens the cover letter in the editor. The bullet workbench only appears when a single bullet is pinpointed.

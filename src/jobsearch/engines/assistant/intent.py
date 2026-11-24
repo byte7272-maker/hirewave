@@ -1302,6 +1302,20 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if sq:
         return IntentResult("search_jobs", 0.85, dict(sq))
 
+    # Open a DOCUMENT in the editor — "show/open/display/view/read/pull up my (or the) résumé
+    # / cover letter" opens that document CENTERED in the editor (its only real surface), not
+    # the bullet workbench in the right pane. Handled here — before the generic section
+    # navigate (so "show THE résumé" works, not just "show MY") — so "read/display my résumé"
+    # is never mistaken for the "upload my résumé" playbook. A "read" phrasing also asks the
+    # editor to read it aloud once open.
+    dt_open = _doc_target(t)
+    if dt_open and re.search(
+            r"\b(show|open|display|view|see|pull up|bring up|read|let me see|take me to|go to|get)\b", t):
+        slots: dict[str, Any] = {"section": "documents", "view": "editor", "doc": dt_open}
+        if re.search(r"\bread\b", t):
+            slots["read"] = True
+        return IntentResult("navigate", 0.9, slots)
+
     # navigate ("go to / take me to / open <section>") — a nav verb + a section wins
     # over the playbook matcher, so "go to auto apply" navigates but "set up auto
     # apply" starts the playbook. When the section is Documents, carry WHICH document
