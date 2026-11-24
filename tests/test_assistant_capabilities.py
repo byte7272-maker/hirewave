@@ -62,7 +62,11 @@ def test_confirm_policy_and_uninterrupted_voice():
     m = caps.manifest()
     assert "uninterrupted_voice_flow" in m["behaviors"] and "no_stacked_prompts" in m["behaviors"]
     pol = m["surface"]["confirm_policy"]
-    assert pol["require_human_only_for"] == ["offering_a_choice_or_option", "file_move", "file_delete"]
+    # human permission is still required for choices, file move/delete, AND any outbound
+    # action on an external site (submit / initial authorization) — never suppressed.
+    assert {"offering_a_choice_or_option", "file_move", "file_delete",
+            "submit_on_external_site", "authorize_task_on_external_site"} \
+        == set(pol["require_human_only_for"])
     assert pol["no_stacked_prompts"] and pol["voice_flow"] == "uninterrupted"
     assert "reversible_edit" in pol["no_prompt_for"] and "navigate" in pol["no_prompt_for"]
     # a new command mid-task preempts immediately — no pause-and-confirm, no "saving your place"

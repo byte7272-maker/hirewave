@@ -112,7 +112,10 @@ Grouped — all in `BEHAVIORS`:
 
 The single source for when a human must respond. A spoken/typed command runs end-to-end
 **without** secondary permission/confirmation prompts. Human interaction is required ONLY for
-(a) a **choice/option** the assistant offers, or (b) **moving/deleting the user's files**.
+(a) a **choice/option** the assistant offers, (b) **moving/deleting the user's files**, and
+(c) any **outbound action on an EXTERNAL site** — **submitting** a form/application, or the
+**initial authorization** to have the assistant complete tasks on external sites (auto-apply,
+acting off-app) — which keep their explicit confirm + P116 scope grant.
 Everything else — navigate, read/read-along, focus, search, refresh, status, and **reversible
 edits** (apply + Undo, `undo_over_confirm`) — just runs. Prompts never stack or overlap. A **new
 command that arrives mid-task preempts the current one immediately** (`interrupt_supersedes_immediately`)

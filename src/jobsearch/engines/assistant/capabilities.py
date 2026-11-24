@@ -229,7 +229,15 @@ SURFACE: dict[str, Any] = {
     # or overlap (at most one at a time), and a running spoken command is never interrupted
     # mid-flow by a routine confirm. This is the single source for when a human must respond.
     "confirm_policy": {
-        "require_human_only_for": ["offering_a_choice_or_option", "file_move", "file_delete"],
+        # Human permission is REQUIRED for these — the no-secondary-prompts rule never
+        # suppresses them. Besides a choice/option and file move/delete, this includes any
+        # OUTBOUND action on an EXTERNAL (third-party) site: SUBMITTING a form/application, and
+        # the INITIAL authorization/consent to have the assistant complete tasks on external
+        # sites (auto-apply, acting on the user's behalf off-app). These keep their explicit
+        # consent (the P116 automation-scope grant + a per-submit confirm) — they are NOT a
+        # routine in-app action.
+        "require_human_only_for": ["offering_a_choice_or_option", "file_move", "file_delete",
+                                   "submit_on_external_site", "authorize_task_on_external_site"],
         "no_prompt_for": ["navigate", "read", "read_along", "focus", "highlight", "search",
                           "refresh", "status", "reversible_edit", "apply_with_undo",
                           "interrupt_with_new_command"],

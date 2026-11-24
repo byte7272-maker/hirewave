@@ -9811,11 +9811,13 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 
 ## P332 — ⚠ SINGLE PURPOSE: a command runs without secondary permission/confirmation prompts
 
-**Do only this. Change nothing else.** When the user gives the assistant a command (spoken or typed), run it to completion **without** popping a mid-flow confirmation or per-action permission prompt. Navigate, read/read-along, focus/highlight, search, refresh, status, and **reversible document edits** all just run — a reversible edit **applies and offers Undo**, it does not ask first (backend `surface.confirm_policy`, `undo_over_confirm`). A human is asked **only** for (a) a choice/option the assistant offers, or (b) moving/deleting the user's files. Do not raise a second per-action consent after the user already said "yes" to an offer (`offer_yes_executes`).
+**Do only this. Change nothing else.** When the user gives the assistant a command (spoken or typed), run it to completion **without** popping a mid-flow confirmation or per-action permission prompt. Navigate, read/read-along, focus/highlight, search, refresh, status, and **reversible document edits** all just run — a reversible edit **applies and offers Undo**, it does not ask first (backend `surface.confirm_policy`, `undo_over_confirm`). A human is asked **only** for the cases in `require_human_only_for`: (a) a choice/option the assistant offers, (b) moving/deleting the user's files, and (c) any **outbound action on an EXTERNAL site** — **submitting** a form/application on a third-party site, and the **initial authorization** to have the assistant complete tasks on external sites (auto-apply, acting on the user's behalf off-app). Do not raise a second per-action consent after the user already said "yes" to an offer (`offer_yes_executes`).
+
+⚠ **Keep the external-site guard.** This prompt removes *routine in-app* prompts only. It must **NOT** remove the permission for submitting on an external site or the initial consent to run external-site tasks — those keep their explicit confirm/scope grant (P116). Never auto-submit an application or act on a third-party site without the user's explicit go-ahead.
 
 ### Acceptance
 - A spoken/typed "read my bullets", "go to matches", "refresh my matches", or a reversible edit runs with **no** confirmation/permission prompt.
-- The user is still asked only for a choice/option, or to move/delete files.
+- The user is still asked for a choice/option, to move/delete files, **and** to submit on an external site or to authorize the assistant to complete tasks on external sites.
 
 ## P333 — ⚠ SINGLE PURPOSE: never stack or overlap prompts
 
