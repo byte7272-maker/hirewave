@@ -9709,3 +9709,15 @@ When the race lands the other way, the user's words are captured by the session 
 - From Matches (or Home, or anywhere), "read my bullets" / "read my bullet points" / "read my resume bullets" opens the résumé and starts reading the bullets — the URL does **not** become `/dashboard/autoapply`.
 - Already on the résumé, the same command reads the bullets in place without navigating away.
 - "Go to auto apply" still goes to Auto-apply; "read my bullets" never does.
+
+## P327 — ⚠ SINGLE PURPOSE: handle the new `connect_expert` intent as an info-only "coming soon" — never navigate
+
+**Do only this. Change nothing else.** The backend now returns a NEW intent **`connect_expert`** (confidence ~0.85) when the user asks to reach a human expert — e.g. "put me in front of a recruiter", "talk to a hiring manager for advice", "have an expert review my resume", "connect me with an HR professional". This is a **future feature** (external partners — recruiters, HR professionals, hiring managers — for advice or content), not live yet. The response carries a self-contained `reply` ("Getting you expert help is coming soon — …"). Make sure the frontend handles this intent explicitly so it doesn't fall through its intent switch and mis-navigate (the way `read_bullets` once did).
+
+1. **Speak/show the reply; take no navigation.** On intent `connect_expert`, display and (if audio is on) speak the backend `reply` as a normal assistant message. Do **NOT** navigate to any page, open any workbench, or start any flow. Staying on the current page is correct.
+2. **Present it as "coming soon."** Render it as a friendly coming-soon note — a short card/toast is fine — naming what's planned: connecting with **recruiters, HR professionals, and hiring managers** for advice and content. Optionally offer a "Notify me when it's ready" affordance, but do not collect anything or call any endpoint for it yet.
+3. **Never treat it as a failure.** It is a recognized intent, not an "I couldn't understand" — do **not** show the "couldn't make sense of it / search the web?" offer for it.
+
+### Acceptance
+- "Put me in front of a recruiter" / "have an expert review my resume" shows the coming-soon message and the URL does **not** change.
+- It reads as a planned feature (recruiters / HR pros / hiring managers for advice & content), not an error or a dead end.
