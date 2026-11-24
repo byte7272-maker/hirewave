@@ -210,7 +210,15 @@ SURFACE: dict[str, Any] = {
         "tap_asks_what_to_do": True,  # and the assistant asks what you'd like to do
         "wake_prompt": "What would you like to do?",
         "hold_arms_mic": True,        # a separate gesture; it does not replace tap-to-open
-        "never": ["tap_to_voice_only_waiting", "no_type_box_after_tap", "silent_open"],
+        # A SINGLE tap opens the pane + type box even when the assistant is SPEAKING or a
+        # yes/no OFFER is pending — the offer must not hijack the tap into a voice-only
+        # waiting state; it renders INSIDE the opened pane with its own buttons/input. One
+        # tap is enough (no double-tap), and it is never consumed as the answer to a pending
+        # offer. (P336)
+        "tap_opens_even_when_busy": True,
+        "single_tap_opens": True,
+        "never": ["tap_to_voice_only_waiting", "no_type_box_after_tap", "silent_open",
+                  "tap_consumed_by_pending_offer", "needs_double_tap", "tap_waits_when_busy"],
     },
     # EVERY place the assistant presents something for the user to respond to — a question, a
     # finding, an option, or a pending action — carries an inline, editable input right there,

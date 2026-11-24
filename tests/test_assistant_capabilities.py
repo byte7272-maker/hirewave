@@ -84,6 +84,9 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert badge["tap_wakes"] and badge["tap_asks_what_to_do"] and badge["wake_prompt"]
     assert badge["tap_opens_pane"] and badge["tap_shows_type_box"]
     assert "tap_to_voice_only_waiting" in badge["never"] and "no_type_box_after_tap" in badge["never"]
+    # a single tap opens even while speaking / with an offer pending — the offer can't hijack it
+    assert badge["single_tap_opens"] and badge["tap_opens_even_when_busy"]
+    assert {"tap_consumed_by_pending_offer", "needs_double_tap"} <= set(badge["never"])
     # a reversible résumé edit action does not carry a confirm
     docs = caps.for_section("documents")
     edits = [a for a in docs["actions"] if a["verb"] == "change"]

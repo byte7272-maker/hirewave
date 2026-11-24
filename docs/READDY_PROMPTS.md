@@ -9841,14 +9841,19 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 ### Acceptance
 - "Read my bullets" reads the résumé bullets aloud with highlight + pointer; it does **not** open the Work Highlights drag-in surface, and nothing needs to be dismissed to start.
 
-## P336 — ⚠ SINGLE PURPOSE: a single badge tap opens the pane WITH the type box and asks what to do
+## P336 — ⚠ SINGLE PURPOSE: a single badge tap opens the pane WITH the type box — even while speaking or with an offer pending
 
-**Do only this. Change nothing else.** A single **tap** on the badge **wakes** the assistant and must do BOTH (backend `surface.badge`): (1) **open the full right-pane console with the pinned-top TYPE BOX visible and ready to type** (`tap_opens_pane`, `tap_shows_type_box`) — a tap must **NOT** drop into a mute, voice-only "hold the pill to talk" waiting state with no way to type (`never: tap_to_voice_only_waiting`, `no_type_box_after_tap`); and (2) have the assistant **ask "What would you like to do?"** (`wake_prompt`) — speak it (if sound is on) and show it. Press-and-**hold** is a **separate** gesture that arms the mic for press-to-talk; it does not replace tap-to-open, and typing stays reachable without holding.
+**Do only this. Change nothing else.** **Confirmed bug:** right now a single tap on the badge drops to a voice-only "The assistant is waiting for you. Hold the pill to talk." state with **no type box** — the user has to double-tap to get the typing console. The cause: when the assistant is **speaking** or a yes/no **offer is pending** (which it almost always is right after arrival), the tap is consumed as "wait / answer the offer" instead of opening the console. Fix exactly that.
+
+1. **A SINGLE tap ALWAYS opens the full right-pane console with the pinned-top TYPE BOX ready** (`surface.badge.single_tap_opens`, `tap_opens_pane`, `tap_shows_type_box`) — one tap, never a double-tap (`never: needs_double_tap`).
+2. **A pending offer must NOT hijack the tap.** When the assistant is **speaking** or a yes/no offer is pending, the tap still opens the console (`tap_opens_even_when_busy`); the offer renders **inside** the opened pane with its own Yes/No buttons + editable input. The tap is **never** consumed as the answer to the offer and **never** leaves a mute "hold the pill to talk" state (`never: tap_consumed_by_pending_offer`, `tap_to_voice_only_waiting`, `tap_waits_when_busy`, `no_type_box_after_tap`).
+3. **On that open, ask "What would you like to do?"** (`wake_prompt`) — speak it (if sound is on) and show it; the type box is focused and ready.
+4. **Hold is separate.** Press-and-**hold** arms the mic for press-to-talk; it does not replace tap-to-open, and typing stays reachable without holding.
 
 ### Acceptance
-- One tap on the badge opens the pane with the type box ready **and** the assistant asks "What would you like to do?".
-- After a tap the user can immediately type; it never becomes a voice-only "hold the pill to talk" state.
-- Press-and-hold still arms the mic.
+- From a fresh page load (assistant still speaking its brief, "talk you through one?" offer pending), **one** tap opens the pane with the **type box ready** — not the "hold the pill to talk" waiting state, and not needing a second tap.
+- The pending offer shows inside the opened pane (Yes/No + input); the tap did not answer it.
+- The assistant asks "What would you like to do?"; the user can type immediately. Press-and-hold still arms the mic.
 
 ## P337 — ⚠ SINGLE PURPOSE: enabling web research (permissions + checkboxes) is a setup-wizard step the assistant fully walks
 
