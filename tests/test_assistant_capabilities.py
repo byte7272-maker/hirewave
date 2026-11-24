@@ -65,6 +65,10 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert pol["require_human_only_for"] == ["offering_a_choice_or_option", "file_move", "file_delete"]
     assert pol["no_stacked_prompts"] and pol["voice_flow"] == "uninterrupted"
     assert "reversible_edit" in pol["no_prompt_for"] and "navigate" in pol["no_prompt_for"]
+    # a new command mid-task preempts immediately — no pause-and-confirm, no "saving your place"
+    assert pol["interrupt_supersedes_immediately"]
+    assert {"confirm_before_switching_task", "announce_saving_place", "pause_prompt_on_interrupt"} \
+        <= set(m["surface"]["never"])
     # a reversible résumé edit action does not carry a confirm
     docs = caps.for_section("documents")
     edits = [a for a in docs["actions"] if a["verb"] == "change"]

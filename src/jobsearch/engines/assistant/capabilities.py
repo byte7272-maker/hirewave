@@ -216,11 +216,18 @@ SURFACE: dict[str, Any] = {
     "confirm_policy": {
         "require_human_only_for": ["offering_a_choice_or_option", "file_move", "file_delete"],
         "no_prompt_for": ["navigate", "read", "read_along", "focus", "highlight", "search",
-                          "refresh", "status", "reversible_edit", "apply_with_undo"],
+                          "refresh", "status", "reversible_edit", "apply_with_undo",
+                          "interrupt_with_new_command"],
         "reversible_edits": "apply_with_undo",
         "no_secondary_confirms_during_command": True,
         "no_stacked_prompts": True,
         "voice_flow": "uninterrupted",
+        # A NEW command that arrives mid-task preempts the current one IMMEDIATELY and runs at
+        # a conversational pace — no "pause this and do X instead?" confirm, and no spoken
+        # "I'll save your place" narration. If returning is useful, leave a quiet, optional
+        # resume affordance (a chip) — never a blocking prompt or a spoken explanation.
+        "interrupt_supersedes_immediately": True,
+        "resume_affordance": "silent_optional",
     },
     # Voice input shows a LIVE audio-stream meter while listening, driven by the real mic
     # analyser (the app already builds a MediaStreamSource -> AnalyserNode on each hold) —
@@ -252,9 +259,12 @@ SURFACE: dict[str, Any] = {
               "confined_inline_box", "box_next_to_badge", "different_surface_per_page",
               "readonly_finding", "uneditable_pending_action", "prompt_without_input",
               "apply_without_edit_option", "double_confirm_offer", "second_consent_after_yes",
-              # P331: no routine gating during a command, no stacked/overlapping prompts.
+              # P331: no routine gating during a command, no stacked/overlapping prompts, and
+              # a new command preempts the current task immediately (no "pause and do X
+              # instead?" confirm, no spoken "I'll save your place").
               "stacked_prompts", "overlapping_prompts", "secondary_confirm_during_command",
-              "confirm_reversible_edit", "interrupt_running_command", "permission_prompt_for_read_or_nav"],
+              "confirm_reversible_edit", "permission_prompt_for_read_or_nav",
+              "confirm_before_switching_task", "announce_saving_place", "pause_prompt_on_interrupt"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a

@@ -9779,7 +9779,7 @@ When the race lands the other way, the user's words are captured by the session 
 
 ## P331 — ⚠ let a spoken command RUN: no secondary permission prompts, no stacked prompts; and "read my bullets" reads (never the drag surface)
 
-**Do only this. Change nothing else.** Two confirmed problems when the user speaks to the assistant: (1) **"read my bullets" lands on the Work Highlights "drag info in" surface** (the right-pane numbered bullets) instead of reading the bullets aloud; and (2) the assistant keeps getting **stopped by confirmation/permission prompts in the right pane — several overlapping** — that need the user to dismiss them before it can continue. The backend now states the policy (see `GET /assistant/capabilities` → `behaviors` `uninterrupted_voice_flow` + `no_stacked_prompts`, and `surface.confirm_policy`). Make the client obey it.
+**Do only this. Change nothing else.** Three confirmed over-permission problems when the user speaks to the assistant: (1) the assistant keeps getting **stopped by confirmation/permission prompts in the right pane — several overlapping** — that must be dismissed before it continues; (2) **interrupting with a new command** triggers a manual "pause this and do X instead?" confirm plus a spoken "I'll save your place" explanation, instead of just moving on; and (3) **"read my bullets" lands on the Work Highlights "drag info in" surface** (the right-pane numbered bullets) instead of reading aloud. The backend now states the policy (see `GET /assistant/capabilities` → `behaviors` `uninterrupted_voice_flow` + `no_stacked_prompts`, and `surface.confirm_policy`). Make the client obey it.
 
 ### A. A spoken/typed command runs end-to-end — stop the secondary prompts
 A human response is required **ONLY** for: (a) a **choice or option** the assistant is offering (the user picks one), or (b) **moving or deleting the user's files**. Nothing else prompts.
@@ -9788,10 +9788,14 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 3. **Never stack prompts.** At most **one** prompt is shown at a time; prompts never overlap, and dismissing one must not reveal a queue behind it. A running command is never interrupted by a routine confirm. If something truly needs the user (per the rule above), show exactly one, inline in the right pane, with its editable input.
 4. **Test mode is not a prompt source.** The "Simulated — nothing is sent / needs your approval" test-mode notices must not block or stack over the assistant's flow; keep them out of the command path.
 
-### B. "read my bullets" READS — it does not open the drag surface
-5. On intent **`read_bullets`** (spoken or typed), start the **read-along of the résumé's bullets** (P326 + P315/P316): open/focus the résumé, then read each bullet in order with the word-highlight + pointer. Do **NOT** land on the **Work Highlights "drag info in" surface** or the bare numbered-bullets workbench and stop. If the résumé isn't open yet, open it first, then read. Reading must begin on its own — no permission prompt gating it (see A).
+### B. Interrupting with a new command → switch immediately, at a conversational pace
+5. When the user says a **new command while the assistant is mid-task** (e.g. during a walkthrough or a read-along), **preempt the current task immediately and do the new thing** (`surface.confirm_policy.interrupt_supersedes_immediately`). Do **NOT** pop a "Pause the walkthrough and handle X instead? / Yes, pause it / Not now" confirm, and do **NOT** speak a "I'll save your place / the chip brings you back to this step" explanation. Just switch and keep moving. If returning is useful, leave a **quiet, optional** "Resume" chip — never a blocking prompt and never narrated. The new command runs at once; no ceremony.
+
+### C. "read my bullets" READS — it does not open the drag surface
+6. On intent **`read_bullets`** (spoken or typed), start the **read-along of the résumé's bullets** (P326 + P315/P316): open/focus the résumé, then read each bullet in order with the word-highlight + pointer. Do **NOT** land on the **Work Highlights "drag info in" surface** or the bare numbered-bullets workbench and stop. If the résumé isn't open yet, open it first, then read. Reading must begin on its own — no permission prompt gating it (see A).
 
 ### Acceptance
 - Saying "read my bullets" starts reading the résumé bullets aloud (highlight + pointer); it does **not** land on the Work Highlights drag-in surface, and no permission prompt is needed to start.
 - A spoken command (read, navigate, refresh, a reversible edit) runs start-to-finish with **no** secondary confirmation/permission prompt and **no** stacked/overlapping prompts.
+- Interrupting with a new command switches to it **immediately** — no "pause and do X instead?" confirm and no spoken "saving your place"; a quiet optional Resume chip is fine.
 - The user is still asked when the assistant offers a **choice/option**, or when **moving/deleting files** — and only one prompt shows at a time.

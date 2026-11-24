@@ -114,8 +114,10 @@ The single source for when a human must respond. A spoken/typed command runs end
 **without** secondary permission/confirmation prompts. Human interaction is required ONLY for
 (a) a **choice/option** the assistant offers, or (b) **moving/deleting the user's files**.
 Everything else — navigate, read/read-along, focus, search, refresh, status, and **reversible
-edits** (apply + Undo, `undo_over_confirm`) — just runs. Prompts never stack or overlap, and a
-running command is never interrupted mid-flow. Accordingly `DESTRUCTIVE_VERBS = {"remove"}` only
+edits** (apply + Undo, `undo_over_confirm`) — just runs. Prompts never stack or overlap. A **new
+command that arrives mid-task preempts the current one immediately** (`interrupt_supersedes_immediately`)
+at a conversational pace — no "pause and do X instead?" confirm and no spoken "saving your place";
+a quiet optional Resume chip is fine. Accordingly `DESTRUCTIVE_VERBS = {"remove"}` only
 (an edit/`change` is reversible, so it no longer auto-confirms); a genuinely irreversible action
 still sets `destructive=True`/a `confirm` string explicitly.
 
