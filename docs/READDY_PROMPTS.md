@@ -9794,12 +9794,15 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 ### C. "read my bullets" READS — it does not open the drag surface
 6. On intent **`read_bullets`** (spoken or typed), start the **read-along of the résumé's bullets** (P326 + P315/P316): open/focus the résumé, then read each bullet in order with the word-highlight + pointer. Do **NOT** land on the **Work Highlights "drag info in" surface** or the bare numbered-bullets workbench and stop. If the résumé isn't open yet, open it first, then read. Reading must begin on its own — no permission prompt gating it (see A).
 
-### D. A single badge press WAKES the assistant and it asks what to do
-7. A single **tap/press** on the badge **wakes** the assistant (`surface.badge`): open the right pane **and** have the assistant respond, asking **"What would you like to do?"** (ready to listen/type) — a tap is not a silent open that just shows the pane. Press-and-**hold** still arms the mic (press-to-talk, unchanged). The wake greeting is brief and conversational; if the assistant was mid-task, waking it doesn't nuke that — it just surfaces and offers to help.
+### D. A single badge press WAKES the assistant — opens the pane WITH the type box AND asks what to do
+7. A single **tap/press** on the badge **wakes** the assistant (`surface.badge`). On a tap it must do BOTH:
+   - **Open the full right-pane console with the pinned-top TYPE BOX visible and ready** (`tap_opens_pane`, `tap_shows_type_box`) — the user can immediately **type** a request. A tap must **NOT** drop into a mute, voice-only "hold the pill to talk" waiting state with no way to type (`never: tap_to_voice_only_waiting / no_type_box_after_tap`). That is a regression — do not do it.
+   - **Have the assistant ask "What would you like to do?"** (`tap_asks_what_to_do`, `wake_prompt`) — speak it (if sound is on) and show it; a tap is not a silent open.
+   Press-and-**hold** is a **separate** gesture that additionally arms the mic for press-to-talk — it does **not** replace tap-to-open, and typing must stay reachable without holding. The wake greeting is brief and conversational; if the assistant was mid-task, waking it doesn't nuke that — it surfaces, asks, and leaves both type and talk available.
 
 ### Acceptance
 - Saying "read my bullets" starts reading the résumé bullets aloud (highlight + pointer); it does **not** land on the Work Highlights drag-in surface, and no permission prompt is needed to start.
 - A spoken command (read, navigate, refresh, a reversible edit) runs start-to-finish with **no** secondary confirmation/permission prompt and **no** stacked/overlapping prompts.
 - Interrupting with a new command switches to it **immediately** — no "pause and do X instead?" confirm and no spoken "saving your place"; a quiet optional Resume chip is fine.
-- A single badge tap **wakes** the assistant and it asks "What would you like to do?" (not a silent pane open); press-and-hold still arms the mic.
+- A single badge tap **wakes** the assistant: the pane opens **with the type box ready to type** AND the assistant asks "What would you like to do?" — it does **not** drop into a voice-only "hold the pill to talk" state. Press-and-hold additionally arms the mic.
 - The user is still asked when the assistant offers a **choice/option**, or when **moving/deleting files** — and only one prompt shows at a time.

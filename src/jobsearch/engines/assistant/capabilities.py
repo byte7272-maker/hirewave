@@ -190,14 +190,20 @@ SURFACE: dict[str, Any] = {
     # a cramped inline box next to the badge.
     "consistent_across_pages": True,
     "badge_opens": "right_pane",
-    # A single tap/press on the badge WAKES the assistant: it opens the right pane AND the
-    # assistant responds, asking what the user would like to do (ready to listen/type) — a
-    # tap is not a silent open. Press-and-hold still arms the mic (press-to-talk). (P331)
+    # A single tap/press on the badge WAKES the assistant: it OPENS the right-pane console
+    # with the pinned-top TYPE BOX available AND the assistant asks what the user would like
+    # to do (ready to BOTH type and talk). A tap must NOT drop into a mute, voice-only
+    # "hold the pill to talk" waiting state with no way to type — that is a regression. The
+    # typed path stays reachable after a tap; press-and-HOLD additionally arms the mic
+    # (press-to-talk). (P331)
     "badge": {
         "tap_wakes": True,
-        "tap_asks_what_to_do": True,
+        "tap_opens_pane": True,       # the full right-pane console opens on a tap
+        "tap_shows_type_box": True,   # with the pinned-top input ready to type
+        "tap_asks_what_to_do": True,  # and the assistant asks what you'd like to do
         "wake_prompt": "What would you like to do?",
-        "hold_arms_mic": True,
+        "hold_arms_mic": True,        # a separate gesture; it does not replace tap-to-open
+        "never": ["tap_to_voice_only_waiting", "no_type_box_after_tap", "silent_open"],
     },
     # EVERY place the assistant presents something for the user to respond to — a question, a
     # finding, an option, or a pending action — carries an inline, editable input right there,
