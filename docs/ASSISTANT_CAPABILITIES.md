@@ -105,7 +105,19 @@ Grouped — all in `BEHAVIORS`:
   `analyze_bullets`, `refresh_stale_metrics`, `understand_summary`, `keep_summary_fresh`,
   `review_whole_document`.
 - **Newest:** `observe_user_actions` (P328 — aware of direct user actions), `advise_growth`
-  (P330 — strengthen the résumé + skillset).
+  (P330 — strengthen the résumé + skillset), `uninterrupted_voice_flow` + `no_stacked_prompts`
+  (P331 — a spoken command runs without secondary permission prompts and prompts never stack).
+
+### Confirmation policy (`surface.confirm_policy`, P331)
+
+The single source for when a human must respond. A spoken/typed command runs end-to-end
+**without** secondary permission/confirmation prompts. Human interaction is required ONLY for
+(a) a **choice/option** the assistant offers, or (b) **moving/deleting the user's files**.
+Everything else — navigate, read/read-along, focus, search, refresh, status, and **reversible
+edits** (apply + Undo, `undo_over_confirm`) — just runs. Prompts never stack or overlap, and a
+running command is never interrupted mid-flow. Accordingly `DESTRUCTIVE_VERBS = {"remove"}` only
+(an edit/`change` is reversible, so it no longer auto-confirms); a genuinely irreversible action
+still sets `destructive=True`/a `confirm` string explicitly.
 
 ## Division of labor
 

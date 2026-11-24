@@ -48,12 +48,27 @@ def test_every_section_has_an_arrival_brief():
 
 
 def test_destructive_is_derived_from_the_verb():
-    # remove/change actions auto-confirm; show/connect/walk don't — no per-action flagging.
-    assert caps.is_destructive("remove") and caps.is_destructive("change")
+    # Only removal/deletion auto-confirms. An edit ('change') is reversible -> no confirm
+    # (P331); show/connect/walk don't confirm either.
+    assert caps.is_destructive("remove")
+    assert not caps.is_destructive("change")
     assert not caps.is_destructive("show") and not caps.is_destructive("walk")
     connect = caps.for_section("connect")
     remove = next(a for a in connect["actions"] if a["verb"] == "remove")
     assert remove["destructive"] and remove["confirm"]
+
+
+def test_confirm_policy_and_uninterrupted_voice():
+    m = caps.manifest()
+    assert "uninterrupted_voice_flow" in m["behaviors"] and "no_stacked_prompts" in m["behaviors"]
+    pol = m["surface"]["confirm_policy"]
+    assert pol["require_human_only_for"] == ["offering_a_choice_or_option", "file_move", "file_delete"]
+    assert pol["no_stacked_prompts"] and pol["voice_flow"] == "uninterrupted"
+    assert "reversible_edit" in pol["no_prompt_for"] and "navigate" in pol["no_prompt_for"]
+    # a reversible résumé edit action does not carry a confirm
+    docs = caps.for_section("documents")
+    edits = [a for a in docs["actions"] if a["verb"] == "change"]
+    assert edits and not any(a["destructive"] or a["confirm"] for a in edits)
 
 
 def test_section_aliases_come_from_the_nlu():

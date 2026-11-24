@@ -14,9 +14,12 @@ they are all instances of the SAME small set of generic behaviors:
                          releasing it submits the spoken answer and auto-runs on an
                          affirmed/valid answer; once answered, clear the offer + release
                          the mic permission (no re-fire)
-  * confirm-destructive— only a truly IRREVERSIBLE action (permanent delete, send, connect/
-                         disconnect an account) confirms. A reversible edit does NOT prompt —
-                         see undo-over-confirm
+  * confirm-destructive— a human is asked ONLY for a CHOICE/OPTION the assistant offers, or
+                         for MOVING/DELETING the user's files (P331). A reversible edit does
+                         NOT prompt (see undo-over-confirm); navigating, reading, focusing,
+                         searching and refreshing never prompt. During a spoken/typed command
+                         no secondary permission prompt is raised, and prompts never stack —
+                         see SURFACE.confirm_policy
   * undo-over-confirm  — for anything the app can undo/restore (every document edit saves a
                          version), APPLY it and offer a one-tap Undo instead of asking first.
                          Fewer prompts; the same safety, via easy undo. Apply this everywhere
@@ -153,6 +156,17 @@ BEHAVIORS = [
     # (strengthen_resume intent → POST /resumes/{id}/strengthen). Forward-looking growth,
     # distinct from review_document (fixing the writing of the existing résumé).
     "advise_growth",
+    # uninterrupted voice flow (P331): when the user speaks (or types) a command, the
+    # assistant runs it end-to-end WITHOUT raising secondary manual permission/confirmation
+    # prompts. A human response is required ONLY when the assistant is offering a CHOICE or
+    # OPTION, or when MOVING/DELETING the user's files. Everything else — navigate, read,
+    # focus, search, refresh, and reversible document edits (apply + Undo) — just runs. See
+    # SURFACE.confirm_policy.
+    "uninterrupted_voice_flow",
+    # never stack prompts (P331): at most one prompt is shown at a time; prompts never
+    # overlap, and a running (spoken) command is never interrupted mid-flow by a routine
+    # confirm. Exiting one prompt must not reveal a queue of more.
+    "no_stacked_prompts",
 ]
 
 #: WHERE the assistant lives and renders — a declarative layout contract so the client
@@ -191,6 +205,23 @@ SURFACE: dict[str, Any] = {
     # does NOT pop a second per-action consent ("Yes, search") that makes the user answer
     # twice. One yes runs it (for a non-destructive action like a web search). "No" declines.
     "offer_yes_executes": True,
+    # CONFIRMATION POLICY (P331). A spoken/typed command runs end-to-end WITHOUT raising
+    # secondary manual permission or confirmation prompts. Human interaction is required
+    # ONLY for: (a) a CHOICE or OPTION the assistant is offering (the user picks), or
+    # (b) MOVING or DELETING the user's files. Everything else runs without a prompt —
+    # navigate, read/read-along, focus/highlight, search, refresh, status, and REVERSIBLE
+    # document edits (which apply and offer Undo; see undo_over_confirm). Prompts never stack
+    # or overlap (at most one at a time), and a running spoken command is never interrupted
+    # mid-flow by a routine confirm. This is the single source for when a human must respond.
+    "confirm_policy": {
+        "require_human_only_for": ["offering_a_choice_or_option", "file_move", "file_delete"],
+        "no_prompt_for": ["navigate", "read", "read_along", "focus", "highlight", "search",
+                          "refresh", "status", "reversible_edit", "apply_with_undo"],
+        "reversible_edits": "apply_with_undo",
+        "no_secondary_confirms_during_command": True,
+        "no_stacked_prompts": True,
+        "voice_flow": "uninterrupted",
+    },
     # Voice input shows a LIVE audio-stream meter while listening, driven by the real mic
     # analyser (the app already builds a MediaStreamSource -> AnalyserNode on each hold) —
     # a requestAnimationFrame loop reads the analyser and animates the level, so the user
@@ -220,7 +251,10 @@ SURFACE: dict[str, Any] = {
               "hidden_input", "input_below_fold", "click_to_summon_input", "duplicate_functions",
               "confined_inline_box", "box_next_to_badge", "different_surface_per_page",
               "readonly_finding", "uneditable_pending_action", "prompt_without_input",
-              "apply_without_edit_option", "double_confirm_offer", "second_consent_after_yes"],
+              "apply_without_edit_option", "double_confirm_offer", "second_consent_after_yes",
+              # P331: no routine gating during a command, no stacked/overlapping prompts.
+              "stacked_prompts", "overlapping_prompts", "secondary_confirm_during_command",
+              "confirm_reversible_edit", "interrupt_running_command", "permission_prompt_for_read_or_nav"],
 }
 
 #: Canonical action verbs and their spoken synonyms. A feature's actions reference a
@@ -239,9 +273,12 @@ VERBS: dict[str, list[str]] = {
     "apply": ["apply", "submit application", "fill this application"],
 }
 
-#: Verbs whose actions change or destroy data — the client must confirm before running
-#: (P180). Used generically: any action built from one of these is destructive.
-DESTRUCTIVE_VERBS = {"remove", "change"}
+#: Verbs whose actions must confirm before running — only REMOVAL/DELETION (delete,
+#: disconnect, unlink, revoke). A `change`/edit is NOT here: edits are reversible and apply
+#: with Undo (undo_over_confirm), so they must not pop a routine confirm (P331). An action
+#: that is genuinely irreversible can still set `destructive=True` / a `confirm` string
+#: explicitly. See SURFACE.confirm_policy for the full rule (choices + file move/delete only).
+DESTRUCTIVE_VERBS = {"remove"}
 
 #: Action awareness (P328). When the user clicks a page control THEMSELVES — not via the
 #: assistant — the client reports it (POST /assistant/observe {action,label}) and the
@@ -483,7 +520,8 @@ def _action(label: str, verb: str, objects: list[str], intent: str,
             slots: Optional[dict] = None, *, destructive: Optional[bool] = None,
             confirm: str = "") -> dict[str, Any]:
     """One action a feature exposes. ``destructive`` defaults from the verb class, so a
-    'remove'/'change' action auto-confirms unless explicitly overridden."""
+    'remove'/delete action auto-confirms unless explicitly overridden; an edit ('change')
+    does not (it applies with Undo). Set ``destructive=True`` for a genuinely irreversible one."""
     dest = DESTRUCTIVE_VERBS.intersection({verb}) != set() if destructive is None else destructive
     return {
         "label": label, "verb": verb, "objects": objects,

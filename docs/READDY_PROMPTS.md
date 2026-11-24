@@ -9776,3 +9776,22 @@ When the race lands the other way, the user's words are captured by the session 
 - "What certifications should I get" / "what skills do I need to become a data scientist" shows a grouped growth plan (skills, **certifications**, **education**, …) — not a writing-fix review and not a web-search dead-end.
 - Naming a role/goal (or having a job open) makes the advice target-specific (`is_targeted` true, `for_target` items shown); with none it's general.
 - "What should I fix on my résumé" still opens the writing review.
+
+## P331 — ⚠ let a spoken command RUN: no secondary permission prompts, no stacked prompts; and "read my bullets" reads (never the drag surface)
+
+**Do only this. Change nothing else.** Two confirmed problems when the user speaks to the assistant: (1) **"read my bullets" lands on the Work Highlights "drag info in" surface** (the right-pane numbered bullets) instead of reading the bullets aloud; and (2) the assistant keeps getting **stopped by confirmation/permission prompts in the right pane — several overlapping** — that need the user to dismiss them before it can continue. The backend now states the policy (see `GET /assistant/capabilities` → `behaviors` `uninterrupted_voice_flow` + `no_stacked_prompts`, and `surface.confirm_policy`). Make the client obey it.
+
+### A. A spoken/typed command runs end-to-end — stop the secondary prompts
+A human response is required **ONLY** for: (a) a **choice or option** the assistant is offering (the user picks one), or (b) **moving or deleting the user's files**. Nothing else prompts.
+1. **No secondary permission/confirmation prompts during a command.** When the user speaks (or types) a command, run it to completion without raising a mid-flow confirm or a per-action permission prompt. Navigating, reading/read-along, focusing/highlighting, searching, refreshing, status, and **reversible document edits** all just run. A reversible edit **applies and offers Undo** (`undo_over_confirm`) — it must not ask first.
+2. **Confirm ONLY for file move/delete and genuine choices.** Keep a confirm for permanently **moving or deleting the user's files** (and for an actual removal/disconnect). A yes/no **offer** the assistant itself raised is the choice — don't then pop a *second* per-action consent on "yes" (`offer_yes_executes`, no `second_consent_after_yes`).
+3. **Never stack prompts.** At most **one** prompt is shown at a time; prompts never overlap, and dismissing one must not reveal a queue behind it. A running command is never interrupted by a routine confirm. If something truly needs the user (per the rule above), show exactly one, inline in the right pane, with its editable input.
+4. **Test mode is not a prompt source.** The "Simulated — nothing is sent / needs your approval" test-mode notices must not block or stack over the assistant's flow; keep them out of the command path.
+
+### B. "read my bullets" READS — it does not open the drag surface
+5. On intent **`read_bullets`** (spoken or typed), start the **read-along of the résumé's bullets** (P326 + P315/P316): open/focus the résumé, then read each bullet in order with the word-highlight + pointer. Do **NOT** land on the **Work Highlights "drag info in" surface** or the bare numbered-bullets workbench and stop. If the résumé isn't open yet, open it first, then read. Reading must begin on its own — no permission prompt gating it (see A).
+
+### Acceptance
+- Saying "read my bullets" starts reading the résumé bullets aloud (highlight + pointer); it does **not** land on the Work Highlights drag-in surface, and no permission prompt is needed to start.
+- A spoken command (read, navigate, refresh, a reversible edit) runs start-to-finish with **no** secondary confirmation/permission prompt and **no** stacked/overlapping prompts.
+- The user is still asked when the assistant offers a **choice/option**, or when **moving/deleting files** — and only one prompt shows at a time.
