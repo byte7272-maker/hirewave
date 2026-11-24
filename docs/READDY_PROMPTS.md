@@ -9806,3 +9806,44 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 - Interrupting with a new command switches to it **immediately** — no "pause and do X instead?" confirm and no spoken "saving your place"; a quiet optional Resume chip is fine.
 - A single badge tap **wakes** the assistant: the pane opens **with the type box ready to type** AND the assistant asks "What would you like to do?" — it does **not** drop into a voice-only "hold the pill to talk" state. Press-and-hold additionally arms the mic.
 - The user is still asked when the assistant offers a **choice/option**, or when **moving/deleting files** — and only one prompt shows at a time.
+
+> **Note:** P331 is large and Readdy applied it only partially. Use the four single-purpose prompts **P332–P335** below instead — apply and verify them one at a time. Together they fully replace P331.
+
+## P332 — ⚠ SINGLE PURPOSE: a command runs without secondary permission/confirmation prompts
+
+**Do only this. Change nothing else.** When the user gives the assistant a command (spoken or typed), run it to completion **without** popping a mid-flow confirmation or per-action permission prompt. Navigate, read/read-along, focus/highlight, search, refresh, status, and **reversible document edits** all just run — a reversible edit **applies and offers Undo**, it does not ask first (backend `surface.confirm_policy`, `undo_over_confirm`). A human is asked **only** for (a) a choice/option the assistant offers, or (b) moving/deleting the user's files. Do not raise a second per-action consent after the user already said "yes" to an offer (`offer_yes_executes`).
+
+### Acceptance
+- A spoken/typed "read my bullets", "go to matches", "refresh my matches", or a reversible edit runs with **no** confirmation/permission prompt.
+- The user is still asked only for a choice/option, or to move/delete files.
+
+## P333 — ⚠ SINGLE PURPOSE: never stack or overlap prompts
+
+**Do only this. Change nothing else.** At most **one** prompt is shown at a time. Prompts never overlap, and dismissing one must not reveal a queue of more behind it. A running command is never interrupted by a routine confirm. The "Simulated — nothing is sent / needs your approval" test-mode notices must not block or stack over the assistant's flow (keep them out of the command path). If something genuinely needs the user (a choice/option, or a file move/delete), show exactly **one** prompt, inline in the right pane, with its editable input (backend `behaviors` `no_stacked_prompts`; `surface.never` includes `stacked_prompts`, `overlapping_prompts`).
+
+### Acceptance
+- At no point are two prompts visible at once; exiting one does not surface another.
+- Test-mode notices never gate the assistant's flow.
+
+## P334 — ⚠ SINGLE PURPOSE: interrupting with a new command switches immediately (no pause-confirm)
+
+**Do only this. Change nothing else.** When the user says a **new command while the assistant is mid-task** (a walkthrough, a read-along, anything), **switch to the new command immediately** at a conversational pace (`surface.confirm_policy.interrupt_supersedes_immediately`). Do **NOT** pop a "Pause the walkthrough and handle X instead? / Yes, pause it / Not now" confirm, and do **NOT** speak an "I'll save your place / the chip brings you back to this step" explanation. Just switch and keep moving. If returning is useful, leave a **quiet, optional** "Resume" chip — never a blocking prompt, never narrated.
+
+### Acceptance
+- Interrupting a running walkthrough/read-along with a new request does the new thing at once — no confirm, no "saving your place" speech; a silent optional Resume chip is fine.
+
+## P335 — ⚠ SINGLE PURPOSE: "read my bullets" reads the résumé (never the drag surface)
+
+**Do only this. Change nothing else.** On intent **`read_bullets`** (spoken or typed), start the **read-along of the résumé's bullets**: open/focus the résumé, then read each bullet in order with the word-highlight + pointer (as P326 / P315 / P316). Do **NOT** land on the **Work Highlights "drag info in" surface** or the bare numbered-bullets workbench and stop. If the résumé isn't open yet, open it first, then read. Reading begins on its own — no permission prompt gates it.
+
+### Acceptance
+- "Read my bullets" reads the résumé bullets aloud with highlight + pointer; it does **not** open the Work Highlights drag-in surface, and nothing needs to be dismissed to start.
+
+## P336 — ⚠ SINGLE PURPOSE: a single badge tap opens the pane WITH the type box and asks what to do
+
+**Do only this. Change nothing else.** A single **tap** on the badge **wakes** the assistant and must do BOTH (backend `surface.badge`): (1) **open the full right-pane console with the pinned-top TYPE BOX visible and ready to type** (`tap_opens_pane`, `tap_shows_type_box`) — a tap must **NOT** drop into a mute, voice-only "hold the pill to talk" waiting state with no way to type (`never: tap_to_voice_only_waiting`, `no_type_box_after_tap`); and (2) have the assistant **ask "What would you like to do?"** (`wake_prompt`) — speak it (if sound is on) and show it. Press-and-**hold** is a **separate** gesture that arms the mic for press-to-talk; it does not replace tap-to-open, and typing stays reachable without holding.
+
+### Acceptance
+- One tap on the badge opens the pane with the type box ready **and** the assistant asks "What would you like to do?".
+- After a tap the user can immediately type; it never becomes a voice-only "hold the pill to talk" state.
+- Press-and-hold still arms the mic.
