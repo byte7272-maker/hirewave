@@ -1327,6 +1327,23 @@ class InterpretResponse(BaseModel):
     debug: dict = Field(default_factory=dict)
 
 
+class ObserveActionRequest(BaseModel):
+    """The client reports a DIRECT user action — a page control the user clicked themselves,
+    not via the assistant — so the assistant can acknowledge it and offer the next step (P328)."""
+
+    action: str                                   # canonical id or loose name, e.g. "refresh_matches"
+    label: str = ""                               # the control's visible label, for a graceful fallback
+    context: Optional[InterpretContext] = None
+
+
+class ObserveActionResponse(BaseModel):
+    """The assistant's acknowledgement of a direct user action + an optional next-step offer."""
+
+    action: str
+    reply: str
+    offer: dict = Field(default_factory=dict)
+
+
 class SuggestionsOut(BaseModel):
     """Example commands the assistant can suggest for the current screen — all verified
     to be wording it understands."""

@@ -149,6 +149,34 @@ def test_capabilities_endpoint_one_section():
     assert c.get("/api/v1/assistant/capabilities", headers=h, params={"section": "nope"}).status_code == 404
 
 
+def test_observe_action_known_and_alias_and_fallback():
+    # Known action → tailored line (+ a next-step offer where defined).
+    r = caps.observe_action("refresh_matches")
+    assert "refreshing your matches" in r["reply"].lower() and r["offer"]
+    # Loose name mapped via alias.
+    assert caps.observe_action("design")["action"] == "open_design"
+    # Unknown action → graceful generic acknowledgement from the label, never silent.
+    fb = caps.observe_action("frobnicate", label="the Frobnicator")
+    assert "frobnicator" in fb["reply"].lower() and fb["reply"]
+
+
+def test_manifest_advertises_observe_and_behavior():
+    m = caps.manifest()
+    assert "observe_user_actions" in m["behaviors"]
+    assert m["observe"]["endpoint"].endswith("/assistant/observe")
+    assert "refresh_matches" in m["observe"]["actions"]
+
+
+def test_observe_endpoint_acknowledges_a_direct_action():
+    _, c = _app()
+    h = _auth(c)
+    r = c.post("/api/v1/assistant/observe", headers=h,
+               json={"action": "refresh", "label": "Refresh matches"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["action"] == "refresh_matches" and body["reply"]
+
+
 def test_capabilities_requires_auth():
     _, c = _app()
     assert c.get("/api/v1/assistant/capabilities").status_code == 401

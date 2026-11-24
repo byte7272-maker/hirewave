@@ -19,6 +19,8 @@ from jobsearch.api.schemas import (
     InterpretRequest,
     InterpretResponse,
     LiveFillResultOut,
+    ObserveActionRequest,
+    ObserveActionResponse,
     PrepareDraftsOut,
     PrepareDraftsRequest,
     ReasoningRequest,
@@ -83,6 +85,21 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         suggestions=[CommandSuggestion(**s) for s in res.suggestions],
         offer=res.offer,
         debug=getattr(res, "debug", {}) or {},
+    )
+
+
+@router.post("/observe", response_model=ObserveActionResponse)
+def observe(body: ObserveActionRequest, user: CurrentUser, state: StateDep) -> ObserveActionResponse:
+    """Report a DIRECT user action — a page control the user clicked themselves, not through
+    the assistant — so the assistant stays aware of what the user does and can acknowledge it
+    + offer the natural next step (P328). Acknowledgement only; it runs nothing. A known action
+    gets a tailored line (and sometimes a next-step offer); any other gets a graceful generic
+    acknowledgement from ``label`` so the assistant is never a silent bystander."""
+    from jobsearch.engines.assistant.capabilities import observe_action
+
+    out = observe_action(body.action, body.label)
+    return ObserveActionResponse(
+        action=out.get("action", ""), reply=out.get("reply", ""), offer=out.get("offer", {}) or {},
     )
 
 

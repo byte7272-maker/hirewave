@@ -49,6 +49,7 @@ so recognition and guidance never diverge. See ``docs/ASSISTANT_CAPABILITIES.md`
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from jobsearch.engines.assistant.intent import _PLAYBOOKS, _SECTIONS, command_catalog
@@ -139,6 +140,13 @@ BEHAVIORS = [
     # word-highlighting + pointer, marks the option it's on, pauses between them, and lets the
     # user pick or edit each — it never drops a silent list of options the user has to read.
     "narrate_options",
+    # action awareness (P328): the assistant is aware of DIRECT user actions too — when the
+    # user clicks a page control themselves (Design, Refresh matches, New search, Export, …),
+    # the client tells the assistant (POST /assistant/observe {action,label}); the assistant
+    # acknowledges what the user did and offers the natural next step, so it's never a silent
+    # bystander to things the user does without speaking. Known actions get a tailored line; any
+    # other action gets a graceful generic acknowledgement (never nothing).
+    "observe_user_actions",
 ]
 
 #: WHERE the assistant lives and renders — a declarative layout contract so the client
@@ -228,6 +236,71 @@ VERBS: dict[str, list[str]] = {
 #: Verbs whose actions change or destroy data — the client must confirm before running
 #: (P180). Used generically: any action built from one of these is destructive.
 DESTRUCTIVE_VERBS = {"remove", "change"}
+
+#: Action awareness (P328). When the user clicks a page control THEMSELVES — not via the
+#: assistant — the client reports it (POST /assistant/observe {action,label}) and the
+#: assistant acknowledges it + offers the natural next step, so it's never a silent bystander
+#: to what the user does. Each entry: {say, next?} — `say` is the spoken acknowledgement,
+#: `next` (optional) a one-line offer of the natural follow-up. Keys are canonical action
+#: ids the client emits; ``ACTION_ALIASES`` maps looser names onto them.
+ACTION_ACKS: dict[str, dict[str, str]] = {
+    "refresh_matches": {"say": "You're refreshing your matches — I'll call out the strongest new fits as they land.",
+                        "next": "Want me to walk you through the top three?"},
+    "new_search": {"say": "New search — tell me the roles, titles, or location you want and I'll run it."},
+    "reset_page": {"say": "You reset this page."},
+    "reimport": {"say": "You're re-importing your jobs — I'll flag anything new that lands."},
+    "get_descriptions": {"say": "You're pulling the full descriptions from each posting's own page."},
+    "export_shortlist": {"say": "You're exporting your shortlist."},
+    "open_design": {"say": "You opened the design options.",
+                   "next": "Tell me a style, font, or color and I'll apply it."},
+    "open_documents": {"say": "You're in your documents."},
+    "tailor": {"say": "You started tailoring your résumé.",
+              "next": "Point me at the job and I'll aim it there."},
+    "save_job": {"say": "Saved that one.", "next": "Want me to tailor your résumé to it?"},
+    "apply_job": {"say": "You opened the application for this job.",
+                 "next": "Want me to help fill it in?"},
+    "upload_document": {"say": "You're uploading a document — I'll map it once it's in."},
+    "open_resume": {"say": "You opened your résumé."},
+    "open_cover_letter": {"say": "You opened your cover letter."},
+    "download": {"say": "You're downloading a copy of your document."},
+    "refresh_metric": {"say": "You started a figures refresh.",
+                      "next": "I'll check the web and show you what's current before anything changes."},
+}
+
+#: Looser action names the client might send, mapped onto a canonical ACTION_ACKS key.
+ACTION_ALIASES: dict[str, str] = {
+    "refresh": "refresh_matches", "refresh matches": "refresh_matches",
+    "design": "open_design", "styles": "open_design", "change design": "open_design",
+    "search": "new_search", "new search": "new_search",
+    "reset": "reset_page", "export": "export_shortlist",
+    "descriptions": "get_descriptions", "full descriptions": "get_descriptions",
+    "save": "save_job", "apply": "apply_job", "upload": "upload_document",
+    "resume": "open_resume", "résumé": "open_resume", "cover letter": "open_cover_letter",
+    "documents": "open_documents",
+}
+
+
+def observe_action(action: str, label: str = "") -> dict[str, Any]:
+    """Acknowledge a DIRECT user action (a page control they clicked themselves) so the
+    assistant stays aware of what the user does, not just what it does itself (P328).
+
+    Returns ``{action, reply, offer?}``. A known action gets a tailored acknowledgement and,
+    where useful, a next-step offer; any unknown action gets a graceful generic line built
+    from ``label`` so the assistant is NEVER silent about something the user just did."""
+    key = re.sub(r"[\s\-]+", "_", str(action or "").strip().lower())
+    if key not in ACTION_ACKS:
+        key = ACTION_ALIASES.get(str(action or "").strip().lower(), key)
+    spec = ACTION_ACKS.get(key)
+    if spec:
+        out: dict[str, Any] = {"action": key, "reply": spec["say"]}
+        if spec.get("next"):
+            out["offer"] = {"prompt": spec["next"], "yes": "Yes", "no": "No thanks"}
+        return out
+    # Graceful fallback: name what they did from the control's own label, never go silent.
+    nice = (label or action or "that").strip()
+    return {"action": key or "unknown",
+            "reply": f"You opened {nice}." if nice else "Got it.",
+            "offer": {"prompt": "Want a hand with it?", "yes": "Yes", "no": "No thanks"}}
 
 #: Scripted interim narration for multi-step assistant flows, so the spoken lines are
 #: defined centrally (not authored per client) and the assistant never goes silent
@@ -890,6 +963,17 @@ def manifest() -> dict[str, Any]:
             "endpoint": "/api/v1/assistant/session-scan",
             "cadence": "once_per_session",
             "raises": ["severe_error", "reportable", "activity"],
+        },
+        # Action awareness (P328): when the user clicks any of these controls THEMSELVES,
+        # the client POSTs {action,label} here and speaks the returned acknowledgement +
+        # offer, so the assistant is never a silent bystander to what the user does. Any
+        # action id works (unknown ones get a graceful generic line); these are the ones
+        # with tailored responses the client should wire first.
+        "observe": {
+            "endpoint": "/api/v1/assistant/observe",
+            "trigger": "on_direct_user_action",
+            "actions": sorted(ACTION_ACKS),
+            "aliases": dict(ACTION_ALIASES),
         },
         "verbs": {k: list(v) for k, v in VERBS.items()},
         "destructive_verbs": sorted(DESTRUCTIVE_VERBS),

@@ -9721,3 +9721,24 @@ When the race lands the other way, the user's words are captured by the session 
 ### Acceptance
 - "Put me in front of a recruiter" / "have an expert review my resume" shows the coming-soon message and the URL does **not** change.
 - It reads as a planned feature (recruiters / HR pros / hiring managers for advice & content), not an error or a dead end.
+
+## P328 — the assistant is AWARE of direct user actions (Design, Refresh matches, …), not just its own
+
+**The gap:** the assistant only reacts to things the user says to IT. When the user clicks a page control **themselves** — **Design**, **Refresh matches**, **New search**, **Export shortlist**, **Reset this page**, **Reimport**, **Get full descriptions**, **Save**, **Tailor**, **Apply**, **Upload**, opening a résumé/cover letter, **Download** — the assistant sits silent, unaware. It should always be aware of human input and actions and respond in context. Backend is ready — use it.
+
+### Backend you call (don't rebuild)
+- `GET /assistant/capabilities` now carries an **`observe`** block: `{endpoint:"/api/v1/assistant/observe", trigger:"on_direct_user_action", actions:[…], aliases:{…}}` — the canonical action ids with tailored responses, plus loose-name aliases. New behavior flag: **`observe_user_actions`**.
+- `POST /assistant/observe {action, label?, context?}` → `{action, reply, offer?}`. `reply` is the spoken acknowledgement; `offer` (when present) is a yes/no next-step `{prompt, yes, no}`. A **known** action gets a tailored line (e.g. Refresh matches → *"You're refreshing your matches — I'll call out the strongest new fits…"* + "Walk you through the top three?"); **any other** action still returns a graceful generic acknowledgement built from `label` (never silent).
+
+### Do this
+1. **On every direct page action, tell the assistant.** When the user clicks one of the controls above (or any meaningful page function), fire `POST /assistant/observe` with a canonical `action` id (or the control's name as `action` + its visible text as `label`). Pass the current `context` (page/section/ids) too.
+2. **Speak the acknowledgement; surface the offer.** Have the assistant speak the returned `reply` in the right pane (same voice/one-utterance rules as everything else), and if `offer` is present show it as the yes/no (arming `on_yes` only if you map it; otherwise it's a plain prompt the user answers by voice/type). Keep the badge/pane behavior identical to other assistant speech.
+3. **Acknowledge, don't hijack.** This is awareness, not a takeover — the user's own action still happens normally (the page still refreshes/opens/exports). The assistant just rides along: acknowledges, orients, and offers the next step. Do **not** block, confirm, or undo the user's action.
+4. **Debounce + don't nag.** Collapse rapid repeats of the same action (e.g. double-clicking Refresh) into one acknowledgement; keep it brief; never interrupt an in-progress assistant utterance mid-sentence — queue after it.
+5. **Unknown actions are fine.** For a control without a canonical id, send `action` = a slug + `label` = its text; the generic acknowledgement keeps the assistant aware rather than silent.
+
+### Acceptance
+- Clicking **Design** makes the assistant say it noticed and offer to apply a style — without the user saying anything.
+- Clicking **Refresh matches** / **New search** / **Export** each gets a spoken, in-context acknowledgement (and the top-three offer on Refresh).
+- The user's own click still performs its normal action; the assistant only rides along.
+- Rapid repeat clicks don't produce a stutter of overlapping speech.
