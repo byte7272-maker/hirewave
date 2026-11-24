@@ -106,6 +106,46 @@ def test_get_job_details_does_not_over_match(utterance, expect):
     assert interpret(utterance, context={}).intent == expect
 
 
+_PENDING = {"pending": {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}}
+
+
+@pytest.mark.parametrize("utterance", [
+    "yes", "yeah", "uh yes", "okay yes", "yeah sure", "yes please", "um yeah lets do it",
+    "[noise] yes", "yep do that",
+])
+def test_noisy_affirmative_resolves_pending_offer(utterance):
+    # With a TV in the background the recognizer returns the answer buried in filler/noise.
+    # A SHORT utterance containing a yes token still runs the pending offer.
+    r = interpret(utterance, context=dict(_PENDING))
+    assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches", \
+        f"{utterance!r} -> {r.intent}"
+
+
+@pytest.mark.parametrize("utterance", [
+    "no", "nope", "uh no", "no thanks", "nah not now", "[noise] no",
+])
+def test_noisy_negative_declines_pending_offer(utterance):
+    assert interpret(utterance, context=dict(_PENDING)).intent == "decline"
+
+
+@pytest.mark.parametrize("utterance", ["not right now", "no not right now", "that's not correct"])
+def test_pending_negation_is_not_flipped_by_right_or_correct(utterance):
+    # "right"/"correct" must NOT read as affirmatives inside a negated phrase.
+    assert interpret(utterance, context=dict(_PENDING)).intent != "start_playbook"
+
+
+def test_long_ambient_sentence_with_yes_does_not_hijack_pending_offer():
+    # A sentence from the TV that merely contains "yes" is NOT the user's answer — don't
+    # run the offer off ambient speech; it must fall through (re-ask on the client).
+    r = interpret("and the senator said yes to the new budget proposal today", context=dict(_PENDING))
+    assert r.intent != "start_playbook"
+
+
+def test_recognizer_noise_annotation_is_stripped():
+    # "[noise]"/"(inaudible)" must not leave stray words that match a command.
+    assert interpret("(inaudible) go to my applications").intent == "navigate"
+
+
 def test_should_i_apply_is_answered_not_auto_applied():
     # "should I apply to this" is a QUESTION — it must not silently start the apply flow.
     assert interpret("should I apply to this").intent == "answer_question"

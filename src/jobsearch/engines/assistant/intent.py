@@ -101,9 +101,13 @@ _PLAYBOOKS = {
 }
 
 _FILLER = re.compile(
-    r"\b(please|could you|can you|would you|um+|uh+|like|just|hey|okay so|so|well)\b",
+    r"\b(please|could you|can you|would you|um+|uh+|uh+m+|hmm+|erm+|like|just|hey|"
+    r"okay so|so|well)\b",
     re.I,
 )
+# Recognizer noise annotations some engines emit inside a transcript — [noise], (inaudible),
+# <unk>. Dropped WHOLE (contents included) so "noise"/"inaudible" don't become command words.
+_NOISE_ANNOT = re.compile(r"[\[(<][^\])>]*[\])>]")
 # Ordinal words only — NOT bare cardinals like "one"/"two", which are usually nouns
 # here ("that one", "the one about X") rather than a position.
 _ORDINALS = {
@@ -134,11 +138,49 @@ class IntentResult:
 
 def _norm(text: str) -> str:
     text = (text or "").strip().lower()
+    # Drop whole recognizer noise annotations before anything else, so "[noise]" doesn't
+    # leave the word "noise" behind to be matched.
+    text = _NOISE_ANNOT.sub(" ", text)
     # Drop apostrophes so contractions collapse ("can't" -> "cant"), not split.
     text = text.replace("'", "").replace("’", "")
     text = _FILLER.sub(" ", text)
     text = re.sub(r"[^\w\s%$+./-]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+# A pending yes/no offer is the most common — and most noise-fragile — turn: the user just
+# says "yes"/"no", often buried in filler or room noise ("uh yeah", "okay yes"). When an
+# offer is pending we scan a SHORT utterance for a yes/no token and resolve it, but we do
+# NOT treat a long ambient sentence that merely contains "yes" as the answer (that's likely
+# the TV) — that case falls through to a re-ask.
+# Unambiguous affirmatives only — deliberately NOT "right"/"correct", which flip meaning in a
+# phrase ("not right now", "that's not correct") where bare "not" isn't a negate token. A clean
+# single-word "right"/"correct" is still handled by the exact confirm matcher in _deterministic.
+_AFFIRM_RE = re.compile(
+    r"\b(yes|yeah|yep|yup|ya|yea|sure|ok|okay|okey|okie|roger|affirmative|"
+    r"confirm|confirmed|do it|go ahead|go for it|sounds good|please do|absolutely|definitely|"
+    r"of course|yes please|lets do it|do that|sure thing)\b"
+)
+_NEGATE_RE = re.compile(
+    r"\b(no|nope|nah|naw|dont|do not|not now|no thanks|negative|cancel that|skip it|"
+    r"forget it|dont bother)\b"
+)
+#: Max tokens for a pending answer we trust amid noise — longer than this is probably
+#: ambient speech, not the user answering, so we re-ask instead of guessing.
+_PENDING_ANSWER_MAX_TOKENS = 5
+
+
+def _pending_yesno(t: str) -> Optional[str]:
+    """For a SHORT utterance while an offer is pending, return 'confirm' / 'decline' from a
+    yes/no token, else None (ambiguous or too long -> let the caller re-ask)."""
+    if not t or len(t.split()) > _PENDING_ANSWER_MAX_TOKENS:
+        return None
+    aff, neg = bool(_AFFIRM_RE.search(t)), bool(_NEGATE_RE.search(t))
+    if aff and not neg:
+        return "confirm"
+    if neg and not aff:
+        return "decline"
+    return None
 
 
 def _contains_any(text: str, phrases) -> bool:
@@ -2063,11 +2105,16 @@ def interpret(
     # directly (so it executes), and "no" is a clean decline — no fragile client mapping.
     pending = (context or {}).get("pending")
     if isinstance(pending, dict) and pending.get("intent"):
-        if result.intent == "confirm":
+        # A clean "yes"/"no" resolves directly; otherwise, if the deterministic pass only
+        # reached a weak fallback (unknown/ask) — the usual fate of a noisy "uh, yes" — scan
+        # the SHORT utterance for a yes/no token so room noise doesn't swallow the answer.
+        yn = (result.intent if result.intent in ("confirm", "decline")
+              else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
+        if yn == "confirm":
             return _finalize(
                 IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {})),
                 raw, context)
-        if result.intent == "decline":
+        if yn == "decline":
             return _finalize(IntentResult("decline", 0.95, {}), raw, context)
 
     if result.confidence < threshold:
@@ -2089,9 +2136,11 @@ def interpret(
     # reads as yes/no runs the offer — a flow stays reliable without the client staging every
     # phrasing. A substantive NEW command (navigate/search/…) preempts the offer instead.
     if isinstance(pending, dict) and pending.get("intent"):
-        if result.intent == "confirm":
+        yn = (result.intent if result.intent in ("confirm", "decline")
+              else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
+        if yn == "confirm":
             result = IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {}))
-        elif result.intent == "decline":
+        elif yn == "decline":
             result = IntentResult("decline", 0.95, {})
 
     # A more_matches result (e.g. from the LLM backstop) carries the standard "connect more

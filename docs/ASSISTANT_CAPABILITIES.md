@@ -124,6 +124,19 @@ a quiet optional Resume chip is fine. Accordingly `DESTRUCTIVE_VERBS = {"remove"
 (an edit/`change` is reversible, so it no longer auto-confirms); a genuinely irreversible action
 still sets `destructive=True`/a `confirm` string explicitly.
 
+### Noise-robust voice (`surface.mic`, P346)
+
+Users operate with a TV/music/people in the background — never in silence. Every mic
+`getUserMedia` requests `noise_suppression` (`echoCancellation` + `noiseSuppression` +
+`autoGainControl`); on start the client samples the **ambient floor** (`ambient_calibration`)
+and gates speech above it (`vad_gating`). While a yes/no offer is pending the recognizer is
+biased toward a short answer (`constrained_grammar_on_pending`) and a short utterance carrying
+a yes/no token resolves it — but a long ambient sentence that merely contains "yes" does **not**
+(the backend `_pending_yesno` only trusts a short answer; the recognizer-noise annotations
+`[noise]`/`(inaudible)` are stripped in `_norm`). A low-confidence/noise result triggers a
+**re-ask** (`reask_on_low_confidence`), never a silent failure or a wrong action. Optional
+`voice_enrollment` (sample "yes"/"no"/name) is the escalation when simple commands keep failing.
+
 ## Division of labor
 
 - **Backend** owns the manifest, the NLU (verb+object → intent, + the plain-language LLM

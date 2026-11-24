@@ -311,7 +311,28 @@ SURFACE: dict[str, Any] = {
         # badge mic is never a dead listener that hears but can't act (P340).
         "badge_and_console_same_path": True,
         "badge_hold_submits": True,
+        # NOISE ROBUSTNESS (P346). Users operate with a TV/music/people in the background —
+        # never in silence. The capture MUST request the browser's audio cleanup
+        # (echoCancellation + noiseSuppression + autoGainControl) on every getUserMedia, and
+        # on mic start briefly sample the ambient floor so a voice-activity gate only treats
+        # sound ABOVE that floor as the user. When a yes/no OFFER is pending, bias recognition
+        # toward yes/no and accept a SHORT answer that contains a yes/no token ("uh, yes"),
+        # but do NOT act on a long ambient sentence that merely contains "yes" (likely the TV).
+        # On a low-confidence or noise-only result, RE-ASK ("I didn't catch that — yes or no?")
+        # rather than mis-acting or going silent. Optional voice enrollment: sample the user
+        # saying "yes", "no" and their name to set a personal baseline and favor their voice
+        # when the room is loud — offered only if noise keeps defeating simple commands.
+        "noise_suppression": ["echoCancellation", "noiseSuppression", "autoGainControl"],
+        "ambient_calibration": True,
+        "vad_gating": True,
+        "constrained_grammar_on_pending": True,
+        "short_answer_window_on_pending": True,
+        "reask_on_low_confidence": True,
+        "voice_enrollment": "optional",
+        "enrollment_samples": ["yes", "no", "<user name>"],
         "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
+                  "capture_without_noise_suppression", "act_on_ambient_sentence_as_answer",
+                  "fail_silently_in_noise",
                   "gate_on_self_test", "continuous_ambient_capture",
                   "submit_unheld_transcript", "command_from_noise",
                   "badge_mic_hears_but_cant_act", "badge_mic_different_path",
