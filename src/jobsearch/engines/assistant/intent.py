@@ -1418,10 +1418,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
 
     # yes / no — last among short commands so specific verbs win first
     if re.fullmatch(
-        r"(yes|yeah|yep|yup|sure|ok|okay|do it|go|go ahead|confirm|sounds good|please do|absolutely|"
-        r"that works|correct|right)",
+        r"(yes|yeah|yep|yup|ya|sure|ok|okay|okey|do it|go|go ahead|go for it|confirm|sounds good|"
+        r"sounds great|please do|absolutely|definitely|of course|that works|correct|right|"
+        r"lets do it|let s do it|lets go|do that|yes do it|yep do it|sure thing|perfect|"
+        r"yes please|please|affirmative)",
         t,
-    ) or has("do it", "go ahead", "sounds good", "yes please"):
+    ) or has("do it", "go ahead", "sounds good", "yes please", "go for it", "lets do it",
+             "do that", "sure thing"):
         return IntentResult("confirm", 0.9)
     if re.fullmatch(r"(no|nope|nah|dont|do not|not now|no thanks|negative)", t) or has(
         "no thanks", "not now", "dont do"

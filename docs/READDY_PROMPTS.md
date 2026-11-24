@@ -9882,3 +9882,19 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 ### Acceptance
 - Typing "research the top company" / "research this company" researches the #1 match's (or the open job's) company — it does **not** spotlight New search or say "search for something more specific."
 - A named company still researches that company; an empty company resolves to the top/focused match.
+
+## P339 — ⚠ SINGLE PURPOSE: answering a pending offer with "yes" (typed or spoken) runs it — from any input
+
+**Do only this. Change nothing else.** **Confirmed bug:** when the assistant asks a yes/no offer (e.g. "Want me to talk you through your matches?") and the user types or says **"yes"**, nothing happens — it fires no `/assistant/interpret` call at all (it's swallowed). Only the badge's Yes/No buttons are wired. Make a typed/spoken affirmative resolve the pending offer.
+
+The backend already supports this: while an offer is pending, send the utterance to `POST /assistant/interpret` with **`context.pending`** set to the offer's `on_yes` action (`{intent, slots}`). The backend maps an affirmative to **that action** (so "yes" → `start_playbook{walk_matches}` runs) and "no" → `decline`. It recognizes **yes, yeah, yep, sure, ok, okay, do it, go, go ahead, go for it, sounds good, absolutely, lets do it, perfect, yes please**, etc.
+
+1. **Route affirmatives/negatives through interpret WITH `context.pending`.** While an offer is pending, when the user types OR speaks a short answer, call `/interpret` with `context.pending = {intent, slots}` of the offer's `on_yes`. Do **not** swallow "yes"/"no" or require the badge buttons — the typed box, the mic, and the badge Yes/No must all resolve the same pending offer.
+2. **Run whatever comes back.** If interpret returns the offer's action (e.g. `start_playbook` with `walk_matches`), run it immediately. If it returns `decline`, dismiss the offer. If it returns `confirm` with no pending (shouldn't happen once pending is passed), fall back to running the offer's `on_yes` directly.
+3. **Keep the badge Yes/No working too** — tapping Yes runs the same `on_yes`; this prompt only ADDS the typed/spoken path, it doesn't remove the buttons.
+4. **Clear the offer once answered** (no re-fire), per the existing pending-offer behavior.
+
+### Acceptance
+- With "Want me to talk you through your matches?" showing, typing **"yes"** (or saying it, or "sure"/"do it"/"go for it") runs the matches walkthrough.
+- "No" (or "not now") dismisses the offer.
+- The badge Yes/No buttons still work; answering by voice, type, or button all do the same thing.
