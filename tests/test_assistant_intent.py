@@ -399,6 +399,26 @@ def test_reach_an_expert_is_coming_soon():
     assert interpret("is Acme a real company").intent == "research_company"
 
 
+def test_more_matches_guidance_points_to_search_and_sources():
+    for p in ["how do I get more matches", "I'm not getting enough matches",
+              "how do I get better matches", "why do I have so few matches",
+              "how do I increase my matches"]:
+        r = interpret(p)
+        assert r.intent == "more_matches", (p, r.intent)
+        low = r.reply.lower()
+        # names the real levers: broaden the search AND connect more sources
+        assert ("source" in low or "connect" in low) and ("search" in low or "refresh" in low), (p, r.reply)
+        assert "mailbox" in low and "job site" in low, (p, r.reply)
+        # offers to open the sources page to connect more
+        assert r.offer.get("on_yes", {}).get("slots", {}).get("section") == "connect", r.offer
+    # must not be read as a new job search or a web search
+    assert interpret("how do I get more matches").intent != "search_jobs"
+    # "rate my matches" stays the walk-matches playbook, not more_matches
+    assert interpret("rate my matches").intent == "start_playbook"
+    # a specific job search is still a search, not guidance
+    assert interpret("find me more VP jobs in Dallas").intent == "search_jobs"
+
+
 def test_help_prefix_does_not_hijack_a_concrete_request():
     # Bare help asks are read_options...
     for p in ["help", "what can I do", "what are my options", "read my options"]:

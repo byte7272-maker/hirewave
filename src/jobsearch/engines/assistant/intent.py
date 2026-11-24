@@ -33,6 +33,9 @@ INTENTS = {
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
     "check_mic", "check_audio", "status_report", "whats_new", "resume_task",
+    # how to get MORE/BETTER matches — guidance toward the real levers: broaden the search
+    # AND connect more sources (mailboxes + external job sites, incl. creating accounts).
+    "more_matches",
     "report_state", "ask", "unknown",
 }
 
@@ -395,6 +398,44 @@ def _connect_expert(t: str) -> Optional[IntentResult]:
             or re.search(r"\b(advice|feedback|opinion|review|guidance|insight|perspective)\b", t)):
         return None
     return IntentResult("connect_expert", 0.85)
+
+
+# "how do I get more matches" / "not enough matches" / "get better matches" → guidance.
+# Keyed on the match feature; the fuzzier "more jobs/roles" phrasings are left to the LLM.
+_MORE_MATCHES_RE = re.compile(
+    r"\b(?:more|better|additional|extra|fresh)\s+(?:job\s+)?matches\b"
+    r"|\b(?:not enough|too few|so few|only a few|hardly any|barely any|need more)\s+(?:job\s+)?matches\b"
+    r"|\bnot\b[^.?!]*\benough\b[^.?!]*\bmatches\b"
+    r"|\bmatches\b[^.?!]*\b(?:not enough|too few|so few|only a few|hardly any)\b"
+    r"|\bhow (?:do i|can i|to)\b[^.?!]*\b(?:get|find|see|have)\b[^.?!]*\bmore\b[^.?!]*\bmatches\b"
+    r"|\b(?:increase|expand|grow|boost|improve|widen|broaden)\b[^.?!]*\bmatches\b"
+    r"|\bwhy\b[^.?!]*\b(?:so few|only|few|no|not many)\b[^.?!]*\bmatches\b"
+)
+
+#: Spoken guidance for "how do I get more matches" — the real levers, not a web search.
+_MORE_MATCHES_REPLY = (
+    "A couple of ways to get more matches. First, broaden your search — refresh your matches "
+    "or start a new search with wider titles, locations, or salary. The bigger lever is "
+    "connecting more sources so more roles flow in: your email mailboxes and external job "
+    "sites on the Connect page. If you don't have accounts on those job sites yet, setting "
+    "them up and connecting them pulls in far more postings to match against."
+)
+#: Next step offered: open the sources page so they can connect more mailboxes / job sites.
+_MORE_MATCHES_OFFER = {
+    "prompt": "Want me to open your job sources so you can connect more?",
+    "on_yes": {"intent": "navigate", "slots": {"section": "connect"}},
+    "yes": "Open sources", "no": "Not now",
+}
+
+
+def _more_matches(t: str) -> Optional[IntentResult]:
+    """Guidance for getting more/better matches — broaden the search AND connect more
+    sources (mailboxes + external job sites, including creating accounts on them). Returns
+    a spoken answer + an offer to open the sources page, not a web search."""
+    if not _MORE_MATCHES_RE.search(t):
+        return None
+    return IntentResult("more_matches", 0.9, {}, reply=_MORE_MATCHES_REPLY,
+                        offer=dict(_MORE_MATCHES_OFFER))
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -1151,6 +1192,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ed is not None:
         return ed
 
+    # "how do I get more matches" / "not enough matches" → in-app guidance (broaden the
+    # search AND connect more sources), not a web search or a job search. Checked before
+    # web/search/playbooks so it isn't read as a lookup or a "rate my matches" walk.
+    mm = _more_matches(t)
+    if mm is not None:
+        return mm
+
     # general open-web search ("search the web for …", "google …", "find information
     # about …", "what's the latest on …") — a web lookup, not a job search or company
     # lookup. Checked before research_company/search_jobs so the explicit web cue wins.
@@ -1382,6 +1430,9 @@ _INTENT_HELP: dict[str, str] = {
                       "{walk_matches, tailor, apply_job, connect_source, auto_apply, practice, upload, download, design, bullets}.",
     "status_report": "summarize the current state / what's on this page right now.",
     "whats_new": "what changed / what did you find / what's new since last time.",
+    "more_matches": "how to GET MORE / better / additional matches or jobs coming in "
+                    "(broaden the search AND connect more sources — mailboxes, job sites). "
+                    "NOT a web search; not rating existing matches.",
     "save": "save / bookmark / keep the current item for later.",
     "archive": "archive / hide / dismiss an item.",
     "web_search": "search the web for general info the app itself doesn't hold.",
@@ -1412,6 +1463,9 @@ _LLM_FEWSHOT: list[tuple[str, str, dict]] = [
     ("put me in front of a recruiter", "connect_expert", {}),
     ("can i talk to a hiring manager for advice", "connect_expert", {}),
     ("what should i fix on my resume", "review_document", {}),
+    ("how do i get more matches", "more_matches", {}),
+    ("i'm not getting enough job matches", "more_matches", {}),
+    ("how do i get more jobs coming in", "more_matches", {}),
     ("what's the weather tomorrow", "ask", {}),
     ("what's the capital of Mongolia", "ask", {}),
     ("who won the game last night", "ask", {}),
@@ -1687,6 +1741,8 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
         return ("Getting you expert help is coming soon — I'll be able to connect you with "
                 "recruiters, HR pros, and hiring managers for advice and content. It's not "
                 "live yet, but it's on the way; I'll let you know when it's ready.")
+    if intent == "more_matches":
+        return _MORE_MATCHES_REPLY
     if intent == "web_search":
         q = str(slots.get("query", "")).strip()
         return f"Searching the web for {q}." if q else "Let me search that for you."
@@ -1827,6 +1883,11 @@ def interpret(
                 result = IntentResult("ask", 0.5, {"query": raw})
                 if want_debug:
                     dbg["source"] = "fallback_ask"
+
+    # A more_matches result (e.g. from the LLM backstop) carries the standard "connect more
+    # sources" offer even if the matcher that produced it didn't set one.
+    if result.intent == "more_matches" and not result.offer:
+        result.offer = dict(_MORE_MATCHES_OFFER)
 
     # When we couldn't pin a concrete command, offer the nearest wordings we DO
     # understand, so the assistant suggests phrasing it can act on instead of a dead end.

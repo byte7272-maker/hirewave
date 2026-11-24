@@ -9742,3 +9742,17 @@ When the race lands the other way, the user's words are captured by the session 
 - Clicking **Refresh matches** / **New search** / **Export** each gets a spoken, in-context acknowledgement (and the top-three offer on Refresh).
 - The user's own click still performs its normal action; the assistant only rides along.
 - Rapid repeat clicks don't produce a stutter of overlapping speech.
+
+## P329 — "how do I get more matches" → real guidance (broaden the search + connect more sources), with an offer to open sources
+
+**Do only this. Change nothing else.** Asking the assistant how to get more/better matches used to dead-end as "couldn't make sense of it — search the web?". The backend now returns a NEW intent **`more_matches`** (confidence 0.9) for "how do I get more matches", "I'm not getting enough matches", "how do I get better matches", "why do I have so few matches", "how do I get more jobs coming in", etc. The response carries a self-contained spoken `reply` **and** an `offer`. Handle this intent as in-app guidance — never a web search.
+
+1. **Speak the guidance `reply`.** It names the real levers: (a) broaden the search — **Refresh matches** or a **New search** with wider titles/locations/salary; and (b) the bigger lever — **connect more sources** so more roles flow in: **email mailboxes** and **external job sites** on the **Connect** page, including **setting up accounts** on those job sites and connecting them. Speak it in the right pane like any other assistant answer.
+2. **Surface the `offer` and wire its yes.** The response includes `offer:{prompt:"Want me to open your job sources so you can connect more?", on_yes:{intent:"navigate", slots:{section:"connect"}}, yes:"Open sources", no:"Not now"}`. Show it as the yes/no; on **yes**, navigate to the **Connect / job sources** page (the same target `navigate → connect` uses). On no, stay put.
+3. **Never a web search for this.** `more_matches` is a recognized in-app answer — do **not** show the "couldn't make sense / search the web?" offer for it.
+4. **On the Connect page, make both paths visible.** When the user lands there from this offer, show connecting an **email mailbox** and adding an **external job site** as the two ways to add sources (and, where a job site needs an account, a clear "create an account" affordance). (If external-job-site connections aren't built yet, present them as the intended next step rather than hiding them.)
+
+### Acceptance
+- "How do I get more matches" / "I'm not getting enough matches" gets spoken guidance that mentions **both** broadening the search **and** connecting more sources (mailboxes + external job sites, incl. creating accounts) — not a web-search offer.
+- The yes/no offer opens the **Connect / sources** page.
+- "Rate my matches" still runs the matches walkthrough; a specific "find VP jobs in Dallas" still runs a search.
