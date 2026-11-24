@@ -73,6 +73,11 @@ def test_confirm_policy_and_uninterrupted_voice():
     assert pol["interrupt_supersedes_immediately"]
     assert {"confirm_before_switching_task", "announce_saving_place", "pause_prompt_on_interrupt"} \
         <= set(m["surface"]["never"])
+    # enabling web research + its permissions/checkboxes is a walkable setup-wizard step
+    assert "guided_permission_setup" in m["behaviors"]
+    er = m["flows"]["enable_research"]
+    assert er["part_of_setup"] and er["user_action"] and er["automate"]
+    assert "install" in er["speak"] and "permission" in er["speak"] and "done" in er["speak"]
     # a single badge tap wakes: opens the pane WITH the type box AND asks what to do —
     # never a voice-only waiting state with no way to type.
     badge = m["surface"]["badge"]

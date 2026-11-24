@@ -167,6 +167,13 @@ BEHAVIORS = [
     # overlap, and a running (spoken) command is never interrupted mid-flow by a routine
     # confirm. Exiting one prompt must not reveal a queue of more.
     "no_stacked_prompts",
+    # guided permission setup (P337): the permissions and steps to enable WEB RESEARCH (and
+    # any consent checkboxes/toggles it needs) are part of the SETUP WIZARD, and the assistant
+    # FULLY walks them — narrating each step, focusing/animating the exact control, and
+    # automating what it safely can (open the page/panel, scroll+spotlight, flip in-app
+    # toggles). The user performs the actual permission grant / consent tick themselves (the
+    # assistant points at it, never self-grants). See FLOWS.enable_research.
+    "guided_permission_setup",
 ]
 
 #: WHERE the assistant lives and renders — a declarative layout contract so the client
@@ -512,6 +519,41 @@ FLOWS: dict[str, dict[str, Any]] = {
             "applying": "Added — saved a version.",
             "not_found": "I couldn't find clear accomplishments in that — want to add more detail?",
             "error": "That didn't go through. Want me to try again?",
+        },
+    },
+    # SETUP WIZARD step: enable web research + grant the permissions/checkboxes it needs
+    # (P337). The assistant fully WALKS this — it narrates each step, FOCUSES/animates the
+    # exact control, and AUTOMATES what it safely can (open the right page/panel, scroll to
+    # and spotlight the toggle/checkbox, flip in-app toggles it's allowed to). The user still
+    # performs the actual PERMISSION GRANT / consent checkbox themselves (granting permission
+    # is a human action — the assistant points at it and narrates, it never self-checks a
+    # consent box or auto-grants a scope). ``automate`` names what the assistant does for the
+    # user; ``user_action`` names the one thing the user clicks at each step.
+    "enable_research": {
+        "label": "Turn on web research",
+        "focus": "the web-research setting (and the extension/permission it needs)",
+        "ask": "confirming",
+        "part_of_setup": True,
+        "automate": ["open_the_setting", "scroll_into_view", "spotlight_the_control",
+                     "flip_allowed_in_app_toggles", "advance_on_done"],
+        "user_action": "grant the permission / tick the consent checkbox",
+        "speak": {
+            "start": "Let's turn on web research so I can pull current figures, research companies, "
+                     "and grab full job descriptions. I'll walk you through it — it's quick.",
+            "why": "Web research lets me check live sources for you; without it I can only use what's "
+                   "already in the app.",
+            "install": "First, Project Harbor Connect. I'll open the install page — add it, then come "
+                       "back and I'll take it from there.",
+            "permission": "Now the one thing only you can do: tick the permission box I'm pointing at "
+                          "to let it read pages for research. I'll highlight exactly where.",
+            "enable": "Great — I'll switch web research on here.",
+            "confirming": "That's the box to check to turn on web research — I've spotlighted it. "
+                          "Check it and we're set.",
+            "testing": "Let me run a quick test search to confirm it's working…",
+            "done": "Web research is on. I'll use it whenever I need current information.",
+            "blocked": "It looks like the permission didn't go through. Want me to point you at the "
+                       "exact setting again?",
+            "error": "That step didn't complete — want me to walk it again from here?",
         },
     },
 }

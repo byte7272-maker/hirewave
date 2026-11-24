@@ -9849,3 +9849,19 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 - One tap on the badge opens the pane with the type box ready **and** the assistant asks "What would you like to do?".
 - After a tap the user can immediately type; it never becomes a voice-only "hold the pill to talk" state.
 - Press-and-hold still arms the mic.
+
+## P337 — ⚠ SINGLE PURPOSE: enabling web research (permissions + checkboxes) is a setup-wizard step the assistant fully walks
+
+**Do only this. Change nothing else.** The permissions and user steps needed to **enable web research** — adding Project Harbor Connect and ticking the consent/permission checkboxes it needs — must be a **step in the setup wizard**, and the assistant must be able to **fully walk the user through it**: narrate each step, **focus/animate** the exact control, and **automate what it safely can**. Backend provides the script and contract: `GET /assistant/capabilities` → `behaviors` `guided_permission_setup`, and `flows.enable_research` (`part_of_setup:true`, `automate[]`, `user_action`, `speak{start,why,install,permission,enable,confirming,testing,done,blocked,error}`).
+
+1. **Add it to the setup wizard.** Include an "Turn on web research" step in the Setup list (the "Setup — N of M done" flow), alongside connecting email etc. Show its state (done / not done) and let the user start it from the wizard or by asking ("turn on web research", "enable web search").
+2. **The assistant walks it, speaking each step.** Play `flows.enable_research.speak` in order (start → why → install → permission → enable/confirming → testing → done), in the right pane with the badge, one utterance at a time — never a silent step.
+3. **Animate + focus the exact control.** At each step, **scroll the relevant control into view and spotlight it** (the install link, the permission checkbox, the web-research toggle) with a visible pointer/highlight and a small animation, so the user sees precisely where to click (reuse `point_to_focus` / `highlight_and_dock`).
+4. **Automate what's safe; the user does the grant.** The assistant **opens** the right page/panel, **scrolls + spotlights** the control, and **flips in-app toggles it's allowed to** (`automate`). The **one thing the user does each step** is the actual permission grant / consent tick (`user_action`) — the assistant points at it and narrates, but **never self-checks a consent box or auto-grants a permission** (granting permission is a human action; keep the P332/external-site guard — this is permission setup, which stays human).
+5. **Confirm it worked.** After the user grants it, run a quick test search (`testing`) and say `done`. If it didn't take (`blocked`), re-point at the exact setting; on error, offer to walk it again.
+
+### Acceptance
+- The setup wizard has a "Turn on web research" step; the user can run it from the wizard or by asking.
+- The assistant walks every step aloud, scrolling to and **spotlighting/animating** the exact control (install link, permission checkbox, web-research toggle).
+- The assistant opens pages and flips in-app toggles for the user, but the user performs the actual permission grant / consent tick — the assistant never auto-checks a consent box.
+- After granting, a test search confirms it and the step shows "done".
