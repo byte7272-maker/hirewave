@@ -108,6 +108,10 @@ class IntentResult:
     #: A yes/no offer to surface when the request is coherent but unrecognized — e.g.
     #: "want me to search the web for that?" {prompt, on_yes:{intent,slots}, yes, no}.
     offer: dict[str, Any] = field(default_factory=dict)
+    #: Diagnostic trail (populated only when context asks for it): what the deterministic
+    #: pass produced, whether/why the LLM backstop ran, its raw output, and the final
+    #: source. Lets us SEE comprehension decisions live instead of guessing.
+    debug: dict[str, Any] = field(default_factory=dict)
 
 
 def _norm(text: str) -> str:
@@ -376,6 +380,28 @@ def _match_playbook(text: str) -> Optional[str]:
 
 _JOB_NOUN_RE = re.compile(r"\b(jobs?|roles?|positions?|openings?|listings?|postings?|vacanc(?:y|ies)|gigs?)\b")
 _SEARCH_VERB_RE = re.compile(r"\b(find|search|look for|look up|filter|get me|show me all|show all|list all)\b")
+# Questions about PRIOR results ("what did you find for me", "anything you turned up?") are
+# status/what's-new, not a request to run a new job search. Kept narrow (past/perfective
+# "did you"/"have you"/"what did you") so a genuine "what jobs can you find" still searches.
+_RESULT_QUESTION_RE = re.compile(
+    r"\b(?:did you (?:find|get|turn up|dig up|do|come up with)"
+    r"|what did you (?:find|get|do|turn up|come up with)"
+    r"|what(?:'ve| have) you (?:found|got|done|turned up)"
+    r"|anything (?:you )?(?:found|turned up|for me)"
+    r"|find me anything)\b"
+)
+# Leading transport/filler verbs that introduce a search but aren't part of the query.
+_LEAD_SEARCH_FILLER_RE = re.compile(
+    r"^(?:pull up|bring up|show me|get me|find me|look for|look up|pull|bring|gimme|give me|fetch)\s+"
+)
+# A trailing geographic qualifier → the location slot. Geo prepositions ONLY ("near",
+# "around", "close to", "within N miles of") — deliberately NOT "in", which also names a
+# field ("in product management"), so we don't mistake a discipline for a place.
+_LOCATION_RE = re.compile(
+    r"\s*\b(?:near|around|close to|nearby in|within(?:\s+\d+\s*(?:miles?|mi|km))?\s+of)\s+([a-z][\w .,'-]*?)\s*$"
+)
+# Vague placeholders in a search object ("find me something", "any role") carry no query.
+_SEARCH_PLACEHOLDER_RE = re.compile(r"\b(?:something|anything|some stuff|stuff|any (?:job|role|gig|position)s?)\b")
 # "<job noun> that/which/with/for/titled/…" — a filter clause attached to a job noun.
 _SEARCH_CLAUSE_RE = re.compile(
     r"\b(jobs?|roles?|positions?|openings?|listings?|postings?)\s+(that|which|with|for|titled|called|matching|like|about|in)\b"
@@ -899,28 +925,54 @@ def _sync_documents(t: str) -> Optional[IntentResult]:
     return None
 
 
-def _extract_search_query(t: str) -> Optional[str]:
-    """If ``t`` is a job-search request, return the cleaned query (OR-joined), else None.
+def _extract_search_query(t: str) -> Optional[dict]:
+    """If ``t`` is a job-search request, return ``{"query": ..., "location"?: ...}``, else None.
 
     Recognizes a search verb ("find/search/list …"), a filter clause ("jobs that are …"),
-    or a keyword+job-noun phrase ("VP roles"). Defers to playbooks and to document/section
-    navigation so "which jobs fit" (a playbook) and "find my résumé" (nav) aren't hijacked."""
+    or a keyword+job-noun phrase ("VP roles"). Strips leading transport verbs ("pull up …")
+    and a trailing location ("near Charlotte") so the query is the actual target, not the
+    wrapper words. Defers to playbooks and to document/section navigation so "which jobs
+    fit" (a playbook) and "find my résumé" (nav) aren't hijacked, and to result-questions
+    ("what did you find for me") which are status, not a new search."""
+    if _RESULT_QUESTION_RE.search(t):
+        return None
     if not (_SEARCH_VERB_RE.search(t) or _SEARCH_CLAUSE_RE.search(t) or _JOB_NOUN_RE.search(t)):
         return None
     # A concrete playbook phrase ("which jobs fit", "rate my jobs") wins over search.
     if _match_playbook(t):
         return None
+
+    work = _LEAD_SEARCH_FILLER_RE.sub("", t).strip()
+    location = None
+    mloc = _LOCATION_RE.search(work)
+    if mloc:
+        location = mloc.group(1).strip(" .,").title()
+        work = work[:mloc.start()].strip()
+    # Drop placeholders ("something") and a now-dangling preposition ("in product management").
+    work = _SEARCH_PLACEHOLDER_RE.sub(" ", work)
+    work = re.sub(r"^(?:in|for|within|around|at|of)\b\s*", "", work).strip()
+    work = re.sub(r"\b(?:in|for|within|around|at|of)\b\s*$", "", work).strip()
+
     from jobsearch.engines.sourcing.job_query import parse_alternatives
 
-    alts = parse_alternatives(t)
+    alts = parse_alternatives(work or t)
     query = " or ".join(alts).strip()
     if len(query) < 2:
-        return None
+        # Bare "roles near Charlotte" with no descriptive term still searches that location.
+        if location:
+            query = "jobs"
+        else:
+            return None
     # If what's left is really a section/document ("find my résumé", "show matches"),
-    # let the navigation matcher handle it instead of searching for that word.
-    if _match_section(query) or _doc_target(query):
+    # let the navigation matcher handle it instead of searching for that word — unless a
+    # location qualifier made it unambiguously a search ("roles near Charlotte", where the
+    # bare noun "roles" also happens to be a synonym for the matches section).
+    if not location and (_match_section(query) or _doc_target(query)):
         return None
-    return query
+    out = {"query": query}
+    if location:
+        out["location"] = location
+    return out
 
 
 # ---- deterministic matcher -------------------------------------------------
@@ -1093,7 +1145,7 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     # but it defers to playbooks and to section/document nav (see _extract_search_query).
     sq = _extract_search_query(t)
     if sq:
-        return IntentResult("search_jobs", 0.85, {"query": sq})
+        return IntentResult("search_jobs", 0.85, dict(sq))
 
     # navigate ("go to / take me to / open <section>") — a nav verb + a section wins
     # over the playbook matcher, so "go to auto apply" navigates but "set up auto
@@ -1158,7 +1210,9 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     # what changed since last time
     if has("what's changed", "whats changed", "what has changed", "what changed",
            "what's new", "whats new", "anything new", "since last login", "since last time",
-           "since i was last", "since i was here", "while i was away", "what did i miss"):
+           "since i was last", "since i was here", "while i was away", "what did i miss",
+           "what did you find", "what have you found", "what did you get", "what did you turn up",
+           "did you find anything", "anything for me"):
         return IntentResult("whats_new", 0.9)
 
     # resume an in-progress task ("pick up where I left off") — NOT the résumé document
@@ -1245,33 +1299,142 @@ def _deterministic(text: str, context: dict) -> IntentResult:
 
 
 # ---- optional LLM backstop -------------------------------------------------
+# The deterministic matcher can only recognize phrasings someone anticipated. The
+# backstop is what makes the assistant understand PLAIN LANGUAGE — casual, indirect,
+# or novel wording that maps cleanly to something the app can do. It must therefore be
+# a real classifier (intent menu with descriptions + worked examples + slot extraction
+# + tolerant parsing), not a bare "pick from this list" call.
 
 _LLM_SYSTEM = (
-    "You classify a job-search app user's utterance into one intent. "
-    "Output ONLY JSON: {\"intent\": <one of the list>, \"confidence\": 0..1, \"slots\": {}}. "
-    "No prose."
+    "You are the intent router for a job-search web app's voice/text assistant. "
+    "Map the user's utterance to EXACTLY ONE intent id from the menu and extract slots. "
+    "Pick the closest ACTIONABLE intent even when the wording is casual, indirect, or "
+    "paraphrased — users rarely say the 'official' phrasing. Only output 'ask' when the "
+    "request is genuinely something this app can't do (it may then become a web search). "
+    "Reply with ONLY one compact JSON object — no prose, no markdown, no code fence."
 )
 
+#: One-line meanings for the intents the model most needs to tell apart. Intents not
+#: listed here are still valid outputs (the full id list is included in the prompt), but
+#: these are the ones casual phrasing collides on.
+_INTENT_HELP: dict[str, str] = {
+    "navigate": "go to / open / take me to a page or section. slot section ∈ "
+                "{matches, documents, applications, auto_apply, interview, inbox, connect, design, dashboard}.",
+    "search_jobs": "find job postings by title/keyword/location. slots: query, location.",
+    "research_company": "look into, vet, or check if a company/posting is legit/real. slot: query (company).",
+    "focus_document": "jump to / spotlight / improve a part of the open résumé or cover letter, "
+                      "or review one section. slots: section (summary|experience|education|skills|…), target.",
+    "refresh_metric": "check whether the résumé's figures/stats/numbers are still current, "
+                      "or update them from the web (e.g. 'these numbers look old', 'are these still accurate').",
+    "review_summary": "review or freshness-check the résumé SUMMARY specifically.",
+    "review_document": "review or walk the WHOLE résumé section by section.",
+    "read_bullets": "read the résumé's bullets/lines aloud (read-along), e.g. 'read the top of my résumé'.",
+    "edit_document": "improve / reword / rewrite / fix the résumé or one line in it (e.g. 'I don't like this bullet').",
+    "suggest_bullets": "turn work/experience/achievements into résumé bullet points.",
+    "start_playbook": "run a guided multi-step flow. slot playbook ∈ "
+                      "{walk_matches, tailor, apply_job, connect_source, auto_apply, practice, upload, download, design, bullets}.",
+    "status_report": "summarize the current state / what's on this page right now.",
+    "whats_new": "what changed / what did you find / what's new since last time.",
+    "save": "save / bookmark / keep the current item for later.",
+    "archive": "archive / hide / dismiss an item.",
+    "web_search": "search the web for general info the app itself doesn't hold.",
+    "check_mic": "microphone isn't working / can't hear me.",
+    "check_audio": "no sound / audio output troubleshooting.",
+    "change_voice": "change the assistant's voice. slot: voice.",
+    "set_rate": "change speaking speed. slot: rate (slower|faster|a number).",
+    "what_can_i_do": "list what the assistant can do / help / options.",
+}
 
-def _llm_classify(text: str, context: dict, llm) -> Optional[IntentResult]:
+#: Worked examples spanning the casual-phrasing failure modes the deterministic pass misses.
+_LLM_FEWSHOT: list[tuple[str, str, dict]] = [
+    ("my numbers look old, can you check them", "refresh_metric", {}),
+    ("are these stats still accurate", "refresh_metric", {}),
+    ("read the top of my resume to me", "read_bullets", {}),
+    ("i don't like this bullet", "edit_document", {}),
+    ("my experience section feels weak, help", "focus_document", {"section": "experience"}),
+    ("take me somewhere i can apply automatically", "navigate", {"section": "auto_apply"}),
+    ("pull up roles near Charlotte", "search_jobs", {"query": "roles", "location": "Charlotte"}),
+    ("find me something in product management", "search_jobs", {"query": "product management"}),
+    ("what did you find for me today", "whats_new", {}),
+    ("how do i come across in interviews", "navigate", {"section": "interview"}),
+    ("is this company for real", "research_company", {}),
+    ("what's the weather tomorrow", "ask", {}),
+]
+
+#: Slot keys we accept back from the model (anything else is dropped).
+_LLM_SLOT_KEYS = {"section", "playbook", "voice", "rate", "index", "query", "location", "target", "doc"}
+
+
+def _coerce_intent(raw_intent: str) -> Optional[str]:
+    """Map the model's returned intent id onto a real INTENTS member, tolerating case,
+    spacing, hyphens, and near-misses (e.g. 'read bullets', 'refresh-metric')."""
+    s = re.sub(r"[\s\-]+", "_", str(raw_intent or "").strip().lower())
+    if s in INTENTS:
+        return s
+    # near-miss: a known id that contains, or is contained by, the returned token
+    for i in INTENTS:
+        if i == s or i in s or s in i:
+            return i
+    return None
+
+
+def _llm_classify(text: str, context: dict, llm, debug: Optional[dict] = None) -> Optional[IntentResult]:
+    """Classify *text* with the premium LLM. Returns a confident, actionable
+    :class:`IntentResult`, or ``None`` when the model abstains ('ask'/'unknown'/unknown id)
+    so the caller's web-search offer still applies. Never raises."""
+    menu = "\n".join(f"- {k}: {v}" for k, v in _INTENT_HELP.items())
+    others = sorted(INTENTS - set(_INTENT_HELP) - {"unknown"})
+    examples = "\n".join(
+        f'  {u!r} -> {{"intent":"{i}","slots":{json.dumps(sl)}}}' for u, i, sl in _LLM_FEWSHOT
+    )
+    page = str((context or {}).get("section") or (context or {}).get("page") or "").strip()
+    on_doc = bool((context or {}).get("resume_id") or (context or {}).get("cover_letter_id")
+                  or page in ("documents", "document"))
+    prompt = (
+        "Intent menu (pick ONE id):\n" + menu + "\n"
+        "Other valid ids: " + ", ".join(others) + ".\n"
+        "Slots you may return: section, playbook, voice, rate, index, query, location, target, doc. "
+        "Use the exact section/playbook ids shown above.\n\n"
+        "Examples:\n" + examples + "\n\n"
+        f"Current page: {page or 'unknown'}"
+        + (" (a résumé/cover letter is open)" if on_doc else "") + "\n"
+        f"Utterance: {text!r}\n"
+        'Return ONLY: {"intent":"<id>","confidence":0..1,"slots":{...}}'
+    )
     try:
-        prompt = (
-            "Intents: " + ", ".join(sorted(INTENTS)) + ".\n"
-            "Sections: " + ", ".join(_SECTIONS) + ". Playbooks: " + ", ".join(_PLAYBOOKS) + ".\n"
-            "slots may include: section, playbook, voice, rate, index, query.\n"
-            f"Utterance: {text!r}\nReturn JSON only."
-        )
-        raw = llm.complete(prompt, system=_LLM_SYSTEM, max_tokens=200, temperature=0.0)
+        raw = llm.complete(prompt, system=_LLM_SYSTEM, max_tokens=120, temperature=0.0)
+    except Exception as e:  # noqa: BLE001 - never let the backstop raise
+        if debug is not None:
+            debug["llm_error"] = f"{type(e).__name__}: {e}"
+        return None
+    if debug is not None:
+        debug["llm_raw"] = (raw or "")[:300]
+    try:
         start, end = raw.find("{"), raw.rfind("}")
         data = json.loads(raw[start:end + 1]) if start != -1 and end != -1 else {}
-        intent = str(data.get("intent", "")).strip()
-        if intent not in INTENTS:
-            return None
-        conf = float(data.get("confidence", 0.6) or 0.6)
-        slots = data.get("slots") if isinstance(data.get("slots"), dict) else {}
-        return IntentResult(intent, max(0.5, min(conf, 0.95)), slots)
-    except Exception:  # noqa: BLE001 - never let the backstop raise
+    except Exception:  # noqa: BLE001
+        m = re.search(r'"intent"\s*:\s*"([^"]+)"', raw or "")
+        data = {"intent": m.group(1)} if m else {}
+    intent = _coerce_intent(data.get("intent", ""))
+    if debug is not None:
+        debug["llm_intent"] = intent or f"(unmapped:{data.get('intent')!r})"
+    # Abstention — let the deterministic ask/web-search path handle it.
+    if intent in (None, "ask", "unknown"):
         return None
+    slots = {k: v for k, v in (data.get("slots") or {}).items()
+             if k in _LLM_SLOT_KEYS and isinstance(v, (str, int)) and str(v).strip()}
+    # Validate referential slots against the real vocab; drop a bad guess rather than act on it.
+    if slots.get("section") and str(slots["section"]).lower() not in _SECTIONS:
+        slots.pop("section", None)
+    if slots.get("playbook") and str(slots["playbook"]).lower() not in _PLAYBOOKS:
+        slots.pop("playbook", None)
+    try:
+        conf = float(data.get("confidence", 0.8) or 0.8)
+    except (TypeError, ValueError):
+        conf = 0.8
+    # A successful understanding should clear the threshold (so it's acted on, not offered
+    # as a web search) while staying short of a hand-written deterministic match.
+    return IntentResult(intent, max(0.72, min(conf, 0.95)), slots)
 
 
 # ---- suggestible commands --------------------------------------------------
@@ -1471,7 +1634,11 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
         return f"Looking into {c}." if c else "Let me look into that company."
     if intent == "search_jobs":
         q = str(slots.get("query", "")).strip()
-        return f"Searching for {q} roles." if q else "Searching for matching roles."
+        loc = str(slots.get("location", "")).strip()
+        where = f" near {loc}" if loc else ""
+        if q and q.lower() not in ("jobs", "roles", "job", "role"):
+            return f"Searching for {q} roles{where}."
+        return f"Searching for roles{where}." if where else "Searching for matching roles."
     if intent == "edit_document":
         if slots.get("needs_web"):
             return "I'll look up the latest figures and update that for you."
@@ -1561,12 +1728,18 @@ def interpret(
     as a backstop when the deterministic pass is below ``threshold``.
     """
     context = context or {}
+    want_debug = bool(context.get("debug"))
+    dbg: dict[str, Any] = {} if want_debug else {}
     raw = (transcript or "").strip()
     text = _norm(raw)
     if not text:
         return _finalize(IntentResult("unknown", 0.0), raw, context)
 
     result = _deterministic(text, context)
+    if want_debug:
+        dbg["deterministic"] = {"intent": result.intent, "confidence": result.confidence}
+        dbg["llm_available"] = llm is not None
+        dbg["source"] = "deterministic"
 
     # Resolve a yes/no against a pending offer server-side: when the frontend passes the
     # armed offer's action as context["pending"], a spoken "yes" returns THAT action
@@ -1582,13 +1755,17 @@ def interpret(
 
     if result.confidence < threshold:
         if llm is not None:
-            llm_res = _llm_classify(raw, context, llm)
+            llm_res = _llm_classify(raw, context, llm, debug=dbg if want_debug else None)
             if llm_res is not None and llm_res.confidence >= result.confidence:
                 result = llm_res
+                if want_debug:
+                    dbg["source"] = "llm"
         # Still weak? Treat a substantive utterance as a free-form request.
         if result.confidence < threshold and result.intent in ("unknown",):
             if len(text.split()) >= 2:
                 result = IntentResult("ask", 0.5, {"query": raw})
+                if want_debug:
+                    dbg["source"] = "fallback_ask"
 
     # When we couldn't pin a concrete command, offer the nearest wordings we DO
     # understand, so the assistant suggests phrasing it can act on instead of a dead end.
@@ -1608,6 +1785,10 @@ def interpret(
                 "yes": "Search the web", "no": "No thanks",
             }
             result.reply = "I couldn't make sense of that for the app — want me to search the web for it?"
+
+    if want_debug:
+        dbg["final"] = {"intent": result.intent, "confidence": result.confidence, "slots": dict(result.slots)}
+        result.debug = dbg
 
     return _finalize(result, raw, context)
 

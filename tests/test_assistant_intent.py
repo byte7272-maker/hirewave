@@ -305,6 +305,88 @@ def test_web_search_is_an_intent_for_common_phrasings():
     # a company lookup and a job search are NOT hijacked
     assert interpret("look up Acme Corp").intent == "research_company"
     assert interpret("research Globex").intent == "research_company"
+
+
+# --- search: transport-verb stripping, location, and result-questions -------
+
+def test_search_strips_transport_verbs_and_extracts_location():
+    r = interpret("pull up roles near Charlotte")
+    assert r.intent == "search_jobs", r.intent
+    assert r.slots.get("location") == "Charlotte", r.slots
+    # the transport verb "pull up" is not part of the query
+    assert "pull" not in r.slots.get("query", "").lower(), r.slots
+
+
+def test_search_drops_vague_placeholder():
+    r = interpret("find me something in product management")
+    assert r.intent == "search_jobs", r.intent
+    q = r.slots.get("query", "").lower()
+    assert "product management" in q and "something" not in q, r.slots
+
+
+def test_result_question_is_whats_new_not_a_new_search():
+    # Asking about what was already found is status, not a fresh job search.
+    for phrase in ["what did you find for me today", "what have you found",
+                   "did you find anything", "what did you turn up"]:
+        assert interpret(phrase).intent == "whats_new", phrase
+    # ...but a genuine forward-looking search still searches.
+    assert interpret("what VP jobs can you find").intent == "search_jobs"
+    assert interpret("find all VP jobs").intent == "search_jobs"
+
+
+# --- LLM backstop: plain language the deterministic pass misses -------------
+
+class _StubLLM:
+    """A fake premium LLM that returns whatever JSON we program, so the backstop
+    path is testable without a real provider."""
+    name = "stub"
+
+    def __init__(self, reply: str):
+        self._reply = reply
+        self.calls: list[str] = []
+
+    def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+        self.calls.append(prompt)
+        return self._reply
+
+
+def test_llm_backstop_rescues_plain_language_the_matcher_misses():
+    # A clear request the deterministic matcher doesn't recognize should be resolved by
+    # the LLM backstop (not dead-ended at the 0.5 "ask" fallback).
+    llm = _StubLLM('{"intent":"refresh_metric","confidence":0.9,"slots":{}}')
+    r = interpret("my numbers look old, can you check them", llm=llm)
+    assert r.intent == "refresh_metric", r.intent
+    assert r.confidence >= 0.6, r.confidence  # cleared threshold → acted on, not web-offered
+    assert not r.offer, r.offer
+    assert llm.calls, "backstop was never consulted"
+
+
+def test_llm_backstop_tolerates_messy_intent_ids_and_validates_slots():
+    # Model returns a hyphenated id and an out-of-vocab section; we coerce the id and
+    # drop the bad slot rather than acting on a bad guess.
+    llm = _StubLLM('{"intent":"read-bullets","confidence":0.8,"slots":{"section":"nonsense"}}')
+    r = interpret("say my resume lines out loud", llm=llm)
+    assert r.intent == "read_bullets", r.intent
+    assert "section" not in r.slots, r.slots
+
+
+def test_llm_backstop_abstains_to_web_search_offer():
+    # When the model says "ask", we fall through to the coherent web-search offer, not a
+    # confidently wrong command.
+    llm = _StubLLM('{"intent":"ask","confidence":0.4,"slots":{}}')
+    r = interpret("what's the capital of Mongolia", llm=llm)
+    assert r.intent in ("ask", "web_search"), r.intent
+    assert r.offer, "expected a web-search offer for a coherent out-of-app request"
+
+
+def test_debug_trail_shows_the_comprehension_path():
+    llm = _StubLLM('{"intent":"refresh_metric","confidence":0.9,"slots":{}}')
+    r = interpret("my numbers look old, can you check them", context={"debug": True}, llm=llm)
+    assert r.debug.get("source") == "llm", r.debug
+    assert r.debug.get("llm_intent") == "refresh_metric", r.debug
+    assert "deterministic" in r.debug and "final" in r.debug, r.debug
+    # No debug trail unless asked.
+    assert interpret("stop").debug == {}
     assert interpret("find all VP jobs").intent == "search_jobs"
 
 

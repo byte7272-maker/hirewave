@@ -1286,6 +1286,9 @@ class InterpretContext(BaseModel):
     #: The armed yes/no offer's action, so a spoken "yes" resolves to it server-side:
     #: {"intent": "...", "slots": {...}}. Sent only while a question is pending.
     pending: Optional[dict] = None
+    #: Ask the interpreter to return its decision trail (deterministic vs LLM path, raw
+    #: model output, final source) in the response's ``debug`` field. Diagnostics only.
+    debug: bool = False
 
 
 class InterpretRequest(BaseModel):
@@ -1319,6 +1322,9 @@ class InterpretResponse(BaseModel):
     # "want me to search the web for that?" The client arms `on_yes` as `pending` so a
     # spoken "yes" resolves to web_search. {prompt, on_yes:{intent,slots}, yes, no}.
     offer: dict = Field(default_factory=dict)
+    # The interpreter's decision trail, present only when the request set context.debug.
+    # Diagnostics for tuning comprehension; the client ignores it in normal operation.
+    debug: dict = Field(default_factory=dict)
 
 
 class SuggestionsOut(BaseModel):

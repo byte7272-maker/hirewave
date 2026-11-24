@@ -82,6 +82,7 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
         utterance=res.utterance,
         suggestions=[CommandSuggestion(**s) for s in res.suggestions],
         offer=res.offer,
+        debug=getattr(res, "debug", {}) or {},
     )
 
 
