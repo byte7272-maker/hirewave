@@ -219,14 +219,29 @@ def _skill_tokens(skill: str) -> set[str]:
     return set(_TOKEN.findall(skill.lower()))
 
 
-def skills_fit(profile: UserProfile, job: JobPosting) -> tuple[float, list[str], list[str]]:
-    """Return (score 0-1, matching_skills, gap_skills) via requirement overlap."""
-    reqs = [r.strip() for r in job.requirements if r.strip()]
-    job_text = (job.description + " " + " ".join(reqs)).lower()
-    profile_skills = profile.skills or []
-    if not profile_skills:
-        return 0.0, [], reqs
+#: Skills score when it can't be computed from data — a job with no description AND no
+#: requirements (a title-and-link-only posting), or a profile with no parsed skills. This is
+#: "unknown", NOT "no skills match": returning a hard 0 here (weighted 0.30) tanked otherwise
+#: strong matches whose semantic fit is high. A mild neutral lets the now-reliable semantic
+#: signal carry the fit, consistent with the unknown-salary (0.6) / unspecified-location (0.7)
+#: neutrals. A real 0-overlap when data DOES exist on both sides is still scored as computed.
+_SKILLS_UNKNOWN = 0.6
 
+
+def skills_fit(profile: UserProfile, job: JobPosting) -> tuple[float, list[str], list[str]]:
+    """Return (score 0-1, matching_skills, gap_skills) via requirement overlap.
+
+    When skills can't be judged (no job description/requirements, or no profile skills) the
+    score is ``_SKILLS_UNKNOWN`` with no matching/gaps — so an uncomputable signal doesn't
+    masquerade as a zero and drag down a strong semantic match."""
+    reqs = [r.strip() for r in job.requirements if r.strip()]
+    desc = (job.description or "").strip()
+    profile_skills = profile.skills or []
+    # Nothing to match on at least one side -> unknown, not zero.
+    if not profile_skills or not (reqs or desc):
+        return _SKILLS_UNKNOWN, [], []
+
+    job_text = (desc + " " + " ".join(reqs)).lower()
     matching = [s for s in profile_skills if s.lower() in job_text]
 
     # Gap: requirement phrases the profile does not evidence.

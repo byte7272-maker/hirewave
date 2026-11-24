@@ -9870,3 +9870,15 @@ A human response is required **ONLY** for: (a) a **choice or option** the assist
 - The assistant walks every step aloud, scrolling to and **spotlighting/animating** the exact control (install link, permission checkbox, web-research toggle).
 - The assistant opens pages and flips in-app toggles for the user, but the user performs the actual permission grant / consent tick — the assistant never auto-checks a consent box.
 - After granting, a test search confirms it and the step shows "done".
+
+## P338 — ⚠ SINGLE PURPOSE: "research the top company" researches the top match (empty company = resolve from context)
+
+**Do only this. Change nothing else.** **Confirmed bug:** typing "research the top company" (or "research this company") spotlights the **New search** button and says "search for something more specific" instead of researching a company. The backend is correct — `POST /assistant/interpret` returns intent **`research_company`** with slot **`company: ""`**, where an **empty `company` means "resolve from context"** (the one_source_of_truth: the TOP match, or the focused/open job). The client is mishandling the empty slot by falling to the search control. Fix the resolution.
+
+1. **On `research_company` with an empty `company`, resolve it to the top/focused job's company.** If a job is open/focused, use that job's company; otherwise use the **#1 ranked match's** company (same "current/top" the dashboard uses). Then run company research on it (the same path the **"Research the top company"** quick-action chip and each card's **Research** button already use).
+2. **Never route `research_company` to job search.** An empty company must **not** become a `search_jobs`/New-search action or "search for something more specific." It's a company lookup; resolve the company and research it.
+3. **If there's genuinely no company to resolve** (empty match list, nothing focused), say so briefly and offer to pick a match — don't silently highlight New search.
+
+### Acceptance
+- Typing "research the top company" / "research this company" researches the #1 match's (or the open job's) company — it does **not** spotlight New search or say "search for something more specific."
+- A named company still researches that company; an empty company resolves to the top/focused match.

@@ -23,6 +23,24 @@ def test_rank_stamps_match_score(profile, matching_job):
     assert matching_job.match_score == ranked[0].score
 
 
+def test_uncomputable_skills_is_neutral_not_zero(profile, matching_job):
+    # A posting with no description AND no requirements (title-and-link only) can't be
+    # judged on skills — it must score NEUTRAL, not 0, so a strong semantic match isn't
+    # dragged down. Regression for matches bunched far too low when the pool is title-only.
+    from jobsearch.engines.matching.scoring import skills_fit, _SKILLS_UNKNOWN
+    title_only = matching_job.model_copy(update={"description": "", "requirements": []})
+    score, matching, gaps = skills_fit(profile, title_only)
+    assert score == _SKILLS_UNKNOWN and matching == [] and gaps == []
+
+    # And the overall fit of a strong-semantic, title-only job clears a moderate bar
+    # (it used to compute ~48 because skills was a hard 0 at weight 0.30).
+    engine = MatchingEngine()
+    full = engine.score(profile, matching_job).score
+    titled = engine.score(profile, title_only).score
+    assert titled >= 60.0, titled           # no longer bunched down near 45-48
+    assert abs(full - titled) < 40.0         # losing the JD doesn't collapse the score
+
+
 def test_min_score_filter(profile, unrelated_job):
     engine = MatchingEngine()
     ranked = engine.rank(profile, [unrelated_job], min_score=99.0)
