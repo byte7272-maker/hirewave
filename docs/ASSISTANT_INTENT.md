@@ -80,7 +80,8 @@ The full set lives in `INTENTS` in `intent.py` (currently 43). Grouped:
 | `confirm` / `decline` | — | yes/do it · no/not now (resolve a `pending` offer server-side) |
 | `stop` `pause` `continue` `next` `back` `repeat` `skip` `cancel` | — | flow control |
 | `choose` | `index`, `option_id`, `label` | pick an offered option ("the second one", by name) |
-| `use_bullet` / `discard_bullet` | `option_id`, `index` | apply / drop the focused or named bullet |
+| `use_bullet` / `discard_bullet` | `option_id`, `index` | apply / drop the focused or named bullet. `use_bullet` needs a REFERENT ("use that", "use the second", "use this bullet"), not a bare "use" |
+| `undo` | — | undo the last applied change (the app is apply+Undo) — "undo", "undo that", "revert", "take that back" |
 
 **Navigation & playbooks**
 | intent | slots | meaning |
@@ -116,7 +117,8 @@ The full set lives in `INTENTS` in `intent.py` (currently 43). Grouped:
 | `resume_task` | — | pick up an in-progress task ("where I left off") — NOT the résumé document |
 | `check_mic` / `check_audio` | — | mic / audio troubleshooting |
 | `change_voice` | `voice` (matched to `/narration/voices`) | "use the warm voice / switch to Coral" |
-| `set_rate` | `rate` (0.5–2.0) or `direction` (`faster`/`slower`) | SPEAKING speed (not editing) |
+| `set_rate` | `rate` (0.5–2.0) or `direction` (`faster`/`slower`) | SPEAKING speed (not editing). Scoped to speech phrasings ("talk/speak/read faster", "slow down") — a bare "faster" in another context does NOT change the rate |
+| `answer_question` | `query` (verbatim) | a conversational QUESTION about the user's own data / context ("why is this a good match", "what should I do next", "should I apply to this", "how many interviews do I have", "how do I use the app") — the assistant ANSWERS it from on-screen data (match reasons, dashboard state, `POST /assistant/ask`); it does NOT run a command. Checked before the playbook matcher so "should I apply" is answered, not auto-applied. Frontend-first, see READDY P343 |
 | `connect_expert` | — | reach a human expert (recruiter / hiring manager / HR pro) — a FUTURE "coming soon" feature; ships its own reply, the client must NOT navigate |
 | `ask` | `query` (verbatim) | a real free-form request the app can't do → offered as a web search |
 | `unknown` | — | couldn't classify (triggers re-offer + buttons) |
@@ -192,7 +194,8 @@ full names ("New York, NY" → "New York", "US" → "United States") and ALL-CAP
 - `POST /assistant/interpret` returns a valid `InterpretResponse` for: the fixed command words
   (stop/continue/next/back/repeat/cancel), yes/no → confirm/decline, ordinals and names →
   choose/use with a resolved `option_id`, "go to <section>" → navigate, playbook phrases →
-  start_playbook, voice/rate phrases → change_voice/set_rate, and free-form → ask.
+  start_playbook, voice/rate phrases → change_voice/set_rate, conversational questions
+  ("why is this a good match", "should I apply to this") → answer_question, and free-form → ask.
 - "use that one" with a `context.focused_index`/single option resolves to that `option_id`;
   ambiguous input returns `needs_disambiguation`.
 - Works with **no premium provider** (deterministic path) and degrades to `ask`/`unknown`

@@ -9945,3 +9945,23 @@ Every user input — **voice or typed, badge or console, mid-flow or not** — r
 - Holding the badge mic produces a meter that moves **with your voice** and stays flat in silence — because it's reading a live stream.
 - Speaking into the badge mic yields a transcript that runs through the interpreter (e.g. "yes" resolves the offer, "go to applications" navigates).
 - The badge never shows a moving meter when no mic stream is active; a denied mic shows the blocked-mic help, not a fake meter.
+
+## P343 — ⚠ SINGLE PURPOSE: questions get ANSWERED, never dropped — handle the new `answer_question` intent from on-screen data
+
+**Do only this. Change nothing else.** **Confirmed gap:** open questions used to mis-route to junk actions (a question like "why is this a good match" ran a document sync; "should I apply to this" silently *started applying*). The backend now routes every such question to a single intent: `POST /assistant/interpret` returns **`answer_question`** with `slots {query: "<the user's exact words>"}` for "why is this a good match", "what should I do next", "is this worth applying to", "should I apply to this", "how many interviews do I have", "how do I use the app", "what do you think", etc. The assistant must **answer** it — speaking from data it already has — and must **never go silent** on one.
+
+No new backend endpoint is needed. Answer from what's already loaded, in this priority:
+
+1. **"Why is this a (good) match / why is it ranked / is it worth applying / should I apply to this"** → answer from the **match reasons already on the focused job card.** Each match from `GET /jobs/matches` carries `score` + `reasons[]` (`{label, detail, sentiment}`) and a `breakdown`. Speak the score and the top 2–3 positive reasons, and name the main gap if a reason is negative (e.g. "Strong on Python and FastAPI; the one gap is the location."). For "should I apply", end with a plain recommendation tied to the score (strong ≥80 → "worth applying"; 60–79 → "a reasonable apply if you tailor it"; <60 → "I'd prioritize stronger matches first"). **Do not start the apply flow** — this is advice; only act if the user then confirms.
+2. **Count / activity questions** ("how many interviews/applications/matches/saved do I have", "what did I do this week") → call the existing **`POST /assistant/ask`** `{query}` and speak its answer. (Match *count* specifically can also come from the dashboard summary you already hold.)
+3. **"What should I do next / what's my next step / what do you think"** → answer from **dashboard state you already have**: if preferences are unset → "set your preferences so I can match you". Else if there's a strong top match → "your strongest match is X — want to review it or apply?". Else if a résumé needs work → "let's strengthen your résumé". Offer it as a one-tap next action.
+4. **"How do I use the app / what can you do / how does X work"** → call **`POST /assistant/ask`** (or `GET /assistant/functions`) and speak the overview. Same as "what can you do".
+5. **Never dead-end.** If none of the above produces an answer (no focused job, no data), say what you'd need ("Open a match and I'll explain why it fits") — a spoken sentence, never silence and never a random navigation.
+
+This is **frontend-first**: answer from the match reasons, dashboard summary, and `/ask` you already call. No per-question LLM call, no new endpoint.
+
+### Acceptance
+- With a match focused, "why is this a good match?" speaks its score and top reasons (and the main gap, if any) — it does **not** run a sync or a search.
+- "Should I apply to this?" gives a recommendation from the score/reasons and does **not** silently start applying.
+- "How many interviews do I have?" speaks the real count (via `/assistant/ask`); "what should I do next?" offers a concrete next action from dashboard state.
+- No question is ever met with silence or an unrelated action — if data is missing, the assistant says what it needs.
