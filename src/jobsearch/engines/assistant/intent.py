@@ -33,6 +33,11 @@ INTENTS = {
     "read_bullets", "suggest_bullets", "use_bullet", "discard_bullet",
     "change_voice", "set_rate",
     "check_mic", "check_audio", "status_report", "whats_new", "resume_task",
+    # undo the last applied change (the app is apply+Undo, so "undo that" must be a real action);
+    # answer_question: a conversational question about the user's own data / the current context
+    # ("why is this a good match", "what should I do next", "is this worth applying to") — the
+    # assistant ANSWERS it (POST /assistant/answer), it does not run a random command.
+    "undo", "answer_question",
     # how to get MORE/BETTER matches — guidance toward the real levers: broaden the search
     # AND connect more sources (mailboxes + external job sites, incl. creating accounts).
     "more_matches",
@@ -524,7 +529,8 @@ _RESULT_QUESTION_RE = re.compile(
 )
 # Leading transport/filler verbs that introduce a search but aren't part of the query.
 _LEAD_SEARCH_FILLER_RE = re.compile(
-    r"^(?:pull up|bring up|show me|get me|find me|look for|look up|pull|bring|gimme|give me|fetch)\s+"
+    r"^(?:help me (?:find|search for|look for|look up|dig up)|can you (?:find|search for|look for)|"
+    r"pull up|bring up|show me|get me|find me|look for|look up|pull|bring|gimme|give me|fetch)\s+"
 )
 # A trailing geographic qualifier → the location slot. Geo prepositions ONLY ("near",
 # "around", "close to", "within N miles of") — deliberately NOT "in", which also names a
@@ -1057,6 +1063,37 @@ def _sync_documents(t: str) -> Optional[IntentResult]:
     return None
 
 
+# Conversational QUESTIONS about the user's own data / the current context that the assistant
+# should ANSWER (from their data + the LLM), not map to a random command. Without this they
+# mis-route (e.g. to sync_documents) — the client sends these to POST /assistant/answer.
+_ANSWER_Q_RE = re.compile(
+    r"\bwhy\b[^.?!]*\b(match\w*|fits?|recommend\w*|suggest\w*|good|strong\w*|rank\w*|"
+    r"this (?:job|one|role))\b"
+    r"|\bwhat(?:'?s| is| should i do| do i do| should i| do you| would you)\b[^.?!]*"
+    r"\b(next|now|next step|do next|i do|think|recommend|suggest|say|strongest|best)\b"
+    r"|\bis (?:this|it)\b[^.?!]*\b(worth|a good|the right|a strong|a match|for me|applying)\b"
+    r"|\bshould i\b[^.?!]*\b(apply|take it|go for it|bother|wait)\b"
+    r"|\bhow (?:do i|does this|do you)\b[^.?!]*\b(use|work|get started)\b"
+    r"|\bwhat (?:do|would) you (?:think|recommend|suggest|say)\b"
+    r"|\bhow (?:many|much)\b[^.?!]*\b(interviews?|applications?|matches|jobs?|saved|applied|"
+    r"pipeline|offers?)\b"
+    r"|\bwhat\b[^.?!]*\bshould i\b"
+    r"|\bhelp me\b[^.?!]*\b(get (?:a |an |more )?(?:job|hired|interview|offer)|land|"
+    r"faster|quicker|be competitive|stand out|improve my (?:odds|chances))\b"
+    r"|\bhow (?:do|can) i\b[^.?!]*\b(get (?:a |an )?(?:job|hired|interview|offer)|land a|"
+    r"find work)\b"
+    r"|\bdo you think\b"
+)
+
+
+def _answer_question(t: str) -> Optional[IntentResult]:
+    """A conversational question the assistant should ANSWER from the user's data + context
+    (POST /assistant/answer), not route to an action. Keeps the verbatim question as ``query``."""
+    if _ANSWER_Q_RE.search(t):
+        return IntentResult("answer_question", 0.85, {"query": t})
+    return None
+
+
 def _extract_search_query(t: str) -> Optional[dict]:
     """If ``t`` is a job-search request, return ``{"query": ..., "location"?: ...}``, else None.
 
@@ -1067,6 +1104,11 @@ def _extract_search_query(t: str) -> Optional[dict]:
     fit" (a playbook) and "find my résumé" (nav) aren't hijacked, and to result-questions
     ("what did you find for me") which are status, not a new search."""
     if _RESULT_QUESTION_RE.search(t):
+        return None
+    # An advice/question framing ("help me get a job faster", "what should I search for")
+    # names a job noun but is NOT a search — answer it instead of running a garbage query
+    # ("help faster"). _answer_question (later in interpret) catches these.
+    if _ANSWER_Q_RE.search(t):
         return None
     if not (_SEARCH_VERB_RE.search(t) or _SEARCH_CLAUSE_RE.search(t) or _JOB_NOUN_RE.search(t)):
         return None
@@ -1133,11 +1175,22 @@ def _deterministic(text: str, context: dict) -> IntentResult:
         return IntentResult("skip", 0.85)
     if re.fullmatch(r"(cancel|abort)", t):
         return IntentResult("cancel", 0.9)
+    # undo the last applied change — a real action (the app applies + offers Undo), not a
+    # "confirm". "undo"/"undo that"/"revert"/"undo the last change"/"put it back".
+    if (re.fullmatch(r"(undo|revert|undo it|revert it|undo that|undo this)", t)
+            or has("undo that", "undo the last", "undo my last", "revert that", "revert the",
+                   "undo the change", "take that back", "put it back the way")):
+        return IntentResult("undo", 0.9)
 
-    # voice / rate (before navigate, so "switch to coral" isn't a section)
-    if has("faster", "speed up", "talk faster", "quicker"):
+    # voice / rate (before navigate, so "switch to coral" isn't a section) — scoped to SPEECH
+    # so "help me get a job faster" isn't read as "talk faster".
+    if (re.fullmatch(r"(faster|quicker|speed up)", t)
+            or has("talk faster", "speak faster", "read faster", "go faster", "speak quicker",
+                   "talk quicker", "say it faster", "speed it up")):
         return IntentResult("set_rate", 0.9, {"direction": "faster"})
-    if has("slower", "slow down", "talk slower"):
+    if (re.fullmatch(r"(slower|slow down)", t)
+            or has("talk slower", "speak slower", "read slower", "go slower", "say it slower",
+                   "slow it down", "slow it right down")):
         return IntentResult("set_rate", 0.9, {"direction": "slower"})
     m = re.search(r"(?:speed|rate)\D{0,6}(\d(?:\.\d)?)", t)
     if m:
@@ -1170,8 +1223,11 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     # "use/add/pick …" selects a bullet — but NOT when the phrase is about an email
     # address or a document field ("use a different email address on my résumé"), which
     # is a document edit handled by _manage_action below.
-    _bullet_use = (has("use ", "use that", "use this", "use it", "add that", "add this",
-                       "pick that", "pick this", "go with that", "go with this")
+    _bullet_use = (has("use that", "use this one", "use that one", "use it", "add that one",
+                       "add this one", "pick that", "pick this one", "go with that", "go with this",
+                       "use the second", "use the first", "use the third",
+                       "use this bullet", "use that bullet", "use this line", "use that line",
+                       "use this version", "use that version")
                    or re.fullmatch(r"(use|add|pick)(\s+it)?", t))
     if _bullet_use and not (_EMAIL_ADDRESS_RE.search(t) or _DOC_CTX_RE.search(t)):
         oid, idx, dis = _resolve_reference(t, context)
@@ -1402,6 +1458,16 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if sq_state is not None:
         return sq_state
 
+    # a conversational QUESTION about the user's data / context ("why is this a good match",
+    # "what should I do next", "is this worth applying to", "how many interviews do I have")
+    # → ANSWER it, don't map it to a random command. Checked BEFORE the playbook matcher so a
+    # question-framed phrasing ("should I apply to this") is answered rather than silently
+    # starting the consequential apply flow, and before the bare-selection / documents-edit
+    # safety nets so a question isn't turned into a pick or an edit.
+    aq = _answer_question(t)
+    if aq is not None:
+        return aq
+
     # playbooks (a concrete task phrase)
     pb = _match_playbook(t)
     if pb:
@@ -1515,6 +1581,11 @@ _INTENT_HELP: dict[str, str] = {
                       "{walk_matches, tailor, apply_job, connect_source, auto_apply, practice, upload, download, design, bullets}.",
     "status_report": "summarize the current state / what's on this page right now.",
     "whats_new": "what changed / what did you find / what's new since last time.",
+    "answer_question": "ANSWER a question about the user's own data or the current context — "
+                      "'why is this a good match', 'what should I do next', 'is this worth "
+                      "applying to', 'how many interviews do I have', 'how does this work'. The "
+                      "assistant answers; it does NOT run a command. slot: query (the question).",
+    "undo": "undo / revert the last applied change.",
     "more_matches": "how to GET MORE / better / additional matches or jobs coming in "
                     "(broaden the search AND connect more sources — mailboxes, job sites). "
                     "NOT a web search; not rating existing matches.",

@@ -60,6 +60,85 @@ def test_new_capability_intents(utterance, intent):
 
 
 @pytest.mark.parametrize("utterance", [
+    "why is this a good match",
+    "why is this recommended",
+    "what should I do next",
+    "what should I search for",
+    "what jobs should I apply to",
+    "is this worth applying to",
+    "should I apply to this",
+    "how do I use this app",
+    "what do you think",
+    "how many interviews do I have",
+    "how do I get a job",
+    "help me get a job faster",
+])
+def test_conversational_questions_route_to_answer_question(utterance):
+    # Open questions about the user's own data/context must be ANSWERED, not mapped to a
+    # random command. Before this they fell into sync_documents / search_jobs / apply_job.
+    r = interpret(utterance, context={})
+    assert r.intent == "answer_question", f"{utterance!r} -> {r.intent}"
+    assert r.slots.get("query")
+
+
+def test_should_i_apply_is_answered_not_auto_applied():
+    # "should I apply to this" is a QUESTION — it must not silently start the apply flow.
+    assert interpret("should I apply to this").intent == "answer_question"
+    assert interpret("should I apply to this").intent != "start_playbook"
+
+
+@pytest.mark.parametrize("utterance", [
+    "undo", "undo that", "undo the last change", "revert", "revert that", "take that back",
+])
+def test_undo_intent(utterance):
+    r = interpret(utterance, context={})
+    assert r.intent == "undo", f"{utterance!r} -> {r.intent}"
+
+
+@pytest.mark.parametrize("utterance,direction", [
+    ("talk faster", "faster"),
+    ("speak faster", "faster"),
+    ("read faster", "faster"),
+    ("slow down", "slower"),
+    ("talk slower", "slower"),
+])
+def test_set_rate_is_speech_scoped(utterance, direction):
+    r = interpret(utterance, context={})
+    assert r.intent == "set_rate" and r.slots.get("direction") == direction
+
+
+@pytest.mark.parametrize("utterance", [
+    "help me get a job faster",   # aspiration, not a speech-rate command
+    "find jobs faster",            # search phrasing, not speech
+])
+def test_set_rate_does_not_grab_bare_faster(utterance):
+    assert interpret(utterance, context={}).intent != "set_rate"
+
+
+@pytest.mark.parametrize("utterance,expect", [
+    ("use the second one", "use_bullet"),
+    ("use that one", "use_bullet"),
+    ("use this bullet", "use_bullet"),
+])
+def test_use_bullet_requires_a_reference(utterance, expect):
+    assert interpret(utterance, context={}).intent == expect
+
+
+@pytest.mark.parametrize("utterance,query", [
+    ("help me find remote jobs", "remote"),
+    ("can you find python roles", "python"),
+    ("find remote python jobs", "remote python"),
+    ("search for VP roles", "vp"),
+])
+def test_search_query_is_clean(utterance, query):
+    # Lead fillers ("help me find", "can you find") must be stripped so the query is the
+    # actual target, not the wrapper words.
+    r = interpret(utterance, context={})
+    assert r.intent == "search_jobs"
+    assert r.slots.get("query") == query
+
+
+@pytest.mark.parametrize("utterance", [
     "read my bullets", "read the bullets", "read my bullet points", "read my resume bullets",
     "read out my bullets", "read my bullets aloud", "read the lines", "read my lines",
     "read them", "read these",

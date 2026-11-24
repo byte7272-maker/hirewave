@@ -120,6 +120,18 @@ def search_jobs(
     return [s.job for s in ranked]
 
 
+def _default_resume_id(state: StateDep, user_id: str) -> str:
+    """The résumé matches rank against when the caller names none: the user's latest
+    real (non-archived, non-sample) résumé. Keeps the Matches list on the SAME basis as
+    the dashboard's "strong matches" count, so one job doesn't show two different scores
+    across the two screens. Empty string when the user has no real résumé yet."""
+    mine = [
+        r for r in state.resumes.find(user_id=user_id)
+        if not getattr(r, "archived", False) and not getattr(r, "is_sample", False)
+    ]
+    return mine[-1].id if mine else ""
+
+
 def _matching_profile(state: StateDep, user_id: str, resume_id: str) -> UserProfile:
     """The profile to rank against. With ``resume_id`` the ranking is driven by
     that résumé's text + the skills mined from it (so matches reflect the résumé
@@ -156,6 +168,11 @@ def matches(
     resume_id: Optional[str] = Query(None, description="rank against this résumé (user picks when several)"),
     categories: str = Query("", description="comma-separated broad categories to focus on; blank = your saved prefs"),
 ) -> list[MatchOut]:
+    # Default to the latest real résumé when the caller names none, so the Matches list
+    # ranks on the SAME basis as the dashboard (which already does this) — a job never
+    # shows two different scores across the two screens. An explicit resume_id still wins.
+    if not resume_id:
+        resume_id = _default_resume_id(state, user.id)
     profile = _matching_profile(state, user.id, resume_id)
     # Category focus: explicit query wins, else the user's saved preference.
     selected = {c.strip() for c in categories.split(",") if c.strip()}

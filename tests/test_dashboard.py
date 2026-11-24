@@ -80,3 +80,30 @@ def test_weekly_goal_counts_this_weeks_activity():
 
 def test_requires_auth():
     assert _client().get("/api/v1/dashboard/summary").status_code == 401
+
+
+def test_dashboard_and_matches_agree_on_score_without_resume_id():
+    # Fundamental-flaw guard: the same job must not show two different scores across the
+    # dashboard (which ranks against the latest résumé) and the Matches list. The Matches
+    # endpoint now defaults to that same résumé when the caller passes no resume_id, so a
+    # user never sees "82% here, 54% there" for one posting.
+    client = _client()
+    h = _auth(client, email="agree@demo.com")
+    client.put("/api/v1/users/me/profile", headers=h, json={"skills": ["Python", "FastAPI"]})
+    client.post(
+        "/api/v1/resumes/upload", headers=h,
+        files={"file": ("cv.md", b"# CV\nSenior Python engineer. FastAPI, Postgres, AWS.", "text/markdown")},
+    )
+    client.post("/api/v1/job-search/run", headers=h,
+                json={"role": "python engineer", "location": "NYC", "remote": True})
+
+    summary = client.get("/api/v1/dashboard/summary", headers=h).json()
+    top = (summary.get("matches") or {}).get("top")
+    if not top:  # no rankable jobs in this environment → nothing to compare
+        return
+    matches = client.get("/api/v1/jobs/matches", headers=h).json()  # NO resume_id
+    by_id = {m["job_id"]: m["score"] for m in matches}
+    assert top["job_id"] in by_id, "dashboard top match absent from the Matches list"
+    assert by_id[top["job_id"]] == top["score"], (
+        f"score mismatch: dashboard {top['score']} vs matches {by_id[top['job_id']]}"
+    )
