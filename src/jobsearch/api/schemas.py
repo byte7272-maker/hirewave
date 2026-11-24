@@ -211,6 +211,10 @@ class MatchOut(BaseModel):
     benefits: list[str] = Field(default_factory=list)
     #: full-time | part-time | contract | temporary | internship (empty if unknown).
     employment_type: str = ""
+    #: True when the description was synthesized by the LLM (the posting's own page
+    #: couldn't be fetched) rather than taken from the employer — the UI should badge
+    #: it "Estimated". Used in matching at full weight, by product decision.
+    description_inferred: bool = False
     #: junior | mid | senior | lead | staff | principal | director (empty if unknown).
     seniority: str = ""
     #: Minimum years of experience the posting asks for (None if unstated).

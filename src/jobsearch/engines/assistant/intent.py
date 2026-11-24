@@ -44,6 +44,10 @@ INTENTS = {
     # advise what would make the résumé + SKILLSET stronger (general or for a role/job/goal):
     # skills, certifications, education, experience framing, positioning.
     "strengthen_resume",
+    # get a posting's REAL description from its source page — the assistant opens the page,
+    # the USER clears any login/captcha, then the assistant reads it and posts it back
+    # (POST /jobs/{id}/jd). The reliable path for bot-walled boards. See FLOWS.enrich_from_source.
+    "get_job_details",
     "report_state", "ask", "unknown",
 }
 
@@ -1350,6 +1354,23 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if legit is not None:
         return legit
 
+    # get the REAL description from the posting's own page ("open the posting so you can
+    # read it", "pull the full description from the site", "get this job's details",
+    # "fill in this job") — the assistant opens the source page, the USER clears any
+    # login/captcha, then the assistant reads + posts the page back. Reliable path for
+    # bot-walled boards. BEFORE search so "get this job's details" / "pull the full
+    # description" isn't eaten by the job-noun search matcher.
+    if (has("get the full description", "get the real description", "get the description",
+            "pull the full description", "pull the description", "pull the real description",
+            "open the posting", "open the source", "open the job page", "open this on the site",
+            "read it from the page", "read the posting", "read the full posting",
+            "get this job's details", "get the job details", "get this jobs details",
+            "fill in this job", "get the details from the page", "read it off the page",
+            "see the real posting")
+            or re.search(r"\b(open|pull|read|grab|fetch)\b[^.?!]*\b(posting|job page|source page|"
+                         r"full (?:job )?description|real (?:job )?description)\b", t)):
+        return IntentResult("get_job_details", 0.9)
+
     # job search ("find all jobs that are vice president or VP", "remote senior python
     # roles") — a free-text query with OR-alternatives + synonym expansion. Checked
     # before navigate so "find VP jobs" searches rather than just opening the jobs list,
@@ -1593,6 +1614,11 @@ _INTENT_HELP: dict[str, str] = {
                         "build, CERTIFICATIONS to earn, EDUCATION/degrees/courses, experience "
                         "framing — in general or for a role/career goal. slots: role, goal. "
                         "(Forward-looking growth advice, NOT fixing the writing of the résumé.)",
+    "get_job_details": "get a posting's REAL description from its SOURCE PAGE — 'open the "
+                       "posting so you can read it', 'pull the full description from the site', "
+                       "'get this job's details', 'fill in this job'. The assistant opens the "
+                       "page; the USER clears any login/captcha; then it reads + applies the "
+                       "page. For a posting that's only a title/placeholder. NOT a web search.",
     "save": "save / bookmark / keep the current item for later.",
     "archive": "archive / hide / dismiss an item.",
     "web_search": "search the web for general info the app itself doesn't hold.",
@@ -1906,6 +1932,10 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
         return ("Getting you expert help is coming soon — I'll be able to connect you with "
                 "recruiters, HR pros, and hiring managers for advice and content. It's not "
                 "live yet, but it's on the way; I'll let you know when it's ready.")
+    if intent == "get_job_details":
+        return ("I'll open this posting on its source site so I can read the full description. "
+                "If it asks you to sign in or prove you're human, go ahead — I'll wait, then "
+                "pull the real requirements and pay off the page.")
     if intent == "more_matches":
         return _MORE_MATCHES_REPLY
     if intent == "strengthen_resume":

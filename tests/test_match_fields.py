@@ -516,7 +516,8 @@ def test_scheduler_enrichment_is_offline_safe_and_skips_urlless_jobs():
     state, _ = _client()
     state.jobs.add(JobPosting(owner_id="u1", title="X", url="https://x.co/j", description="short"))
     state.jobs.add(JobPosting(owner_id="u1", title="Y", url="", description="short"))  # no URL → never enrichable
-    assert enrich_descriptions(state) == 0  # offline → no-op, no network
+    # offline → no-op, no network (returns empty per-source stats, nothing attempted)
+    assert enrich_descriptions(state)["attempted"] == 0
 
 
 def test_reimport_clear_reseeds_enriched_samples():

@@ -238,6 +238,7 @@ def matches(
                 workplace=r.job.workplace,
                 benefits=list(r.job.benefits or []),
                 employment_type=r.job.employment_type,
+                description_inferred=getattr(r.job, "description_inferred", False),
                 seniority=r.job.seniority,
                 years_experience=r.job.years_experience,
                 company_logo=r.job.company_logo,
@@ -460,11 +461,20 @@ def enrich_descriptions(
         j for j in _match_pool(state, _user.id)  # only the user's own postings
         if _visible(state, j) and needs_jd(j) and (not wanted or j.id in wanted)
     ]
+    # Inference fallback (B) is used here too when enabled, so a user who clicks "get
+    # descriptions" still gets signal on bot-walled postings.
+    infer = bool(getattr(state.settings, "jd_infer_enabled", False))
+    llm = getattr(state.resume_assistant, "premium", None) if infer else None
     checked = enriched = 0
     enriched_ids: list[str] = []
     for job in candidates[:limit]:
         checked += 1
-        if enrich_job(job):
+        # An explicit, user-named retry overrides the server backoff — un-park it so
+        # this call actually tries again (the manual path can reach some pages the
+        # scheduler can't, and the user asked).
+        if wanted:
+            job.jd_blocked = False
+        if enrich_job(job, llm=llm, infer=infer):
             state.jobs.add(job)
             enriched += 1
             enriched_ids.append(job.id)

@@ -371,6 +371,11 @@ class Settings(BaseSettings):
     #: it ingests more per scan (but each message is a separate Gmail API GET, so a
     #: very large value makes a scan slower).
     gmail_max_messages: int = Field(default=50, validation_alias="JOBSEARCH_GMAIL_MAX_MESSAGES")
+    #: JD inference fallback (B): when a posting's page can't be fetched (bot-walled
+    #: LinkedIn/Indeed) and the job is parked, synthesize a clearly-labeled JD with the
+    #: premium LLM so matching still has real signal. Off by default — it spends one
+    #: premium call per parked job and depends on a healthy Anthropic key.
+    jd_infer_enabled: bool = Field(default=False, validation_alias="JOBSEARCH_JD_INFER_ENABLED")
 
     # --- Dedicated job mailbox (best-privacy: a mailbox that holds ONLY job mail) ---
     # Scanned over IMAP for job email of every kind (alerts, applications, recruiters,

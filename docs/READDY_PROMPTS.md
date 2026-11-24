@@ -9965,3 +9965,34 @@ This is **frontend-first**: answer from the match reasons, dashboard summary, an
 - "Should I apply to this?" gives a recommendation from the score/reasons and does **not** silently start applying.
 - "How many interviews do I have?" speaks the real count (via `/assistant/ask`); "what should I do next?" offers a concrete next action from dashboard state.
 - No question is ever met with silence or an unrelated action — if data is missing, the assistant says what it needs.
+
+## P344 — ⚠ SINGLE PURPOSE: get a job's REAL description from its source page — assistant opens it, the USER clears any wall, assistant reads the page
+
+**Do only this. Change nothing else.** Many postings arrive as just a title + link from an email alert; the server can't fetch the real description from bot-walled boards (LinkedIn/Indeed). The reliable path is: the **assistant opens the posting's own page**, the **user clears any sign-in or captcha** (we NEVER bypass it), then the **assistant reads the opened page and sends it back** to the backend, which parses pay/benefits/location/requirements. The backend is ready: `POST /api/v1/jobs/{job_id}/jd` with `{ "html": "<the page's HTML>", "url": "<the page url>" }` parses it, supersedes the placeholder/estimated body, and returns the filled fields.
+
+Contract: `POST /assistant/interpret` returns intent **`get_job_details`** for "open the posting so you can read it", "pull the full description from the site", "get this job's details", "fill in this job". Capabilities `FLOWS.enrich_from_source` scripts the narration (states: `start`→`opening`→`user_clears`→`capturing`→`done`/`nothing`/`blocked`/`error`; `ask:"start"`).
+
+1. **Offer it on a thin/inferred job.** When the focused match is only a title/placeholder, or its description is estimated (`description_inferred:true`, see P345), the assistant offers: *"This came in as just a title — want me to open it on {source} so I can read the full description?"* (the `start` line). Bind the offer's `on_yes` to `get_job_details` so a typed/spoken "yes" runs it (per P339).
+2. **Open the posting, then WAIT for the user.** On `get_job_details` (or the accepted offer), open the job's `url` (the source posting) in the in-app browser / extension tab. Speak the `user_clears` line: if the page shows a sign-in or human-check, the **user** completes it — the assistant waits and never attempts to bypass a login or captcha.
+3. **Capture the rendered page, don't re-fetch server-side.** Once the real posting is on screen, read the rendered DOM/HTML and `POST /jobs/{job_id}/jd` with `{html, url}`. This is the whole point: the user's own session got past the wall, so the page we capture is the real one.
+4. **Apply + refresh + speak the result.** On success, re-pull the match (`GET /jobs/matches`) and speak the `done` line naming what filled in (pay / requirements / location). If the page had no description yet (a listing page, not the posting), speak `nothing` and offer to let the user click into the full posting and re-read.
+5. **Submitting/initial permission on the external site stays in the secondary permission pool.** Opening a page to READ it is fine; anything that would submit a form, apply, or authorize an action on the external site still requires explicit human permission (unchanged).
+
+### Acceptance
+- On a title-only match, the assistant offers to open the posting; saying "yes" (typed, spoken, or the Yes button) opens the source page.
+- After the user clears any login/captcha, the assistant reads the page and the match fills in real pay/requirements/location — without the assistant ever bypassing the wall.
+- "Get this job's details" / "pull the full description from the site" triggers the same flow directly; it is **not** treated as a job search.
+- A listing page with no description yields the `nothing` line and an offer to click into the full posting — never silence.
+
+## P345 — ⚠ SINGLE PURPOSE: badge an ESTIMATED (LLM-inferred) description, and prefer the real one
+
+**Do only this. Change nothing else.** When a posting's page can't be fetched, the backend may synthesize a short, clearly-labeled description so matching still works. Such a match carries **`description_inferred: true`** (on `GET /jobs/matches`), and its body ends with "Estimated role description, generated from the title — not the employer's posting." The user must be able to tell an estimate from the employer's real text.
+
+1. **Badge it "Estimated".** On any match with `description_inferred:true`, show a small "Estimated" chip near the description/score so it's clearly not the employer's own posting. Keep the score as-is (estimates are used at full weight, by product decision) — the badge is about provenance, not a score penalty.
+2. **Offer the real one.** Pair the badge with the P344 offer: *"This description is my estimate — want me to open the posting so I can read the real one?"* Running it (`get_job_details`) replaces the estimate with the fetched text and the badge disappears (`description_inferred` flips to false once the real body is applied).
+3. **Don't badge real descriptions.** A posting with `description_inferred:false` (the default) shows no estimate chip.
+
+### Acceptance
+- A match whose description was inferred shows an "Estimated" chip; a normal match shows none.
+- After the user opens the real posting (P344), the chip disappears and the real description shows.
+- The estimate still contributes to the match score (no visible score drop from the badge alone).

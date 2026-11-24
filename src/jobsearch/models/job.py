@@ -180,6 +180,15 @@ class JobPosting(DomainModel):
     consolidated_count: int = 0  # identical re-posts merged into this one
     consolidated_sources: list[str] = Field(default_factory=list)  # boards those merged posts came from
 
+    # JD enrichment tracking — when a posting arrives URL-only (email alerts), we fetch
+    # its full description. These bound that work: a page we can't fetch (bot-walled
+    # LinkedIn/Indeed) is retried on a backoff and then parked, so stuck jobs never
+    # starve the per-tick budget. See engines/sourcing/jd_enrich.py.
+    jd_attempts: int = 0  # how many times we've tried to fetch the full JD
+    jd_last_attempt: Optional[datetime] = None  # when we last tried (drives backoff)
+    jd_blocked: bool = False  # parked: exhausted fetch attempts, don't auto-retry
+    description_inferred: bool = False  # body was synthesized by the LLM, not fetched
+
     # Populated by the engines (not the ingestion source):
     is_verified: Optional[bool] = None
     match_score: Optional[float] = None  # 0-100, per current user

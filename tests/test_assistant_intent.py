@@ -81,6 +81,31 @@ def test_conversational_questions_route_to_answer_question(utterance):
     assert r.slots.get("query")
 
 
+@pytest.mark.parametrize("utterance", [
+    "open the posting so you can read it",
+    "pull the full description from the site",
+    "get this job's details",
+    "get the full description",
+    "read the posting",
+    "fill in this job",
+    "grab the real job description from the page",
+])
+def test_get_job_details_from_source_page(utterance):
+    # The reliable enrichment path: the assistant opens the source page, the user clears
+    # any wall, then it reads the page. Must not be mistaken for a job search.
+    r = interpret(utterance, context={})
+    assert r.intent == "get_job_details", f"{utterance!r} -> {r.intent}"
+
+
+@pytest.mark.parametrize("utterance,expect", [
+    ("open my resume", "navigate"),          # document open, not a posting fetch
+    ("find remote python jobs", "search_jobs"),
+    ("open my applications", "navigate"),
+])
+def test_get_job_details_does_not_over_match(utterance, expect):
+    assert interpret(utterance, context={}).intent == expect
+
+
 def test_should_i_apply_is_answered_not_auto_applied():
     # "should I apply to this" is a QUESTION — it must not silently start the apply flow.
     assert interpret("should I apply to this").intent == "answer_question"

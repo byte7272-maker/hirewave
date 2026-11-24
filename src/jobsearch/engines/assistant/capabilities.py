@@ -591,6 +591,34 @@ FLOWS: dict[str, dict[str, Any]] = {
             "error": "That step didn't complete — want me to walk it again from here?",
         },
     },
+    # Get a job's REAL description straight from its source page — the reliable path for
+    # bot-walled boards (LinkedIn/Indeed). The assistant opens the posting; the USER
+    # clears any login/captcha (we never bypass it); then the assistant reads the opened
+    # page and posts it back to POST /jobs/{id}/jd, which parses pay/benefits/location/
+    # requirements and supersedes any placeholder or estimated body.
+    "enrich_from_source": {
+        "label": "Get the real description from the posting",
+        "focus": "the job's own posting page",
+        "ask": "start",
+        "user_action": "open the posting and clear any sign-in or captcha the site shows",
+        "automate": ["open_source_url_in_browser", "capture_rendered_page",
+                     "post_page_to_jd_endpoint", "refresh_the_match"],
+        "speak": {
+            "start": "This posting came in as just a title, so I can't see the real requirements yet. "
+                     "Want me to open it on {source} so I can read the full description?",
+            "opening": "Opening {job} on {source}…",
+            "user_clears": "If it asks you to sign in or prove you're human, go ahead and do that — I'll "
+                           "wait, then read the page. I never sign in or get past those for you.",
+            "capturing": "Got the page — pulling the description, pay, and requirements now…",
+            "done": "Done — I read the real posting. {job} now shows {added}. Want me to rate your fit "
+                    "against it?",
+            "nothing": "I opened it but couldn't find a description on that page — it may need you to "
+                       "click into the full posting first. Want to try that and I'll re-read it?",
+            "blocked": "The page didn't load for me to read. If you can open it in your browser, I can "
+                       "capture it from there instead.",
+            "error": "That didn't go through — want me to try opening it again?",
+        },
+    },
 }
 
 #: Spoken answers to the questions a user predictably asks DURING a flow, so the

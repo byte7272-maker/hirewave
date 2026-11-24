@@ -108,6 +108,7 @@ The full set lives in `INTENTS` in `intent.py` (currently 43). Grouped:
 | `web_search` | `query` | general open-web lookup the app doesn't hold |
 | `save` / `archive` | — | save/bookmark · archive/hide the focused item |
 | `more_matches` | — | **guidance on getting more matches** — broaden the search AND connect more sources (mailboxes + external job sites, incl. creating accounts); carries an offer to open the Connect page |
+| `get_job_details` | — | get a posting's REAL description from its SOURCE PAGE — assistant opens it, the USER clears any login/captcha, then it reads + POSTs the page to `/jobs/{id}/jd`. The reliable path for bot-walled boards; for a title-only/placeholder/estimated posting. See `FLOWS.enrich_from_source`, READDY P344 |
 
 **Assistant meta, status & voice**
 | intent | slots | meaning |

@@ -11,6 +11,7 @@ from jobsearch.api.state import AppState
 from jobsearch.config import Settings
 from jobsearch.engines.integration import MockTokenExchanger
 from jobsearch.models import AutoApplyCriteria, JobPosting, User
+from jobsearch.models.common import utcnow
 from jobsearch.scheduler import run_once, run_periodically
 
 
@@ -128,3 +129,89 @@ def test_health_reports_scheduler_mode():
     # the reported mode, not a running loop.)
     in_proc = TestClient(create_app(state=_state(scheduler_enabled=True)))
     assert in_proc.get("/health").json()["scheduler"] == "in-process"
+
+
+# --- JD enrichment pass (A: backoff/stats, B: inference) ----------------------
+
+class _Live:  # a stand-in LIVE fetcher so enrich_descriptions actually runs offline
+    live = True
+
+
+class _FakeLLM:
+    name = "fake"
+
+    def complete(self, prompt, *, system=None, temperature=0.4, max_tokens=1500):
+        return ('{"description": "Own the platform, lead incident response and mentor '
+                'engineers across regions in a fast-moving team.", '
+                '"requirements": ["AWS", "Terraform", "Python", "On-call ownership"]}')
+
+
+def _needs_jd_job(jid="j1", source="linkedin", url="https://www.linkedin.com/jobs/view/1"):
+    return JobPosting(
+        id=jid, title="SRE", company="Acme", source_platform=source, url=url,
+        description="SRE — surfaced from a job_alert email in your connected inbox.",
+    )
+
+
+def test_enrich_descriptions_is_noop_offline():
+    # Mock (non-live) fetcher -> the pass never hits the wire; empty stats.
+    from jobsearch.scheduler import enrich_descriptions
+
+    state = _state()
+    state.jobs.add(_needs_jd_job())
+    stats = enrich_descriptions(state)
+    assert stats == {"enriched": 0, "attempted": 0, "blocked": 0, "inferred": 0, "by_source": {}}
+
+
+def test_enrich_descriptions_tallies_by_source(monkeypatch):
+    import jobsearch.engines.sourcing.jd_enrich as je
+    from jobsearch.scheduler import enrich_descriptions
+
+    # A real JD comes back for this page -> it enriches and is tallied under its source.
+    monkeypatch.setattr(je, "fetch_jd", lambda url, timeout=12.0: {
+        "description": "Own the fleet and ship reliably at scale. " * 8,
+        "requirements": ["AWS", "Terraform"],
+    })
+    state = _state()
+    state.gmail_fetcher = _Live()
+    state.jobs.add(_needs_jd_job())
+    stats = enrich_descriptions(state)
+    assert stats["attempted"] == 1 and stats["enriched"] == 1
+    assert stats["by_source"]["linkedin"]["enriched"] == 1
+
+
+def test_enrich_job_infers_a_labeled_jd_after_parking(monkeypatch):
+    # The dominant real-world case: the page can't be fetched (bot-wall). After the
+    # backoff exhausts and the job is parked, inference writes a labeled JD (B).
+    from datetime import timedelta
+
+    import jobsearch.engines.sourcing.jd_enrich as je
+
+    monkeypatch.setattr(je, "fetch_jd", lambda url, timeout=12.0: {})
+    llm = _FakeLLM()
+    job = _needs_jd_job()
+    base = utcnow()
+
+    # Attempts 1-3 fail and do NOT infer (not parked yet).
+    for i in range(3):
+        assert je.enrich_job(job, now=base + timedelta(hours=1000 * i), llm=llm, infer=True) is False
+        assert job.description_inferred is False
+    # 4th attempt parks it -> inference kicks in with a clearly-labeled body.
+    assert je.enrich_job(job, now=base + timedelta(hours=9000), llm=llm, infer=True) is True
+    assert job.jd_blocked is True
+    assert job.description_inferred is True
+    assert "Estimated role description" in job.description
+
+
+def test_enrich_job_without_inference_just_parks(monkeypatch):
+    from datetime import timedelta
+
+    import jobsearch.engines.sourcing.jd_enrich as je
+
+    monkeypatch.setattr(je, "fetch_jd", lambda url, timeout=12.0: {})
+    job = _needs_jd_job()
+    base = utcnow()
+    for i in range(4):
+        je.enrich_job(job, now=base + timedelta(hours=1000 * i), infer=False)
+    assert job.jd_blocked is True
+    assert job.description_inferred is False  # no inference without the flag

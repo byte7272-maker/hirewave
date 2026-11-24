@@ -82,32 +82,57 @@ def reap_imap(state: AppState) -> int:
     return ingested_total
 
 
-def enrich_descriptions(state: AppState, *, limit: int = 12) -> int:
+def _empty_enrich_stats() -> dict:
+    return {"enriched": 0, "attempted": 0, "blocked": 0, "inferred": 0, "by_source": {}}
+
+
+def enrich_descriptions(state: AppState, *, limit: int = 12) -> dict:
     """Fetch the full job description for a bounded number of postings that have a URL
     but only a thin/placeholder body, and apply it — this is what fills in salary,
     benefits, location and workplace for email-sourced jobs (whose alert only gave a
     title + link). Without this pass those fields never surface.
 
+    Respects the per-job backoff (``due_for_server_fetch``), so a page we can't reach
+    (bot-walled LinkedIn/Indeed) is retried on a widening schedule and then parked —
+    stuck jobs never crowd out jobs we CAN enrich. When inference is enabled
+    (``JOBSEARCH_JD_INFER_ENABLED``), a parked job gets a clearly-labeled synthesized JD.
+
     Network + best-effort, so it is gated to LIVE mode (same as the email reap): in the
     offline/mock fetcher used by tests it is a no-op, so the suite never hits the wire.
-    Bounded per tick; the rest are picked up on later ticks."""
+    Returns per-source counts (attempted/enriched/blocked/inferred) for observability."""
     if not getattr(state.gmail_fetcher, "live", False):
-        return 0
-    from jobsearch.engines.sourcing.jd_enrich import enrich_job, needs_jd
+        return _empty_enrich_stats()
+    from jobsearch.engines.sourcing.jd_enrich import due_for_server_fetch, enrich_job, source_of
+    from jobsearch.models.common import utcnow
 
-    enriched = 0
+    infer = bool(getattr(state.settings, "jd_infer_enabled", False))
+    llm = getattr(state.resume_assistant, "premium", None) if infer else None
+    now = utcnow()
+    stats = _empty_enrich_stats()
     for job in list(state.jobs.all()):
-        if enriched >= limit:
+        if stats["attempted"] >= limit:
             break
-        if not needs_jd(job):
+        if not due_for_server_fetch(job, now):
             continue
+        bucket = stats["by_source"].setdefault(
+            source_of(job), {"attempted": 0, "enriched": 0, "blocked": 0, "inferred": 0})
+        stats["attempted"] += 1
+        bucket["attempted"] += 1
         try:
-            if enrich_job(job):
-                state.jobs.add(job)
-                enriched += 1
+            changed = enrich_job(job, now=now, llm=llm, infer=infer)
         except Exception:  # noqa: BLE001 - a bad page never breaks the tick
             continue
-    return enriched
+        if changed:
+            state.jobs.add(job)
+            stats["enriched"] += 1
+            bucket["enriched"] += 1
+            if job.description_inferred:
+                stats["inferred"] += 1
+                bucket["inferred"] += 1
+        if job.jd_blocked:  # newly parked this tick
+            stats["blocked"] += 1
+            bucket["blocked"] += 1
+    return stats
 
 
 def run_once(state: AppState) -> dict:
@@ -127,7 +152,7 @@ def run_once(state: AppState) -> dict:
 
     # Fetch full JDs for freshly-ingested (and older URL-only) postings so salary,
     # benefits, location and workplace fill in from the real posting.
-    jobs_enriched = enrich_descriptions(state)
+    enrich_stats = enrich_descriptions(state)
 
     # Out-of-band review reminders for users past their checkpoint + daily digests.
     reminders_sent = len(state.reminders.run_due_reminders())
@@ -139,7 +164,8 @@ def run_once(state: AppState) -> dict:
         "queued": queued,
         "searches_run": searches_run,
         "emails_ingested": emails_ingested,
-        "jobs_enriched": jobs_enriched,
+        "jobs_enriched": enrich_stats["enriched"],
+        "enrichment": enrich_stats,
         "reminders_sent": reminders_sent,
         "digests_sent": digests_sent,
     }

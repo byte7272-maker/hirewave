@@ -17,8 +17,11 @@ from __future__ import annotations
 import html as _html
 import json
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlsplit
 
+from jobsearch.models.common import utcnow
 from jobsearch.engines.sourcing.skills import (
     detect_benefits,
     detect_category,
@@ -413,23 +416,102 @@ def backfill_fields(job: JobPosting) -> bool:
 
 
 def needs_jd(job: JobPosting) -> bool:
-    """True when the job has a fetchable URL but only a placeholder/thin body."""
+    """True when the job has a fetchable URL but only a placeholder/thin body.
+
+    This is the "could still use a real JD" test — used by the extension queue and the
+    manual endpoint, which CAN fetch bot-walled pages the server can't. It deliberately
+    ignores the server-side backoff (``jd_blocked``); the server pass uses
+    ``due_for_server_fetch`` to respect that."""
     if not (job.url or "").startswith("http"):
         return False
     desc = (job.description or "").strip()
     return (not desc) or bool(_PLACEHOLDER.search(desc)) or len(desc) < _MIN_REAL_DESC
 
 
+# --- server-side fetch backoff ------------------------------------------------
+# A page the server can't fetch (login/bot-walled LinkedIn, Indeed) would otherwise
+# be retried every tick, burning the bounded per-tick budget and starving jobs we
+# CAN enrich. So the server pass retries on a widening schedule, then parks the job
+# (``jd_blocked``). The extension/manual paths ignore this and may still try.
+_JD_BACKOFF_HOURS = (1, 6, 24)  # min wait before attempt #2, #3, #4
+_MAX_JD_ATTEMPTS = 4            # park after this many failed fetches
+
+
+def _aware(dt: "Optional[datetime]") -> "Optional[datetime]":
+    """Coerce a possibly-naive datetime to tz-aware UTC for safe comparison."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def due_for_server_fetch(job: JobPosting, now: "Optional[datetime]" = None) -> bool:
+    """Whether the SERVER pass should attempt this job now: it needs a JD, isn't parked,
+    and its backoff window has elapsed. Pure + network-free."""
+    if not needs_jd(job) or job.jd_blocked:
+        return False
+    if job.jd_attempts <= 0 or job.jd_last_attempt is None:
+        return True
+    now = _aware(now) or utcnow()
+    idx = min(job.jd_attempts, len(_JD_BACKOFF_HOURS)) - 1
+    wait = timedelta(hours=_JD_BACKOFF_HOURS[idx])
+    last = _aware(job.jd_last_attempt)
+    return (now - last) >= wait
+
+
+def record_attempt(job: JobPosting, *, enriched: bool, now: "Optional[datetime]" = None) -> None:
+    """Record one server fetch attempt and park the job once it has failed
+    ``_MAX_JD_ATTEMPTS`` times and still lacks a real JD. Pure + network-free.
+
+    A successful enrich leaves the job un-parked (its body is now real, so ``needs_jd``
+    is already False). Never re-parks an inferred body."""
+    job.jd_attempts = int(job.jd_attempts or 0) + 1
+    job.jd_last_attempt = _aware(now) or utcnow()
+    if not enriched and job.jd_attempts >= _MAX_JD_ATTEMPTS and needs_jd(job):
+        job.jd_blocked = True
+
+
+def source_of(job: JobPosting) -> str:
+    """A normalized source key for enrichment stats: the board name when we know it,
+    else the URL host, else 'other'. Lets us see which sources never enrich."""
+    sp = (job.source_platform or "").strip().lower()
+    if sp and sp != "email":
+        return sp
+    host = urlsplit(job.url or "").netloc.lower()
+    host = host[4:] if host.startswith("www.") else host
+    for board in ("linkedin", "indeed", "glassdoor", "ziprecruiter", "monster", "dice",
+                  "greenhouse", "lever", "ashby", "workday", "wellfound"):
+        if board in host:
+            return board
+    return host or sp or "other"
+
+
 def apply_jd(job: JobPosting, extracted: dict) -> bool:
-    """Merge an extracted JD into the job in place. Returns True if it changed."""
+    """Merge an extracted JD into the job in place. Returns True if it changed.
+
+    A REAL fetched/captured description always supersedes a placeholder or an inferred
+    (LLM-estimated) body — even when it's shorter — and clears the inferred/parked flags,
+    because real employer text beats an estimate. Otherwise it only replaces a genuinely
+    longer body (so a thinner re-fetch doesn't clobber a good description)."""
     changed = False
     desc = (extracted.get("description") or "").strip()
-    # Only replace when the new body is a real improvement over what we have.
-    if desc and len(desc) > len((job.description or "").strip()) and len(desc) >= 60:
+    cur = (job.description or "").strip()
+    supersede = bool(desc) and len(desc) >= 60 and (
+        getattr(job, "description_inferred", False)  # real text beats our estimate
+        or bool(_PLACEHOLDER.search(cur))            # or a placeholder
+        or not cur
+    )
+    if desc and len(desc) >= 60 and (supersede or len(desc) > len(cur)):
         job.description = desc[:8000]
         changed = True
+        # A real posting body supersedes any estimate and un-parks the job.
+        if getattr(job, "description_inferred", False):
+            job.description_inferred = False
+        if getattr(job, "jd_blocked", False):
+            job.jd_blocked = False
     reqs = extracted.get("requirements") or []
-    if reqs and not job.requirements:
+    # Real requirements fill empties, and also REPLACE estimated ones when a real body
+    # supersedes an inferred estimate (so stale guessed bullets don't linger).
+    if reqs and (not job.requirements or supersede):
         job.requirements = enrich_requirements(list(reqs), f"{job.title}\n{job.description}")
         changed = True
     logo = extracted.get("company_logo_url")
@@ -494,9 +576,109 @@ def fetch_jd(url: str, *, timeout: float = 12.0) -> dict:  # pragma: no cover - 
         return {}
 
 
-def enrich_job(job: JobPosting, *, timeout: float = 12.0) -> bool:  # pragma: no cover - network
-    """Fetch + apply the full JD for one job when it needs it. Returns True if the
-    job was enriched."""
+def enrich_job(
+    job: JobPosting, *, timeout: float = 12.0, now: "Optional[datetime]" = None,
+    llm=None, infer: bool = False,
+) -> bool:  # pragma: no cover - network
+    """Fetch + apply the full JD for one job when it needs it, recording the attempt so
+    the server pass can back off a page it can't reach. Returns True if the job changed.
+
+    When a real fetch fails and the job becomes parked, and ``infer`` is on with an
+    ``llm``, synthesize a clearly-labeled JD so matching still has real signal (B)."""
     if not needs_jd(job):
         return False
-    return apply_jd(job, fetch_jd(job.url, timeout=timeout))
+    changed = apply_jd(job, fetch_jd(job.url, timeout=timeout))
+    record_attempt(job, enriched=changed, now=now)
+    if changed:
+        return True
+    # Real fetch didn't help. Once parked, optionally synthesize a labeled JD — once.
+    if infer and llm is not None and job.jd_blocked and not job.description_inferred and needs_jd(job):
+        return apply_inferred_jd(job, llm)
+    return False
+
+
+# --- B: LLM-inferred JD fallback ----------------------------------------------
+# When a posting's page can't be fetched (bot-walled board), synthesize a realistic,
+# clearly-LABELED description from just the title/company/seniority so matching and the
+# "why this match" answer have something concrete. The body is marked
+# ``description_inferred`` so the UI can badge it; it is written to read as an ESTIMATE,
+# never as the employer's own words. No salary/location/benefits are invented.
+_INFER_SYSTEM = (
+    "You write a short, realistic job description from only a role title, company and "
+    "seniority. Output STRICT JSON and nothing else: "
+    '{"description": "<2-4 sentences of likely responsibilities>", '
+    '"requirements": ["<short skill/qualification>", ...]}. '
+    "Give 4-8 requirements typical for the role. Do NOT invent salary, location, "
+    "benefits, team names, or any company-specific fact. JSON only, no preamble."
+)
+
+
+def _parse_inferred(raw: str) -> dict:
+    """Tolerantly parse the inference LLM's JSON (strips code fences / stray prose).
+    Returns ``{description, requirements}`` or ``{}``. Pure + network-free."""
+    s = (raw or "").strip()
+    if not s:
+        return {}
+    s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.IGNORECASE).strip()
+    m = re.search(r"\{.*\}", s, re.DOTALL)
+    if m:
+        s = m.group(0)
+    try:
+        data = json.loads(s)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    desc = data.get("description")
+    reqs = data.get("requirements")
+    out: dict = {}
+    if isinstance(desc, str) and desc.strip():
+        out["description"] = desc.strip()
+    if isinstance(reqs, list):
+        clean = [r.strip() for r in reqs if isinstance(r, str) and 3 <= len(r.strip()) <= 300]
+        if clean:
+            out["requirements"] = clean[:12]
+    return out
+
+
+#: Appended to an inferred body so it can never be mistaken for the employer's own
+#: posting — and deliberately NOT matching the matching engine's placeholder regex, so
+#: an inferred JD counts as real signal (used at full weight, by product decision).
+_INFER_LABEL = "Estimated role description, generated from the title — not the employer's posting."
+
+
+def _apply_inferred(job: JobPosting, data: dict) -> bool:
+    """Apply a parsed inferred JD to the job in place. Pure + network-free. Returns
+    True if it wrote a usable body."""
+    desc = (data.get("description") or "").strip()
+    reqs = list(data.get("requirements") or [])
+    if len(desc) < 60 and len(reqs) < 3:
+        return False  # too thin to be worth labeling
+    parts = [p for p in (desc, ("Typical requirements: " + "; ".join(reqs)) if reqs else "", _INFER_LABEL) if p]
+    job.description = "\n\n".join(parts)[:8000]
+    job.description_inferred = True
+    if reqs and not job.requirements:
+        job.requirements = enrich_requirements(reqs[:12], f"{job.title}\n{desc}")
+    job.category = detect_category(f"{job.title} {job.title} {desc}")
+    return True
+
+
+def infer_jd(job: JobPosting, llm) -> dict:  # pragma: no cover - network
+    """Ask the LLM for a synthetic JD for this role. Best-effort: never raises, {} on
+    any error or unusable output."""
+    prompt = (
+        f"Title: {job.title}\nCompany: {job.company or 'unknown'}\n"
+        f"Seniority: {job.seniority or 'unspecified'}\n"
+        f"Employment type: {job.employment_type or 'unspecified'}"
+    )
+    try:
+        raw = llm.complete(prompt, system=_INFER_SYSTEM, temperature=0.3, max_tokens=500)
+    except Exception:
+        return {}
+    return _parse_inferred(raw)
+
+
+def apply_inferred_jd(job: JobPosting, llm) -> bool:  # pragma: no cover - network
+    """Infer + apply a labeled JD for a job whose page we couldn't fetch. Returns True
+    if a usable inferred body was written."""
+    return _apply_inferred(job, infer_jd(job, llm))
