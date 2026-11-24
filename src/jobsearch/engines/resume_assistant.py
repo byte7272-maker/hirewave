@@ -1319,13 +1319,14 @@ class ResumeAssistant:
                 "courses, bootcamps); how to frame experience; and positioning. Ground skill and "
                 "experience advice in the résumé; certifications and education may be NEW "
                 "recommendations. Be specific and realistic — no filler, no inventing the "
-                "candidate's history.\n"
+                "candidate's history. Give the 6-8 MOST valuable recommendations (not more), "
+                "each with a short title and a one- to two-sentence detail.\n"
                 'Return ONLY JSON: {"summary": str, "strengths": [str], "top_priorities": [str], '
                 '"recommendations": [{"area": "skills|certifications|education|experience|positioning", '
                 '"title": str, "detail": str, "priority": "high|medium|low", "for_target": bool}]}.\n\n'
-                "Résumé:\n" + text[:6000],
+                "Résumé:\n" + text[:5000],
                 system="You are a precise, practical career coach. Output only valid JSON.",
-                max_tokens=1600,
+                max_tokens=3000,
             )
             data = json.loads(_extract_json(out))
             recs: list[GrowthRecommendation] = []
