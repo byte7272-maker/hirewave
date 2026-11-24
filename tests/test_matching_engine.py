@@ -23,6 +23,29 @@ def test_rank_stamps_match_score(profile, matching_job):
     assert matching_job.match_score == ranked[0].score
 
 
+def test_skills_match_is_token_based_not_exact_substring():
+    # The IT résumé must match an IT posting that phrases the skill differently ("manage IT
+    # operations" vs the literal "IT Management"), instead of scoring 0 while a coincidental
+    # keyword hit scores an unrelated role high. Regression for a junior role out-ranking a
+    # director because exact-substring matching inverted the skills signal.
+    from jobsearch.engines.matching.scoring import skills_fit
+    from jobsearch.models import JobPosting, UserProfile
+
+    prof = UserProfile(user_id="u", skills=["IT Service Delivery", "Vendor Management",
+                                            "Budget Management", "Cloud Infrastructure"])
+    it_job = JobPosting(
+        title="IT Director", company="Acme",
+        description="Lead IT service delivery and vendor relationships; own the budget and "
+                    "cloud infrastructure across the org.")
+    unrelated = JobPosting(
+        title="Barista", company="Cafe",
+        description="Make coffee drinks, handle the register, and keep the counter clean.")
+    it_score, it_match, _ = skills_fit(prof, it_job)
+    un_score, _, _ = skills_fit(prof, unrelated)
+    assert it_score >= 0.5 and it_match, (it_score, it_match)   # was 0 with exact-substring
+    assert it_score > un_score                                 # IT job out-scores the barista
+
+
 def test_uncomputable_skills_is_neutral_not_zero(profile, matching_job):
     # A posting with no description AND no requirements (title-and-link only) can't be
     # judged on skills — it must score NEUTRAL, not 0, so a strong semantic match isn't

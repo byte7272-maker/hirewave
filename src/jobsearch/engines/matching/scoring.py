@@ -215,8 +215,29 @@ def explain_match(
 _TOKEN = re.compile(r"[a-z0-9][a-z0-9+#.\-]{1,}")
 
 
+#: Generic words that shouldn't, on their own, make a skill "present" in a posting.
+_SKILL_STOP = {"and", "the", "for", "with", "of", "in", "to", "a", "an", "management",
+               "support", "services", "service", "systems", "system", "team", "skills"}
+
+
 def _skill_tokens(skill: str) -> set[str]:
     return set(_TOKEN.findall(skill.lower()))
+
+
+def _skill_present(skill: str, job_text: str) -> bool:
+    """A profile skill counts as present when a MAJORITY of its meaningful tokens appear in
+    the posting — token-based, not exact-substring, so "IT Management" matches a JD that says
+    "manage IT operations" instead of only the literal phrase. The whole phrase matching still
+    counts (fast path)."""
+    if skill.lower() in job_text:
+        return True
+    toks = _skill_tokens(skill)
+    strong = {t for t in toks if t not in _SKILL_STOP and len(t) > 2}
+    probe = strong or toks
+    if not probe:
+        return False
+    hit = sum(1 for t in probe if t in job_text)
+    return hit / len(probe) >= 0.6
 
 
 #: Skills score when it can't be computed from data — a job with no description AND no
@@ -242,7 +263,10 @@ def skills_fit(profile: UserProfile, job: JobPosting) -> tuple[float, list[str],
         return _SKILLS_UNKNOWN, [], []
 
     job_text = (desc + " " + " ".join(reqs)).lower()
-    matching = [s for s in profile_skills if s.lower() in job_text]
+    # Token-based presence (not exact-substring), so an IT résumé matches IT postings that
+    # phrase the same skill differently — fixes good matches scoring 0 while a coincidental
+    # keyword hit scored another role 100.
+    matching = [s for s in profile_skills if _skill_present(s, job_text)]
 
     # Gap: requirement phrases the profile does not evidence.
     profile_blob = " ".join(profile_skills).lower()
