@@ -163,6 +163,13 @@ BEHAVIORS = [
     # focus, search, refresh, and reversible document edits (apply + Undo) — just runs. See
     # SURFACE.confirm_policy.
     "uninterrupted_voice_flow",
+    # user can ALWAYS barge in (P347): "uninterrupted" means the ASSISTANT doesn't interrupt
+    # ITSELF with routine prompts — it NEVER means the user can't interrupt. Any user input
+    # while the assistant is speaking — a badge tap/hold, the mic, or typing — IMMEDIATELY
+    # stops the TTS (barge-in) and is listened to / acted on. Listening always cancels active
+    # speech first, so the mic never hears the assistant's own voice and the user's words are
+    # never ignored because narration was playing. See SURFACE.badge/mic.
+    "user_can_always_interrupt",
     # never stack prompts (P331): at most one prompt is shown at a time; prompts never
     # overlap, and a running (spoken) command is never interrupted mid-flow by a routine
     # confirm. Exiting one prompt must not reveal a queue of more.
@@ -225,8 +232,15 @@ SURFACE: dict[str, Any] = {
         # offer. (P336)
         "tap_opens_even_when_busy": True,
         "single_tap_opens": True,
+        # BARGE-IN (P347): a badge tap OR press-and-hold WHILE THE ASSISTANT IS SPEAKING
+        # immediately STOPS the narration (cancel TTS) — a tap opens the pane silently, a hold
+        # stops speech and arms the mic in the same gesture. The press is never swallowed by
+        # the ongoing narration, and the user is never made to wait for the assistant to finish.
+        "press_stops_speech": True,
+        "hold_stops_speech_and_listens": True,
         "never": ["tap_to_voice_only_waiting", "no_type_box_after_tap", "silent_open",
-                  "tap_consumed_by_pending_offer", "needs_double_tap", "tap_waits_when_busy"],
+                  "tap_consumed_by_pending_offer", "needs_double_tap", "tap_waits_when_busy",
+                  "press_ignored_while_speaking", "keep_speaking_through_press"],
     },
     # EVERY place the assistant presents something for the user to respond to — a question, a
     # finding, an option, or a pending action — carries an inline, editable input right there,
@@ -325,6 +339,13 @@ SURFACE: dict[str, Any] = {
         "noise_suppression": ["echoCancellation", "noiseSuppression", "autoGainControl"],
         "ambient_calibration": True,
         "vad_gating": True,
+        # BARGE-IN (P347): acquiring the mic / starting to listen FIRST cancels any active
+        # TTS, so (a) the narration stops the instant the user engages and (b) the recognizer
+        # never captures the assistant's own voice. The user's words are acted on even if they
+        # began speaking while the assistant was mid-sentence — input while speaking is never
+        # discarded as "nothing held" or lost to the narration.
+        "barge_in": True,
+        "listen_cancels_speech": True,
         "constrained_grammar_on_pending": True,
         "short_answer_window_on_pending": True,
         "reask_on_low_confidence": True,
@@ -332,7 +353,8 @@ SURFACE: dict[str, Any] = {
         "enrollment_samples": ["yes", "no", "<user name>"],
         "never": ["static_meter", "unconsumed_analyser", "off_while_track_live",
                   "capture_without_noise_suppression", "act_on_ambient_sentence_as_answer",
-                  "fail_silently_in_noise",
+                  "fail_silently_in_noise", "ignore_input_while_speaking",
+                  "listen_while_tts_plays", "keep_speaking_while_listening",
                   "gate_on_self_test", "continuous_ambient_capture",
                   "submit_unheld_transcript", "command_from_noise",
                   "badge_mic_hears_but_cant_act", "badge_mic_different_path",

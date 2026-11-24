@@ -10013,3 +10013,19 @@ Contract: `POST /assistant/interpret` returns intent **`get_job_details`** for "
 - The mic is never acquired without `noiseSuppression`/`echoCancellation`/`autoGainControl`.
 - A sentence from the TV that happens to contain "yes" does not trigger the offer; a low-confidence/noise result makes the assistant re-ask, not act and not go silent.
 - If simple commands still fail, the assistant offers the short voice-enrollment step; completing it improves yes/no recognition in noise. Skipping it leaves everything else working.
+
+## P347 — ⚠ SINGLE PURPOSE: the user can ALWAYS interrupt — a badge press during narration stops the speech and listens
+
+**Do only this. Change nothing else.** **Confirmed bug:** while the assistant is speaking (TTS narrating), pressing the badge does **nothing** — it does not stop the speech, and anything the user says is ignored. The user must be able to **barge in** at any moment, exactly like ChatGPT voice / Siri. "Uninterrupted voice flow" (P331) means the **assistant** doesn't interrupt **itself** with routine prompts — it must NEVER be read as "the user can't interrupt." Contract: `GET /assistant/capabilities` → `behaviors` includes `user_can_always_interrupt`; `surface.badge.press_stops_speech` / `hold_stops_speech_and_listens`; `surface.mic.barge_in` / `listen_cancels_speech`; `never: press_ignored_while_speaking`, `keep_speaking_through_press`, `ignore_input_while_speaking`, `listen_while_tts_plays`.
+
+1. **A badge press while speaking STOPS the narration — immediately.** On badge pointer-down, if TTS is playing, cancel it at once (`window.speechSynthesis.cancel()`, or pause+reset the audio element you narrate through). A **tap** stops speech and opens/keeps the pane (per P336); a **press-and-hold** stops speech **and** arms the mic in the same gesture. The press is never swallowed by the ongoing narration, and the user never has to wait for the sentence to finish.
+2. **Starting to listen cancels speech FIRST.** Any time the mic is acquired/started (badge hold, console hold, or an auto-listen after a question), cancel active TTS **before** recognition starts. This is why the user's words are ignored today: the narration is still playing, so either the recognizer isn't started or it's hearing the assistant's own voice. Order it: stop speech → (noise-suppressed) getUserMedia → recognize (P346).
+3. **Never listen while TTS is playing.** The mic and the speaker are never live at the same time — no echo of the assistant into the recognizer. When narration is cancelled for barge-in, drop whatever remained unspoken; don't resume it after the user's turn.
+4. **Typing is barge-in too.** Focusing/typing in the pinned input while the assistant is speaking also cancels the narration and takes the typed command — the same rule, not voice-only.
+5. **A spoken command mid-narration still preempts (P331).** Once the barged-in input is captured, submit it through `/assistant/interpret` with context and run whatever returns — a new command supersedes immediately; "stop"/"be quiet" just stops. No "pause and do X instead?" confirm.
+
+### Acceptance
+- While the assistant is narrating, a single badge tap stops the speech and opens the pane; a press-and-hold stops the speech and starts listening — no waiting for the sentence to end.
+- Words spoken right after a barge-in are heard and acted on (the mic cancels TTS before listening, so nothing is ignored).
+- The mic and TTS are never active simultaneously; cancelled narration does not resume afterward.
+- Typing while the assistant speaks also stops the narration and submits the typed command.

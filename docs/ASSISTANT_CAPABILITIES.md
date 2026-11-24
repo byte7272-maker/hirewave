@@ -137,6 +137,14 @@ a yes/no token resolves it — but a long ambient sentence that merely contains 
 **re-ask** (`reask_on_low_confidence`), never a silent failure or a wrong action. Optional
 `voice_enrollment` (sample "yes"/"no"/name) is the escalation when simple commands keep failing.
 
+**Barge-in (`user_can_always_interrupt`, `surface.badge.press_stops_speech`, `surface.mic.barge_in`, P347).**
+The user can interrupt at any moment. A badge **tap** while the assistant is speaking stops the
+narration and opens the pane; a **press-and-hold** stops speech and arms the mic in one gesture;
+typing in the pinned input does the same. Acquiring the mic **always cancels active TTS first**, so
+the recognizer never hears the assistant and the user's words are never ignored because narration
+was playing — the mic and speaker are never live together. "Uninterrupted voice flow" (P331) is
+about the assistant not interrupting **itself** with routine prompts; it never blocks the **user**.
+
 ## Division of labor
 
 - **Backend** owns the manifest, the NLU (verb+object → intent, + the plain-language LLM
