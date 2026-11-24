@@ -402,7 +402,8 @@ def test_reach_an_expert_is_coming_soon():
 def test_more_matches_guidance_points_to_search_and_sources():
     for p in ["how do I get more matches", "I'm not getting enough matches",
               "how do I get better matches", "why do I have so few matches",
-              "how do I increase my matches"]:
+              "how do I increase my matches", "how do I get more jobs coming in",
+              "how can I find more roles"]:
         r = interpret(p)
         assert r.intent == "more_matches", (p, r.intent)
         low = r.reply.lower()

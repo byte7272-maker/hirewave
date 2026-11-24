@@ -410,6 +410,11 @@ _MORE_MATCHES_RE = re.compile(
     r"|\bhow (?:do i|can i|to)\b[^.?!]*\b(?:get|find|see|have)\b[^.?!]*\bmore\b[^.?!]*\bmatches\b"
     r"|\b(?:increase|expand|grow|boost|improve|widen|broaden)\b[^.?!]*\bmatches\b"
     r"|\bwhy\b[^.?!]*\b(?:so few|only|few|no|not many)\b[^.?!]*\bmatches\b"
+    # generic "more jobs/roles" GUIDANCE questions (a question, not an imperative search):
+    # "how do I get more jobs", "how can I find more roles", "more jobs coming in".
+    r"|\bhow (?:do i|to|can i)\b[^.?!]*\b(?:get|find|see|have|bring)\b[^.?!]*\bmore\b"
+    r"[^.?!]*\b(?:jobs?|roles?|opportunities|positions?|postings?)\b"
+    r"|\bmore\s+(?:jobs?|roles?|opportunities|postings?|listings?)\s+coming\s+in\b"
 )
 
 #: Spoken guidance for "how do I get more matches" — the real levers, not a web search.
