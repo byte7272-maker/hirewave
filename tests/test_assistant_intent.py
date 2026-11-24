@@ -420,6 +420,20 @@ def test_more_matches_guidance_points_to_search_and_sources():
     assert interpret("find me more VP jobs in Dallas").intent == "search_jobs"
 
 
+def test_strengthen_resume_growth_advice():
+    for p in ["what certifications should I get", "how can I make my skillset stronger",
+              "what skills do I need to become a data scientist",
+              "do I need a degree to become a software engineer",
+              "how do I make my resume stronger", "what would make me a stronger candidate"]:
+        assert interpret(p).intent == "strengthen_resume", p
+    # role target is extracted when named
+    assert interpret("what skills do I need to become a data scientist").slots.get("role") == "data scientist"
+    assert interpret("do I need a degree to become a software engineer").slots.get("role") == "software engineer"
+    # must NOT swallow a writing-fix review or a plain edit
+    assert interpret("what should I fix on my resume").intent == "review_document"
+    assert interpret("how do I improve my resume").intent == "review_document"
+
+
 def test_help_prefix_does_not_hijack_a_concrete_request():
     # Bare help asks are read_options...
     for p in ["help", "what can I do", "what are my options", "read my options"]:

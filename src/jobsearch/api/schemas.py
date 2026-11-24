@@ -251,6 +251,15 @@ class ResumeReviewRequest(BaseModel):
     job_posting_id: Optional[str] = None  # tailor the review to a target job
 
 
+class StrengthenRequest(BaseModel):
+    """Ask what would make the résumé + skillset stronger — generally, or for a target.
+    Provide at most one target; omit all three for general advice."""
+
+    job_posting_id: Optional[str] = None     # advise for a specific job posting
+    role: str = ""                           # a target role/title ("product manager")
+    goal: str = ""                           # a career goal ("become an engineering director")
+
+
 class ResumeReviseRequest(BaseModel):
     #: The live editor content to improve (the résumé text as it is on screen right
     #: now, including points the user just typed). When provided, the AI improves

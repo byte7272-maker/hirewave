@@ -26,6 +26,7 @@ from jobsearch.models import (
     CoverLetterData,
     CoverLetterReview,
     CoverLetterRevision,
+    GrowthRecommendation,
     JobPosting,
     QualityRating,
     Resume,
@@ -37,6 +38,7 @@ from jobsearch.models import (
     ResumeSuggestion,
     ResumeTemplateStyle,
     ResumeWork,
+    StrengthenPlan,
 )
 
 
@@ -1280,6 +1282,126 @@ class ResumeAssistant:
             basics=ResumeBasics(name=name, label=resume.target_role, summary=text[:500]),
             skills=[ResumeSkill(name=s) for s in skills],
         )
+
+    def strengthen(
+        self, resume: Resume, *, job: Optional[JobPosting] = None, role: str = "", goal: str = "",
+    ) -> StrengthenPlan:
+        """Advise what would make the résumé + SKILLSET stronger — in general, and, when a
+        role / job / career goal is given, for that target. Covers skills, certifications,
+        education, experience framing, and positioning. LLM-driven (a career-coach pass) with
+        a deterministic fallback so it still gives useful advice if no model is configured.
+
+        Certifications and education may be NEW recommendations (things to earn); skill and
+        experience advice is grounded in what the résumé already shows."""
+        text = (resume.rendered_text or "").strip()
+        target = ""
+        if job is not None:
+            target = (job.title or "").strip()
+            if job.company:
+                target = (f"{target} at {job.company}").strip()
+        target = target or role.strip() or goal.strip() or (resume.target_role or "").strip()
+        is_targeted = bool(job or role.strip() or goal.strip())
+        if not text:
+            return StrengthenPlan(resume_id=resume.id, target=target, is_targeted=is_targeted,
+                                  summary="No résumé text yet — upload or generate one first.")
+        reqs = ""
+        if job and job.requirements:
+            reqs = "\nThe target role lists these requirements: " + ", ".join(job.requirements[:15])
+        aim = ((f"Aim the advice at this target: {target}." + reqs) if is_targeted
+               else "Give general advice to strengthen this résumé and skillset for the "
+                    "candidate's own apparent field and level.")
+        try:
+            out = self.premium.complete(
+                "You are a practical career coach. Read the résumé and advise what would make it "
+                "and the candidate's SKILLSET stronger. " + aim + " Cover, where relevant: skills "
+                "to add or deepen; CERTIFICATIONS worth earning (name real, well-recognized ones "
+                "for this field and level); EDUCATION requirements or enhancements (degrees, "
+                "courses, bootcamps); how to frame experience; and positioning. Ground skill and "
+                "experience advice in the résumé; certifications and education may be NEW "
+                "recommendations. Be specific and realistic — no filler, no inventing the "
+                "candidate's history.\n"
+                'Return ONLY JSON: {"summary": str, "strengths": [str], "top_priorities": [str], '
+                '"recommendations": [{"area": "skills|certifications|education|experience|positioning", '
+                '"title": str, "detail": str, "priority": "high|medium|low", "for_target": bool}]}.\n\n'
+                "Résumé:\n" + text[:6000],
+                system="You are a precise, practical career coach. Output only valid JSON.",
+                max_tokens=1600,
+            )
+            data = json.loads(_extract_json(out))
+            recs: list[GrowthRecommendation] = []
+            for r in (data.get("recommendations") or [])[:20]:
+                if not isinstance(r, dict):
+                    continue
+                area = str(r.get("area", "")).lower().strip()
+                if area not in ("skills", "certifications", "education", "experience", "positioning"):
+                    area = "skills"
+                title, detail = str(r.get("title", "")).strip(), str(r.get("detail", "")).strip()
+                if not (title and detail):
+                    continue
+                pri = str(r.get("priority", "medium")).lower().strip()
+                if pri not in ("high", "medium", "low"):
+                    pri = "medium"
+                recs.append(GrowthRecommendation(
+                    area=area, title=title, detail=detail, priority=pri,
+                    for_target=bool(r.get("for_target")) if is_targeted else False))
+            if recs:
+                return StrengthenPlan(
+                    resume_id=resume.id, target=target, is_targeted=is_targeted,
+                    summary=str(data.get("summary", "")).strip(),
+                    strengths=[str(s).strip() for s in (data.get("strengths") or [])[:6] if str(s).strip()],
+                    recommendations=recs,
+                    top_priorities=[str(s).strip() for s in (data.get("top_priorities") or [])[:4]
+                                    if str(s).strip()],
+                )
+        except Exception:  # noqa: BLE001 - fall back to deterministic advice
+            pass
+        return self._strengthen_fallback(resume, target=target, is_targeted=is_targeted, job=job)
+
+    def _strengthen_fallback(
+        self, resume: Resume, *, target: str, is_targeted: bool, job: Optional[JobPosting],
+    ) -> StrengthenPlan:
+        """Deterministic strengthening advice (no LLM): missing certifications/education,
+        skill gaps vs a target job, and the résumé review's own fixes framed as growth."""
+        lower = (resume.rendered_text or "").lower()
+        rv = self.review(resume, job=job, narrative=False)
+        recs: list[GrowthRecommendation] = []
+        if "certif" not in lower and "license" not in lower:
+            recs.append(GrowthRecommendation(
+                area="certifications", priority="high", for_target=is_targeted,
+                title="Add relevant certifications",
+                detail="Your résumé lists no certifications. Earning one or two well-recognized "
+                       "certifications in your field signals verified, current skills to recruiters"
+                       + (f" and matches what {target} roles expect." if is_targeted and target else ".")))
+        if not any(w in lower for w in
+                   ("bachelor", "master", "b.s", "m.s", "degree", "university", "college", "ph.d", "mba")):
+            recs.append(GrowthRecommendation(
+                area="education", priority="medium", for_target=is_targeted,
+                title="Make your education or training visible",
+                detail="No education or formal training is visible. Add your degree, or, if you're "
+                       "self-taught, list targeted courses, a bootcamp, or specializations so the "
+                       "background is clear."))
+        for kw in (rv.missing_keywords or [])[:5]:
+            recs.append(GrowthRecommendation(
+                area="skills", priority="high", for_target=True,
+                title=f"Build or surface: {kw}",
+                detail=f"The target role asks for '{kw}', which isn't on your résumé. Add it if you "
+                       f"already have it, or plan to learn it."))
+        for s in rv.suggestions[:3]:
+            recs.append(GrowthRecommendation(
+                area="experience" if s.category == "impact" else "positioning",
+                priority="medium", for_target=False, title=s.title, detail=s.detail))
+        if not recs:
+            recs.append(GrowthRecommendation(
+                area="positioning", priority="medium", for_target=False,
+                title="Sharpen your positioning",
+                detail="Lead with a clear headline and a summary that states your target role and "
+                       "your top two or three strengths, so recruiters see your fit in seconds."))
+        summary = ("Here's how to strengthen your résumé and skillset"
+                   + (f" for {target}" if is_targeted and target else "") + ".")
+        return StrengthenPlan(
+            resume_id=resume.id, target=target, is_targeted=is_targeted, summary=summary,
+            strengths=rv.strengths[:5], recommendations=recs,
+            top_priorities=[r.title for r in recs[:3]])
 
     def improve_structured(
         self, resume: Resume, *, instruction: str = "", job: Optional[JobPosting] = None,

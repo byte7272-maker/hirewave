@@ -21,6 +21,38 @@ def _cover(text: str, job_id=None) -> CoverLetter:
     return CoverLetter(user_id="u1", job_posting_id=job_id, content=text)
 
 
+# --- engine: strengthen (growth advice) -------------------------------------
+def test_strengthen_general_recommends_certs_and_education():
+    r = _resume("Experience\n- Managed IT operations and vendor relationships\n- Led a team of 8")
+    plan = ResumeAssistant().strengthen(r)  # mock LLM -> deterministic fallback
+    assert plan.resume_id == r.id and plan.is_targeted is False
+    areas = {rec.area for rec in plan.recommendations}
+    # no certifications/education present -> both are recommended as growth
+    assert "certifications" in areas and "education" in areas
+    assert plan.summary and plan.top_priorities
+
+
+def test_strengthen_targeted_to_a_job_flags_skill_gaps():
+    r = _resume("- Led backend services in Python\n- Built REST APIs")
+    job = JobPosting(title="Staff Engineer", company="Acme", requirements=["Python", "Rust", "Kubernetes"])
+    plan = ResumeAssistant().strengthen(r, job=job)
+    assert plan.is_targeted and "Staff Engineer" in plan.target
+    skills = " ".join(rec.title for rec in plan.recommendations if rec.area == "skills")
+    assert "Rust" in skills or "Kubernetes" in skills
+    assert any(rec.for_target for rec in plan.recommendations)
+
+
+def test_strengthen_role_target_sets_target():
+    plan = ResumeAssistant().strengthen(_resume("- Built dashboards and analyzed data"),
+                                        role="data scientist")
+    assert plan.is_targeted and plan.target == "data scientist"
+
+
+def test_strengthen_empty_resume_is_graceful():
+    plan = ResumeAssistant().strengthen(_resume("   "))
+    assert plan.recommendations == [] and "upload" in plan.summary.lower()
+
+
 # --- engine: review ---------------------------------------------------------
 def test_review_flags_missing_metrics_and_weak_verbs():
     r = _resume(
@@ -249,6 +281,21 @@ def _upload(client, h, text):
         "/api/v1/resumes/upload", headers=h,
         files={"file": ("cv.md", text.encode(), "text/markdown")},
     ).json()
+
+
+def test_api_strengthen_general_and_role():
+    client = TestClient(create_app(state=AppState(exchanger=MockTokenExchanger())))
+    h = _auth(client)
+    rid = _upload(client, h, "Experience\n- Managed IT operations\n- Led a team of 8")["id"]
+    # general advice
+    g = client.post(f"/api/v1/resumes/{rid}/strengthen", headers=h, json={})
+    assert g.status_code == 200, g.text
+    gb = g.json()
+    assert gb["resume_id"] == rid and gb["is_targeted"] is False
+    assert {r["area"] for r in gb["recommendations"]} >= {"certifications", "education"}
+    # targeted to a role
+    t = client.post(f"/api/v1/resumes/{rid}/strengthen", headers=h, json={"role": "data scientist"})
+    assert t.status_code == 200 and t.json()["is_targeted"] and t.json()["target"] == "data scientist"
 
 
 def test_api_review_and_revise_flow():

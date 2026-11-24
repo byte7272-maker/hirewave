@@ -52,6 +52,7 @@ from jobsearch.api.schemas import (
     VersionUpdate,
     ResumeGenerateRequest,
     ResumeReviewRequest,
+    StrengthenRequest,
     ResumeReviseRequest,
     RenderedResume,
     RephraseRequest,
@@ -79,6 +80,7 @@ from jobsearch.models import (
     ResumeReview,
     ResumeRevision,
     ResumeSource,
+    StrengthenPlan,
     UserProfile,
 )
 from jobsearch.engines.integration.engine import IntegrationError
@@ -1662,6 +1664,22 @@ def review_resume(
     if dirty:
         state.resumes.add(resume)
     return review
+
+
+@router.post("/resumes/{resume_id}/strengthen", response_model=StrengthenPlan)
+def strengthen_resume(
+    resume_id: str, body: StrengthenRequest, user: CurrentUser, state: StateDep
+) -> StrengthenPlan:
+    """Advise what would make the résumé + SKILLSET stronger — in general, or, when a
+    ``job_posting_id`` / ``role`` / ``goal`` is given, for that target. Covers skills to
+    add or deepen, CERTIFICATIONS worth earning, EDUCATION requirements or enhancements,
+    experience framing, and positioning. Read-only; changes nothing (the user then acts on
+    it — e.g. revise the résumé, or set up the learning). LLM-driven with a deterministic
+    fallback so it still gives useful advice if no model is configured."""
+    resume = get_resume(resume_id, user, state)
+    job = _require_job(state, body.job_posting_id) if body.job_posting_id else None
+    return state.resume_assistant.strengthen(
+        resume, job=job, role=body.role or "", goal=body.goal or "")
 
 
 @router.post("/resumes/{resume_id}/tailor", response_model=ResumeTailoring)

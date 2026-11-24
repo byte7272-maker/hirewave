@@ -12,6 +12,7 @@ from jobsearch.models.document import (
     CoverLetterRevision,
     CoverLetterSource,
     DocumentVersion,
+    GrowthRecommendation,
     Resume,
     ResumeFormat,
     QualityRating,
@@ -20,6 +21,7 @@ from jobsearch.models.document import (
     ResumeSource,
     ResumeSuggestion,
     StoredDocument,
+    StrengthenPlan,
 )
 from jobsearch.models.experience import (
     ExperienceHighlight,
@@ -196,6 +198,8 @@ __all__ = [
     "VocabularyAnalysis",
     "VoiceSource",
     "ResumeFormat",
+    "GrowthRecommendation",
+    "StrengthenPlan",
     "ResumeReview",
     "ResumeRevision",
     "ResumeSource",

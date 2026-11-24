@@ -9756,3 +9756,23 @@ When the race lands the other way, the user's words are captured by the session 
 - "How do I get more matches" / "I'm not getting enough matches" gets spoken guidance that mentions **both** broadening the search **and** connecting more sources (mailboxes + external job sites, incl. creating accounts) — not a web-search offer.
 - The yes/no offer opens the **Connect / sources** page.
 - "Rate my matches" still runs the matches walkthrough; a specific "find VP jobs in Dallas" still runs a search.
+
+## P330 — growth advice: what would make my résumé + skillset stronger (skills, certifications, education) — general or for a role/goal
+
+**Do only this. Change nothing else.** The assistant can now advise what would make the user **stronger as a candidate** — forward-looking growth, distinct from fixing the writing of the résumé (`review_document`). The backend returns a NEW intent **`strengthen_resume`** (confidence 0.9) for "what certifications should I get", "what skills do I need to become a data scientist", "how do I make my skillset stronger", "do I need a degree to become a software engineer", "what would make me a stronger candidate for X", etc. Wire it to the new endpoint and render the plan.
+
+### Backend you call (don't rebuild)
+- `POST /api/v1/resumes/{resume_id}/strengthen` with `{job_posting_id?, role?, goal?}` → a **StrengthenPlan**: `{resume_id, target, is_targeted, summary, strengths[], top_priorities[], recommendations[{area, title, detail, priority, for_target}]}`. `area` ∈ `skills | certifications | education | experience | positioning`; `priority` ∈ `high | medium | low`; `for_target` = true when specific to the named role/goal. With no target it's **general** advice; with a `job_posting_id`, `role`, or `goal` it's aimed at that target (including skill gaps vs the job's requirements). Read-only — it advises, it doesn't change the résumé.
+- `POST /assistant/interpret` returns intent `strengthen_resume` with optional slots `role` / `goal`. New behavior flag: **`advise_growth`**.
+
+### Do this
+1. **On intent `strengthen_resume`, call `/resumes/{id}/strengthen`.** Use the active résumé. Pass `role`/`goal` from the intent slots if present; pass `job_posting_id` if a job is in focus; otherwise send `{}` for general advice. Speak the intent's `reply` as the lead-in, then the plan's `summary`.
+2. **Render the plan grouped by area, priority first.** Show **Skills**, **Certifications**, **Education**, **Experience**, **Positioning** as sections (only those with items). Each recommendation shows its `title` + `detail`; mark `priority:"high"` and badge `for_target` ones ("for {target}"). Surface `top_priorities` up top and `strengths` as "what's already working".
+3. **Make certifications and education first-class.** These are often NEW recommendations (things to earn/learn) — present them as concrete next steps, not criticism. Where useful, offer to open a web search for a named certification/course (reuse the existing web-search offer path) so the user can look it up.
+4. **Target it when asked.** If the user names a role/goal ("…to become a data scientist") or a job is open, pass it through so the advice (and skill gaps) are specific; otherwise give general advice. Offer a quick "aim this at a specific role?" follow-up when it was general.
+5. **Keep it distinct from the writing review.** "What should I fix on my résumé" stays `review_document` (writing fixes); `strengthen_resume` is about growing the skillset/credentials. Don't merge the two surfaces.
+
+### Acceptance
+- "What certifications should I get" / "what skills do I need to become a data scientist" shows a grouped growth plan (skills, **certifications**, **education**, …) — not a writing-fix review and not a web-search dead-end.
+- Naming a role/goal (or having a job open) makes the advice target-specific (`is_targeted` true, `for_target` items shown); with none it's general.
+- "What should I fix on my résumé" still opens the writing review.

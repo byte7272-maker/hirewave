@@ -147,6 +147,12 @@ BEHAVIORS = [
     # bystander to things the user does without speaking. Known actions get a tailored line; any
     # other action gets a graceful generic acknowledgement (never nothing).
     "observe_user_actions",
+    # growth advice (P330): the assistant advises what would make the résumé + SKILLSET
+    # stronger — skills to build, certifications to earn, education/degrees/courses,
+    # experience framing, positioning — in general or for a role/job/career goal
+    # (strengthen_resume intent → POST /resumes/{id}/strengthen). Forward-looking growth,
+    # distinct from review_document (fixing the writing of the existing résumé).
+    "advise_growth",
 ]
 
 #: WHERE the assistant lives and renders — a declarative layout contract so the client

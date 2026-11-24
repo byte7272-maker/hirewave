@@ -36,6 +36,9 @@ INTENTS = {
     # how to get MORE/BETTER matches — guidance toward the real levers: broaden the search
     # AND connect more sources (mailboxes + external job sites, incl. creating accounts).
     "more_matches",
+    # advise what would make the résumé + SKILLSET stronger (general or for a role/job/goal):
+    # skills, certifications, education, experience framing, positioning.
+    "strengthen_resume",
     "report_state", "ask", "unknown",
 }
 
@@ -441,6 +444,58 @@ def _more_matches(t: str) -> Optional[IntentResult]:
         return None
     return IntentResult("more_matches", 0.9, {}, reply=_MORE_MATCHES_REPLY,
                         offer=dict(_MORE_MATCHES_OFFER))
+
+
+# "what would make my résumé/skillset stronger", "what certifications should I get", "what do
+# I need to become a X" → forward-looking GROWTH advice (skills/certs/education/career), as
+# distinct from review_document (fixing the writing of the existing résumé).
+_STRENGTHEN_RE = re.compile(
+    # certifications/credentials ONLY with an advice cue (not "learn about the PMP cert",
+    # which is a web search).
+    r"\b(?:what|which|should i|do i need)\b[^.?!]*\b(?:certifications?|certs?|certificate|credentials?|licen[sc]e)\b"
+    r"|\b(?:certifications?|certs?|certificate|credentials?|licen[sc]e)\b[^.?!]*\b(?:should i (?:get|earn|"
+    r"pursue|have)|do i need|worth (?:getting|earning|it)|recommend|would help|to get|to earn)\b"
+    r"|\b(?:what|which)\b[^.?!]*\b(?:skills?|skill ?set|courses?|degree|education|training|"
+    r"qualifications?)\b[^.?!]*\b(?:need|should|do i|to get|to learn|to have|required|help)\b"
+    r"|\b(?:skills? gap|upskill|up-skill|reskill|re-skill)\b"
+    r"|\bdo i (?:need|require)\b[^.?!]*\b(?:degree|certifications?|certificate|credentials?|"
+    r"licen[sc]e|education|training|courses?|masters?|mba|bachelors?|bootcamp)\b"
+    r"|\b(?:stronger|better|more competitive|stand ?out|more marketable)\b[^.?!]*"
+    r"\b(?:candidate|applicant|profile|skillset|skill ?set)\b"
+    r"|\b(?:make|making|become|be)\b[^.?!]*\b(?:a )?(?:stronger|more competitive|more marketable)\b"
+    r"[^.?!]*\b(?:candidate|applicant|profile)\b"
+    r"|\bhow (?:do|can|would) i (?:become|get into|break into|transition (?:in)?to|move into|"
+    r"qualify for|be qualified)\b"
+    r"|\bwhat (?:does it take|do i need|would it take)\b[^.?!]*\b(?:to (?:be|become|get|land|qualify|reach))\b"
+    r"|\b(?:advance|grow|further|progress) my career\b|\bnext step in my career\b|\bcareer goal\b"
+    r"|\b(?:what|which)\b[^.?!]*\b(?:make|makes)\b[^.?!]*\b(?:resume|r\xe9sum\xe9|skillset|skill ?set)\b"
+    r"[^.?!]*\bstronger\b"
+    r"|\bhow (?:do|can|would) (?:i|you)\b[^.?!]*\b(?:make|get)\b[^.?!]*\b(?:resume|r\xe9sum\xe9|"
+    r"skillset|skill ?set|profile|candidacy)\b[^.?!]*\b(?:stronger|more competitive|more marketable)\b"
+)
+#: Role/goal target cues — extract what the advice should aim at, when stated.
+_STRENGTHEN_TARGET_RE = re.compile(
+    r"\b(?:to (?:be|become)|become|get into|break into|move into|transition (?:in)?to|"
+    r"qualify for|for|as)\s+(?:a|an|the)?\s*([a-z][\w /&+-]*?)(?:\s+(?:role|job|position))?\s*[.?!]?$",
+    re.I,
+)
+
+
+def _strengthen_resume(t: str) -> Optional[IntentResult]:
+    """Advise what would make the résumé + skillset stronger (skills, certifications,
+    education, experience, positioning) — in general, or for a role/goal named in the
+    request. The frontend calls POST /resumes/{id}/strengthen with any role/goal slot."""
+    if not _STRENGTHEN_RE.search(t):
+        return None
+    slots: dict[str, Any] = {}
+    m = _STRENGTHEN_TARGET_RE.search(t)
+    if m:
+        tgt = re.sub(r"^(?:a|an|the)\s+", "", m.group(1).strip(), flags=re.I).strip()
+        # keep it short + skip filler so "to be a stronger candidate" doesn't become a role
+        if 2 <= len(tgt) <= 40 and tgt not in (
+                "stronger", "better", "more", "qualified", "competitive", "marketable"):
+            slots["role"] = tgt
+    return IntentResult("strengthen_resume", 0.9, slots)
 
 
 def _match_playbook(text: str) -> Optional[str]:
@@ -1162,6 +1217,14 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     if ce is not None:
         return ce
 
+    # forward-looking GROWTH advice ("what certifications should I get", "what skills do I
+    # need to become a data scientist", "how do I make my skillset stronger"). Checked
+    # before review_document/edit so a "how do I get stronger" is skills/certs/education
+    # advice, not a writing-fix review.
+    st = _strengthen_resume(t)
+    if st is not None:
+        return st
+
     # understand + freshness-check the SUMMARY ("review my summary", "is my summary up to
     # date?", "what's wrong with my summary") — the summary-review flow. Before focus/edit
     # so it isn't read as "go to the summary" or a bare rewrite.
@@ -1438,6 +1501,10 @@ _INTENT_HELP: dict[str, str] = {
     "more_matches": "how to GET MORE / better / additional matches or jobs coming in "
                     "(broaden the search AND connect more sources — mailboxes, job sites). "
                     "NOT a web search; not rating existing matches.",
+    "strengthen_resume": "advise what would make the résumé + SKILLSET stronger — skills to "
+                        "build, CERTIFICATIONS to earn, EDUCATION/degrees/courses, experience "
+                        "framing — in general or for a role/career goal. slots: role, goal. "
+                        "(Forward-looking growth advice, NOT fixing the writing of the résumé.)",
     "save": "save / bookmark / keep the current item for later.",
     "archive": "archive / hide / dismiss an item.",
     "web_search": "search the web for general info the app itself doesn't hold.",
@@ -1471,6 +1538,11 @@ _LLM_FEWSHOT: list[tuple[str, str, dict]] = [
     ("how do i get more matches", "more_matches", {}),
     ("i'm not getting enough job matches", "more_matches", {}),
     ("how do i get more jobs coming in", "more_matches", {}),
+    ("what certifications should i get", "strengthen_resume", {}),
+    ("what skills do i need to become a data scientist", "strengthen_resume", {"role": "data scientist"}),
+    ("how can i make my skillset stronger", "strengthen_resume", {}),
+    ("what would make me a stronger candidate for product management", "strengthen_resume", {"role": "product management"}),
+    ("do i need a degree to become a software engineer", "strengthen_resume", {"role": "software engineer"}),
     ("what's the weather tomorrow", "ask", {}),
     ("what's the capital of Mongolia", "ask", {}),
     ("who won the game last night", "ask", {}),
@@ -1748,6 +1820,11 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
                 "live yet, but it's on the way; I'll let you know when it's ready.")
     if intent == "more_matches":
         return _MORE_MATCHES_REPLY
+    if intent == "strengthen_resume":
+        tgt = str(slots.get("role") or slots.get("goal") or "").strip()
+        aim = f" for {tgt}" if tgt else ""
+        return (f"Let me look at what would make your résumé and skillset stronger{aim} — "
+                "skills to build, certifications worth earning, and any education that would help.")
     if intent == "web_search":
         q = str(slots.get("query", "")).strip()
         return f"Searching the web for {q}." if q else "Let me search that for you."

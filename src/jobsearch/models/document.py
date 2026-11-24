@@ -147,6 +147,31 @@ class ResumeReview(DomainModel):
     word_count: int = 0
 
 
+class GrowthRecommendation(DomainModel):
+    """One concrete way to make the résumé and skillset stronger."""
+
+    area: str  # "skills" | "certifications" | "education" | "experience" | "positioning"
+    title: str
+    detail: str
+    priority: str = "medium"  # "high" | "medium" | "low"
+    #: True when specific to the named role/job/goal; False = general best practice.
+    for_target: bool = False
+
+
+class StrengthenPlan(DomainModel):
+    """Advice on what would make a résumé + skillset stronger — in general, and, when a
+    role/job/career goal is given, for that target. Covers skills, certifications,
+    education, experience framing, and positioning."""
+
+    resume_id: str
+    target: str = ""         # the role / job title / career goal this is aimed at ("" = general)
+    is_targeted: bool = False
+    summary: str = ""        # a short spoken overview the assistant can read
+    strengths: list[str] = Field(default_factory=list)
+    recommendations: list[GrowthRecommendation] = Field(default_factory=list)
+    top_priorities: list[str] = Field(default_factory=list)  # the 2-3 highest-impact moves
+
+
 class ResumeRevision(DomainModel):
     """A prompt-controlled AI rewrite of a résumé — a *preview* to review before
     the user applies it (nothing is saved until they do)."""
