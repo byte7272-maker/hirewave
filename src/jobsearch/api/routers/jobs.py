@@ -132,6 +132,31 @@ def _default_resume_id(state: StateDep, user_id: str) -> str:
     return mine[-1].id if mine else ""
 
 
+def _rep_score(j: JobPosting) -> tuple:
+    """How good a duplicate is as THE copy to keep: prefer a real (non-estimated) description,
+    then a known salary, then the most-seen posting. Higher is better."""
+    real_desc = bool((j.description or "").strip()) and not getattr(j, "description_inferred", False)
+    return (1 if real_desc else 0, 1 if j.salary_range else 0, int(getattr(j, "times_seen", 1) or 1))
+
+
+def _dedup_jobs(jobs: list[JobPosting]) -> list[JobPosting]:
+    """Collapse duplicate postings by a SAFE key (same URL, else company+title+location;
+    never company-less title-only), keeping the richest copy of each. Preserves input order."""
+    from jobsearch.engines.sourcing.aggregator import dedup_key
+
+    best: dict[str, JobPosting] = {}
+    order: list[str] = []
+    for j in jobs:
+        k = dedup_key(j)
+        cur = best.get(k)
+        if cur is None:
+            best[k] = j
+            order.append(k)
+        elif _rep_score(j) > _rep_score(cur):
+            best[k] = j
+    return [best[k] for k in order]
+
+
 def _matching_profile(state: StateDep, user_id: str, resume_id: str) -> UserProfile:
     """The profile to rank against. With ``resume_id`` the ranking is driven by
     that résumé's text + the skills mined from it (so matches reflect the résumé
@@ -196,6 +221,11 @@ def matches(
                 state.jobs.add(j)
                 reclassified += 1
         visible = [j for j in visible if (j.category or "Other") in selected]
+    # Collapse duplicate postings so the same job isn't listed many times — the same posting
+    # re-ingested (a re-sent/second-mailbox alert, a tracker-tagged link) or an identical
+    # cross-board re-post. Done before ranking so the cap applies to UNIQUE jobs; the richest
+    # copy (real — not estimated — description, known pay, most sightings) is the one kept.
+    visible = _dedup_jobs(visible)
     # Free plan: show at most the daily matches cap.
     cap = plan_limits.matches_cap(state, user)
     if cap is not None:

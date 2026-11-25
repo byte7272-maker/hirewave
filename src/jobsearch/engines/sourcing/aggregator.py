@@ -150,6 +150,51 @@ def _group_key(job: JobPosting) -> str:
     return f"{company}|{title}" if company and title else ""
 
 
+#: Query params known to be tracking/campaign noise — dropped so the SAME posting with
+#: different email/campaign tags collapses. Every OTHER param is KEPT (so an identifying
+#: param like Indeed's ``jk`` or Greenhouse's ``gh_jid`` never merges two distinct jobs).
+_URL_DROP_PARAMS = {"trk", "refid", "trackingid", "trackid", "src", "source", "rq", "tk",
+                    "savedsearch", "spa", "vjs", "from", "hl", "ebp", "xkcb", "xpse", "xfps",
+                    "clickid", "gclid", "fbclid", "mc_cid", "mc_eid", "campaign", "medium"}
+
+
+def _norm_url(job: JobPosting) -> str:
+    """A canonical identity for the POSTING's page — host + path + its identifying query
+    params (only known tracking/campaign params stripped) — so the SAME posting arriving
+    twice (a re-sent alert, a second mailbox, a tracker-tagged link) collapses to one. Empty
+    when there is no http(s) URL. The strongest dedup signal for email jobs, which often have
+    no company for the company+title grouping to use. Conservative by design: anything not a
+    known tracker is kept, so two genuinely different postings are never merged."""
+    from urllib.parse import parse_qsl, urlsplit
+
+    u = (job.url or "").strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return ""
+    s = urlsplit(u)
+    host = (s.netloc or "").lower()
+    host = host[4:] if host.startswith("www.") else host
+    path = (s.path or "").rstrip("/")
+    kept = [(k.lower(), v) for k, v in parse_qsl(s.query, keep_blank_values=False)
+            if not (k.lower().startswith("utm_") or k.lower() in _URL_DROP_PARAMS)]
+    query = "&".join(f"{k}={v}" for k, v in sorted(kept))
+    if not host and not path:
+        return ""
+    return f"{host}{path}" + (f"?{query}" if query else "")
+
+
+def dedup_key(job: JobPosting) -> str:
+    """A SAFE collapse key for hiding duplicate cards at read time: the posting URL when
+    known (same URL = same posting), else company+title+location when the company is known,
+    else the job's own id (never collapse a company-less, URL-less posting by title alone —
+    two different "Software Engineer" alerts would wrongly merge). Strong signals only."""
+    nu = _norm_url(job)
+    if nu:
+        return f"u:{nu}"
+    if _norm_company(job.company) and _norm(job.title):
+        return f"ct:{_norm_company(job.company)}|{_norm(job.title)}|{_norm(job.location)}"
+    return f"id:{job.id}"
+
+
 _WORD_RE = re.compile(r"[a-z0-9]{3,}")
 
 
@@ -240,17 +285,38 @@ class JobAggregator:
         stored = [j for j in self.jobs.all() if getattr(j, "owner_id", "") == owner_id]
         by_src_key: dict[tuple, JobPosting] = {}
         by_ext: dict[tuple, JobPosting] = {}
+        by_url: dict[str, JobPosting] = {}
         groups: dict[str, list[JobPosting]] = {}
         for j in stored:
             by_src_key[(j.source_platform, _norm_key(j))] = j
             if j.external_id:
                 by_ext[(j.source_platform, j.external_id)] = j
+            nu = _norm_url(j)
+            if nu:
+                by_url.setdefault(nu, j)
             gk = _group_key(j)
             if gk:
                 groups.setdefault(gk, []).append(j)
 
         result = AggregationResult(found=len(raw), sources=sorted(used))
         for job in batch.values():
+            # 0) Same POSTING URL → the same job, whatever the source/wording/company. The
+            # strongest signal, and the one that catches email dups (a re-sent or second-
+            # mailbox alert, a tracker-tagged link) that have no company to group on.
+            nu = _norm_url(job)
+            same_url = by_url.get(nu) if nu else None
+            if same_url is not None and same_url.id != job.id:
+                same_url.times_seen += 1
+                same_url.last_seen_at = utcnow()
+                if job.source_platform and job.source_platform != same_url.source_platform \
+                        and job.source_platform not in same_url.consolidated_sources:
+                    same_url.consolidated_sources.append(job.source_platform)
+                _absorb_richer(same_url, job)
+                self.jobs.add(same_url)
+                result.duplicates += 1
+                result.matched_job_ids.append(same_url.id)
+                continue
+
             # 1) Same-board re-post → collapse (bump the sighting count).
             same_board = (
                 by_ext.get((job.source_platform, job.external_id)) if job.external_id else None
@@ -307,6 +373,8 @@ class JobAggregator:
             result.matched_job_ids.append(job.id)
             # so later batch items link/consolidate against this one too
             by_src_key[(job.source_platform, _norm_key(job))] = job
+            if nu:
+                by_url.setdefault(nu, job)
             if gk:
                 groups.setdefault(gk, []).append(job)
         return result

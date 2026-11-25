@@ -48,6 +48,10 @@ def summary(user: CurrentUser, state: StateDep) -> dict:
     # when the gate would empty the list.
     prefs = profile.preferences
     visible = filter_relevant(visible, prefs)
+    # Collapse duplicate postings so the match counts here agree with the Matches page (which
+    # also dedups) — a re-ingested job isn't counted twice toward "strong matches".
+    from jobsearch.api.routers.jobs import _dedup_jobs
+    visible = _dedup_jobs(visible)
     # Preferences are mandatory for good matches; flag when none are set so the UI can ask.
     needs_preferences = not bool(preference_terms(prefs))
     ranked = state.matching.rank(profile, visible, limit=100) if visible else []

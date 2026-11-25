@@ -126,6 +126,55 @@ def test_identical_cross_board_repost_is_consolidated():
     assert not job.likely_duplicate  # nothing left standing beside it
 
 
+def test_same_posting_url_collapses_even_with_no_company():
+    # Email alerts often have NO company, so company+title grouping can't help. The posting
+    # URL identifies the job: the SAME link arriving again later (a re-sent alert, a second
+    # mailbox, a tracker-tagged link) must collapse to one card, not list a duplicate. Two
+    # separate reaps, and a DIFFERENT board label the second time (greenhouse vs email).
+    agg, jobs = _empty_aggregator()
+    agg.ingest([
+        {"source_platform": "email", "title": "Data Engineer", "company": "",
+         "url": "https://boards.greenhouse.io/acme/jobs/55?gh_jid=55&utm_source=alert"},
+    ])
+    r = agg.ingest([
+        {"source_platform": "greenhouse", "title": "Data Engineer", "company": "",
+         "url": "https://www.boards.greenhouse.io/acme/jobs/55/?gh_jid=55&trk=maildigest"},
+    ])
+    assert r.ingested == 0 and r.duplicates == 1  # the re-send collapsed into the stored card
+    assert len(jobs.all()) == 1
+    kept = jobs.all()[0]
+    assert kept.times_seen == 2
+    assert "greenhouse" in kept.consolidated_sources  # the other board is recorded
+
+
+def test_different_postings_on_same_board_are_not_merged_by_url():
+    # Distinct jobs that share a path but differ in the identifying query param (Indeed's jk)
+    # must stay separate — the id param is kept, only tracking is stripped.
+    agg, jobs = _empty_aggregator()
+    r = agg.ingest([
+        {"source_platform": "email", "title": "Role A", "company": "",
+         "url": "https://indeed.com/viewjob?jk=AAA&from=alert"},
+        {"source_platform": "email", "title": "Role B", "company": "",
+         "url": "https://indeed.com/viewjob?jk=BBB&from=alert"},
+    ])
+    assert r.ingested == 2 and r.duplicates == 0  # different jk → different jobs
+
+
+def test_dedup_key_is_safe_for_companyless_urlless_jobs():
+    # With no URL and no company, we must NOT collapse by title alone (two different
+    # "Software Engineer" alerts are not the same job) — the key falls back to the id.
+    from jobsearch.engines.sourcing.aggregator import dedup_key
+    from jobsearch.models import JobPosting
+
+    a = JobPosting(title="Software Engineer", company="", url="")
+    b = JobPosting(title="Software Engineer", company="", url="")
+    assert dedup_key(a) != dedup_key(b)  # distinct → both shown
+    # Same URL → same key regardless of company.
+    c = JobPosting(title="X", company="", url="https://co.com/jobs/1?utm_source=x")
+    d = JobPosting(title="X", company="", url="https://www.co.com/jobs/1/")
+    assert dedup_key(c) == dedup_key(d)
+
+
 def test_company_spelling_variants_are_the_same_company():
     # "JPMorgan Chase" vs "JPMorganChase" (spacing/punctuation only) must be treated
     # as one company: with the same role + language they consolidate into one row,

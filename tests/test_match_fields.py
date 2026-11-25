@@ -250,6 +250,39 @@ def test_reimport_backfills_salary_and_benefits_on_existing_matches():
     assert globex["benefits"]
 
 
+def test_matches_collapse_duplicate_postings_by_url():
+    # Duplicates already in the pool (same posting, tracker-tagged link) must not BOTH show
+    # on the Matches page — the read collapses them to one, keeping the richer copy.
+    state, c = _client()
+    h = _auth(c, email="dups@x.com")
+    uid = _uid(state, "dups@x.com")
+    # Two rows for the SAME posting: one thin, one with a real description + pay.
+    state.jobs.add(JobPosting(owner_id=uid, title="Data Engineer", company="",
+                              url="https://boards.greenhouse.io/acme/jobs/7?gh_jid=7&utm_source=alert",
+                              description="Data Engineer — surfaced from a job_alert email."))
+    state.jobs.add(JobPosting(owner_id=uid, title="Data Engineer", company="",
+                              url="https://www.boards.greenhouse.io/acme/jobs/7/?gh_jid=7&trk=x",
+                              description="Own the data platform, build pipelines, and ship at scale. " * 6))
+    matches = c.get("/api/v1/jobs/matches", headers=h).json()
+    de = [m for m in matches if m["title"] == "Data Engineer"]
+    assert len(de) == 1  # collapsed to one card
+    assert "surfaced from" not in de[0].get("title", "")  # the richer copy was kept
+
+
+def test_matches_keep_distinct_companyless_jobs():
+    # Two genuinely different company-less, URL-less roles with the same title must BOTH show
+    # (we never collapse by title alone).
+    state, c = _client()
+    h = _auth(c, email="distinct@x.com")
+    uid = _uid(state, "distinct@x.com")
+    state.jobs.add(JobPosting(owner_id=uid, title="Software Engineer", company="", url="",
+                              description="Backend role building services in Python and AWS at scale."))
+    state.jobs.add(JobPosting(owner_id=uid, title="Software Engineer", company="", url="",
+                              description="Frontend role building React interfaces and design systems."))
+    matches = c.get("/api/v1/jobs/matches", headers=h).json()
+    assert sum(1 for m in matches if m["title"] == "Software Engineer") == 2
+
+
 # --- the posting link must reach the real job, not a board search -----------
 def test_is_job_href_accepts_tracking_hosts_rejects_noise():
     assert _is_job_href("https://cts.indeed.com/v3/AAAABBBCCC")  # Indeed click-tracking
