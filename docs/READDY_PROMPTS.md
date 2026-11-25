@@ -10029,3 +10029,21 @@ Contract: `POST /assistant/interpret` returns intent **`get_job_details`** for "
 - Words spoken right after a barge-in are heard and acted on (the mic cancels TTS before listening, so nothing is ignored).
 - The mic and TTS are never active simultaneously; cancelled narration does not resume afterward.
 - Typing while the assistant speaks also stops the narration and submits the typed command.
+
+## P348 — ⚠ SINGLE PURPOSE: "yes" answers the question the assistant JUST asked — arm the current offer and pass the page
+
+**Do only this. Change nothing else.** **Confirmed bug:** on the Matches page the assistant asks *"would you like me to walk through them?"* but a verbal/typed **"yes"** does the wrong thing — from the badge it's ignored; from the right-pane hold-to-talk it shows "yes" received and then **reads the résumé header** instead of walking the matches. Root cause: the interpreter is stateless — it only knows which question is live from what the client sends. A **stale** offer (the landing scan's "review your résumé?") is still armed as `context.pending`, so "yes" resolves against *that*, and the badge path isn't sending `context.pending` at all.
+
+The backend now has a safety net (a pending that targets a **different page** than the one you're on is treated as stale, and a bare "yes" on a page resolves to that page's primary action — Matches → `walk_matches`). But the client must hold up its side:
+
+1. **Always arm `context.pending` to the offer the assistant JUST spoke.** When the assistant asks an offer ("want me to walk your matches?"), set `context.pending = {intent, slots}` of THAT offer's `on_yes` (from the section's `offers`/`walkthrough` in `GET /assistant/capabilities`). When it asks a different question, **replace** pending — never leave an old one armed.
+2. **Discard a stale offer when the context changes.** On navigating to a new page, or when the assistant speaks a new offer, clear the previous `pending`. The landing/session-scan offer must not survive onto the Matches page.
+3. **Always pass `context.section`** (the current page) on every `/assistant/interpret` call. The backend uses it to reject a stale cross-page offer and to resolve a bare "yes" to the page's primary action.
+4. **The badge mic sends the SAME context as the console** (P340): `pending`, `section`, `options`, `focused_index`. A badge "yes" must carry the pending offer exactly like the right-pane hold-to-talk — today it sends neither, so it's ignored.
+5. **Run whatever interpret returns.** A "yes" to the matches offer comes back as `start_playbook {playbook: walk_matches}` → start the matches walkthrough. Do not keep a separate client default that reads a document on a bare "yes".
+
+### Acceptance
+- On Matches, after "would you like me to walk through them?", saying or typing "yes" (badge OR right-pane) starts the **matches** walkthrough — never reads the résumé.
+- A "yes" with a leftover résumé offer still armed, while on Matches, walks the matches (the stale offer is ignored).
+- On Documents, "yes" to a résumé-review offer still reviews the résumé (a matching-page offer is honored on its own page).
+- The badge and the hold-to-talk resolve an answer identically (same context sent).

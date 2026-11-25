@@ -37,6 +37,15 @@ intent isn't an automation action).
 `context.pending` lets a spoken **"yes"** resolve server-side to the armed offer's action
 (and "no" → `decline`), so the client doesn't map it. See **Offers** below.
 
+**Context-aware "yes" (P348).** The interpreter is stateless, so it also uses `context.section`
+(the current page) to answer a "yes" sensibly: a `pending` that targets a **different section**
+than the page the user is on is treated as **stale** (a leftover offer from the landing scan)
+and ignored in favor of the page's primary offer; and a bare "yes" with **no** pending, on a
+page that has an obvious primary action, resolves to it (Matches → `start_playbook{walk_matches}`,
+Documents → `review_document`, Auto-apply → `auto_apply`, Connect → `connect_source`, Interview →
+`practice`). A noisy short "uh, yeah" resolves the same way. The client should still arm `pending`
+to the offer it just spoke and always pass `section`; this is the backstop for when it doesn't.
+
 ### Response — `InterpretResponse`
 ```jsonc
 {

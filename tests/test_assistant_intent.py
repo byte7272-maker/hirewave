@@ -128,6 +128,36 @@ def test_noisy_negative_declines_pending_offer(utterance):
     assert interpret(utterance, context=dict(_PENDING)).intent == "decline"
 
 
+def test_yes_on_matches_walks_matches_even_with_stale_resume_offer():
+    # Reported bug: on Matches the assistant asks "walk through them?", but a stale résumé-
+    # review offer from the landing scan is still armed, so "yes" read the résumé. A pending
+    # that targets a DIFFERENT page than the user is on is stale -> use the page's offer.
+    stale = {"section": "matches",
+             "pending": {"intent": "review_document", "slots": {"doc": "resume"}}}
+    r = interpret("yes", context=stale)
+    assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches"
+
+
+def test_yes_on_matches_with_no_pending_walks_matches():
+    # Even if the client never echoed the offer back as pending, a bare "yes" on Matches
+    # runs the page's primary action instead of dead-ending or reading a document.
+    r = interpret("yes", context={"section": "matches"})
+    assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches"
+
+
+def test_yes_honors_a_pending_that_matches_the_current_page():
+    # A résumé-review offer on the Documents page is NOT stale -> "yes" runs it.
+    ctx = {"section": "documents",
+           "pending": {"intent": "review_document", "slots": {"doc": "resume"}}}
+    assert interpret("yes", context=ctx).intent == "review_document"
+
+
+def test_noisy_yes_on_matches_walks_matches():
+    # The noise-tolerant short-answer path also resolves against the page's offer.
+    r = interpret("uh yeah", context={"section": "matches"})
+    assert r.intent == "start_playbook" and r.slots.get("playbook") == "walk_matches"
+
+
 @pytest.mark.parametrize("utterance", ["not right now", "no not right now", "that's not correct"])
 def test_pending_negation_is_not_flipped_by_right_or_correct(utterance):
     # "right"/"correct" must NOT read as affirmatives inside a negated phrase.

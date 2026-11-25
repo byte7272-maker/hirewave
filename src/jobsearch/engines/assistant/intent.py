@@ -183,6 +183,65 @@ def _pending_yesno(t: str) -> Optional[str]:
     return None
 
 
+# The primary action each PAGE offers — what a bare "yes" resolves to when there is no
+# reliable pending offer (the stateless interpreter is otherwise blind to the question it
+# just asked). Keyed by canonical section (see _SECTIONS). (intent, slots).
+_SECTION_PRIMARY_OFFER: dict[str, tuple[str, dict]] = {
+    "matches": ("start_playbook", {"playbook": "walk_matches"}),
+    "documents": ("review_document", {}),
+    "auto_apply": ("start_playbook", {"playbook": "auto_apply"}),
+    "connect": ("start_playbook", {"playbook": "connect_source"}),
+    "interview": ("start_playbook", {"playbook": "practice"}),
+}
+
+#: Which section a pending offer's action belongs to — so a "yes" on the Matches page is not
+#: answered by a stale résumé-review offer left armed from the landing scan (different page).
+_PLAYBOOK_SECTION = {
+    "walk_matches": "matches", "tailor": "matches", "apply_job": "matches",
+    "connect_source": "connect", "auto_apply": "auto_apply", "practice": "interview",
+    "upload": "documents", "download": "documents", "design": "design", "bullets": "documents",
+}
+_DOC_INTENTS = {
+    "review_document", "review_summary", "read_bullets", "suggest_bullets", "use_bullet",
+    "discard_bullet", "focus_document", "edit_document", "refresh_metric", "strengthen_resume",
+}
+_MATCH_INTENTS = {"search_jobs", "research_company", "get_job_details", "save", "more_matches"}
+
+
+def _pending_section(pending: dict) -> str:
+    """Best-effort: the section a pending offer's action targets, for staleness detection."""
+    intent = str((pending or {}).get("intent") or "")
+    slots = (pending or {}).get("slots") or {}
+    if intent == "navigate":
+        return str(slots.get("section") or "")
+    if intent == "start_playbook":
+        return _PLAYBOOK_SECTION.get(str(slots.get("playbook") or ""), "")
+    if intent in _DOC_INTENTS:
+        return "documents"
+    if intent in _MATCH_INTENTS:
+        return "matches"
+    return ""
+
+
+def _affirmative_target(pending, cur_sec: str) -> Optional["IntentResult"]:
+    """Resolve a "yes" to a concrete action. Prefer the armed pending offer — UNLESS it's
+    stale for the page the user is on (it targets a different section, i.e. a leftover from an
+    earlier question), in which case use the current page's primary offer. With no pending,
+    fall back to that page's primary offer. None when there's nothing sensible to run."""
+    valid = isinstance(pending, dict) and bool(pending.get("intent"))
+    if valid:
+        psec = _pending_section(pending)
+        stale = bool(psec and cur_sec and psec != cur_sec and cur_sec in _SECTION_PRIMARY_OFFER)
+        if not stale:
+            return IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {}))
+    if cur_sec in _SECTION_PRIMARY_OFFER:
+        pi, ps = _SECTION_PRIMARY_OFFER[cur_sec]
+        return IntentResult(pi, 0.8, dict(ps))
+    if valid:  # stale, but this page has no primary offer → honor the pending as a last resort
+        return IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {}))
+    return None
+
+
 def _contains_any(text: str, phrases) -> bool:
     return any(p in text for p in phrases)
 
@@ -2104,18 +2163,30 @@ def interpret(
     # armed offer's action as context["pending"], a spoken "yes" returns THAT action
     # directly (so it executes), and "no" is a clean decline — no fragile client mapping.
     pending = (context or {}).get("pending")
-    if isinstance(pending, dict) and pending.get("intent"):
-        # A clean "yes"/"no" resolves directly; otherwise, if the deterministic pass only
-        # reached a weak fallback (unknown/ask) — the usual fate of a noisy "uh, yes" — scan
-        # the SHORT utterance for a yes/no token so room noise doesn't swallow the answer.
-        yn = (result.intent if result.intent in ("confirm", "decline")
-              else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
+    has_pending = isinstance(pending, dict) and bool(pending.get("intent"))
+    # The page the user is on — so a "yes" resolves against THIS page's question, and a stale
+    # offer from a different page can't hijack it (the reported bug: "yes" on Matches reading
+    # the résumé). Normalized through the section matcher so "match"/"my jobs" -> "matches".
+    cur_sec = _match_section(str((context or {}).get("section") or (context or {}).get("page") or "")) or ""
+    # A clean "yes"/"no" resolves directly; otherwise, if the deterministic pass only reached a
+    # weak fallback (unknown/ask) — the usual fate of a noisy "uh, yes" — scan the SHORT
+    # utterance for a yes/no token so room noise doesn't swallow the answer.
+    yn = (result.intent if result.intent in ("confirm", "decline")
+          else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
+    if has_pending:
         if yn == "confirm":
-            return _finalize(
-                IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {})),
-                raw, context)
+            tgt = _affirmative_target(pending, cur_sec)
+            if tgt is not None:
+                return _finalize(tgt, raw, context)
         if yn == "decline":
             return _finalize(IntentResult("decline", 0.95, {}), raw, context)
+    elif yn == "confirm" and cur_sec in _SECTION_PRIMARY_OFFER:
+        # A bare "yes" with NO pending, on a page with an obvious primary action — run it,
+        # so the assistant's spoken offer ("want me to walk your matches?") still works even
+        # if the client didn't echo it back as context.pending.
+        tgt = _affirmative_target(None, cur_sec)
+        if tgt is not None:
+            return _finalize(tgt, raw, context)
 
     if result.confidence < threshold:
         if llm is not None:
@@ -2135,13 +2206,19 @@ def interpret(
     # deterministic matcher missed but the LLM (or the ask-fallback on a bare "ok sure") still
     # reads as yes/no runs the offer — a flow stays reliable without the client staging every
     # phrasing. A substantive NEW command (navigate/search/…) preempts the offer instead.
-    if isinstance(pending, dict) and pending.get("intent"):
-        yn = (result.intent if result.intent in ("confirm", "decline")
-              else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
-        if yn == "confirm":
-            result = IntentResult(str(pending["intent"]), 0.95, dict(pending.get("slots") or {}))
-        elif yn == "decline":
+    yn2 = (result.intent if result.intent in ("confirm", "decline")
+           else _pending_yesno(text) if result.intent in ("unknown", "ask") else None)
+    if has_pending:
+        if yn2 == "confirm":
+            tgt = _affirmative_target(pending, cur_sec)
+            if tgt is not None:
+                result = tgt
+        elif yn2 == "decline":
             result = IntentResult("decline", 0.95, {})
+    elif yn2 == "confirm" and cur_sec in _SECTION_PRIMARY_OFFER:
+        tgt = _affirmative_target(None, cur_sec)
+        if tgt is not None:
+            result = tgt
 
     # A more_matches result (e.g. from the LLM backstop) carries the standard "connect more
     # sources" offer even if the matcher that produced it didn't set one.
