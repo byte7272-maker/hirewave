@@ -1177,6 +1177,10 @@ def _sync_documents(t: str) -> Optional[IntentResult]:
 _ANSWER_Q_RE = re.compile(
     r"\bwhy\b[^.?!]*\b(match\w*|fits?|recommend\w*|suggest\w*|good|strong\w*|rank\w*|"
     r"this (?:job|one|role))\b"
+    # Any question-form "why did you / why is this ..." — the assistant must EXPLAIN its own
+    # reasoning (e.g. "why did you flag this?", "why is this flagged / stale / a caution?").
+    r"|\bwhy (?:did|do|does|is|are|was|were|would|should|have|has|didnt|dont|isnt|arent|"
+    r"would you|did you|do you)\b"
     r"|\bwhat(?:'?s| is| should i do| do i do| should i| do you| would you)\b[^.?!]*"
     r"\b(next|now|next step|do next|i do|think|recommend|suggest|say|strongest|best)\b"
     r"|\bis (?:this|it)\b[^.?!]*\b(worth|a good|the right|a strong|a match|for me|applying)\b"
@@ -1361,6 +1365,10 @@ def _deterministic(text: str, context: dict) -> IntentResult:
                        "use this bullet", "use that bullet", "use this line", "use that line",
                        "use this version", "use that version")
                    or re.fullmatch(r"(use|add|pick)(\s+it)?", t))
+    # A question lead ("why did you pick this one", "which should I use") is NOT a command to
+    # pick a bullet — let it fall through to be ANSWERED, not acted on.
+    if _bullet_use and re.match(r"(why|what|which|when|who|how)\b", t):
+        _bullet_use = False
     if _bullet_use and not (_EMAIL_ADDRESS_RE.search(t) or _DOC_CTX_RE.search(t)):
         oid, idx, dis = _resolve_reference(t, context)
         if dis:

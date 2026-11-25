@@ -160,6 +160,18 @@ def test_best_match_question_is_answered(utterance):
     assert r.slots.get("query")
 
 
+@pytest.mark.parametrize("utterance", [
+    "why did you flag this", "why did I flag this", "why is this flagged",
+    "why is this stale", "why did you suggest this", "why is this a caution",
+    "why are these highlighted", "why did you pick this one", "why did you choose this",
+])
+def test_why_questions_are_answered_not_acted_on(utterance):
+    # The assistant must EXPLAIN its own reasoning ("why did you flag this?") — not run a
+    # command (a search, or picking a bullet) and fall back.
+    r = interpret(utterance, context={})
+    assert r.intent == "answer_question", f"{utterance!r} -> {r.intent}"
+
+
 def test_best_match_command_is_not_answered_as_a_question():
     # "apply to my best match" acts on the best match — it must NOT be caught as a
     # best-match question to answer.
