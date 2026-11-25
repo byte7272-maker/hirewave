@@ -146,3 +146,29 @@ def test_fit_brief_404_for_other_users_job():
     state.jobs.add(other)
     r = client.get(f"/api/v1/jobs/{other.id}/fit-brief", headers=h)
     assert r.status_code == 404
+
+
+def test_fit_brief_does_not_state_background_fit_twice():
+    # Bug: strong-semantic matches said "why it fits your background" twice in the
+    # walkthrough — once as the generic "Fits your background" reason and again in the
+    # narrative prose. With a narrative present, the generic reason is dropped so the
+    # background point is made once.
+    state, client, h, uid = _client_with_user(email="fit5@demo.com")
+    state.profiles.add(UserProfile(
+        user_id=uid, headline="Senior Backend Engineer",
+        skills=["Python", "FastAPI", "AWS", "Kubernetes"],
+        preferences=JobPreferences(remote_ok=True, seniority="senior"),
+    ))
+    job = _seed_job(state, uid)
+    # A strongly-aligned résumé → high semantic score AND a generated narrative.
+    state.resumes.add(Resume(
+        user_id=uid, target_role="Senior Backend Engineer",
+        rendered_text="Senior Backend Engineer. Python, FastAPI, AWS, Kubernetes microservices "
+                      "at scale; led backend teams; CI/CD; observability; distributed systems."))
+    b = client.get(f"/api/v1/jobs/{job.id}/fit-brief", headers=h).json()
+    # The generic background-fit reason must not also appear in why_fits when the narrative
+    # (which covers it) is present — so it's never said twice.
+    if b.get("narrative"):
+        assert not any(w.lower().startswith("fits your background") for w in b["why_fits"])
+    # and concrete reasons still remain
+    assert any("skill" in w.lower() or "python" in w.lower() for w in b["why_fits"])

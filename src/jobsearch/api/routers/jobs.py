@@ -795,6 +795,13 @@ def fit_brief(job_id: str, state: StateDep, user: CurrentUser) -> FitBriefOut:
         except Exception:  # noqa: BLE001 - never block the brief on the narrative
             narrative = ""
 
+    # Avoid saying the same thing twice: the narrative already explains the background fit in
+    # prose, so drop the GENERIC "Fits your background" reason from why_fits when a narrative
+    # is present (keep the concrete reasons — skills, pay, remote, level). Otherwise the
+    # walkthrough recites the background point twice for strong-semantic matches.
+    if narrative:
+        why_fits = [w for w in why_fits if not w.lower().startswith("fits your background")]
+
     summary = f"{job.title} at {job.company} looks like {lead} {score}/100 fit."
 
     resume_opts = [
