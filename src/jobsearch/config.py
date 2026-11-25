@@ -228,6 +228,12 @@ class Settings(BaseSettings):
     # then build the clip library once with POST /interview/avatars/build.
     heygen_api_key: str = Field(default="", validation_alias="HEYGEN_API_KEY")
     heygen_voice_id: str = ""  # optional HeyGen voice id; blank = per-persona neutral default
+    #: Admin-supplied metadata for the API-dependency dashboard, as a JSON object keyed by
+    #: dependency id (anthropic, openai, brave, …): {"anthropic": {"expiry": "2026-06-30",
+    #: "balance": "$42.10", "monthly_cost": "$20", "notes": "..."}}. Balances/costs aren't
+    #: exposed by the providers, so this is where the admin records what they know; the
+    #: dashboard merges it with auto-detected config and raises reminders for expiry/low funds.
+    dependency_meta_raw: str = Field(default="", validation_alias="JOBSEARCH_DEPENDENCY_META")
     # Account tiers (tester / trial / free). Enforcement is global; testers are
     # unlimited, a new account gets a `trial_days` full trial, then falls to free.
     # The admin API is the main way to designate testers; the allowlists below are

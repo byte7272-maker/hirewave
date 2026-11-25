@@ -31,6 +31,22 @@ def _require_admin(state: StateDep, x_admin_token: str = Header("")) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "admin access required")
 
 
+@router.get("/dependencies")
+def dependencies(state: StateDep, x_admin_token: str = Header("")) -> dict:
+    """Admin dashboard of every external API dependency: what it's for, whether it's
+    configured, its model/provider, and the admin-recorded expiry/balance/cost — plus
+    REMINDERS for anything expired/expiring, required-but-unconfigured, or low on funds.
+
+    Balances/costs aren't exposed by the providers, so record them in the
+    ``JOBSEARCH_DEPENDENCY_META`` env JSON (keyed by dependency id, e.g. ``anthropic``):
+    ``{"expiry": "2026-06-30", "balance": "$42.10", "monthly_cost": "$20", "notes": "..."}``.
+    Read-only and network-free, so the dashboard loads instantly."""
+    _require_admin(state, x_admin_token)
+    from jobsearch.engines.dependencies import build_dependencies
+
+    return build_dependencies(state.settings)
+
+
 def _out(inv: SignupInvite) -> InviteOut:
     return InviteOut(
         id=inv.id, code=inv.code, label=inv.label, max_uses=inv.max_uses,

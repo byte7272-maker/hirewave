@@ -284,9 +284,10 @@ def matches(
     # of a stale offer or nothing. Cleared on the next interpret that isn't a yes/no.
     if out:
         try:
-            from jobsearch.api.assistant_memory import remember_offer
-            remember_offer(state, user.id, {"intent": "start_playbook",
-                                            "slots": {"playbook": "walk_matches"}})
+            from jobsearch.api.assistant_memory import remember
+            remember(state, user.id, {"intent": "start_playbook",
+                                      "slots": {"playbook": "walk_matches"}},
+                     "Want me to walk you through your matches?")
         except Exception:  # noqa: BLE001 — memory is a best-effort hint
             pass
     return out
