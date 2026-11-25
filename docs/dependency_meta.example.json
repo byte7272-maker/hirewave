@@ -1,0 +1,13 @@
+{
+  "_comment": "Starter for the JOBSEARCH_DEPENDENCY_META env var (admin API-dependency dashboard, P350). Fill expiry (YYYY-MM-DD), balance, monthly_cost, notes for what you know; leave blank to show 'unknown'. Keys match the dependency ids from GET /api/v1/admin/dependencies. Paste the MINIFIED single-line form into Railway. Remove this _comment line (JSON has no comments at runtime; the backend tolerates extra keys, but keep it clean).",
+  "anthropic":    { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Claude - assistant comprehension + premium generation. Billing: console.anthropic.com/settings/billing" },
+  "openai":       { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Embeddings (matching) + review model. Billing: platform.openai.com/account/billing" },
+  "brave_search": { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Web research. Plan: api-dashboard.search.brave.com" },
+  "hibp":         { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Breach/exposure checks. Key: haveibeenpwned.com/API/Key" },
+  "gmail":        { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Gmail OAuth (read scope). Console: console.cloud.google.com/apis/credentials" },
+  "linkedin":     { "expiry": "", "balance": "", "monthly_cost": "", "notes": "LinkedIn OAuth app. Portal: linkedin.com/developers/apps" },
+  "tts":          { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Neural voice (ElevenLabs/OpenAI). Browser voice is the free fallback." },
+  "stt":          { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Speech-to-text (OpenAI). Browser recognition is the fallback." },
+  "heygen":       { "expiry": "", "balance": "", "monthly_cost": "", "notes": "Avatar interviewer clips. Settings: app.heygen.com/settings" },
+  "database":     { "expiry": "", "balance": "", "monthly_cost": "", "notes": "PostgreSQL on Railway. Dashboard: railway.app/dashboard" }
+}
