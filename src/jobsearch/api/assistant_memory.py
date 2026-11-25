@@ -1,21 +1,18 @@
 """Server-side memory of the assistant's pending yes/no OFFERS, per user.
 
 The interpreter is stateless, so a bare "yes" (especially from the badge, which sends no
-page context) can't know which question is live. This small, in-process store fixes that and
-adds the behavior the badge needs for SPOKEN interaction:
+page context) can't know which question is live. This store fixes that and adds the behavior
+the badge needs for SPOKEN interaction:
 
-* **One ACTIVE offer at a time** — the single question a bare "yes"/"no" answers. The badge
-  deals with one spoken thing at a time, so there is never more than one answerable offer.
-* **A bounded cache of older, unanswered offers** — when a new offer is made or the user does
-  something else instead of answering, the previous offer isn't lost: it's remembered (up to
-  a small, conservative limit) so the assistant can give a clean reminder of what's still
-  pending, with the option to dismiss each one.
-* **Timeouts** so offers don't accumulate — the active offer is answerable briefly; cached
-  reminders live a while longer, then expire.
+* **One ACTIVE offer at a time** — the single question a bare "yes"/"no" answers.
+* **A bounded cache of older, unanswered offers** — not lost when a new offer is made or the
+  user does something else; remembered (up to a small cap) for a clean reminder + dismissal.
+* **Timeouts** so offers don't accumulate.
 
-It is a hint, not durable state: in-process, per user, and self-pruning. Works for EVERY
-area, not just matches — anything that records an offer (interpret/observe responses, loading
-a page whose primary action is obvious) flows through here.
+It is **persisted in the user's profile** (``view_state``), so it survives across web
+replicas/restarts — a bare "yes" works even when the Matches fetch and the "yes" land on
+different instances. An in-process fallback is used only when no profile store is available
+(e.g. unit tests with a bare state). Works for EVERY area, not just matches.
 """
 
 from __future__ import annotations
@@ -23,52 +20,85 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-#: How long a bare "yes"/"no" can still answer the ACTIVE offer.
-ACTIVE_TTL_SECONDS = 600
-#: How long an unanswered offer is remembered as a dismissible reminder.
-QUEUE_TTL_SECONDS = 1800
-#: Conservative cap on remembered reminders, so they never pile up.
-MAX_PENDING = 5
+ACTIVE_TTL_SECONDS = 600       # how long a bare "yes"/"no" can still answer the active offer
+QUEUE_TTL_SECONDS = 1800       # how long an unanswered offer is remembered as a reminder
+MAX_PENDING = 5                # conservative cap on remembered reminders
+_VS_KEY = "_assistant_offers"  # where it lives inside profile.view_state
 
 
 def _sig(on_yes: dict) -> str:
-    """A stable id for an offer's action, so the same offer de-dupes and can be dismissed."""
     intent = str((on_yes or {}).get("intent") or "")
     slots = (on_yes or {}).get("slots") or {}
     body = ",".join(f"{k}={slots[k]}" for k in sorted(slots))
     return f"{intent}:{body}"
 
 
-def _entry(state, user_id: str) -> dict:
-    store = getattr(state, "_assistant_offers", None)
+# --- storage: profile-backed (durable, cross-replica) with an in-process fallback ----------
+def _inproc(state) -> dict:
+    store = getattr(state, "_assistant_offers_mem", None)
     if store is None:
         store = {}
         try:
-            setattr(state, "_assistant_offers", store)
-        except Exception:  # noqa: BLE001 — state may forbid new attrs; memory just won't persist
-            return {"active": None, "queue": []}
-    return store.setdefault(user_id, {"active": None, "queue": []})
+            setattr(state, "_assistant_offers_mem", store)
+        except Exception:  # noqa: BLE001
+            return {}
+    return store
 
 
-def _prune(entry: dict) -> None:
+def _read(state, user_id: str):
+    """Return (data, handle). ``handle`` is passed back to ``_write`` to persist. Prefers the
+    user's profile so the memory is shared across instances; falls back to in-process."""
+    profiles = getattr(state, "profiles", None)
+    if profiles is not None:
+        try:
+            prof = profiles.get(user_id)
+        except Exception:  # noqa: BLE001
+            prof = None
+        if prof is not None:
+            raw = (getattr(prof, "view_state", None) or {}).get(_VS_KEY) or {}
+            data = {"active": raw.get("active"), "queue": list(raw.get("queue") or [])}
+            return data, ("profile", prof)
+    data = _inproc(state).setdefault(user_id, {"active": None, "queue": []})
+    return data, ("mem", user_id)
+
+
+def _write(state, handle, data) -> None:
+    kind, ref = handle
+    if kind == "profile":
+        try:
+            vs = dict(getattr(ref, "view_state", None) or {})
+            vs[_VS_KEY] = data
+            ref.view_state = vs
+            state.profiles.add(ref)
+        except Exception:  # noqa: BLE001 — persistence is best-effort; never fail a request
+            pass
+    else:
+        _inproc(state)[ref] = data
+
+
+def _prune(data: dict) -> bool:
+    """Drop expired offers. Returns True if anything changed (so the caller persists)."""
     now = time.time()
-    act = entry.get("active")
+    changed = False
+    act = data.get("active")
     if act and now - float(act.get("t", 0)) > ACTIVE_TTL_SECONDS:
-        # An expired-but-recent active still counts as an unanswered reminder for a while.
         if now - float(act.get("t", 0)) <= QUEUE_TTL_SECONDS:
-            _push_queue(entry, act)
-        entry["active"] = None
-    entry["queue"] = [q for q in entry.get("queue", [])
-                      if now - float(q.get("t", 0)) <= QUEUE_TTL_SECONDS]
+            _push_queue(data, act)
+        data["active"] = None
+        changed = True
+    q = [x for x in data.get("queue", []) if now - float(x.get("t", 0)) <= QUEUE_TTL_SECONDS]
+    if len(q) != len(data.get("queue", [])):
+        data["queue"] = q
+        changed = True
+    return changed
 
 
-def _push_queue(entry: dict, offer: dict) -> None:
-    """Move an unanswered offer into the reminder queue (newest last), de-duped and capped."""
+def _push_queue(data: dict, offer: dict) -> None:
     oid = offer.get("id") or _sig(offer.get("on_yes") or {})
-    entry["queue"] = [q for q in entry.get("queue", []) if q.get("id") != oid]
-    entry["queue"].append({**offer, "id": oid})
-    if len(entry["queue"]) > MAX_PENDING:
-        entry["queue"] = entry["queue"][-MAX_PENDING:]
+    data["queue"] = [q for q in data.get("queue", []) if q.get("id") != oid]
+    data["queue"].append({**offer, "id": oid})
+    if len(data["queue"]) > MAX_PENDING:
+        data["queue"] = data["queue"][-MAX_PENDING:]
 
 
 def _mk(on_yes: dict, prompt: str) -> dict:
@@ -77,74 +107,65 @@ def _mk(on_yes: dict, prompt: str) -> dict:
 
 
 def remember(state, user_id: str, on_yes: Optional[dict], prompt: str = "") -> None:
-    """Make ``on_yes`` the ACTIVE offer. Any different, still-unanswered active offer is kept
-    as a reminder first, so offers are never silently lost."""
+    """Make ``on_yes`` the ACTIVE offer; a different still-unanswered one is kept as a reminder."""
     if not (isinstance(on_yes, dict) and on_yes.get("intent")):
         return
-    entry = _entry(state, user_id)
-    _prune(entry)
+    data, handle = _read(state, user_id)
+    _prune(data)
     new = _mk(on_yes, prompt)
-    act = entry.get("active")
+    act = data.get("active")
+    if act and act.get("id") == new["id"]:
+        act["t"] = new["t"]
+        data["queue"] = [q for q in data["queue"] if q.get("id") != new["id"]]
+        _write(state, handle, data)
+        return
     if act:
-        if act.get("id") == new["id"]:
-            act["t"] = new["t"]  # same offer re-made → just refresh its timeout
-            # drop any stale copy of it from the queue
-            entry["queue"] = [q for q in entry["queue"] if q.get("id") != new["id"]]
-            return
-        _push_queue(entry, act)  # a different question was live → remember it
-    # a fresh active supersedes any queued copy of itself
-    entry["queue"] = [q for q in entry["queue"] if q.get("id") != new["id"]]
-    entry["active"] = new
+        _push_queue(data, act)
+    data["queue"] = [q for q in data["queue"] if q.get("id") != new["id"]]
+    data["active"] = new
+    _write(state, handle, data)
 
 
 def recall(state, user_id: str) -> Optional[dict]:
     """The ACTIVE offer's action if present and unexpired, usable as ``context.pending``."""
-    entry = _entry(state, user_id)
-    _prune(entry)
-    act = entry.get("active")
+    data, handle = _read(state, user_id)
+    if _prune(data):
+        _write(state, handle, data)
+    act = data.get("active")
     return dict(act["on_yes"]) if act and isinstance(act.get("on_yes"), dict) else None
 
 
-def _resolve_active(entry: dict) -> None:
-    entry["active"] = None
-
-
-def _supersede_active(entry: dict) -> None:
-    act = entry.get("active")
-    if act:
-        _push_queue(entry, act)
-    entry["active"] = None
-
-
 def record(state, user_id: str, res: Any, recalled: Optional[dict]) -> None:
-    """Bookkeeping after interpreting an utterance:
-      * a NEW offer in the result becomes active (old active → reminder queue);
-      * if the result ANSWERED the active offer (ran its action, or declined) → consume it;
-      * if the user did something ELSE while an offer was live → keep it as a reminder.
-    """
-    entry = _entry(state, user_id)
-    _prune(entry)
+    """After interpreting: a new offer becomes active (old → reminder); an answered offer is
+    consumed; a different command while an offer was live keeps it as a reminder."""
     offer = getattr(res, "offer", None) or {}
     on_yes = offer.get("on_yes") if isinstance(offer, dict) else None
     if isinstance(on_yes, dict) and on_yes.get("intent"):
         remember(state, user_id, on_yes, offer.get("prompt", ""))
         return
+    data, handle = _read(state, user_id)
+    _prune(data)
     intent = getattr(res, "intent", "")
     slots = getattr(res, "slots", {}) or {}
     answered = bool(recalled) and intent == recalled.get("intent") and slots == (recalled.get("slots") or {})
     if answered or intent == "decline":
-        _resolve_active(entry)
-    elif recalled:  # a different command while an offer was live → keep it as a reminder
-        _supersede_active(entry)
+        data["active"] = None
+        _write(state, handle, data)
+    elif recalled:
+        act = data.get("active")
+        if act:
+            _push_queue(data, act)
+        data["active"] = None
+        _write(state, handle, data)
 
 
 def list_pending(state, user_id: str) -> list[dict]:
-    """The pending offers to remind the user about — the current one first, then older ones,
-    newest-first. Each: {id, prompt, intent, slots, age_seconds, current}."""
-    entry = _entry(state, user_id)
-    _prune(entry)
+    """Pending offers to remind about — the current one first (``current:true``), then older
+    ones newest-first. Each: {id, prompt, intent, slots, age_seconds, current}."""
+    data, handle = _read(state, user_id)
+    if _prune(data):
+        _write(state, handle, data)
     now = time.time()
-    out: list[dict] = []
 
     def _row(o: dict, current: bool) -> dict:
         oy = o.get("on_yes") or {}
@@ -152,32 +173,37 @@ def list_pending(state, user_id: str) -> list[dict]:
                 "intent": oy.get("intent", ""), "slots": oy.get("slots", {}),
                 "age_seconds": int(now - float(o.get("t", now))), "current": current}
 
-    if entry.get("active"):
-        out.append(_row(entry["active"], True))
-    for q in reversed(entry.get("queue", [])):
+    out: list[dict] = []
+    if data.get("active"):
+        out.append(_row(data["active"], True))
+    for q in reversed(data.get("queue", [])):
         out.append(_row(q, False))
     return out
 
 
 def dismiss(state, user_id: str, offer_id: str = "", *, all: bool = False) -> int:
-    """Remove a remembered offer by id (or all of them). Returns how many were removed."""
-    entry = _entry(state, user_id)
-    _prune(entry)
+    """Remove a remembered offer by id (or all). Returns how many were removed."""
+    data, handle = _read(state, user_id)
+    _prune(data)
     if all:
-        n = (1 if entry.get("active") else 0) + len(entry.get("queue", []))
-        entry["active"] = None
-        entry["queue"] = []
+        n = (1 if data.get("active") else 0) + len(data.get("queue", []))
+        data["active"] = None
+        data["queue"] = []
+        _write(state, handle, data)
         return n
     removed = 0
-    if entry.get("active") and entry["active"].get("id") == offer_id:
-        entry["active"] = None
+    if data.get("active") and data["active"].get("id") == offer_id:
+        data["active"] = None
         removed += 1
-    before = len(entry.get("queue", []))
-    entry["queue"] = [q for q in entry.get("queue", []) if q.get("id") != offer_id]
-    return removed + (before - len(entry["queue"]))
+    before = len(data.get("queue", []))
+    data["queue"] = [q for q in data.get("queue", []) if q.get("id") != offer_id]
+    removed += before - len(data["queue"])
+    if removed:
+        _write(state, handle, data)
+    return removed
 
 
 def clear_offer(state, user_id: str) -> None:
-    """Drop the active offer only (answered/handled)."""
-    entry = _entry(state, user_id)
-    _resolve_active(entry)
+    data, handle = _read(state, user_id)
+    data["active"] = None
+    _write(state, handle, data)

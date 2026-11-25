@@ -50,8 +50,10 @@ def _valid_view(view: str) -> str:
 
 @router.get("")
 def get_all_view_state(user: CurrentUser, state: StateDep) -> dict:
-    """Every saved view blob for the user (empty map when none)."""
-    return {"states": _profile(state, user.id).view_state}
+    """Every saved view blob for the user (empty map when none). Internal, underscore-prefixed
+    keys (e.g. the assistant's pending-offer memory) are not UI views and are hidden here."""
+    vs = _profile(state, user.id).view_state or {}
+    return {"states": {k: v for k, v in vs.items() if not k.startswith("_")}}
 
 
 @router.get("/{view}")
