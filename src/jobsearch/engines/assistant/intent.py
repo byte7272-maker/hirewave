@@ -48,6 +48,9 @@ INTENTS = {
     # the USER clears any login/captcha, then the assistant reads it and posts it back
     # (POST /jobs/{id}/jd). The reliable path for bot-walled boards. See FLOWS.enrich_from_source.
     "get_job_details",
+    # the assistant's remembered PENDING offers across the app — recite them (list_pending →
+    # GET /assistant/pending-offers) or drop them (dismiss_pending → .../dismiss).
+    "list_pending", "dismiss_pending",
     "report_state", "ask", "unknown",
 }
 
@@ -1554,6 +1557,23 @@ def _deterministic(text: str, context: dict) -> IntentResult:
            "give me a summary", "catch me up", "brief me"):
         return IntentResult("status_report", 0.9)
 
+    # remembered PENDING offers — list them or clear them. Checked before the fuzzy matchers
+    # so "what's pending"/"clear my pending" aren't mistaken for status or a decline.
+    if (has("whats pending", "what's pending", "pending actions", "pending offers",
+            "pending items", "what's waiting", "whats waiting", "anything waiting",
+            "what did i leave", "what's still open", "whats still open", "my pending",
+            "what am i leaving", "any pending", "waiting on me", "what's outstanding")
+            or re.fullmatch(r"pending", t)):
+        return IntentResult("list_pending", 0.9)
+    if has("clear pending", "clear my pending", "dismiss pending", "dismiss the pending",
+           "remove pending", "forget those", "forget the pending", "dismiss all",
+           "clear them all", "drop the pending", "clear all pending", "dismiss them all",
+           "forget them", "clear the pending"):
+        slots: dict[str, Any] = {}
+        if has("all", "them all", "everything"):
+            slots["all"] = True
+        return IntentResult("dismiss_pending", 0.9, slots)
+
     # what changed since last time
     if has("what's changed", "whats changed", "what has changed", "what changed",
            "what's new", "whats new", "anything new", "since last login", "since last time",
@@ -1720,6 +1740,10 @@ _INTENT_HELP: dict[str, str] = {
                        "'get this job's details', 'fill in this job'. The assistant opens the "
                        "page; the USER clears any login/captcha; then it reads + applies the "
                        "page. For a posting that's only a title/placeholder. NOT a web search.",
+    "list_pending": "recite the assistant's remembered PENDING offers / actions still waiting "
+                    "('what's pending', 'anything waiting on me', 'what did I leave open').",
+    "dismiss_pending": "drop a remembered pending offer the user decided against ('clear "
+                       "pending', 'dismiss all', 'forget those'). slot: all (true to clear every one).",
     "save": "save / bookmark / keep the current item for later.",
     "archive": "archive / hide / dismiss an item.",
     "web_search": "search the web for general info the app itself doesn't hold.",
@@ -2033,6 +2057,10 @@ def _reply_for(result: "IntentResult", context: dict) -> str:
         return ("Getting you expert help is coming soon — I'll be able to connect you with "
                 "recruiters, HR pros, and hiring managers for advice and content. It's not "
                 "live yet, but it's on the way; I'll let you know when it's ready.")
+    if intent == "list_pending":
+        return "Let me check what's still pending for you."
+    if intent == "dismiss_pending":
+        return "Clearing that — it won't wait on you anymore."
     if intent == "get_job_details":
         return ("I'll open this posting on its source site so I can read the full description. "
                 "If it asks you to sign in or prove you're human, go ahead — I'll wait, then "

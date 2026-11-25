@@ -10067,3 +10067,37 @@ What the client must do:
 - A badge "yes" (no context) right after the Matches page loads starts the matches walkthrough.
 - A mistyped/empty context never produces an error card; the worst case is a spoken "I didn't catch that — say it again?" with Retry.
 - A "yes" is never answered by the console command chips when an offer (client or server) is live.
+
+## P350 — ⚠ SINGLE PURPOSE: admin dashboard of every API dependency (status, expiry, balance, cost) + reminders
+
+**Do only this. Change nothing else.** Add an **Admin → API Dependencies** page (admin-only) that shows and reminds about every external service the app depends on. Data comes from `GET /api/v1/admin/dependencies` with the `X-Admin-Token` header (the admin's token; never ship it to normal users). The endpoint is read-only and instant.
+
+Response shape:
+```jsonc
+{
+  "generated_at": "2026-11-25T...", "count": 10, "configured": 7,
+  "needs_attention": 2,
+  "reminders": [ {"id": "anthropic", "name": "Anthropic (Claude)",
+                  "reasons": ["expires in 5d"], "days_to_expiry": 5}, ... ],
+  "dependencies": [
+    {"id":"anthropic","name":"Anthropic (Claude)","purpose":"...","required":true,
+     "configured":true,"status":"configured","provider":"anthropic","model":"claude-opus-5-5",
+     "manage_url":"https://console.anthropic.com/settings/billing",
+     "expiry":"2026-06-30","days_to_expiry":5,"balance":"$42.10","monthly_cost":"$20","notes":"..."},
+    ...
+  ]
+}
+```
+
+1. **Gate it to admins.** Only render this page for an admin, and send `X-Admin-Token`. A non-admin never sees it (the API already 403s without the token).
+2. **Reminders banner on top.** If `needs_attention > 0`, show the `reminders` first — each with its `name` and `reasons` (e.g. "expires in 5d", "required but not configured", "balance low"), most-urgent first. This is the "reminds" part — make it prominent.
+3. **A card/row per dependency.** Show `name`, `purpose`, a status chip (`configured` green / `not_configured` red when `required` / `optional_off` grey), `provider`+`model` where present, and — where known — `expiry` with a countdown from `days_to_expiry`, `balance`, `monthly_cost`, and `notes`. Link `manage_url` ("Manage ↗") so the admin can jump to the provider's billing/console.
+4. **Blanks read "unknown", not zero.** Balances/costs/expiry are only shown when the admin recorded them (see §6); an empty value shows "—/unknown", never a fake $0.
+5. **Refresh button** re-fetches the endpoint. No auto-polling.
+6. **How balances/costs/expiry get there (note for the admin, shown once on the page):** the providers don't expose these, so set them in the `JOBSEARCH_DEPENDENCY_META` environment variable — a JSON object keyed by dependency `id`: `{"anthropic": {"expiry":"2026-06-30","balance":"$42.10","monthly_cost":"$20","notes":"team key"}, "brave_search": {"balance":"low"}}`. The dashboard merges it in and raises the reminders.
+
+### Acceptance
+- An admin sees every dependency (Anthropic, OpenAI, Brave, HIBP, Gmail, LinkedIn, TTS, STT, HeyGen, PostgreSQL) with its configured status and model.
+- A dependency with a recorded expiry shows a countdown and, when within ~2 weeks or past, appears in the reminders banner; a required+unconfigured one is flagged there too.
+- Balances/costs show only when recorded; otherwise "unknown" — never fabricated.
+- A non-admin cannot open the page or hit the endpoint.

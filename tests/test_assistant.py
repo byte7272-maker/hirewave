@@ -250,3 +250,81 @@ def test_observe_landing_on_matches_arms_the_walkthrough():
     assert obs["offer"].get("on_yes", {}).get("slots", {}).get("playbook") == "walk_matches"
     r = client.post("/api/v1/assistant/interpret", headers=h, json={"transcript": "yes"}).json()
     assert r["intent"] == "start_playbook" and r["slots"].get("playbook") == "walk_matches"
+
+
+# --- pending-offer queue (one active, bounded reminders, timeout, dismiss) ------
+def test_pending_offer_queue_keeps_one_active_and_caches_older(monkeypatch):
+    from types import SimpleNamespace
+
+    from jobsearch.api import assistant_memory as mem
+    st = SimpleNamespace()
+    uid = "u1"
+    mem.remember(st, uid, {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}, "Walk?")
+    # Only one active offer answers a bare "yes".
+    assert mem.recall(st, uid) == {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}
+    # A new offer makes the old one a cached reminder (not lost).
+    mem.remember(st, uid, {"intent": "review_document", "slots": {}}, "Review?")
+    pend = mem.list_pending(st, uid)
+    assert [p["current"] for p in pend] == [True, False]
+    assert pend[0]["intent"] == "review_document" and pend[1]["intent"] == "start_playbook"
+
+
+def test_pending_offers_are_capped(monkeypatch):
+    from types import SimpleNamespace
+
+    from jobsearch.api import assistant_memory as mem
+    st = SimpleNamespace()
+    uid = "u1"
+    for i in range(mem.MAX_PENDING + 4):
+        mem.remember(st, uid, {"intent": "navigate", "slots": {"section": f"s{i}"}}, "")
+    # active + at most MAX_PENDING cached.
+    assert len(mem.list_pending(st, uid)) <= mem.MAX_PENDING + 1
+
+
+def test_pending_offer_times_out(monkeypatch):
+    import time as _t
+    from types import SimpleNamespace
+
+    from jobsearch.api import assistant_memory as mem
+    st = SimpleNamespace()
+    uid = "u1"
+    mem.remember(st, uid, {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}, "")
+    # Fast-forward past the queue TTL → nothing remembered. Capture real now() first so the
+    # lambda doesn't call the patched time (which would recurse).
+    future = _t.time() + mem.QUEUE_TTL_SECONDS + 10
+    monkeypatch.setattr(mem.time, "time", lambda: future)
+    assert mem.recall(st, uid) is None
+    assert mem.list_pending(st, uid) == []
+
+
+def test_doing_something_else_keeps_the_offer_as_a_reminder():
+    # If the user does something ELSE instead of answering, the offer isn't lost — it's kept
+    # as a dismissible reminder (works for any area).
+    from types import SimpleNamespace
+
+    from jobsearch.api import assistant_memory as mem
+    st = SimpleNamespace()
+    uid = "u1"
+    recalled = {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}
+    mem.remember(st, uid, recalled, "Walk?")
+    # user navigates instead of answering
+    res = SimpleNamespace(intent="navigate", slots={"section": "applications"}, offer={})
+    mem.record(st, uid, res, recalled)
+    pend = mem.list_pending(st, uid)
+    assert len(pend) == 1 and pend[0]["intent"] == "start_playbook" and pend[0]["current"] is False
+
+
+def test_pending_offers_endpoints_list_and_dismiss():
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/job-search/run", headers=h, json={"role": "Backend Engineer", "remote": True})
+    client.get("/api/v1/jobs/matches", headers=h)  # arms the walk offer
+    listed = client.get("/api/v1/assistant/pending-offers", headers=h).json()
+    assert listed["count"] >= 1
+    oid = listed["offers"][0]["id"]
+    dismissed = client.post("/api/v1/assistant/pending-offers/dismiss", headers=h,
+                            json={"id": oid}).json()
+    assert dismissed["removed"] == 1
+    # and a bare "yes" no longer walks matches (the offer was cleared)
+    r = client.post("/api/v1/assistant/interpret", headers=h, json={"transcript": "yes"}).json()
+    assert not (r["intent"] == "start_playbook" and r["slots"].get("playbook") == "walk_matches")

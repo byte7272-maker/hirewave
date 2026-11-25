@@ -128,6 +128,24 @@ def test_noisy_negative_declines_pending_offer(utterance):
     assert interpret(utterance, context=dict(_PENDING)).intent == "decline"
 
 
+@pytest.mark.parametrize("utterance", [
+    "what's pending", "whats pending", "anything waiting on me", "what did I leave open",
+    "pending actions", "what's still open",
+])
+def test_list_pending_intent(utterance):
+    assert interpret(utterance, context={}).intent == "list_pending"
+
+
+@pytest.mark.parametrize("utterance,all_", [
+    ("clear pending", False), ("dismiss the pending", False),
+    ("dismiss all pending", True), ("clear them all", True),
+])
+def test_dismiss_pending_intent(utterance, all_):
+    r = interpret(utterance, context={})
+    assert r.intent == "dismiss_pending"
+    assert bool(r.slots.get("all")) == all_
+
+
 def test_yes_on_matches_walks_matches_even_with_stale_resume_offer():
     # Reported bug: on Matches the assistant asks "walk through them?", but a stale résumé-
     # review offer from the landing scan is still armed, so "yes" read the résumé. A pending
