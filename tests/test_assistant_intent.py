@@ -146,6 +146,35 @@ def test_dismiss_pending_intent(utterance, all_):
     assert bool(r.slots.get("all")) == all_
 
 
+@pytest.mark.parametrize("utterance", [
+    "which is my best match", "which are my best matches", "what's my best match",
+    "what are my strongest matches", "my top match", "which role fits me best",
+    "what's my top job", "which match is best",
+])
+def test_best_match_question_is_answered(utterance):
+    # "which is my best match" must be ANSWERED (topic best_match) with the top-ranked
+    # match(es) — not turned into a garbage job search and a fallback.
+    r = interpret(utterance, context={})
+    assert r.intent == "answer_question", f"{utterance!r} -> {r.intent}"
+    assert r.slots.get("topic") == "best_match"
+    assert r.slots.get("query")
+
+
+def test_best_match_command_is_not_answered_as_a_question():
+    # "apply to my best match" acts on the best match — it must NOT be caught as a
+    # best-match question to answer.
+    assert interpret("apply to my best match", context={}).intent != "answer_question"
+
+
+@pytest.mark.parametrize("utterance,expect", [
+    ("find remote python jobs", "search_jobs"),
+    ("show me my matches", "navigate"),              # no "best" -> plain nav
+    ("walk me through my matches", "start_playbook"),
+])
+def test_best_match_matcher_does_not_steal_other_intents(utterance, expect):
+    assert interpret(utterance, context={}).intent == expect
+
+
 def test_yes_on_matches_walks_matches_even_with_stale_resume_offer():
     # Reported bug: on Matches the assistant asks "walk through them?", but a stale résumé-
     # review offer from the landing scan is still armed, so "yes" read the résumé. A pending

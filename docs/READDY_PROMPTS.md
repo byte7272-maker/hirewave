@@ -9956,7 +9956,8 @@ No new backend endpoint is needed. Answer from what's already loaded, in this pr
 2. **Count / activity questions** ("how many interviews/applications/matches/saved do I have", "what did I do this week") → call the existing **`POST /assistant/ask`** `{query}` and speak its answer. (Match *count* specifically can also come from the dashboard summary you already hold.)
 3. **"What should I do next / what's my next step / what do you think"** → answer from **dashboard state you already have**: if preferences are unset → "set your preferences so I can match you". Else if there's a strong top match → "your strongest match is X — want to review it or apply?". Else if a résumé needs work → "let's strengthen your résumé". Offer it as a one-tap next action.
 4. **"How do I use the app / what can you do / how does X work"** → call **`POST /assistant/ask`** (or `GET /assistant/functions`) and speak the overview. Same as "what can you do".
-5. **Never dead-end.** If none of the above produces an answer (no focused job, no data), say what you'd need ("Open a match and I'll explain why it fits") — a spoken sentence, never silence and never a random navigation.
+5. **"Which is my best match / what are my strongest matches / my top match"** → the response has `slots.topic === "best_match"`. Answer from the **top of the ranked list** (`GET /jobs/matches`, already best-first): for the singular, name match[0] with its score and top reason ("Your best match is X at Y — 92%, strong on Python and FastAPI"); for the plural, name the top 2–3. Don't run a search and don't fall back to the chips.
+6. **Never dead-end.** If none of the above produces an answer (no focused job, no data), say what you'd need ("Open a match and I'll explain why it fits") — a spoken sentence, never silence and never a random navigation.
 
 This is **frontend-first**: answer from the match reasons, dashboard summary, and `/ask` you already call. No per-question LLM call, no new endpoint.
 

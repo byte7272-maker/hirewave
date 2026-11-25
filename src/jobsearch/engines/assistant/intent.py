@@ -1202,6 +1202,30 @@ def _answer_question(t: str) -> Optional[IntentResult]:
     return None
 
 
+# "which is my best match / which are my strongest matches / what's my top match / my best
+# job" — a QUESTION about the ranked list the assistant must ANSWER (name the top match(es)
+# + score), not run a job search for the word "best". The job-noun search matcher would
+# otherwise grab the "match"/"job" token and fall back to a garbage search.
+_BEST_MATCH_RE = re.compile(
+    r"\b(best|top|strongest|highest|closest|number one|#?1|most promising|most relevant)\b"
+    r"[^.?!]*\b(match|matches|fit|fits|job|jobs|role|roles|one|ones|opportunit\w+)\b"
+    r"|\b(match|matches|job|jobs|role|roles)\b[^.?!]*"
+    r"\b(fits? me best|rank\w* highest|is best|are best|is the best|are the best)\b"
+)
+#: A command that TARGETS the best match ("apply to my best match") — not a question to answer.
+_BEST_MATCH_CMD_RE = re.compile(
+    r"\b(apply|tailor|research|save|go to|take me|pull up|navigate|switch to)\b")
+
+
+def _best_match_question(t: str) -> Optional[IntentResult]:
+    """'which is my best match', 'what are my strongest matches', 'my top match' -> ANSWER it
+    (the frontend names the top-ranked match(es) from /jobs/matches). Not when it's a command
+    acting on the best match ('apply to my best match')."""
+    if not _BEST_MATCH_RE.search(t) or _BEST_MATCH_CMD_RE.search(t):
+        return None
+    return IntentResult("answer_question", 0.9, {"query": t, "topic": "best_match"})
+
+
 def _extract_search_query(t: str) -> Optional[dict]:
     """If ``t`` is a job-search request, return ``{"query": ..., "location"?: ...}``, else None.
 
@@ -1457,6 +1481,13 @@ def _deterministic(text: str, context: dict) -> IntentResult:
     legit = _legitimacy_check(t)
     if legit is not None:
         return legit
+
+    # "which is my best match / what are my strongest matches / my top match" — ANSWER it
+    # with the top-ranked match(es). BEFORE search so the job-noun matcher doesn't turn it
+    # into a garbage search and fall back.
+    bmq = _best_match_question(t)
+    if bmq is not None:
+        return bmq
 
     # get the REAL description from the posting's own page ("open the posting so you can
     # read it", "pull the full description from the site", "get this job's details",
