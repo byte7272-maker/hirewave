@@ -211,3 +211,42 @@ def test_interpret_backstop_uses_general_provider_when_premium_unset():
                         settings=Settings(llm_provider="openai", openai_api_key="",
                                           premium_llm_provider=""))
     assert _backstop_llm(st_nokey) is None
+
+
+# --- badge "yes" to the walk-matches offer (server-side offer memory) ----------
+def test_bare_yes_after_loading_matches_walks_matches_with_no_context():
+    # The badge sends NO page context. Loading the Matches page records "walk your matches"
+    # as the live offer server-side, so a bare "yes" runs the walkthrough — not a stale
+    # résumé offer and not an error.
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/job-search/run", headers=h, json={"role": "Backend Engineer", "remote": True})
+    assert client.get("/api/v1/jobs/matches", headers=h).json()  # loading arms the offer
+    r = client.post("/api/v1/assistant/interpret", headers=h,
+                    json={"transcript": "yes"}).json()  # no context at all, like the badge
+    assert r["intent"] == "start_playbook" and r["slots"].get("playbook") == "walk_matches"
+
+
+def test_interpret_never_errors_on_malformed_context():
+    # A mistyped context field (e.g. a stringy `pending`) must NEVER 422/500 — the badge
+    # occasionally sends junk; the call has to degrade gracefully, not surface an error.
+    client = _client()
+    h = _auth(client)
+    resp = client.post("/api/v1/assistant/interpret", headers=h,
+                       json={"transcript": "hello there", "context": {"pending": "yes",
+                             "options": ["not", "dicts"], "focused_index": "oops"}})
+    assert resp.status_code == 200
+    assert resp.json()["intent"]  # a real result, not an error
+
+
+def test_observe_landing_on_matches_arms_the_walkthrough():
+    # Reporting that the user landed on Matches records the walkthrough offer with a concrete
+    # on_yes, so a following bare "yes" runs it.
+    client = _client()
+    h = _auth(client)
+    client.post("/api/v1/job-search/run", headers=h, json={"role": "Backend Engineer", "remote": True})
+    obs = client.post("/api/v1/assistant/observe", headers=h,
+                      json={"action": "view_matches"}).json()
+    assert obs["offer"].get("on_yes", {}).get("slots", {}).get("playbook") == "walk_matches"
+    r = client.post("/api/v1/assistant/interpret", headers=h, json={"transcript": "yes"}).json()
+    assert r["intent"] == "start_playbook" and r["slots"].get("playbook") == "walk_matches"

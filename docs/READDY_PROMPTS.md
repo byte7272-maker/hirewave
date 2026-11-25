@@ -10047,3 +10047,23 @@ The backend now has a safety net (a pending that targets a **different page** th
 - A "yes" with a leftover résumé offer still armed, while on Matches, walks the matches (the stale offer is ignored).
 - On Documents, "yes" to a résumé-review offer still reviews the résumé (a matching-page offer is honored on its own page).
 - The badge and the hold-to-talk resolve an answer identically (same context sent).
+
+## P349 — ⚠ SINGLE PURPOSE: a badge "yes" just works — the backend now remembers the offer; send context and run the result
+
+**Do only this. Change nothing else.** The badge "yes" to "walk through your matches?" kept failing — it fell to the console's command chips (as if it couldn't understand) or showed "Something went wrong." Two backend causes are now **fixed server-side**, so the client side is small:
+
+- `POST /assistant/interpret` **never errors** now: a malformed/mistyped `context` (e.g. a stringy `pending`) no longer 422s, and a classifier failure degrades to a graceful re-ask (`intent:"ask"`, a spoken reply) — never a 500. So stop surfacing "An unexpected error occurred"; render `reply` and let the user retry.
+- The backend **remembers the offer it just made**, per user. Loading the Matches page (`GET /jobs/matches`) records "walk your matches" as the live offer; `POST /assistant/observe {action:"view_matches"}` does the same (its `offer.on_yes` is `start_playbook{walk_matches}`). So a bare **"yes" with no context at all** now returns `start_playbook{walk_matches}`.
+
+What the client must do:
+
+1. **Send `yes`/`no` to `/assistant/interpret` and RUN the returned intent.** A badge "yes" with an empty `context` now comes back as `start_playbook {playbook:"walk_matches"}` — start the walkthrough. Do not keep a client-side default that reads a document, and do not drop to the command chips on a `confirm`.
+2. **Pass `context.section` when you have it** (the current page). It lets the backend reject a *stale* cross-page offer (a résumé item left over from the landing scan) and resolve a bare "yes" to the page's action. The badge should send at least `{section}` even if it sends nothing else.
+3. **Prefer the server offer over a stale one.** The landing/session-scan can surface a résumé item; do NOT arm it as the pending answer while the user is on Matches. If you arm `pending`, arm the offer the assistant *just spoke*; otherwise send no `pending` and let the backend's memory resolve it.
+4. **On landing on Matches, call `observe {action:"view_matches"}`** (or just rely on the matches fetch) so the walkthrough is the armed offer.
+5. **Render `reply` on an `ask`/error result** instead of a generic error card; offer Retry that re-sends the same transcript.
+
+### Acceptance
+- A badge "yes" (no context) right after the Matches page loads starts the matches walkthrough.
+- A mistyped/empty context never produces an error card; the worst case is a spoken "I didn't catch that — say it again?" with Retry.
+- A "yes" is never answered by the console command chips when an offer (client or server) is live.

@@ -1306,7 +1306,10 @@ class InterpretContext(BaseModel):
 
 class InterpretRequest(BaseModel):
     transcript: str
-    context: Optional[InterpretContext] = None
+    #: Light page state (see InterpretContext for the shape). Accepted as a RAW dict so a
+    #: malformed/mistyped field from the client (e.g. a stringy ``pending``) can never 422 the
+    #: call — the interpreter reads keys defensively and ignores anything it doesn't recognize.
+    context: Optional[dict] = None
 
 
 class CommandSuggestion(BaseModel):

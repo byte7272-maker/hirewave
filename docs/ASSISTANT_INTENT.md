@@ -46,6 +46,14 @@ Documents → `review_document`, Auto-apply → `auto_apply`, Connect → `conne
 `practice`). A noisy short "uh, yeah" resolves the same way. The client should still arm `pending`
 to the offer it just spoke and always pass `section`; this is the backstop for when it doesn't.
 
+**Server-side offer memory (P349).** Because the badge sends no context at all, the backend
+also *remembers the last offer it made*, per user (`api/assistant_memory.py`): loading Matches
+(`GET /jobs/matches`) or `observe {view_matches}` records `start_playbook{walk_matches}`; an
+interpret/observe response carrying an `offer.on_yes` records that. A bare "yes" with no client
+`pending` is resolved against this memory, which is cleared once answered or superseded. The
+`/interpret` endpoint is also hardened to **never** 422/500 — a malformed `context` is accepted
+as a raw dict, and a classifier error degrades to `ask` with a spoken reply, not an error.
+
 ### Response — `InterpretResponse`
 ```jsonc
 {

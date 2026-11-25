@@ -279,6 +279,16 @@ def matches(
                 consolidated_sources=r.job.consolidated_sources,
             )
         )
+    # Loading the Matches page makes "walk your matches" the live offer — remember it so a
+    # bare "yes" (from the badge, which sends no page context) runs the walkthrough instead
+    # of a stale offer or nothing. Cleared on the next interpret that isn't a yes/no.
+    if out:
+        try:
+            from jobsearch.api.assistant_memory import remember_offer
+            remember_offer(state, user.id, {"intent": "start_playbook",
+                                            "slots": {"playbook": "walk_matches"}})
+        except Exception:  # noqa: BLE001 — memory is a best-effort hint
+            pass
     return out
 
 

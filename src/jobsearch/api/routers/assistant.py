@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
 
+from jobsearch.api.assistant_memory import recall_offer, remember_offer, update_from_result
 from jobsearch.api.deps import CurrentUser, StateDep
 from jobsearch.api.schemas import (
     AssistantFeedback,
@@ -75,9 +76,34 @@ def interpret(body: InterpretRequest, user: CurrentUser, state: StateDep) -> Int
     frontend maps the returned intent to the existing, already-guarded endpoints and
     still runs the per-action confirm (P114) and scope checks (P116). A deterministic
     matcher covers the whole command set; the configured premium LLM (if any) is a
-    backstop for free-form phrasing. See ``docs/ASSISTANT_INTENT.md``."""
-    ctx = body.context.model_dump() if body.context else {}
-    res = interpret_intent(body.transcript, context=ctx, llm=_backstop_llm(state))
+    backstop for free-form phrasing. See ``docs/ASSISTANT_INTENT.md``.
+
+    Hardened so a verbal "yes" never errors or dead-ends: the call NEVER raises (a bug in
+    classification degrades to a graceful re-ask, not a 500), and the backend REMEMBERS the
+    last offer it made per user (server-side), so a bare "yes" resolves to it even when the
+    client doesn't echo the offer back as ``context.pending`` (the root cause of the badge
+    "yes" failing). See ``_remember_offer`` / ``_recall_offer``."""
+    ctx = dict(body.context or {})
+    # If the client didn't send a usable pending offer, fall back to the one the assistant
+    # last asked this user (remembered server-side). This is what lets a badge "yes" run the
+    # walk-matches offer even though the badge sends no context.
+    if not (isinstance(ctx.get("pending"), dict) and ctx["pending"].get("intent")):
+        recalled = recall_offer(state, user.id)
+        if recalled:
+            ctx["pending"] = recalled
+    try:
+        res = interpret_intent(body.transcript, context=ctx, llm=_backstop_llm(state))
+    except Exception as exc:  # noqa: BLE001 — classification must never 500 the client
+        try:
+            state.log_error(user.id, "interpret", str(exc), context=str(body.transcript)[:200])
+        except Exception:  # noqa: BLE001
+            pass
+        return InterpretResponse(
+            intent="ask", confidence=0.0, slots={}, utterance=body.transcript or "",
+            reply="Sorry — I didn't catch that. Could you say it again?",
+        )
+    # Remember a new offer for next turn; clear it once the offer is answered or superseded.
+    update_from_result(state, user.id, res)
     return InterpretResponse(
         intent=res.intent, confidence=res.confidence, slots=res.slots,
         reply=res.reply, needs_disambiguation=res.needs_disambiguation,
@@ -98,8 +124,14 @@ def observe(body: ObserveActionRequest, user: CurrentUser, state: StateDep) -> O
     from jobsearch.engines.assistant.capabilities import observe_action
 
     out = observe_action(body.action, body.label)
+    offer = out.get("offer", {}) or {}
+    # Remember the next-step offer this action surfaces (e.g. landing on Matches offers the
+    # walkthrough), so a later bare "yes" from the badge runs it even with no client context.
+    on_yes = offer.get("on_yes") if isinstance(offer, dict) else None
+    if isinstance(on_yes, dict) and on_yes.get("intent"):
+        remember_offer(state, user.id, on_yes)
     return ObserveActionResponse(
-        action=out.get("action", ""), reply=out.get("reply", ""), offer=out.get("offer", {}) or {},
+        action=out.get("action", ""), reply=out.get("reply", ""), offer=offer,
     )
 
 

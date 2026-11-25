@@ -404,9 +404,16 @@ DESTRUCTIVE_VERBS = {"remove"}
 #: to what the user does. Each entry: {say, next?} — `say` is the spoken acknowledgement,
 #: `next` (optional) a one-line offer of the natural follow-up. Keys are canonical action
 #: ids the client emits; ``ACTION_ALIASES`` maps looser names onto them.
-ACTION_ACKS: dict[str, dict[str, str]] = {
+#: Each entry: ``say`` (spoken ack), optional ``next`` (a yes/no next-step prompt) and the
+#: ``on_yes`` ACTION that prompt runs — so an offered next step is never a dead prompt the
+#: user can say "yes" to with nothing behind it (the bug that made the badge "yes" fail).
+ACTION_ACKS: dict[str, dict[str, Any]] = {
+    "view_matches": {"say": "These are your matches, ranked best-first.",
+                     "next": "Want me to walk you through them?",
+                     "on_yes": {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}},
     "refresh_matches": {"say": "You're refreshing your matches — I'll call out the strongest new fits as they land.",
-                        "next": "Want me to walk you through the top three?"},
+                        "next": "Want me to walk you through the top three?",
+                        "on_yes": {"intent": "start_playbook", "slots": {"playbook": "walk_matches"}}},
     "new_search": {"say": "New search — tell me the roles, titles, or location you want and I'll run it."},
     "reset_page": {"say": "You reset this page."},
     "reimport": {"say": "You're re-importing your jobs — I'll flag anything new that lands."},
@@ -417,20 +424,25 @@ ACTION_ACKS: dict[str, dict[str, str]] = {
     "open_documents": {"say": "You're in your documents."},
     "tailor": {"say": "You started tailoring your résumé.",
               "next": "Point me at the job and I'll aim it there."},
-    "save_job": {"say": "Saved that one.", "next": "Want me to tailor your résumé to it?"},
+    "save_job": {"say": "Saved that one.", "next": "Want me to tailor your résumé to it?",
+                 "on_yes": {"intent": "start_playbook", "slots": {"playbook": "tailor"}}},
     "apply_job": {"say": "You opened the application for this job.",
-                 "next": "Want me to help fill it in?"},
+                 "next": "Want me to help fill it in?",
+                 "on_yes": {"intent": "start_playbook", "slots": {"playbook": "apply_job"}}},
     "upload_document": {"say": "You're uploading a document — I'll map it once it's in."},
     "open_resume": {"say": "You opened your résumé."},
     "open_cover_letter": {"say": "You opened your cover letter."},
     "download": {"say": "You're downloading a copy of your document."},
     "refresh_metric": {"say": "You started a figures refresh.",
-                      "next": "I'll check the web and show you what's current before anything changes."},
+                      "next": "I'll check the web and show you what's current before anything changes.",
+                      "on_yes": {"intent": "refresh_metric", "slots": {}}},
 }
 
 #: Looser action names the client might send, mapped onto a canonical ACTION_ACKS key.
 ACTION_ALIASES: dict[str, str] = {
     "refresh": "refresh_matches", "refresh matches": "refresh_matches",
+    "matches": "view_matches", "open matches": "view_matches", "view matches": "view_matches",
+    "landed_matches": "view_matches", "show matches": "view_matches",
     "design": "open_design", "styles": "open_design", "change design": "open_design",
     "search": "new_search", "new search": "new_search",
     "reset": "reset_page", "export": "export_shortlist",
@@ -455,7 +467,10 @@ def observe_action(action: str, label: str = "") -> dict[str, Any]:
     if spec:
         out: dict[str, Any] = {"action": key, "reply": spec["say"]}
         if spec.get("next"):
-            out["offer"] = {"prompt": spec["next"], "yes": "Yes", "no": "No thanks"}
+            offer: dict[str, Any] = {"prompt": spec["next"], "yes": "Yes", "no": "No thanks"}
+            if spec.get("on_yes"):  # the concrete action a "yes" runs — never a dead prompt
+                offer["on_yes"] = dict(spec["on_yes"])
+            out["offer"] = offer
         return out
     # Graceful fallback: name what they did from the control's own label, never go silent.
     nice = (label or action or "that").strip()
