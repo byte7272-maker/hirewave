@@ -10117,3 +10117,18 @@ Response shape:
 - "Which is my best match?" → the assistant **says the role name, company, and fit %** (e.g. "Your best match is Remote Travel Coordination Consultant at Traveling with Michaila — 75% fit, strong on remote"), *then* optionally offers to walk it.
 - "What are my strongest matches?" → names the top 2–3 with their fit %s.
 - The answer never consists only of an "open your matches?" offer, and never falls back to the chips.
+
+## P353 — ⚠ SINGLE PURPOSE: the best-match answer OPENS with the fit % sentence (then the offer)
+
+**Do only this. Change nothing else.** Follow-up to P352. For `answer_question` with `slots.topic === "best_match"`, the assistant currently names the match but opens with "Want me to read you why it fits?". The **first spoken sentence must be the fact, not a question.**
+
+1. **Speak this declarative sentence FIRST, verbatim shape:**
+   **"Your best match is {matches[0].title} at {matches[0].company} — {Math.round(matches[0].score)}% fit."**
+   Then append the single strongest positive reason if one exists: *"— {matches[0].reasons.find(r => r.sentiment !== 'caution')?.label}"* (e.g. "— strong on your remote preference"). Example: **"Your best match is Remote Travel Coordination Consultant at Traveling with Michaila — 75% fit, strong on your remote preference."**
+2. **Only AFTER that sentence**, add the offer ("Want me to read you why it fits?") with the Yes/next-step chips. The offer is the second thing said, never the first.
+3. **Plural** ("my strongest matches") → open with the facts: "Your top three are A — 75%, B — 72%, and C — 72%." then offer.
+4. The fit **%** must be in that opening sentence. Do not replace the statement with an offer; do not omit the number.
+
+### Acceptance
+- "Which is my best match?" → the FIRST thing spoken/shown is "Your best match is {title} at {company} — {N}% fit" (the number is present), and the "want me to read it?" offer comes after.
+- The answer never opens with a question or an offer, and never omits the fit %.
