@@ -10103,3 +10103,17 @@ Response shape:
 - A dependency with a recorded expiry shows a countdown and, when within ~2 weeks or past, appears in the reminders banner; a required+unconfigured one is flagged there too.
 - Balances/costs show only when recorded; otherwise "unknown" — never fabricated.
 - A non-admin cannot open the page or hit the endpoint.
+
+## P352 — ⚠ SINGLE PURPOSE: "which is my best match" NAMES the match, before offering anything
+
+**Do only this. Change nothing else.** When `POST /assistant/interpret` returns `answer_question` with `slots.topic === "best_match"` ("which is my best match", "what are my strongest matches", "my top match"), the assistant must **state the answer first** — not jump straight to "want me to open your matches?". It already has the data (`GET /jobs/matches`, ranked best-first).
+
+1. **Lead by naming the top match.** For the **singular** ("which is my best match"), speak: **"Your best match is {matches[0].title} at {matches[0].company} — {Math.round(matches[0].score)}% fit"**, then the single strongest positive reason if present (`matches[0].reasons.find(r => r.sentiment !== "caution")?.label`), e.g. *"…— strong on your remote preference."* For the **plural** ("which are my best matches"/"my strongest matches"), name the **top 2–3** the same way ("Your top three are A — 75%, B — 72%, and C — 72%").
+2. **Then, and only then, offer the next step.** After stating it, you may add the existing one-line offer ("Want me to walk you through it / read why it fits?") with the Yes/next-step chips. The naming comes **first**; the offer is secondary.
+3. **Don't lead with or substitute the offer.** Do not answer this question with only "Want me to open your matches?" — that's the current behavior and it doesn't actually answer the question.
+4. **No data → say so plainly.** If there are no matches yet, say "You don't have any matches yet — want me to pull some?" Never fall back to the command chips.
+
+### Acceptance
+- "Which is my best match?" → the assistant **says the role name, company, and fit %** (e.g. "Your best match is Remote Travel Coordination Consultant at Traveling with Michaila — 75% fit, strong on remote"), *then* optionally offers to walk it.
+- "What are my strongest matches?" → names the top 2–3 with their fit %s.
+- The answer never consists only of an "open your matches?" offer, and never falls back to the chips.
