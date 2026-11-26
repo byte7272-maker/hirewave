@@ -256,6 +256,33 @@ def _mine_raw_fields(html: str) -> dict:
     return out
 
 
+#: Known job-description containers across boards (Indeed's #jobDescriptionText, Greenhouse
+#: #content, Lever .posting-description, generic "...description..."). Used to recover the JD
+#: from a React-rendered page that ships no JobPosting JSON-LD.
+_JD_CONTAINER_RE = re.compile(
+    r'<(?:div|section|article)[^>]*(?:id|class)=["\'][^"\']*'
+    r'(?:jobdescriptiontext|job-description|jobdescription|posting-description|job_description|'
+    r'description__text|show-more-less-html|jobsearch-jobcomponent-description)'
+    r'[^"\']*["\'][^>]*>', re.IGNORECASE)
+#: Cut the captured fragment before the page chrome/footer so the description stays clean.
+_JD_END_RE = re.compile(
+    r'(report job|<footer|hiring lab|career advice|browse jobs|©\s*20\d\d|'
+    r'your privacy choices|terms of service)', re.IGNORECASE)
+
+
+def _body_description_html(html: str) -> str:
+    """The HTML fragment of the visible job-description container, bounded and trimmed of the
+    page footer — for React boards (Indeed/LinkedIn) with no JobPosting JSON-LD. '' if none."""
+    m = _JD_CONTAINER_RE.search(html or "")
+    if not m:
+        return ""
+    frag = html[m.end(): m.end() + 20000]
+    end = _JD_END_RE.search(frag)
+    if end:
+        frag = frag[:end.start()]
+    return frag
+
+
 def extract_jd_from_html(html: str) -> dict:
     """Best-effort structured job description from a posting page's HTML.
 
@@ -329,7 +356,21 @@ def extract_jd_from_html(html: str) -> dict:
                 found_posting = True
                 break
 
-    # 2) meta description fallback (short, but better than a placeholder).
+    # 2) visible job-description BODY — for React boards (Indeed, LinkedIn) that ship no
+    # JobPosting JSON-LD and only a boilerplate meta, the real description is in a known
+    # container in the rendered DOM. A client-captured page has it; pull it and its <li>
+    # requirements. Preferred over the (thin) meta fallback.
+    if not out.get("description"):
+        body = _body_description_html(html)
+        if body:
+            desc = _strip_html(body)
+            if len(desc) >= 120:
+                out["description"] = desc
+                reqs = _bullets(body)
+                if reqs and not out.get("requirements"):
+                    out["requirements"] = reqs[:20]
+
+    # 3) meta description fallback (short, but better than a placeholder).
     if not out.get("description"):
         m = _META_DESC_RE.search(html)
         if m:

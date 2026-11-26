@@ -209,3 +209,33 @@ def test_real_jd_supersedes_an_inferred_body_and_clears_flags():
     assert job.description_inferred is False  # estimate replaced by real text
     assert job.jd_blocked is False            # and un-parked
     assert "Guessed skill A" not in job.requirements  # stale estimated bullets gone
+
+
+_INDEED_REACT_PAGE = """
+<html><head>
+<meta name="description" content="Apply for the IT Support Vice President job in New York, NY on Indeed today.">
+</head><body>
+<div id="jobDescriptionText" class="jobsearch-JobComponent-description">
+<p>About the Company: a leading global financial advisory firm.</p>
+<b>Responsibilities:</b><ul><li>Oversee daily IT user support operations</li>
+<li>Serve as technical escalation point for the MSP team</li></ul>
+<b>Requirements:</b><ul><li>Bachelor degree required</li>
+<li>10-15 years of IT experience</li><li>Experience supporting Microsoft environments</li>
+<li>Intune and MDM experience strongly preferred</li></ul>
+</div>
+<footer>Hiring Lab | Browse jobs | &copy; 2026 Indeed</footer>
+</body></html>
+"""
+
+
+def test_extract_jd_from_body_when_no_jsonld_indeed_react_page():
+    # Indeed/LinkedIn ship no JobPosting JSON-LD and only a boilerplate meta; the real JD is
+    # in #jobDescriptionText. We must recover the description + requirements from that body,
+    # not fall back to the meta boilerplate — and not leak the footer.
+    out = extract_jd_from_html(_INDEED_REACT_PAGE)
+    assert "IT user support operations" in out["description"]
+    assert "Apply for the IT Support" not in out["description"]  # not the boilerplate meta
+    reqs = out.get("requirements") or []
+    assert any("10-15 years" in r for r in reqs)
+    assert any("Microsoft" in r for r in reqs)
+    assert not any("Browse jobs" in r for r in reqs)  # footer not captured
