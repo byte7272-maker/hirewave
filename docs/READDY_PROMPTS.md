@@ -10132,3 +10132,15 @@ Response shape:
 ### Acceptance
 - "Which is my best match?" → the FIRST thing spoken/shown is "Your best match is {title} at {company} — {N}% fit" (the number is present), and the "want me to read it?" offer comes after.
 - The answer never opens with a question or an offer, and never omits the fit %.
+
+## P354 — ⚠ SINGLE PURPOSE: clean the reason phrasing in the best-match answer (no "strong on {label}")
+
+**Do only this. Change nothing else.** In the best-match answer (P353), the top reason is currently spliced as `strong on {label}`, which reads awkwardly ("…75% fit, **strong on fits your background**"). Drop the "strong on " prefix and append the reason label as its own short clause instead.
+
+- Build the reason suffix as: **`" — " + label`** with the label's first letter lowercased (e.g. `Fits your background` → `fits your background`, `Pay in your range` → `pay in your range`, `Remote` → `remote`, `Right level` → `right level`). No "strong on".
+- Result: **"Your best match is Remote Travel Coordination Consultant at Traveling with Michaila — 75% fit — fits your background. Want me to read you why it fits, or walk you through it?"**
+- If there's no positive reason, omit the suffix entirely (just "…— 75% fit.").
+
+### Acceptance
+- The answer reads "…— 75% fit — fits your background" (or the relevant reason), never "strong on fits your background".
+- Everything else from P353 (the leading "Your best match is … — N% fit" sentence, then the offer) is unchanged.
