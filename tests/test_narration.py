@@ -131,3 +131,17 @@ def test_prefs_auto_play_toggle_persists():
 def test_prefs_require_auth():
     c = _client()
     assert c.get("/api/v1/narration/prefs").status_code == 401
+
+
+def test_speakify_expands_geo_codes_for_browser_voice():
+    # The browser-voice path needs the speakable text (geo codes -> full names) so "NY"
+    # reads "New York", not "N-Y".
+    c = _client()
+    h = _auth(c, email="speakify@x.com")
+    r = c.post("/api/v1/narration/speakify", headers=h, json={"text": "Remote role in New York, NY."})
+    assert r.status_code == 200
+    out = r.json()["text"]
+    assert "New York" in out and ", NY" not in out
+    # standalone NY too
+    r2 = c.post("/api/v1/narration/speakify", headers=h, json={"text": "It's based in NY."})
+    assert "New York" in r2.json()["text"]

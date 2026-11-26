@@ -172,3 +172,32 @@ def test_fit_brief_does_not_state_background_fit_twice():
         assert not any(w.lower().startswith("fits your background") for w in b["why_fits"])
     # and concrete reasons still remain
     assert any("skill" in w.lower() or "python" in w.lower() for w in b["why_fits"])
+
+
+def test_fit_brief_offers_to_open_source_when_posting_is_title_only():
+    # A title-only posting (no description, no mined skills) can't ground "why it fits", so
+    # the brief flags needs_jd and offers to open the source so the assistant can read the
+    # real description (the P344 capture flow).
+    state, client, h, uid = _client_with_user(email="fit6@demo.com")
+    state.profiles.add(UserProfile(user_id=uid, skills=["Python", "AWS"], headline="Engineer"))
+    job = JobPosting(
+        source_platform="indeed", title="Platform Engineer", company="",
+        owner_id=uid, url="https://www.indeed.com/viewjob?jk=abc123",
+        description="Platform Engineer — surfaced from a job_alert email.", requirements=[])
+    state.jobs.add(job)
+    b = client.get(f"/api/v1/jobs/{job.id}/fit-brief", headers=h).json()
+    assert b["needs_jd"] is True
+    assert b["source_url"].startswith("http")
+    assert b["jd_offer"]["on_yes"]["intent"] == "get_job_details"
+    assert b["jd_offer"]["on_yes"]["slots"]["job_id"] == job.id
+    assert "open it on" in b["jd_offer"]["prompt"].lower() or "open" in b["jd_offer"]["prompt"].lower()
+
+
+def test_fit_brief_does_not_offer_source_when_description_is_real():
+    # A real JD → no needs_jd, no source-open offer.
+    state, client, h, uid = _client_with_user(email="fit7@demo.com")
+    state.profiles.add(UserProfile(user_id=uid, skills=["Python", "AWS"], headline="Engineer"))
+    job = _seed_job(state, uid)  # has a real description + requirements
+    b = client.get(f"/api/v1/jobs/{job.id}/fit-brief", headers=h).json()
+    assert b["needs_jd"] is False
+    assert b["jd_offer"] == {}

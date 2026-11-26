@@ -130,6 +130,17 @@ def speak(body: TtsRequest, user: CurrentUser, state: StateDep) -> Response:
     )
 
 
+@router.post("/speakify")
+def speakify_text(body: TtsRequest, user: CurrentUser) -> dict:
+    """Return the SPEAKABLE form of ``text`` (geo codes expanded, acronyms spelled) without
+    synthesizing audio — so a client using the BROWSER voice (or any TTS) still says
+    "New York", not "N-Y". Pure + instant; use it on every line before speaking it."""
+    from jobsearch.engines.assistant.document_map import speakify
+
+    src = (body.text or "").strip()
+    return {"text": speakify(src) if src else "", "original": src}
+
+
 #: Cap the audio a single transcription accepts (~25 MB, matching common STT limits).
 _MAX_AUDIO_BYTES = 25 * 1024 * 1024
 

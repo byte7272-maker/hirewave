@@ -802,6 +802,32 @@ def fit_brief(job_id: str, state: StateDep, user: CurrentUser) -> FitBriefOut:
     if narrative:
         why_fits = [w for w in why_fits if not w.lower().startswith("fits your background")]
 
+    # When the posting is only a title/placeholder, there's no real job description to ground
+    # the "why it fits" in (no mined skills, thin narrative). Flag it so the assistant can
+    # ENCOURAGE the user to open the posting on its source and read the real description back
+    # (the P344 capture flow), instead of repeating a generic "fits your background".
+    from jobsearch.engines.sourcing.jd_enrich import needs_jd as _job_needs_jd
+    brief_needs_jd = _job_needs_jd(job) or (not matching and not (job.requirements or [])
+                                            and not getattr(job, "description_inferred", False))
+    jd_offer: dict = {}
+    if brief_needs_jd and (job.source_url or "").startswith("http"):
+        src = job.source_display or "the source"
+        jd_offer = {
+            "prompt": f"This posting is only a title so far, so I can't see the real "
+                      f"requirements yet. Want to open it on {src} so I can read the full "
+                      f"description and tell you exactly why it fits?",
+            "on_yes": {"intent": "get_job_details", "slots": {"job_id": job.id}},
+            "url": job.source_url, "source": job.source_display,
+        }
+        # Ground the honest "why" in the RÉSUMÉ + role even without a JD: name what the user
+        # brings from their own profile, so it isn't a bare "fits your background".
+        prof_skills = list((state.profiles.get(user.id) or UserProfile(user_id=user.id)).skills)[:4]
+        if prof_skills and not narrative:
+            narrative = (f"You look like a {score}/100 fit for {job.title} at {job.company}. "
+                         f"Your background in {', '.join(prof_skills)} lines up with the role — "
+                         f"but it came in as just a title, so open it on {src} and I'll read the "
+                         f"real description to pin down exactly how you fit and any gaps.")
+
     summary = f"{job.title} at {job.company} looks like {lead} {score}/100 fit."
 
     resume_opts = [
@@ -851,6 +877,8 @@ def fit_brief(job_id: str, state: StateDep, user: CurrentUser) -> FitBriefOut:
         recommended_cover_letter=recommended_cover_letter,
         resume_options=resume_opts, cover_letter_options=cover_letter_options,
         next_steps=next_steps,
+        needs_jd=brief_needs_jd, source_url=job.source_url or "",
+        source_display=job.source_display or "", jd_offer=jd_offer,
     )
 
 

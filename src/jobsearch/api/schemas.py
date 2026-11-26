@@ -1720,6 +1720,16 @@ class FitBriefOut(BaseModel):
     resume_options: list[DocOption] = []
     cover_letter_options: list[DocOption] = []
     next_steps: list[NextStep] = []
+    #: True when the posting is only a title/placeholder (no real description), so the "why it
+    #: fits" can't be grounded in the job's requirements. The assistant should ENCOURAGE the
+    #: user to open the posting on its source and offer the link, then read the real
+    #: description back (see ``jd_offer`` + ``source_url``; the capture flow is P344).
+    needs_jd: bool = False
+    source_url: str = ""               # the posting's own page, to open/offer
+    source_display: str = ""           # nicely-cased source ("Indeed", "LinkedIn", "inbox")
+    #: A scripted yes/no offer to arm when ``needs_jd``: open the source posting so the
+    #: assistant can read the real description. {prompt, on_yes:{intent, slots}}.
+    jd_offer: dict = {}
 
 
 class ExtensionLatestOut(BaseModel):

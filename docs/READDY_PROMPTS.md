@@ -10144,3 +10144,21 @@ Response shape:
 ### Acceptance
 - The answer reads "…— 75% fit — fits your background" (or the relevant reason), never "strong on fits your background".
 - Everything else from P353 (the leading "Your best match is … — N% fit" sentence, then the offer) is unchanged.
+
+## P355 — ⚠ SINGLE PURPOSE: a meaningful "why it fits" — and when there's no JD, open the source to read it
+
+**Do only this. Change nothing else.** Two fixes to the "why it fits" the assistant speaks (on a focused match, and at the end of the walkthrough).
+
+**A. Speak the real reasons, grounded — and expand geo codes.** Pull the "why" from `GET /jobs/{job_id}/fit-brief`:
+- Speak the **`narrative`** (a grounded paragraph) and/or the **`why_fits`** list (each is already `"Label: detail"` — speak the whole thing, e.g. "Fits your background — closely matches your résumé and experience"). **Never** speak the bare label twice ("Fits your background. Fits your background." is the current bug — say each reason once).
+- Run every spoken string through **`POST /api/v1/narration/speakify`** `{text}` → `{text: "<speakable>"}` first, and TTS *that* ("New York, NY" → "New York", "NY" → "New York"). The browser voice must not read the raw text — that's why "NY" is still spelled out. (The neural-voice path `/narration/speak` already expands it; the browser-voice path needs `/speakify`.)
+
+**B. No real description → encourage opening the source, offer the link, then read it back.** Many postings arrive as only a title ("Only a title and link so far" on the card). The fit-brief now signals this: **`needs_jd: true`**, with **`source_url`**, **`source_display`**, and a ready **`jd_offer`** (`{prompt, on_yes:{intent:"get_job_details", slots:{job_id}}, url, source}`).
+- When `needs_jd` is true, after the honest one-liner (the brief's `narrative` already says it — "…it came in as just a title, so open it on Indeed and I'll read the real description…"), **speak `jd_offer.prompt` and show the source link** (`jd_offer.url`, labelled "Open on {source}") plus a Yes chip. Encourage it.
+- On **Yes** (or the link), run the **P344 capture flow**: open `source_url`, let the user clear any sign-in/captcha, read the page, `POST /jobs/{job_id}/jd` with `{html, url}`. Then **re-pull the fit-brief** and speak the now-grounded "why it fits" (real requirements, matching skills, the one gap).
+- When `needs_jd` is false, speak the grounded why directly (no source offer).
+
+### Acceptance
+- "Why does this fit?" on a title-only match → the assistant gives the honest résumé-grounded line, then **offers to open the posting on its source with the link**, not a repeated "fits your background".
+- After the user opens the source and it's captured, the same question gives a description-grounded answer (matching skills + the gap).
+- Spoken locations read "New York", never "N-Y"; no reason is spoken twice.
